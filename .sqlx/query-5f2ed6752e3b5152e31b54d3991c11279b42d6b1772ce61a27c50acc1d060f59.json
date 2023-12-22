@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT blob_id FROM blob_aliases WHERE hash = ? LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "blob_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5f2ed6752e3b5152e31b54d3991c11279b42d6b1772ce61a27c50acc1d060f59"
+}

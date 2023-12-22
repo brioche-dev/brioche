@@ -1,0 +1,349 @@
+use std::{
+    os::unix::prelude::PermissionsExt as _,
+    path::{Path, PathBuf},
+};
+
+use anyhow::Context as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+use super::{Brioche, Hash};
+
+#[tracing::instrument(skip(brioche, input, options))]
+pub async fn save_blob<'a, R>(
+    brioche: &Brioche,
+    mut input: R,
+    mut options: SaveBlobOptions<'a>,
+) -> anyhow::Result<BlobId>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    anyhow::ensure!(!options.remove_input, "cannot remove input from reader");
+
+    let mut hasher = blake3::Hasher::new();
+    let mut validation_hashing = options
+        .expected_hash
+        .as_ref()
+        .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
+
+    let temp_dir = brioche.home.join("blobs-temp");
+    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+    let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
+    let mut temp_file = tokio::fs::File::create(&temp_path)
+        .await
+        .context("failed to open temp file")?;
+
+    tracing::trace!(temp_path = %temp_path.display(), "saving blob");
+
+    let mut buffer = [0u8; 4096];
+    let mut total_bytes_read = 0;
+    loop {
+        let length = input.read(&mut buffer).await.context("failed to read")?;
+        if length == 0 {
+            break;
+        }
+
+        total_bytes_read += length;
+        let buffer = &buffer[..length];
+
+        temp_file
+            .write_all(buffer)
+            .await
+            .context("failed to write all")?;
+
+        hasher.update(buffer);
+
+        if let Some((_, validate_hasher)) = &mut validation_hashing {
+            validate_hasher.update(buffer);
+        }
+
+        if let Some(on_progress) = &mut options.on_progress {
+            on_progress(total_bytes_read)?;
+        }
+    }
+
+    let hash = hasher.finalize();
+    let id = BlobId(hash);
+    let blob_path = blob_path(brioche, id);
+
+    if let Some((expected_hash, validate_hasher)) = validation_hashing {
+        let actual_hash = validate_hasher.finish()?;
+
+        if *expected_hash != actual_hash {
+            anyhow::bail!("expected hash {} but got {}", expected_hash, actual_hash);
+        }
+
+        let expected_hash_string = expected_hash.to_string();
+        let blob_id_string = id.to_string();
+
+        let mut db_conn = brioche.db_conn.lock().await;
+        sqlx::query!(
+            r"
+                INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
+                ON CONFLICT (hash) DO UPDATE SET blob_id = ?
+            ",
+            expected_hash_string,
+            blob_id_string,
+            blob_id_string,
+        )
+        .execute(&mut *db_conn)
+        .await?;
+        drop(db_conn);
+    }
+
+    if let Some(parent) = blob_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    tracing::debug!(overwrite = blob_path.exists(), blob_id = %id, "saved blob");
+
+    temp_file
+        .set_permissions(blob_permissions())
+        .await
+        .context("failed to set blob permissions")?;
+    tokio::fs::rename(&temp_path, &blob_path)
+        .await
+        .context("failed to rename blob from temp file")?;
+
+    Ok(id)
+}
+
+#[tracing::instrument(skip(brioche, options), err)]
+pub async fn save_blob_from_file<'a>(
+    brioche: &Brioche,
+    input_path: &Path,
+    options: SaveBlobOptions<'a>,
+) -> anyhow::Result<BlobId> {
+    let mut hasher = blake3::Hasher::new();
+    let mut validation_hashing = options
+        .expected_hash
+        .as_ref()
+        .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
+
+    {
+        let mut buffer = [0u8; 4096];
+        let mut input_file = tokio::fs::File::open(&input_path)
+            .await
+            .with_context(|| format!("failed to open input file {}", input_path.display()))?;
+        loop {
+            let length = input_file
+                .read(&mut buffer)
+                .await
+                .context("failed to read")?;
+            if length == 0 {
+                break;
+            }
+
+            let buffer = &buffer[..length];
+
+            hasher.update(buffer);
+
+            if let Some((_, validate_hasher)) = &mut validation_hashing {
+                validate_hasher.update(buffer);
+            }
+        }
+    }
+
+    let hash = hasher.finalize();
+    let id = BlobId(hash);
+    let blob_path = blob_path(brioche, id);
+
+    if let Some((expected_hash, validate_hasher)) = validation_hashing {
+        let actual_hash = validate_hasher.finish()?;
+
+        if *expected_hash != actual_hash {
+            anyhow::bail!("expected hash {} but got {}", expected_hash, actual_hash);
+        }
+
+        let expected_hash_string = expected_hash.to_string();
+        let blob_id_string = id.to_string();
+
+        let mut db_conn = brioche.db_conn.lock().await;
+        sqlx::query!(
+            r"
+                INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
+                ON CONFLICT (hash) DO UPDATE SET blob_id = ?
+            ",
+            expected_hash_string,
+            blob_id_string,
+            blob_id_string,
+        )
+        .execute(&mut *db_conn)
+        .await?;
+        drop(db_conn);
+    }
+
+    if let Some(parent) = blob_path.parent() {
+        tokio::fs::create_dir_all(&parent)
+            .await
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+
+    let existing_blob_file = match tokio::fs::File::open(&blob_path).await {
+        Ok(file) => Some(file),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to open blob file at {}", blob_path.display()));
+        }
+    };
+
+    let input_metadata = tokio::fs::metadata(&input_path).await.with_context(|| {
+        format!(
+            "failed to get metadata for input file {}",
+            input_path.display()
+        )
+    })?;
+
+    let permissions = blob_permissions();
+    if let Some(existing_blob_file) = existing_blob_file {
+        // The blob file already exists, so don't try to create it again. But
+        // we may still need to remove the input file
+        if options.remove_input {
+            tokio::fs::remove_file(input_path)
+                .await
+                .with_context(|| format!("failed to remove input file {}", input_path.display()))?;
+        }
+
+        // Make sure the blob's permissions are set properly
+        existing_blob_file
+            .set_permissions(permissions)
+            .await
+            .context("failed to set blob permissions")?;
+    } else if options.remove_input && is_file_exclusive(&input_metadata) {
+        // Since this file is exclusive (i.e. has no hardlinks), we can
+        // change its permissions and move it into place. We need to check
+        // for exclusivity, because we would otherwise ruin the permission
+        // of other hard links to the same file.
+        tokio::fs::set_permissions(input_path, permissions)
+            .await
+            .context("failed to set blob permissions")?;
+        let move_type = crate::fs_utils::move_file(input_path, &blob_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to move file from {} to {} to save blob",
+                    input_path.display(),
+                    blob_path.display()
+                )
+            })?;
+        tracing::debug!(input_path = %input_path.display(), blob_id = %id, ?move_type, "saved blob by moving file");
+    } else {
+        crate::fs_utils::atomic_copy(input_path, &blob_path)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to copy file from {} to {} to save blob",
+                    input_path.display(),
+                    blob_path.display()
+                )
+            })?;
+        tokio::fs::set_permissions(&blob_path, permissions)
+            .await
+            .context("failed to set blob permissions")?;
+        tracing::debug!(input_path = %input_path.display(), blob_id = %id, "saved blob by copying file");
+
+        if options.remove_input {
+            tokio::fs::remove_file(input_path)
+                .await
+                .with_context(|| format!("failed to remove input file {}", input_path.display()))?;
+        }
+    }
+
+    Ok(id)
+}
+
+#[derive(Default)]
+pub struct SaveBlobOptions<'a> {
+    expected_hash: Option<Hash>,
+    on_progress: Option<Box<dyn FnMut(usize) -> anyhow::Result<()> + Send + 'a>>,
+    remove_input: bool,
+}
+
+impl<'a> SaveBlobOptions<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn expected_hash(mut self, expected_hash: Option<Hash>) -> Self {
+        self.expected_hash = expected_hash;
+        self
+    }
+
+    pub fn on_progress(
+        mut self,
+        on_progress: impl FnMut(usize) -> anyhow::Result<()> + Send + 'a,
+    ) -> Self {
+        self.on_progress = Some(Box::new(on_progress));
+        self
+    }
+
+    pub fn remove_input(mut self, remove_input: bool) -> Self {
+        self.remove_input = remove_input;
+        self
+    }
+}
+
+pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<BlobId>> {
+    let hash_string = hash.to_string();
+    let mut db_conn = brioche.db_conn.lock().await;
+    let result = sqlx::query!(
+        r#"
+            SELECT blob_id FROM blob_aliases WHERE hash = ? LIMIT 1
+        "#,
+        hash_string,
+    )
+    .fetch_optional(&mut *db_conn)
+    .await?;
+    drop(db_conn);
+
+    match result {
+        Some(row) => {
+            let blob_id = row.blob_id.parse()?;
+            Ok(Some(blob_id))
+        }
+        None => Ok(None),
+    }
+}
+
+pub fn blob_path(brioche: &Brioche, id: BlobId) -> PathBuf {
+    let blobs_dir = brioche.home.join("blobs");
+    let blob_path = blobs_dir.join(hex::encode(id.0.as_bytes()));
+    blob_path
+}
+
+fn blob_permissions() -> std::fs::Permissions {
+    std::fs::Permissions::from_mode(0o444)
+}
+
+fn is_file_exclusive(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+
+    metadata.nlink() == 1
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde_with::SerializeDisplay,
+    serde_with::DeserializeFromStr,
+)]
+pub struct BlobId(blake3::Hash);
+
+impl std::fmt::Display for BlobId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.to_hex())
+    }
+}
+
+impl std::str::FromStr for BlobId {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let hash = blake3::Hash::from_hex(s)?;
+        Ok(Self(hash))
+    }
+}
