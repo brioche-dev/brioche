@@ -36,8 +36,15 @@ pub fn start_console_reporter() -> anyhow::Result<(Reporter, ReporterGuard)> {
             let superconsole = superconsole::SuperConsole::new();
             let mut console = match superconsole {
                 Some(console) => {
-                    let root = JobsComponent { jobs };
-                    ConsoleReporter::SuperConsole { console, root }
+                    let root = JobsComponent {
+                        jobs,
+                        terminal: tokio::sync::RwLock::new(termwiz::surface::Surface::new(80, 24)),
+                    };
+                    ConsoleReporter::SuperConsole {
+                        console,
+                        root,
+                        partial_lines: HashMap::new(),
+                    }
                 }
                 None => ConsoleReporter::Plain {
                     partial_lines: HashMap::new(),
@@ -163,6 +170,7 @@ enum ConsoleReporter {
     SuperConsole {
         console: superconsole::SuperConsole,
         root: JobsComponent,
+        partial_lines: HashMap<JobId, Vec<u8>>,
     },
     Plain {
         partial_lines: HashMap<JobId, Vec<u8>>,
@@ -208,7 +216,40 @@ impl ConsoleReporter {
 
     fn update_job(&mut self, id: JobId, update: UpdateJob) {
         match self {
-            ConsoleReporter::SuperConsole { root, .. } => {
+            ConsoleReporter::SuperConsole {
+                root,
+                partial_lines,
+                ..
+            } => {
+                if let UpdateJob::Process {
+                    ref packet,
+                    ref status,
+                } = update
+                {
+                    let mut terminal = root.terminal.blocking_write();
+                    if let Some(packet) = &packet.0 {
+                        let child_id = status
+                            .child_id()
+                            .map(|id| id.to_string())
+                            .unwrap_or_else(|| "?".to_string());
+                        let buffer = partial_lines.entry(id).or_default();
+                        buffer.extend_from_slice(packet.bytes());
+
+                        if let Some((lines, remainder)) = buffer.rsplit_once_str(b"\n") {
+                            // Write each output line to the terminal, preceded
+                            // by the process ID. We also use "\r\n" since we're
+                            // writing to a terminal-like output.
+                            for line in lines.split(|&b| b == b'\n') {
+                                terminal.add_change("\r\n");
+                                terminal.add_change(format!("[{child_id}] "));
+                                terminal.add_change(String::from_utf8_lossy(line));
+                            }
+
+                            *buffer = remainder.to_vec();
+                        }
+                    }
+                };
+
                 let mut jobs = root.jobs.blocking_write();
                 let Some(job) = jobs.get_mut(&id) else {
                     return;
@@ -261,7 +302,11 @@ impl ConsoleReporter {
 
     fn render(&mut self) -> anyhow::Result<()> {
         match self {
-            ConsoleReporter::SuperConsole { console, root } => {
+            ConsoleReporter::SuperConsole {
+                console,
+                root,
+                partial_lines: _,
+            } => {
                 console.render(root)?;
             }
             ConsoleReporter::Plain { .. } => {}
@@ -272,7 +317,11 @@ impl ConsoleReporter {
 
     fn finalize(self) -> anyhow::Result<()> {
         match self {
-            ConsoleReporter::SuperConsole { console, root } => {
+            ConsoleReporter::SuperConsole {
+                console,
+                root,
+                partial_lines: _,
+            } => {
                 console.finalize(&root)?;
             }
             ConsoleReporter::Plain { .. } => {}
@@ -429,7 +478,6 @@ pub enum Job {
     },
     Process {
         packet_queue: DebugIgnore<Arc<RwLock<Vec<ProcessPacket>>>>,
-        terminal: DebugIgnore<Arc<RwLock<termwiz::surface::Surface>>>,
         status: ProcessStatus,
     },
 }
@@ -446,7 +494,6 @@ impl Job {
             },
             NewJob::Process { status } => Self::Process {
                 packet_queue: Default::default(),
-                terminal: Default::default(),
                 status,
             },
         }
@@ -482,7 +529,6 @@ impl Job {
             } => {
                 let Self::Process {
                     packet_queue,
-                    terminal: _,
                     status,
                 } = self
                 else {
@@ -510,7 +556,6 @@ impl Job {
             Job::Unpack { progress_percent } => *progress_percent >= 100,
             Job::Process {
                 status,
-                terminal: _,
                 packet_queue: _,
             } => matches!(status, ProcessStatus::Exited { .. }),
         }
@@ -530,7 +575,7 @@ impl Job {
 impl superconsole::Component for Job {
     fn draw_unchecked(
         &self,
-        dimensions: superconsole::Dimensions,
+        _dimensions: superconsole::Dimensions,
         _mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
         let lines = match self {
@@ -560,39 +605,9 @@ impl superconsole::Component for Job {
                 superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
             }
             Job::Process {
-                packet_queue,
-                terminal,
+                packet_queue: _,
                 status,
             } => {
-                let mut terminal = terminal
-                    .write()
-                    .map_err(|_| anyhow::anyhow!("failed to lock terminal"))?;
-
-                let width = dimensions.width;
-                let height = dimensions.height;
-                let effective_height = std::cmp::max(height.saturating_sub(1), 1);
-                terminal.resize(width, effective_height);
-
-                let mut packet_queue = packet_queue
-                    .write()
-                    .map_err(|_| anyhow::anyhow!("failed to lock process output packet queue"))?;
-                for packet in packet_queue.drain(..) {
-                    let packet_bytes = match packet {
-                        ProcessPacket::Stdout(bytes) => bytes,
-                        ProcessPacket::Stderr(bytes) => bytes,
-                    };
-
-                    // HACK: Manually inject \r before each \n byte. This displays
-                    // lines properly (but is there a better way to do this?)
-                    for (n, slice) in packet_bytes.split(|&b| b == b'\n').enumerate() {
-                        if n != 0 {
-                            terminal.add_change("\r\n");
-                        }
-
-                        terminal.add_change(String::from_utf8_lossy(slice));
-                    }
-                }
-
                 let child_id = status
                     .child_id()
                     .map(|id| id.to_string())
@@ -612,15 +627,9 @@ impl superconsole::Component for Job {
                     }
                 };
 
-                superconsole::Lines::from_iter(
-                    std::iter::once(superconsole::Line::sanitized(&message)).chain(
-                        terminal
-                            .screen_lines()
-                            .iter()
-                            .map(|line| superconsole::Line::sanitized(&line.as_str()))
-                            .take(effective_height),
-                    ),
-                )
+                superconsole::Lines::from_iter(std::iter::once(superconsole::Line::sanitized(
+                    &message,
+                )))
             }
         };
 
@@ -731,6 +740,7 @@ impl std::io::Write for ReporterWriter {
 
 struct JobsComponent {
     jobs: Arc<tokio::sync::RwLock<HashMap<JobId, Job>>>,
+    terminal: tokio::sync::RwLock<termwiz::surface::Surface>,
 }
 
 impl superconsole::Component for JobsComponent {
@@ -741,7 +751,7 @@ impl superconsole::Component for JobsComponent {
     ) -> anyhow::Result<superconsole::Lines> {
         let jobs = self.jobs.blocking_read();
         let mut jobs: Vec<_> = jobs.iter().collect();
-        let max_visible_jobs = dimensions.height;
+        let max_visible_jobs = std::cmp::max(dimensions.height.saturating_sub(15), 3);
 
         jobs.sort_by(cmp_job_entries);
         let job_partition_point = jobs.partition_point(|&(_, job)| !job.is_complete());
@@ -751,33 +761,37 @@ impl superconsole::Component for JobsComponent {
             .chain(complete_jobs.iter().take(3))
             .take(max_visible_jobs);
 
-        let lines: Result<Vec<superconsole::Lines>, _> = jobs
+        let jobs_lines = jobs
             .map(|(_, job)| {
-                let height = match job {
-                    Job::Download { .. } => 1,
-                    Job::Unpack { .. } => 1,
-                    Job::Process {
-                        status: ProcessStatus::Running { .. },
-                        ..
-                    } => 10,
-                    Job::Process {
-                        status: ProcessStatus::Exited { .. },
-                        ..
-                    } => 1,
-                };
-
                 job.draw(
                     superconsole::Dimensions {
                         width: dimensions.width,
-                        height,
+                        height: 1,
                     },
                     mode,
                 )
             })
-            .collect();
-        let lines = lines?;
+            .collect::<Result<Vec<superconsole::Lines>, _>>()?;
 
-        Ok(lines.into_iter().flatten().collect())
+        let num_terminal_lines = dimensions
+            .height
+            .saturating_sub(jobs_lines.len())
+            .saturating_sub(2);
+        let mut terminal = self.terminal.blocking_write();
+
+        terminal.resize(dimensions.width, std::cmp::max(num_terminal_lines, 1));
+
+        let terminal_lines = terminal.screen_lines();
+        let terminal_lines = terminal_lines
+            .iter()
+            .skip_while(|line| line.is_whitespace())
+            .map(|line| superconsole::Line::sanitized(&line.as_str()))
+            .take(num_terminal_lines);
+
+        let lines = terminal_lines
+            .chain(jobs_lines.into_iter().flatten())
+            .collect();
+        Ok(lines)
     }
 }
 
