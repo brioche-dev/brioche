@@ -205,4 +205,136 @@ class Lsp {
       },
     };
   }
+
+  references(params: lsp.ReferenceParams): lsp.Location[] | null {
+    const fileName = params.textDocument.uri;
+    const sourceFile = this.host.getSourceFile(fileName);
+    if (sourceFile == null) {
+      return null;
+    }
+
+    const position = ts.getPositionOfLineAndCharacter(
+      sourceFile,
+      params.position.line,
+      params.position.character,
+    );
+    const references = this.languageService.getReferencesAtPosition(brioche.toTsUrl(fileName), position);
+    if (!references) {
+      return null;
+    }
+    return references.flatMap((ref) => {
+      const refSourceFile = this.host.getSourceFile(ref.fileName);
+      if (refSourceFile == null) {
+        return [];
+      }
+
+      return [{
+        uri: brioche.fromTsUrl(ref.fileName),
+        range: {
+          start: ts.getLineAndCharacterOfPosition(refSourceFile, ref.textSpan.start),
+          end: ts.getLineAndCharacterOfPosition(refSourceFile, ts.textSpanEnd(ref.textSpan)),
+        },
+      }];
+    });
+  }
+
+  documentHighlight(params: lsp.TextDocumentPositionParams): lsp.DocumentHighlight[] | null {
+    const fileName = params.textDocument.uri;
+    const sourceFile = this.host.getSourceFile(fileName);
+    if (sourceFile == null) {
+      return null;
+    }
+
+    const position = ts.getPositionOfLineAndCharacter(
+      sourceFile,
+      params.position.line,
+      params.position.character,
+    );
+    const searchFilenames = new Set([...this.host.getScriptFileNames(), brioche.toTsUrl(fileName)]);
+    const highlights = this.languageService.getDocumentHighlights(brioche.toTsUrl(fileName), position, Array.from(searchFilenames));
+    if (!highlights) {
+      return null;
+    }
+
+    return highlights.flatMap((highlight) => {
+      const highlightSourceFile = this.host.getSourceFile(highlight.fileName);
+      if (highlightSourceFile == null) {
+        return [];
+      }
+
+      return highlight.highlightSpans.map((span) => {
+        return {
+          range: {
+            start: ts.getLineAndCharacterOfPosition(highlightSourceFile, span.textSpan.start),
+            end: ts.getLineAndCharacterOfPosition(highlightSourceFile, ts.textSpanEnd(span.textSpan)),
+          },
+        };
+      });
+    });
+  }
+
+  prepareRename(params: lsp.TextDocumentPositionParams): lsp.PrepareRenameResult | null {
+    const fileName = params.textDocument.uri;
+    const sourceFile = this.host.getSourceFile(fileName);
+    if (sourceFile == null) {
+      return null;
+    }
+
+    const position = ts.getPositionOfLineAndCharacter(
+      sourceFile,
+      params.position.line,
+      params.position.character,
+    );
+    const rename = this.languageService.getRenameInfo(brioche.toTsUrl(fileName), position, {});
+    if (rename == null || !rename.canRename) {
+      return null;
+    }
+
+    return {
+      placeholder: rename.displayName,
+      range: {
+        start: ts.getLineAndCharacterOfPosition(sourceFile, rename.triggerSpan.start),
+        end: ts.getLineAndCharacterOfPosition(sourceFile, ts.textSpanEnd(rename.triggerSpan)),
+      },
+    };
+  }
+
+  rename(params: lsp.RenameParams): lsp.WorkspaceEdit | null {
+    const fileName = params.textDocument.uri;
+    const sourceFile = this.host.getSourceFile(fileName);
+    if (sourceFile == null) {
+      return null;
+    }
+
+    const position = ts.getPositionOfLineAndCharacter(
+      sourceFile,
+      params.position.line,
+      params.position.character,
+    );
+    const rename = this.languageService.findRenameLocations(brioche.toTsUrl(fileName), position, false, false, {});
+    if (rename == null) {
+      return null;
+    }
+
+    const changes: Record<string, lsp.TextEdit[]> = {};
+    for (const renameLocation of rename) {
+      const renameSourceFile = this.host.getSourceFile(renameLocation.fileName);
+      if (renameSourceFile == null) {
+        continue;
+      }
+
+      const uri = brioche.fromTsUrl(renameLocation.fileName);
+      const textEdits = changes[uri] ?? [];
+      textEdits.push({
+        range: {
+          start: ts.getLineAndCharacterOfPosition(renameSourceFile, renameLocation.textSpan.start),
+          end: ts.getLineAndCharacterOfPosition(renameSourceFile, ts.textSpanEnd(renameLocation.textSpan)),
+        },
+        newText: params.newName,
+      });
+      changes[uri] = textEdits;
+    }
+
+    return { changes };
+  }
 }

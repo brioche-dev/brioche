@@ -65,6 +65,12 @@ impl LanguageServer for BriocheLspServer {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
+                references_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 ..Default::default()
             },
             ..Default::default()
@@ -199,6 +205,81 @@ impl LanguageServer for BriocheLspServer {
             }
         };
         Ok(hover)
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        tracing::info!("references");
+        let response = self
+            .js_lsp
+            .send::<Option<Vec<Location>>>(JsLspMessage::References(params.clone()))
+            .await;
+        let references = match response {
+            Ok(references) => references,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to get hover");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+        };
+        Ok(references)
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let response = self
+            .js_lsp
+            .send::<Option<Vec<DocumentHighlight>>>(JsLspMessage::DocumentHighlight(params.clone()))
+            .await;
+        let highlights = match response {
+            Ok(highlights) => highlights,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to get document highlight");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+        };
+        Ok(highlights)
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let response = self
+            .js_lsp
+            .send::<Option<PrepareRenameResponse>>(JsLspMessage::PrepareRename(params.clone()))
+            .await;
+        let rename = match response {
+            Ok(rename) => rename,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to prepare rename");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+        };
+        Ok(rename)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let prepare_rename = self
+            .prepare_rename(params.text_document_position.clone())
+            .await?;
+        if prepare_rename.is_none() {
+            return Err(tower_lsp::jsonrpc::Error::invalid_params("invalid rename"));
+        }
+
+        let response = self
+            .js_lsp
+            .send::<Option<WorkspaceEdit>>(JsLspMessage::Rename(params.clone()))
+            .await;
+        let workspace_edit = match response {
+            Ok(workspace_edit) => workspace_edit,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to rename");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+        };
+        tracing::info!("rename: {:#?}", workspace_edit);
+        Ok(workspace_edit)
     }
 
     // async fn diagnostic(
@@ -345,6 +426,18 @@ fn js_lsp_task(
                 JsLspMessage::Hover(params) => {
                     call_method_1(&mut js_runtime, &js_lsp, "hover", &params)
                 }
+                JsLspMessage::DocumentHighlight(params) => {
+                    call_method_1(&mut js_runtime, &js_lsp, "documentHighlight", &params)
+                }
+                JsLspMessage::References(params) => {
+                    call_method_1(&mut js_runtime, &js_lsp, "references", &params)
+                }
+                JsLspMessage::PrepareRename(params) => {
+                    call_method_1(&mut js_runtime, &js_lsp, "prepareRename", &params)
+                }
+                JsLspMessage::Rename(params) => {
+                    call_method_1(&mut js_runtime, &js_lsp, "rename", &params)
+                }
             };
 
             match response {
@@ -434,4 +527,8 @@ enum JsLspMessage {
     Diagnostic(DocumentDiagnosticParams),
     GotoDefintion(TextDocumentPositionParams),
     Hover(HoverParams),
+    DocumentHighlight(DocumentHighlightParams),
+    References(ReferenceParams),
+    PrepareRename(TextDocumentPositionParams),
+    Rename(RenameParams),
 }
