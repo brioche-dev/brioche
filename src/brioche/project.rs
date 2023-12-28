@@ -7,8 +7,17 @@ use anyhow::Context as _;
 
 use super::Brioche;
 
-#[async_recursion::async_recursion]
 pub async fn resolve_project(brioche: &Brioche, path: &Path) -> anyhow::Result<Project> {
+    // Limit the maximum recursion when searching dependencies
+    resolve_project_depth(brioche, path, 100).await
+}
+
+#[async_recursion::async_recursion]
+pub async fn resolve_project_depth(
+    brioche: &Brioche,
+    path: &Path,
+    depth: usize,
+) -> anyhow::Result<Project> {
     tracing::debug!(path = %path.display(), "resolving project");
 
     let path = tokio::fs::canonicalize(path)
@@ -40,19 +49,24 @@ pub async fn resolve_project(brioche: &Brioche, path: &Path) -> anyhow::Result<P
             .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
         anyhow::ensure!(name_regex.is_match(name), "invalid dependency name");
 
+        let dep_depth = depth
+            .checked_sub(1)
+            .context("project dependency depth exceeded")?;
         let dependency = match dependency_def {
             DependencyDefinition::Path { path: subpath } => {
                 let dep_path = path.join(subpath);
-                resolve_project(brioche, &dep_path).await.with_context(|| {
-                    format!(
-                        "failed to resolve path dependency {name:?} in {}",
-                        project_definition_path.display()
-                    )
-                })?
+                resolve_project_depth(brioche, &dep_path, dep_depth)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to resolve path dependency {name:?} in {}",
+                            project_definition_path.display()
+                        )
+                    })?
             }
             DependencyDefinition::Version(Version::Any) => {
                 let local_path = repo.join(name);
-                resolve_project(brioche, &local_path)
+                resolve_project_depth(brioche, &local_path, dep_depth)
                     .await
                     .with_context(|| {
                         format!(
