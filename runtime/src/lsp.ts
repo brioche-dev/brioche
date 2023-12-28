@@ -15,9 +15,7 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
   }
 
   getScriptVersion(fileName: string): string {
-    // HACK: Always return a new version so we never use stale data
-    const version = this.version;
-    this.version++;
+    const version = brioche.fileVersion(brioche.fromTsUrl(fileName)) ?? -1;
     return version.toString();
   }
 
