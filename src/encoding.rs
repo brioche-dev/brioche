@@ -2,6 +2,38 @@ use std::{borrow::Cow, path::PathBuf};
 
 use bstr::{ByteSlice, ByteVec as _};
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct UrlEncode<T>(pub T);
+
+impl<T> serde::Serialize for UrlEncode<T>
+where
+    T: AsRef<[u8]>,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let encoded = urlencoding::encode_binary(self.0.as_ref());
+        serializer.serialize_str(encoded.as_ref())
+    }
+}
+
+impl<'de, T> serde::Deserialize<'de> for UrlEncode<T>
+where
+    T: TryFrom<Vec<u8>>,
+    T::Error: std::fmt::Display,
+{
+    fn deserialize<D>(deserializer: D) -> Result<UrlEncode<T>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let encoded: Cow<'de, str> = serde::de::Deserialize::deserialize(deserializer)?;
+        let decoded = urlencoding::decode_binary(encoded.as_bytes());
+        let deserialized = T::try_from(decoded.into_owned()).map_err(serde::de::Error::custom)?;
+        Ok(Self(deserialized))
+    }
+}
+
 pub enum UrlEncoded {}
 
 impl<T> serde_with::SerializeAs<T> for UrlEncoded
@@ -12,8 +44,7 @@ where
     where
         S: serde::Serializer,
     {
-        let encoded = urlencoding::encode_binary(source.as_ref());
-        serializer.serialize_str(encoded.as_ref())
+        serde::Serialize::serialize(&UrlEncode(source), serializer)
     }
 }
 
@@ -26,10 +57,7 @@ where
     where
         D: serde::Deserializer<'de>,
     {
-        let encoded: Cow<'de, str> = serde::de::Deserialize::deserialize(deserializer)?;
-        let decoded = urlencoding::decode_binary(encoded.as_bytes());
-        let deserialized = T::try_from(decoded.into_owned()).map_err(serde::de::Error::custom)?;
-        Ok(deserialized)
+        serde::Deserialize::deserialize(deserializer).map(|UrlEncode(value)| value)
     }
 }
 
