@@ -164,40 +164,63 @@ pub fn resolve(
                     .unwrap_or(RelativePathBuf::from(""))
                     .join_normalized(specifier);
 
-                let candidates = [new_subpath.join("brioche.bri"), new_subpath];
+                let candidate_module_path = new_subpath.to_logical_path(project_root);
+                anyhow::ensure!(
+                    candidate_module_path.starts_with(project_root),
+                    "module {specifier:?} escapes project path {}",
+                    project_root.display(),
+                );
+
+                let candidates = if candidate_module_path == project_root {
+                    vec![candidate_module_path.join("project.bri")]
+                } else {
+                    vec![
+                        candidate_module_path.clone(),
+                        candidate_module_path.join("index.bri"),
+                    ]
+                };
 
                 for candidate in candidates {
-                    let candidate_path = candidate.to_logical_path(project_root);
                     anyhow::ensure!(
-                        candidate_path.starts_with(project_root),
+                        candidate.starts_with(project_root),
                         "module {specifier:?} escapes project path {}",
                         project_root.display(),
                     );
 
-                    if candidate_path.is_file() {
-                        return Ok(BriocheModuleSpecifier::File {
-                            path: candidate_path,
-                        });
+                    if candidate.is_file() {
+                        return Ok(BriocheModuleSpecifier::File { path: candidate });
                     }
                 }
 
                 anyhow::bail!("module {specifier:?} not found (imported from {referrer})");
             } else if let Some(new_subpath) = specifier.strip_prefix('/') {
                 let new_subpath = RelativePathBuf::from(new_subpath);
-                let candidates = [new_subpath.join("brioche.bri"), new_subpath];
+
+                let candidate_module_path = new_subpath.to_logical_path(project_root);
+                anyhow::ensure!(
+                    candidate_module_path.starts_with(project_root),
+                    "module {specifier:?} escapes project path {}",
+                    project_root.display(),
+                );
+
+                let candidates = if candidate_module_path == project_root {
+                    vec![candidate_module_path.join("project.bri")]
+                } else {
+                    vec![
+                        candidate_module_path.clone(),
+                        candidate_module_path.join("index.bri"),
+                    ]
+                };
 
                 for candidate in candidates {
-                    let candidate_path = candidate.to_logical_path(project_root);
                     anyhow::ensure!(
-                        candidate_path.starts_with(project_root),
+                        candidate.starts_with(project_root),
                         "module {specifier:?} escapes project path {}",
-                        project_root.display()
+                        project_root.display(),
                     );
 
-                    if candidate_path.is_file() {
-                        return Ok(BriocheModuleSpecifier::File {
-                            path: candidate_path,
-                        });
+                    if candidate.is_file() {
+                        return Ok(BriocheModuleSpecifier::File { path: candidate });
                     }
                 }
 
@@ -210,7 +233,7 @@ pub fn resolve(
                         format!("dependency {specifier:?} not found (imported from {referrer})")
                     })?;
 
-                let dependency_path = dependency_project.local_path.join("brioche.bri");
+                let dependency_path = dependency_project.local_path.join("project.bri");
 
                 Ok(BriocheModuleSpecifier::File {
                     path: dependency_path,

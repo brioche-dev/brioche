@@ -27,7 +27,7 @@ async fn test_specifier_read_project() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -52,7 +52,7 @@ async fn test_specifier_resolve_relative() -> anyhow::Result<()> {
     context.mkdir("myproject").await;
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -98,7 +98,7 @@ async fn test_specifier_resolve_project_relative() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -144,7 +144,7 @@ async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
 
     let main_path = context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -154,9 +154,9 @@ async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
         .write_file("myproject/foo/hello.txt", "Hello world")
         .await;
     let foo_inner_main_path = context
-        .write_file("myproject/foo/inner/brioche.bri", "")
+        .write_file("myproject/foo/inner/index.bri", "")
         .await;
-    let foo_main_path = context.write_file("myproject/foo/brioche.bri", "").await;
+    let foo_main_path = context.write_file("myproject/foo/index.bri", "").await;
 
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
@@ -199,7 +199,7 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
 
     let main_path = context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -209,9 +209,9 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
         .write_file("myproject/foo/hello.txt", "Hello world")
         .await;
     let foo_inner_main_path = context
-        .write_file("myproject/foo/inner/brioche.bri", "")
+        .write_file("myproject/foo/inner/index.bri", "")
         .await;
-    let foo_main_path = context.write_file("myproject/foo/brioche.bri", "").await;
+    let foo_main_path = context.write_file("myproject/foo/index.bri", "").await;
 
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
@@ -248,7 +248,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "root/brioche.bri",
+            "root/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -261,7 +261,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "brioche-repo/foo/brioche.bri",
+            "brioche-repo/foo/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -274,7 +274,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "brioche-repo/bar/brioche.bri",
+            "brioche-repo/bar/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -288,7 +288,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
 
     let baz_main_path = context
         .write_file(
-            "brioche-repo/baz/brioche.bri",
+            "brioche-repo/baz/project.bri",
             r#"
                 export const project = {};
             "#,

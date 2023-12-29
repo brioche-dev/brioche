@@ -9,7 +9,7 @@ mod brioche_test;
 async fn write_project(context: &brioche_test::TestContext, name: &str, script: &str) -> PathBuf {
     let project_dir = context.mkdir(name).await;
 
-    context.write_file("myproject/brioche.bri", script).await;
+    context.write_file("myproject/project.bri", script).await;
 
     project_dir
 }
@@ -112,7 +112,7 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "brioche-repo/foo/brioche.bri",
+            "brioche-repo/foo/project.bri",
             r#"
                 export const project = {};
                 export const foo: number = 123;
@@ -157,7 +157,7 @@ async fn test_check_import_invalid() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "brioche-repo/foo/brioche.bri",
+            "brioche-repo/foo/project.bri",
             r#"
                 export const project = {};
                 export const foo: string = 123;

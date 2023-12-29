@@ -10,7 +10,7 @@ async fn test_eval_basic() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
                 export default () => {
@@ -44,7 +44,7 @@ async fn test_eval_custom_export() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
                 export const custom = () => {
@@ -78,7 +78,7 @@ async fn test_eval_async() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
                 export default async () => {
@@ -112,7 +112,7 @@ async fn test_eval_serialize_async() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
                 export default async () => {
@@ -164,7 +164,7 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 import { build } from "./build.bri";
                 export const project = {};
@@ -192,7 +192,7 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 import { build } from "foo";
                 export const project = {
@@ -209,7 +209,7 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "brioche-repo/foo/brioche.bri",
+            "brioche-repo/foo/project.bri",
             r#"
                 export const project = {};
                 export const build = async () => {

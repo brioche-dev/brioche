@@ -36,7 +36,7 @@ pub async fn evaluate(
     )?;
 
     let main_module = BriocheModuleSpecifier::File {
-        path: project.local_path.join("brioche.bri"),
+        path: project.local_path.join("project.bri"),
     };
     let main_module: deno_core::ModuleSpecifier = main_module.into();
 

@@ -47,7 +47,7 @@ pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<Check
     tracing::info!(path = %project.local_path.display(), %main_module, ?export_key_name, "running function");
 
     let specifier = BriocheModuleSpecifier::File {
-        path: project.local_path.join("brioche.bri"),
+        path: project.local_path.join("project.bri"),
     };
     let files = serde_v8::to_v8(&mut js_scope, &[specifier])?;
 

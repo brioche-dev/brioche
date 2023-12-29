@@ -28,7 +28,7 @@ pub async fn resolve_project_depth(
         .with_context(|| format!("failed to canonicalize path {}", path.display()))?;
     let repo = &brioche.repo_dir;
 
-    let project_root_path = path.join("brioche.bri");
+    let project_root_path = path.join("project.bri");
     let project_root_url = url::Url::from_file_path(project_root_path.clone()).map_err(|_| {
         anyhow::anyhow!("invalid project root path: {}", project_root_path.display())
     })?;
@@ -89,7 +89,7 @@ pub async fn resolve_project_depth(
 pub fn find_project_root_sync(path: &Path) -> anyhow::Result<&Path> {
     let mut current_path = path;
     loop {
-        let project_root_path = current_path.join("brioche.bri");
+        let project_root_path = current_path.join("project.bri");
 
         let project_root_file = std::fs::File::open(&project_root_path);
         let mut project_root_file = match project_root_file {
@@ -124,7 +124,7 @@ pub fn find_project_root_sync(path: &Path) -> anyhow::Result<&Path> {
 pub async fn find_project_root(path: &Path) -> anyhow::Result<&Path> {
     let mut current_path = path;
     loop {
-        let project_root_path = current_path.join("brioche.bri");
+        let project_root_path = current_path.join("project.bri");
         let contents = tokio::fs::read_to_string(&project_root_path).await;
         let contents = match contents {
             Ok(contents) => contents,

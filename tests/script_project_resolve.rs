@@ -10,7 +10,7 @@ async fn test_resolve_simple_project() -> anyhow::Result<()> {
     let project_dir = context.mkdir("myproject").await;
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -32,7 +32,7 @@ async fn test_resolve_project_with_repo_dep() -> anyhow::Result<()> {
     let project_dir = context.mkdir("myproject").await;
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -45,7 +45,7 @@ async fn test_resolve_project_with_repo_dep() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "brioche-repo/foo/brioche.bri",
+            "brioche-repo/foo/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -69,7 +69,7 @@ async fn test_resolve_project_with_path_dep() -> anyhow::Result<()> {
     let main_project_dir = context.mkdir("mainproject").await;
     context
         .write_file(
-            "mainproject/brioche.bri",
+            "mainproject/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -85,7 +85,7 @@ async fn test_resolve_project_with_path_dep() -> anyhow::Result<()> {
     let dep_project_dir = context.mkdir("depproject").await;
     context
         .write_file(
-            "depproject/brioche.bri",
+            "depproject/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -109,7 +109,7 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
     let main_project_dir = context.mkdir("mainproject").await;
     context
         .write_file(
-            "mainproject/brioche.bri",
+            "mainproject/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -126,7 +126,7 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
     let dep_project_dir = context.mkdir("depproject").await;
     context
         .write_file(
-            "depproject/brioche.bri",
+            "depproject/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -139,7 +139,7 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "brioche-repo/foo/brioche.bri",
+            "brioche-repo/foo/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -152,7 +152,7 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
 
     context
         .write_file(
-            "brioche-repo/bar/brioche.bri",
+            "brioche-repo/bar/project.bri",
             r#"
                 export const project = {};
             "#,
@@ -189,7 +189,7 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
 async fn test_resolve_not_found() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    // brioche.bri does not exist
+    // project.bri does not exist
     let project_dir = context.mkdir("myproject").await;
 
     let project = resolve_project(&brioche, &project_dir).await;
@@ -206,7 +206,7 @@ async fn test_resolve_path_dep_not_found() -> anyhow::Result<()> {
     let project_dir = context.mkdir("myproject").await;
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -219,7 +219,7 @@ async fn test_resolve_path_dep_not_found() -> anyhow::Result<()> {
         )
         .await;
 
-    // brioche.bri does not exist
+    // project.bri does not exist
     let _dep_dir = context.mkdir("mydep").await;
 
     let project = resolve_project(&brioche, &project_dir).await;
@@ -236,7 +236,7 @@ async fn test_resolve_repo_dep_not_found() -> anyhow::Result<()> {
     let project_dir = context.mkdir("myproject").await;
     context
         .write_file(
-            "myproject/brioche.bri",
+            "myproject/project.bri",
             r#"
                 export const project = {
                     dependencies: {
@@ -247,7 +247,7 @@ async fn test_resolve_repo_dep_not_found() -> anyhow::Result<()> {
         )
         .await;
 
-    // brioche.bri does not exist
+    // project.bri does not exist
     let _repo_foo_dir = context.mkdir("brioche-repo/foo").await;
 
     let project = resolve_project(&brioche, &project_dir).await;
