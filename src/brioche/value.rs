@@ -46,6 +46,13 @@ pub enum LazyValue {
     Process(ProcessValue),
     CompleteProcess(CompleteProcessValue),
     #[serde(rename_all = "camelCase")]
+    CreateFile {
+        #[serde_as(as = "UrlEncoded")]
+        data: BString,
+        executable: bool,
+        resources: Box<WithMeta<LazyValue>>,
+    },
+    #[serde(rename_all = "camelCase")]
     Cast {
         value: Box<WithMeta<LazyValue>>,
         to: CompleteValueDiscriminants,
@@ -510,6 +517,7 @@ impl TryFrom<LazyValue> for CompleteValue {
             | LazyValue::Unpack { .. }
             | LazyValue::Process { .. }
             | LazyValue::CompleteProcess { .. }
+            | LazyValue::CreateFile { .. }
             | LazyValue::Cast { .. }
             | LazyValue::Merge { .. }
             | LazyValue::Peel { .. }

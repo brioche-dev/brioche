@@ -239,6 +239,26 @@ async fn resolve_inner(
             let result = process::resolve_process(brioche, meta, process).await?;
             Ok(result)
         }
+        LazyValue::CreateFile {
+            data,
+            executable,
+            resources,
+        } => {
+            let blob_id =
+                super::blob::save_blob(brioche, &**data, super::blob::SaveBlobOptions::default())
+                    .await?;
+
+            let resources = resolve(brioche, *resources).await?;
+            let CompleteValue::Directory(resources) = resources.value else {
+                anyhow::bail!("file resources resolved to non-directory value");
+            };
+
+            Ok(CompleteValue::File(File {
+                data: blob_id,
+                executable,
+                resources,
+            }))
+        }
         LazyValue::Cast { value, to } => {
             let result = resolve(brioche, *value).await?;
             let result_type: CompleteValueDiscriminants = (&result.value).into();
