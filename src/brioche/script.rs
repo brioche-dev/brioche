@@ -10,6 +10,7 @@ use deno_core::OpState;
 use self::specifier::BriocheModuleSpecifier;
 
 use super::{
+    blob::BlobId,
     project::Project,
     value::{CompleteValue, LazyValue, WithMeta},
     Brioche,
@@ -138,6 +139,7 @@ deno_core::extension!(brioche_rt,
     ops = [
         op_brioche_resolve_all,
         op_brioche_create_proxy,
+        op_brioche_read_blob,
     ],
     options = {
         brioche: Brioche,
@@ -183,4 +185,26 @@ pub async fn op_brioche_create_proxy(
 
     let result = super::resolve::create_proxy(&brioche, value).await;
     Ok(result)
+}
+
+// TODO: Return a Uint8Array instead of URL-encoding
+#[deno_core::op]
+pub async fn op_brioche_read_blob(
+    state: Rc<RefCell<OpState>>,
+    blob_id: BlobId,
+) -> anyhow::Result<crate::encoding::UrlEncode<Vec<u8>>> {
+    let brioche = {
+        let state = state.try_borrow()?;
+        state
+            .try_borrow::<Brioche>()
+            .context("failed to get brioche instance")?
+            .clone()
+    };
+
+    let path = crate::brioche::blob::blob_path(&brioche, blob_id);
+    let bytes = tokio::fs::read(path)
+        .await
+        .with_context(|| format!("failed to read blob {blob_id}"))?;
+
+    Ok(crate::encoding::UrlEncode(bytes))
 }
