@@ -1,23 +1,13 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 
 use assert_matches::assert_matches;
-use brioche::brioche::project::{
-    resolve_project, DependencyDefinition, ProjectDefinition, Version,
-};
+use brioche::brioche::project::resolve_project;
 use brioche::brioche::script::check::DiagnosticLevel;
 
 mod brioche_test;
 
-async fn write_project(
-    context: &brioche_test::TestContext,
-    name: &str,
-    def: &ProjectDefinition,
-    script: &str,
-) -> PathBuf {
+async fn write_project(context: &brioche_test::TestContext, name: &str, script: &str) -> PathBuf {
     let project_dir = context.mkdir(name).await;
-    context
-        .write_toml(&format!("{name}/brioche.toml"), def)
-        .await;
 
     context.write_file("myproject/brioche.bri", script).await;
 
@@ -31,10 +21,8 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
     let project_dir = write_project(
         &context,
         "myproject",
-        &ProjectDefinition {
-            dependencies: HashMap::new(),
-        },
         r#"
+            export const project = {};
             const foo: number = 123;
             export default () => {
                 return {
@@ -67,10 +55,8 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
     let project_dir = write_project(
         &context,
         "myproject",
-        &ProjectDefinition {
-            dependencies: HashMap::new(),
-        },
         r#"
+            export const project = {};
             const foo: number = "123";
             export default () => {
                 return {
@@ -103,14 +89,13 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
     let project_dir = write_project(
         &context,
         "myproject",
-        &ProjectDefinition {
-            dependencies: HashMap::from_iter([(
-                "foo".into(),
-                DependencyDefinition::Version(Version::Any),
-            )]),
-        },
         r#"
             import { foo } from "foo";
+            export const project = {
+                dependencies: {
+                    foo: "*",
+                },
+            };
             export default () => {
                 return {
                     briocheSerialize: () => {
@@ -126,17 +111,10 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
     .await;
 
     context
-        .write_toml(
-            "brioche-repo/foo/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
-        )
-        .await;
-    context
         .write_file(
             "brioche-repo/foo/brioche.bri",
             r#"
+                export const project = {};
                 export const foo: number = 123;
             "#,
         )
@@ -160,14 +138,9 @@ async fn test_check_import_invalid() -> anyhow::Result<()> {
     let project_dir = write_project(
         &context,
         "myproject",
-        &ProjectDefinition {
-            dependencies: HashMap::from_iter([(
-                "foo".into(),
-                DependencyDefinition::Version(Version::Any),
-            )]),
-        },
         r#"
             import { foo } from "foo";
+            export const project = {};
             export default () => {
                 return {
                     briocheSerialize: () => {
@@ -183,17 +156,10 @@ async fn test_check_import_invalid() -> anyhow::Result<()> {
     .await;
 
     context
-        .write_toml(
-            "brioche-repo/foo/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
-        )
-        .await;
-    context
         .write_file(
             "brioche-repo/foo/brioche.bri",
             r#"
+                export const project = {};
                 export const foo: string = 123;
             "#,
         )
@@ -217,11 +183,9 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
     let project_dir = write_project(
         &context,
         "myproject",
-        &ProjectDefinition {
-            dependencies: HashMap::new(),
-        },
         r#"
             import { foo } from "foo";
+            export const project = {};
             export default () => {
                 return {
                     briocheSerialize: () => {

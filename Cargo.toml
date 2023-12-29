@@ -10,6 +10,9 @@ anyhow = { version = "1.0.75", features = ["backtrace"] }
 async-compression = { version = "0.4.5", features = ["tokio", "gzip", "xz", "zstd"] }
 async-recursion = "1.0.5"
 bincode = "1.3.3"
+biome_js_parser = "0.3.1"
+biome_js_syntax = "0.3.1"
+biome_rowan = "0.3.1"
 blake3 = "1.5.0"
 brioche-pack = { git = "https://github.com/brioche-dev/brioche-pack.git" }
 bstr = { version = "1.8.0", features = ["serde"] }

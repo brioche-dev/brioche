@@ -1,9 +1,4 @@
-use std::collections::HashMap;
-
-use brioche::brioche::{
-    project::{resolve_project, DependencyDefinition, ProjectDefinition, Version},
-    script::evaluate::evaluate,
-};
+use brioche::brioche::{project::resolve_project, script::evaluate::evaluate};
 
 mod brioche_test;
 
@@ -12,19 +7,12 @@ async fn test_eval_basic() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
-    context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
-        )
-        .await;
 
     context
         .write_file(
             "myproject/brioche.bri",
             r#"
+                export const project = {};
                 export default () => {
                     return {
                         briocheSerialize: () => {
@@ -53,19 +41,12 @@ async fn test_eval_custom_export() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
-    context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
-        )
-        .await;
 
     context
         .write_file(
             "myproject/brioche.bri",
             r#"
+                export const project = {};
                 export const custom = () => {
                     return {
                         briocheSerialize: () => {
@@ -94,19 +75,12 @@ async fn test_eval_async() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
-    context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
-        )
-        .await;
 
     context
         .write_file(
             "myproject/brioche.bri",
             r#"
+                export const project = {};
                 export default async () => {
                     return {
                         briocheSerialize: () => {
@@ -135,19 +109,12 @@ async fn test_eval_serialize_async() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
-    context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
-        )
-        .await;
 
     context
         .write_file(
             "myproject/brioche.bri",
             r#"
+                export const project = {};
                 export default async () => {
                     return {
                         briocheSerialize: async () => {
@@ -176,14 +143,6 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
-    context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
-        )
-        .await;
 
     context
         .write_file(
@@ -208,6 +167,7 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
             "myproject/brioche.bri",
             r#"
                 import { build } from "./build.bri";
+                export const project = {};
                 export default async () => {
                     return build();
                 };
@@ -229,23 +189,17 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
-    context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "foo".into(),
-                    DependencyDefinition::Version(Version::Any),
-                )]),
-            },
-        )
-        .await;
 
     context
         .write_file(
             "myproject/brioche.bri",
             r#"
                 import { build } from "foo";
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
                 export default async () => {
                     return build();
                 };
@@ -254,17 +208,10 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
         .await;
 
     context
-        .write_toml(
-            "brioche-repo/foo/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
-        )
-        .await;
-    context
         .write_file(
             "brioche-repo/foo/brioche.bri",
             r#"
+                export const project = {};
                 export const build = async () => {
                     return {
                         briocheSerialize: () => {

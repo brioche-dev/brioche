@@ -1,7 +1,4 @@
-use std::collections::HashMap;
-
 use assert_matches::assert_matches;
-use brioche::brioche::project::{DependencyDefinition, ProjectDefinition, Version};
 use brioche::brioche::script::specifier::{
     read_specifier_contents_sync, resolve, BriocheModuleSpecifier,
 };
@@ -29,11 +26,11 @@ async fn test_specifier_read_project() -> anyhow::Result<()> {
     let (_brioche, context) = brioche_test::brioche_test().await;
 
     context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
     let foo_path = context.write_file("myproject/foo.txt", "Hello world").await;
@@ -54,11 +51,11 @@ async fn test_specifier_resolve_relative() -> anyhow::Result<()> {
 
     context.mkdir("myproject").await;
     context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
     let foo_hello_path = context
@@ -100,11 +97,11 @@ async fn test_specifier_resolve_project_relative() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
     let foo_hello_path = context
@@ -145,12 +142,12 @@ async fn test_specifier_resolve_project_relative() -> anyhow::Result<()> {
 async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+    let main_path = context
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
     let foo_hello_path = context
@@ -160,7 +157,6 @@ async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
         .write_file("myproject/foo/inner/brioche.bri", "")
         .await;
     let foo_main_path = context.write_file("myproject/foo/brioche.bri", "").await;
-    let main_path = context.write_file("myproject/brioche.bri", "").await;
 
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
@@ -201,12 +197,12 @@ async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
 async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+    let main_path = context
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
     let foo_hello_path = context
@@ -216,7 +212,6 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
         .write_file("myproject/foo/inner/brioche.bri", "")
         .await;
     let foo_main_path = context.write_file("myproject/foo/brioche.bri", "").await;
-    let main_path = context.write_file("myproject/brioche.bri", "").await;
 
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
@@ -252,51 +247,53 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     context
-        .write_toml(
-            "root/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "foo".into(),
-                    DependencyDefinition::Version(Version::Any),
-                )]),
-            },
+        .write_file(
+            "root/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
         )
         .await;
 
     context
-        .write_toml(
-            "brioche-repo/foo/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "bar".into(),
-                    DependencyDefinition::Version(Version::Any),
-                )]),
-            },
+        .write_file(
+            "brioche-repo/foo/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        bar: "*",
+                    },
+                };
+            "#,
         )
         .await;
 
     context
-        .write_toml(
-            "brioche-repo/bar/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "baz".into(),
-                    DependencyDefinition::Version(Version::Any),
-                )]),
-            },
+        .write_file(
+            "brioche-repo/bar/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        baz: "*",
+                    },
+                };
+            "#,
         )
         .await;
     let bar_file_path = context.write_file("brioche-repo/bar/file.txt", "").await;
 
-    context
-        .write_toml(
-            "brioche-repo/baz/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+    let baz_main_path = context
+        .write_file(
+            "brioche-repo/baz/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
-    let baz_main_path = context.write_file("brioche-repo/baz/brioche.bri", "").await;
     let _baz_file_path = context.write_file("brioche-repo/baz/file.txt", "").await;
     let _baz_inner_file_path = context
         .write_file("brioche-repo/baz/inner/file.txt", "")

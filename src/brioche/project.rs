@@ -1,11 +1,14 @@
 use std::{
     collections::HashMap,
+    io::Read,
     path::{Path, PathBuf},
 };
 
 use anyhow::Context as _;
 
 use super::Brioche;
+
+pub mod analyze;
 
 pub async fn resolve_project(brioche: &Brioche, path: &Path) -> anyhow::Result<Project> {
     // Limit the maximum recursion when searching dependencies
@@ -25,22 +28,19 @@ pub async fn resolve_project_depth(
         .with_context(|| format!("failed to canonicalize path {}", path.display()))?;
     let repo = &brioche.repo_dir;
 
-    let project_definition_path = path.join("brioche.toml");
-    let project_definition = tokio::fs::read_to_string(&project_definition_path)
+    let project_root_path = path.join("brioche.bri");
+    let project_root_url = url::Url::from_file_path(project_root_path.clone()).map_err(|_| {
+        anyhow::anyhow!("invalid project root path: {}", project_root_path.display())
+    })?;
+    let project_root = tokio::fs::read_to_string(&project_root_path)
         .await
         .with_context(|| {
             format!(
-                "failed to read project definition at {}",
-                project_definition_path.display()
+                "failed to read project root at {}",
+                project_root_path.display()
             )
         })?;
-    let project_definition: ProjectDefinition =
-        toml::from_str(&project_definition).with_context(|| {
-            format!(
-                "failed to parse project definition at {}",
-                project_definition_path.display()
-            )
-        })?;
+    let project_definition = analyze::analyze_project(&project_root_url, &project_root)?;
 
     let mut dependencies = HashMap::new();
     for (name, dependency_def) in &project_definition.dependencies {
@@ -60,7 +60,7 @@ pub async fn resolve_project_depth(
                     .with_context(|| {
                         format!(
                             "failed to resolve path dependency {name:?} in {}",
-                            project_definition_path.display()
+                            project_root_path.display()
                         )
                     })?
             }
@@ -71,7 +71,7 @@ pub async fn resolve_project_depth(
                     .with_context(|| {
                         format!(
                             "failed to resolve repo dependency {name:?} in {}",
-                            project_definition_path.display()
+                            project_root_path.display()
                         )
                     })?
             }
@@ -89,8 +89,28 @@ pub async fn resolve_project_depth(
 pub fn find_project_root_sync(path: &Path) -> anyhow::Result<&Path> {
     let mut current_path = path;
     loop {
-        let project_definition_path = current_path.join("brioche.toml");
-        if project_definition_path.exists() {
+        let project_root_path = current_path.join("brioche.bri");
+
+        let project_root_file = std::fs::File::open(&project_root_path);
+        let mut project_root_file = match project_root_file {
+            Ok(file) => file,
+            Err(_) => {
+                current_path = match current_path.parent() {
+                    Some(parent) => parent,
+                    None => anyhow::bail!("project root not found"),
+                };
+                continue;
+            }
+        };
+
+        let mut contents = String::new();
+        project_root_file.read_to_string(&mut contents)?;
+
+        // HACK: Temporary heuristic to check if a file is a project root
+        if contents
+            .lines()
+            .any(|line| line.trim_start().starts_with("export const project"))
+        {
             return Ok(current_path);
         }
 
@@ -104,9 +124,24 @@ pub fn find_project_root_sync(path: &Path) -> anyhow::Result<&Path> {
 pub async fn find_project_root(path: &Path) -> anyhow::Result<&Path> {
     let mut current_path = path;
     loop {
-        let project_definition_path = current_path.join("brioche.toml");
-        let exists = tokio::fs::try_exists(&project_definition_path).await?;
-        if exists {
+        let project_root_path = current_path.join("brioche.bri");
+        let contents = tokio::fs::read_to_string(&project_root_path).await;
+        let contents = match contents {
+            Ok(contents) => contents,
+            Err(_) => {
+                current_path = match current_path.parent() {
+                    Some(parent) => parent,
+                    None => anyhow::bail!("project root not found"),
+                };
+                continue;
+            }
+        };
+
+        // HACK: Temporary heuristic to check if a file is a project root
+        if contents
+            .lines()
+            .any(|line| line.trim_start().starts_with("export const project"))
+        {
             return Ok(current_path);
         }
 

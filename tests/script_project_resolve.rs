@@ -1,9 +1,5 @@
-use std::collections::HashMap;
-
 use assert_matches::assert_matches;
-use brioche::brioche::project::{
-    resolve_project, DependencyDefinition, ProjectDefinition, Version,
-};
+use brioche::brioche::project::resolve_project;
 
 mod brioche_test;
 
@@ -13,11 +9,11 @@ async fn test_resolve_simple_project() -> anyhow::Result<()> {
 
     let project_dir = context.mkdir("myproject").await;
     context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
 
@@ -35,23 +31,24 @@ async fn test_resolve_project_with_repo_dep() -> anyhow::Result<()> {
 
     let project_dir = context.mkdir("myproject").await;
     context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "foo".into(),
-                    DependencyDefinition::Version(Version::Any),
-                )]),
-            },
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
         )
         .await;
 
     context
-        .write_toml(
-            "brioche-repo/foo/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+        .write_file(
+            "brioche-repo/foo/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
 
@@ -71,26 +68,27 @@ async fn test_resolve_project_with_path_dep() -> anyhow::Result<()> {
 
     let main_project_dir = context.mkdir("mainproject").await;
     context
-        .write_toml(
-            "mainproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "depproject".into(),
-                    DependencyDefinition::Path {
-                        path: "../depproject".into(),
+        .write_file(
+            "mainproject/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        depproject: {
+                            path: "../depproject",
+                        },
                     },
-                )]),
-            },
+                };
+            "#,
         )
         .await;
 
     let dep_project_dir = context.mkdir("depproject").await;
     context
-        .write_toml(
-            "depproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+        .write_file(
+            "depproject/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
 
@@ -110,52 +108,54 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
 
     let main_project_dir = context.mkdir("mainproject").await;
     context
-        .write_toml(
-            "mainproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([
-                    (
-                        "depproject".into(),
-                        DependencyDefinition::Path {
-                            path: "../depproject".into(),
+        .write_file(
+            "mainproject/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        depproject: {
+                            path: "../depproject",
                         },
-                    ),
-                    ("foo".into(), DependencyDefinition::Version(Version::Any)),
-                ]),
-            },
+                        foo: "*",
+                    },
+                };
+            "#,
         )
         .await;
 
     let dep_project_dir = context.mkdir("depproject").await;
     context
-        .write_toml(
-            "depproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "foo".into(),
-                    DependencyDefinition::Version(Version::Any),
-                )]),
-            },
+        .write_file(
+            "depproject/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
         )
         .await;
 
     context
-        .write_toml(
-            "brioche-repo/foo/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "bar".into(),
-                    DependencyDefinition::Version(Version::Any),
-                )]),
-            },
+        .write_file(
+            "brioche-repo/foo/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        bar: "*",
+                    },
+                };
+            "#,
         )
         .await;
+
     context
-        .write_toml(
-            "brioche-repo/bar/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::new(),
-            },
+        .write_file(
+            "brioche-repo/bar/brioche.bri",
+            r#"
+                export const project = {};
+            "#,
         )
         .await;
 
@@ -189,7 +189,7 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
 async fn test_resolve_not_found() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    // brioche.toml does not exist
+    // brioche.bri does not exist
     let project_dir = context.mkdir("myproject").await;
 
     let project = resolve_project(&brioche, &project_dir).await;
@@ -205,20 +205,21 @@ async fn test_resolve_path_dep_not_found() -> anyhow::Result<()> {
 
     let project_dir = context.mkdir("myproject").await;
     context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "mydep".into(),
-                    DependencyDefinition::Path {
-                        path: "../mydep".into(),
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        mydep: {
+                            path: "../mydep",
+                        },
                     },
-                )]),
-            },
+                };
+            "#,
         )
         .await;
 
-    // brioche.toml does not exist
+    // brioche.bri does not exist
     let _dep_dir = context.mkdir("mydep").await;
 
     let project = resolve_project(&brioche, &project_dir).await;
@@ -234,18 +235,19 @@ async fn test_resolve_repo_dep_not_found() -> anyhow::Result<()> {
 
     let project_dir = context.mkdir("myproject").await;
     context
-        .write_toml(
-            "myproject/brioche.toml",
-            &ProjectDefinition {
-                dependencies: HashMap::from_iter([(
-                    "foo".into(),
-                    DependencyDefinition::Version(Version::Any),
-                )]),
-            },
+        .write_file(
+            "myproject/brioche.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
         )
         .await;
 
-    // brioche.toml does not exist
+    // brioche.bri does not exist
     let _repo_foo_dir = context.mkdir("brioche-repo/foo").await;
 
     let project = resolve_project(&brioche, &project_dir).await;
