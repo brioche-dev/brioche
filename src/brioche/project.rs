@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    io::Read,
     path::{Path, PathBuf},
 };
 
@@ -89,28 +88,8 @@ pub async fn resolve_project_depth(
 pub fn find_project_root_sync(path: &Path) -> anyhow::Result<&Path> {
     let mut current_path = path;
     loop {
-        let project_root_path = current_path.join("project.bri");
-
-        let project_root_file = std::fs::File::open(&project_root_path);
-        let mut project_root_file = match project_root_file {
-            Ok(file) => file,
-            Err(_) => {
-                current_path = match current_path.parent() {
-                    Some(parent) => parent,
-                    None => anyhow::bail!("project root not found"),
-                };
-                continue;
-            }
-        };
-
-        let mut contents = String::new();
-        project_root_file.read_to_string(&mut contents)?;
-
-        // HACK: Temporary heuristic to check if a file is a project root
-        if contents
-            .lines()
-            .any(|line| line.trim_start().starts_with("export const project"))
-        {
+        let project_definition_path = current_path.join("project.bri");
+        if project_definition_path.exists() {
             return Ok(current_path);
         }
 
@@ -124,24 +103,9 @@ pub fn find_project_root_sync(path: &Path) -> anyhow::Result<&Path> {
 pub async fn find_project_root(path: &Path) -> anyhow::Result<&Path> {
     let mut current_path = path;
     loop {
-        let project_root_path = current_path.join("project.bri");
-        let contents = tokio::fs::read_to_string(&project_root_path).await;
-        let contents = match contents {
-            Ok(contents) => contents,
-            Err(_) => {
-                current_path = match current_path.parent() {
-                    Some(parent) => parent,
-                    None => anyhow::bail!("project root not found"),
-                };
-                continue;
-            }
-        };
-
-        // HACK: Temporary heuristic to check if a file is a project root
-        if contents
-            .lines()
-            .any(|line| line.trim_start().starts_with("export const project"))
-        {
+        let project_definition_path = current_path.join("project.bri");
+        let exists = tokio::fs::try_exists(&project_definition_path).await?;
+        if exists {
             return Ok(current_path);
         }
 
