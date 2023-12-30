@@ -709,25 +709,23 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let brioche_packer = LazyValue::Download(DownloadValue {
-        url: "https://development-content.brioche.dev/github.com/brioche-dev/brioche-pack/004166700c378bbcd77fb7fefcd05a0c14fc3cef/x86_64-unknown-linux-musl/brioche-packer".parse().unwrap(),
-        hash: sha256_hash("c9b4ca9b59e65ce753c14e0629d40368f828bbaf0208c4e281c804f2038b18b6"),
-    });
-    let brioche_packer = resolve_without_meta(&brioche, brioche_packer).await?;
-    let CompleteValue::File(File {
-        data: brioche_packer_blob,
-        ..
-    }) = brioche_packer
-    else {
-        panic!("expected a file");
-    };
-    let brioche_packer = brioche_test::dir([(
-        "bin",
-        brioche_test::dir([(
-            "brioche-packer",
-            brioche_test::file(brioche_packer_blob, true),
-        )]),
-    )]);
+    // Create a dummy file with pack metadata. This attaches resources
+    // to the file when it gets put into the output of a process.
+    let dummy_packed_contents = "dummy_packed".to_string();
+    let mut dummy_packed_contents = dummy_packed_contents.into_bytes();
+    brioche_pack::inject_pack(
+        &mut dummy_packed_contents,
+        &brioche_pack::Pack {
+            program: "program".into(),
+            interpreter: Some(brioche_pack::Interpreter::LdLinux {
+                path: "ld-linux.so".into(),
+                library_paths: vec![],
+            }),
+        },
+    )?;
+
+    let dummy_packed_blob = brioche_test::blob(&brioche, &dummy_packed_contents).await;
+    let dummy_packed = brioche_test::file(dummy_packed_blob, false);
 
     let process = ProcessValue {
         command: tpl("/usr/bin/env"),
@@ -741,10 +739,7 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
                 echo -n "dummy_program" > "$BRIOCHE_PACK_RESOURCES_DIR/program"
                 echo -n "dummy_ld_linux" > "$BRIOCHE_PACK_RESOURCES_DIR/ld-linux.so"
 
-                brioche-packer pack \
-                    --packed ./packed \
-                    --output "$BRIOCHE_OUTPUT/bin/program" \
-                    --pack '{"program": "program", "interpreter": {"type": "ld_linux", "path": "ld-linux.so", "libraryPaths": []}}'
+                cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
             "#),
         ],
         env: BTreeMap::from_iter([
@@ -752,13 +747,9 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
             ("BRIOCHE_PACK_RESOURCES_DIR".into(), resources_path()),
             (
                 "PATH".into(),
-                tpl_join([
-                    template_input(utils()),
-                    tpl("/bin:"),
-                    template_input(brioche_packer.into()),
-                    tpl("/bin"),
-                ]),
+                tpl_join([template_input(utils()), tpl("/bin")]),
             ),
+            ("dummy_packed".into(), template_input(dummy_packed.into())),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         platform: current_platform(),
