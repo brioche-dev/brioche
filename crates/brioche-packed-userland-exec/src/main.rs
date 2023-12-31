@@ -1,19 +1,19 @@
-use std::{
-    ffi::{CStr, CString},
-    process::ExitCode,
-};
+#![no_main]
+
+use std::ffi::{CStr, CString};
 
 use bstr::ByteSlice as _;
 
 const BRIOCHE_PACKED_ERROR: u8 = 121;
 
-fn main() -> ExitCode {
+#[no_mangle]
+pub extern "C" fn main(_argc: libc::c_int, _argv: *const *const libc::c_char) -> libc::c_int {
     let result = run();
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => 0,
         Err(err) => {
             eprintln!("brioche-packed error: {err}");
-            ExitCode::from(BRIOCHE_PACKED_ERROR)
+            BRIOCHE_PACKED_ERROR.into()
         }
     }
 }
