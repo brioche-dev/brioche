@@ -1,16 +1,19 @@
-use std::{os::unix::process::CommandExt as _, process::ExitCode};
+#![no_main]
+
+use std::os::unix::process::CommandExt as _;
 
 use bstr::ByteSlice as _;
 
 const BRIOCHE_PACKED_ERROR: u8 = 121;
 
-fn main() -> ExitCode {
+#[no_mangle]
+pub extern "C" fn main(_argc: libc::c_int, _argv: *const *const libc::c_char) -> libc::c_int {
     let result = run();
     match result {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => libc::EXIT_SUCCESS,
         Err(err) => {
             eprintln!("brioche-packed error: {err}");
-            ExitCode::from(BRIOCHE_PACKED_ERROR)
+            BRIOCHE_PACKED_ERROR.into()
         }
     }
 }
@@ -92,12 +95,42 @@ fn run() -> Result<(), PackedError> {
 
 #[derive(Debug, thiserror::Error)]
 enum PackedError {
-    #[error("{0}")]
     IoError(#[from] std::io::Error),
-    #[error("{0}")]
     ExtractPackError(#[from] brioche_pack::ExtractPackError),
-    #[error("{0}")]
     PackResourceDirError(#[from] brioche_pack::PackResourceDirError),
-    #[error("invalid path")]
     InvalidPath,
+}
+
+impl std::fmt::Display for PackedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(error_summary(self))
+    }
+}
+
+fn error_summary(error: &PackedError) -> &'static str {
+    match error {
+        PackedError::IoError(_) => "io error",
+        PackedError::ExtractPackError(error) => match error {
+            brioche_pack::ExtractPackError::ReadPackedProgramError(_) => {
+                "failed to read packed program: io error"
+            }
+            brioche_pack::ExtractPackError::MarkerNotFound => {
+                "marker not found at the end of the packed program"
+            }
+            brioche_pack::ExtractPackError::MalformedMarker => {
+                "malformed marker at the end of the packed program"
+            }
+            brioche_pack::ExtractPackError::InvalidPack(_) => "failed to parse pack: bincode error",
+        },
+        PackedError::PackResourceDirError(error) => match error {
+            brioche_pack::PackResourceDirError::NotFound => "brioche pack resource dir not found",
+            brioche_pack::PackResourceDirError::DepthLimitReached => {
+                "reached depth limit while searching for brioche pack resource dir"
+            }
+            brioche_pack::PackResourceDirError::IoError(_) => {
+                "error while searching for brioche pack resource dir: io error"
+            }
+        },
+        PackedError::InvalidPath => "invalid path",
+    }
 }

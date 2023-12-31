@@ -6,4 +6,5 @@ edition = "2021"
 [dependencies]
 brioche-pack = { path = "../brioche-pack", default-features = false }
 bstr = "1.8.0"
+libc = "0.2.151"
 thiserror = "1.0.51"
