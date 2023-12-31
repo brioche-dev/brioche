@@ -1,4 +1,4 @@
-#![no_main]
+#![cfg_attr(not(test), no_main)]
 
 use std::os::unix::process::CommandExt as _;
 
@@ -6,7 +6,7 @@ use bstr::ByteSlice as _;
 
 const BRIOCHE_PACKED_ERROR: u8 = 121;
 
-#[no_mangle]
+#[cfg_attr(not(test), no_mangle)]
 pub extern "C" fn main(_argc: libc::c_int, _argv: *const *const libc::c_char) -> libc::c_int {
     let result = run();
     match result {
