@@ -90,18 +90,21 @@ jobs:
         with:
           name: brioche
           path: artifacts/brioche
+      # Upload all artifacts under the branch name, and upload a subset under the commit hash.
       - name: Upload to S3
         run: |
-          aws s3 cp \
-            --endpoint "$S3_ENDPOINT" \
-            --recursive \
-            artifacts/brioche/ \
-            "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/commits/$GITHUB_SHA/"
           aws s3 sync \
             --endpoint "$S3_ENDPOINT" \
             --delete \
             artifacts/brioche/ \
             "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/branches/$GITHUB_REF_NAME/"
+
+          rm artifacts/brioche/*/brioche
+          aws s3 cp \
+            --endpoint "$S3_ENDPOINT" \
+            --recursive \
+            artifacts/brioche/ \
+            "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/commits/$GITHUB_SHA/"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
