@@ -4,6 +4,7 @@ use bstr::{ByteSlice, ByteVec as _};
 
 pub enum UrlEncoded {}
 
+#[cfg(feature = "serde")]
 impl<T> serde_with::SerializeAs<T> for UrlEncoded
 where
     T: AsRef<[u8]>,
@@ -17,6 +18,7 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de, T> serde_with::DeserializeAs<'de, T> for UrlEncoded
 where
     T: TryFrom<Vec<u8>>,
@@ -35,6 +37,7 @@ where
 
 pub struct AsPath<T>(std::marker::PhantomData<T>);
 
+#[cfg(feature = "serde")]
 impl<T> serde_with::SerializeAs<PathBuf> for AsPath<T>
 where
     T: serde_with::SerializeAs<Vec<u8>>,
@@ -49,6 +52,7 @@ where
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de, T> serde_with::DeserializeAs<'de, PathBuf> for AsPath<T>
 where
     T: serde_with::DeserializeAs<'de, Vec<u8>>,
