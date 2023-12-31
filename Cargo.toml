@@ -10,3 +10,8 @@ lto = true
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
+
+# Like `release-tiny`, but with debug info needed for `cargo bloat`
+[profile.release-tiny-bloat]
+inherits = "release-tiny"
+strip = "debuginfo"
