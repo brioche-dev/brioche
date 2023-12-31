@@ -681,6 +681,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "brioche-ld"
+version = "0.1.0"
+dependencies = [
+ "brioche-pack",
+ "bstr 1.8.0",
+ "goblin",
+ "thiserror",
+]
+
+[[package]]
 name = "brioche-pack"
 version = "0.0.1"
 dependencies = [
@@ -695,6 +705,25 @@ dependencies = [
  "thiserror",
  "ulid",
  "urlencoding",
+ "userland-execve",
+]
+
+[[package]]
+name = "brioche-packed-exec"
+version = "0.1.0"
+dependencies = [
+ "brioche-pack",
+ "bstr 1.8.0",
+ "thiserror",
+]
+
+[[package]]
+name = "brioche-packed-userland-exec"
+version = "0.1.0"
+dependencies = [
+ "brioche-pack",
+ "bstr 1.8.0",
+ "thiserror",
  "userland-execve",
 ]
 

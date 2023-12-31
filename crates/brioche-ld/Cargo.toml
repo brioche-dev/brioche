@@ -1,0 +1,10 @@
+[package]
+name = "brioche-ld"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+brioche-pack = { path = "../brioche-pack" }
+bstr = "1.8.0"
+goblin = "0.7.1"
+thiserror = "1.0.51"

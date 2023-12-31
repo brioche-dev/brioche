@@ -1,0 +1,10 @@
+[package]
+name = "brioche-packed-userland-exec"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+brioche-pack = { path = "../brioche-pack" }
+bstr = "1.8.0"
+thiserror = "1.0.51"
+userland-execve = { git = "https://github.com/brioche-dev/userland-execve-rust.git" }

@@ -48,11 +48,25 @@ jobs:
             --target x86_64-unknown-linux-musl \
             --component rust-src
       - name: Build Brioche
-        run: cargo build --release --target=x86_64-unknown-linux-gnu
-      - name: Build brioche-pack
         run: |
+            cargo build \
+              --all \
+              --bin brioche \
+              --release \
+              --target=x86_64-unknown-linux-gnu
+      - name: Build brioche-pack tools
+        run: |
+          cargo build \
+            --all \
+            --bin brioche-packer \
+            --bin brioche-ld \
+            --release \
+            --target=x86_64-unknown-linux-musl
+
           cargo +"$NIGHTLY_TOOLCHAIN" build \
-            -p brioche-pack \
+            --all \
+            --bin brioche-packed-exec \
+            --bin brioche-packed-userland-exec \
             --profile=release-tiny \
             --target=x86_64-unknown-linux-musl \
             -Z 'build-std=std,panic_abort' \
@@ -65,10 +79,10 @@ jobs:
             target/x86_64-unknown-linux-gnu/release/brioche \
             artifacts/brioche/x86_64-linux/
           cp \
-            target/x86_64-unknown-linux-musl/release-tiny/brioche-ld \
+            target/x86_64-unknown-linux-musl/release/brioche-packer \
+            target/x86_64-unknown-linux-musl/release/brioche-ld \
             target/x86_64-unknown-linux-musl/release-tiny/brioche-packed-exec \
             target/x86_64-unknown-linux-musl/release-tiny/brioche-packed-userland-exec \
-            target/x86_64-unknown-linux-musl/release-tiny/brioche-packer \
             artifacts/brioche-pack/x86_64-linux/
           (cd artifacts/brioche-pack/x86_64-linux/ && tar --zstd -cf ../../brioche/x86_64-linux/brioche-pack.tar.zstd .)
           tree --du -h artifacts/brioche-pack

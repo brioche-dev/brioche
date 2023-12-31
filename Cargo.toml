@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/brioche", "crates/brioche-pack"]
+members = ["crates/brioche", "crates/brioche-ld", "crates/brioche-pack", "crates/brioche-packed-exec", "crates/brioche-packed-userland-exec"]
 default-members = ["crates/brioche"]
 resolver = "2"
 

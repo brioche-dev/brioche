@@ -1,0 +1,9 @@
+[package]
+name = "brioche-packed-exec"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+brioche-pack = { path = "../brioche-pack" }
+bstr = "1.8.0"
+thiserror = "1.0.51"
