@@ -71,8 +71,8 @@ jobs:
             target/x86_64-unknown-linux-musl/release-tiny/brioche-packer \
             artifacts/brioche-pack/x86_64-linux/
           (cd artifacts/brioche-pack/x86_64-linux/ && tar --zstd -cf ../../brioche/x86_64-linux/brioche-pack.tar.zstd .)
-          tree -h artifacts/brioche-pack
-          tree -h artifacts/brioche
+          tree --du -h artifacts/brioche-pack
+          tree --du -h artifacts/brioche
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
