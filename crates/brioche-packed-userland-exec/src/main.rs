@@ -10,7 +10,7 @@ const BRIOCHE_PACKED_ERROR: u8 = 121;
 pub extern "C" fn main(_argc: libc::c_int, _argv: *const *const libc::c_char) -> libc::c_int {
     let result = run();
     match result {
-        Ok(()) => 0,
+        Ok(()) => libc::EXIT_SUCCESS,
         Err(err) => {
             eprintln!("brioche-packed error: {err}");
             BRIOCHE_PACKED_ERROR.into()
