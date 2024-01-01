@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::Context as _;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
@@ -378,13 +381,41 @@ struct ResolveFailed {
 
 impl std::fmt::Display for ResolveFailed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)?;
+        let (message_sources, mut message_lines) = self
+            .message
+            .lines()
+            .partition::<Vec<_>, _>(|line| line.trim_start().starts_with("at "));
+        message_lines.retain(|line| !line.trim().is_empty());
+        let message = message_lines.join("\n");
 
-        for (n, source) in self.meta.source.iter().flatten().enumerate() {
-            if n == 0 {
-                writeln!(f)?;
+        let mut sources = vec![];
+        let mut seen_sources = HashSet::new();
+
+        // HACK: Currently, detailed errors get converted to and from strings
+        // via `anyhow`. To properly print all source lines without duplicates,
+        // we do our best to parse the error message. This should instead be
+        // handled by keeping structured errors throughout.
+        for source in message_sources {
+            let source = source
+                .trim_start()
+                .strip_prefix("at ")
+                .expect("invalid line")
+                .to_string();
+            if seen_sources.insert(source.clone()) {
+                sources.push(source);
             }
-            write!(f, "\n  at {source}")?;
+        }
+
+        for source in self.meta.source.iter().flatten() {
+            let source = source.to_string();
+            if seen_sources.insert(source.clone()) {
+                sources.push(source);
+            }
+        }
+
+        write!(f, "{message}")?;
+        for source in &sources {
+            write!(f, "\n    at {source}")?;
         }
 
         Ok(())
