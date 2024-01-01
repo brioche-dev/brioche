@@ -285,14 +285,16 @@ async fn resolve_inner(
             Ok(CompleteValue::Directory(merged))
         }
         LazyValue::Proxy { hash } => {
-            let proxies = brioche.proxies.read().await;
-            let proxy = proxies
-                .values_by_hash
-                .get(&hash)
-                .with_context(|| {
-                    format!("tried to resolve proxy value, but hash {hash:?} was not found")
-                })?
-                .clone();
+            let proxy = {
+                let proxies = brioche.proxies.read().await;
+                proxies
+                    .values_by_hash
+                    .get(&hash)
+                    .with_context(|| {
+                        format!("tried to resolve proxy value, but hash {hash:?} was not found")
+                    })?
+                    .clone()
+            };
             let resolved = resolve(brioche, WithMeta::new(proxy, meta.clone())).await?;
             Ok(resolved.value)
         }
