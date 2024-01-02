@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use encoding::UrlEncoded;
+
 pub mod autowrap;
 mod encoding;
 pub mod resources;
@@ -11,12 +13,11 @@ const SEARCH_DEPTH_LIMIT: u32 = 64;
 const LENGTH_BYTES: usize = 4;
 type LengthInt = u32;
 
-#[cfg_attr(feature = "serde", serde_with::serde_as)]
-#[derive(Debug, bincode::Encode, bincode::Decode)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+#[serde_with::serde_as]
+#[derive(Debug, bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Pack {
-    #[cfg_attr(feature = "serde", serde_as(as = "UrlEncoded"))]
+    #[serde_as(as = "UrlEncoded")]
     pub program: Vec<u8>,
     pub interpreter: Option<Interpreter>,
 }
@@ -47,17 +48,16 @@ impl Pack {
     }
 }
 
-#[cfg_attr(feature = "serde", serde_with::serde_as)]
-#[derive(Debug, bincode::Encode, bincode::Decode)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type"))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[serde_with::serde_as]
+#[derive(Debug, bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
 pub enum Interpreter {
-    #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+    #[serde(rename_all = "camelCase")]
     LdLinux {
-        #[cfg_attr(feature = "serde", serde_as(as = "UrlEncoded"))]
+        #[serde_as(as = "UrlEncoded")]
         path: Vec<u8>,
-        #[cfg_attr(feature = "serde", serde_as(as = "Vec<UrlEncoded>"))]
+        #[serde_as(as = "Vec<UrlEncoded>")]
         library_paths: Vec<Vec<u8>>,
     },
 }
