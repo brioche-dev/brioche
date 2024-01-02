@@ -27,7 +27,7 @@ hex = "0.4.3"
 human-repr = "1.1.0"
 joinery = "3.1.0"
 libmount = "0.1.15"
-nix = "0.27.1"
+nix = { version = "0.27.1", features = ["user"] }
 opentelemetry = "0.21.0"
 opentelemetry-http = { version = "0.10.0", features = ["reqwest"] }
 opentelemetry-jaeger = "0.20.0"
