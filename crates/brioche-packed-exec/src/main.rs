@@ -1,19 +1,16 @@
-#![cfg_attr(not(test), no_main)]
-
-use std::os::unix::process::CommandExt as _;
+use std::{os::unix::process::CommandExt as _, process::ExitCode};
 
 use bstr::ByteSlice as _;
 
 const BRIOCHE_PACKED_ERROR: u8 = 121;
 
-#[cfg_attr(not(test), no_mangle)]
-pub extern "C" fn main(_argc: libc::c_int, _argv: *const *const libc::c_char) -> libc::c_int {
+pub fn main() -> ExitCode {
     let result = run();
     match result {
-        Ok(()) => libc::EXIT_SUCCESS,
+        Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("brioche-packed error: {err}");
-            BRIOCHE_PACKED_ERROR.into()
+            ExitCode::from(BRIOCHE_PACKED_ERROR)
         }
     }
 }
