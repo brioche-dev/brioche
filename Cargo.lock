@@ -5767,7 +5767,7 @@ checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 [[package]]
 name = "userland-execve"
 version = "0.1.2"
-source = "git+https://github.com/brioche-dev/userland-execve-rust.git#a4ed43eba673d8f722dfb0c34a5269f67f6e3d44"
+source = "git+https://github.com/brioche-dev/userland-execve-rust.git#d82679efc913b713eb9076dfc2a62713b324f4e2"
 dependencies = [
  "goblin",
  "nix 0.27.1",
