@@ -6,9 +6,40 @@ use bstr::ByteSlice as _;
 
 const BRIOCHE_PACKED_ERROR: u8 = 121;
 
+extern "C" {
+    static environ: *const *const libc::c_char;
+}
+
 #[cfg_attr(not(test), no_mangle)]
-pub extern "C" fn main(_argc: libc::c_int, _argv: *const *const libc::c_char) -> libc::c_int {
-    let result = run();
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn main(argc: libc::c_int, argv: *const *const libc::c_char) -> libc::c_int {
+    let mut args = vec![];
+    let mut env_vars = vec![];
+
+    let argc: usize = argc.try_into().unwrap_or(0);
+    for n in 0..argc {
+        let arg = unsafe { *argv.add(n) };
+
+        if arg.is_null() {
+            break;
+        }
+
+        let arg = unsafe { CStr::from_ptr(arg) };
+        args.push(arg);
+    }
+
+    for n in 0.. {
+        let var = unsafe { *environ.add(n) };
+
+        if var.is_null() {
+            break;
+        }
+
+        let var = unsafe { CStr::from_ptr(var) };
+        env_vars.push(var);
+    }
+
+    let result = run(&args, &env_vars);
     match result {
         Ok(()) => libc::EXIT_SUCCESS,
         Err(err) => {
@@ -18,7 +49,7 @@ pub extern "C" fn main(_argc: libc::c_int, _argv: *const *const libc::c_char) ->
     }
 }
 
-fn run() -> Result<(), PackedError> {
+fn run(args: &[&CStr], env_vars: &[&CStr]) -> Result<(), PackedError> {
     let path = std::env::current_exe()?;
     let resource_dir = brioche_pack::find_resource_dir(&path)?;
     let mut program = std::fs::File::open(&path)?;
@@ -47,21 +78,6 @@ fn run() -> Result<(), PackedError> {
 
             // Add argv0
             exec.arg(interpreter);
-
-            let vars = std::env::vars_os()
-                .map(|(key, value)| {
-                    let key =
-                        <[u8]>::from_os_str(&key).ok_or_else(|| PackedError::InvalidEnvVar)?;
-                    let key = CString::new(key).map_err(|_| PackedError::InvalidEnvVar)?;
-                    let value =
-                        <[u8]>::from_os_str(&value).ok_or_else(|| PackedError::InvalidEnvVar)?;
-                    let value = CString::new(value).map_err(|_| PackedError::InvalidEnvVar)?;
-                    Ok::<_, PackedError>((key, value))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            exec.envs(vars);
-
-            let mut args = std::env::args_os();
 
             if !library_paths.is_empty() {
                 let mut ld_library_path = bstr::BString::default();
@@ -96,10 +112,9 @@ fn run() -> Result<(), PackedError> {
                 exec.arg(ld_library_path);
             }
 
+            let mut args = args.iter();
             if let Some(arg0) = args.next() {
                 exec.arg(CStr::from_bytes_with_nul(b"--argv0\0").unwrap());
-                let arg0 = <[u8]>::from_os_str(&arg0).ok_or_else(|| PackedError::InvalidPath)?;
-                let arg0 = CString::new(arg0).map_err(|_| PackedError::InvalidPath)?;
                 exec.arg(arg0);
             }
 
@@ -107,15 +122,9 @@ fn run() -> Result<(), PackedError> {
             let program = CString::new(program).map_err(|_| PackedError::InvalidPath)?;
             exec.arg(program);
 
-            let args = args
-                .map(|arg| {
-                    let arg =
-                        <[u8]>::from_os_str(&arg).ok_or_else(|| PackedError::InvalidEnvVar)?;
-                    let arg = CString::new(arg).map_err(|_| PackedError::InvalidEnvVar)?;
-                    Ok::<_, PackedError>(arg)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
             exec.args(args);
+
+            exec.env_pairs(env_vars);
 
             userland_execve::exec_with_options(exec);
         }
@@ -131,7 +140,6 @@ enum PackedError {
     ExtractPackError(#[from] brioche_pack::ExtractPackError),
     PackResourceDirError(#[from] brioche_pack::PackResourceDirError),
     InvalidPath,
-    InvalidEnvVar,
 }
 
 impl std::fmt::Display for PackedError {
@@ -165,6 +173,5 @@ fn error_summary(error: &PackedError) -> &'static str {
             }
         },
         PackedError::InvalidPath => "invalid path",
-        PackedError::InvalidEnvVar => "invalid env var",
     }
 }
