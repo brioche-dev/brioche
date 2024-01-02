@@ -14,11 +14,11 @@ const LENGTH_BYTES: usize = 4;
 type LengthInt = u32;
 
 #[serde_with::serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pack {
     #[serde_as(as = "UrlEncoded")]
-    pub program: bstr::BString,
+    pub program: Vec<u8>,
     pub interpreter: Option<Interpreter>,
 }
 
@@ -31,15 +31,15 @@ impl Pack {
 
         let mut paths = vec![];
 
-        paths.push(program.clone());
+        paths.push(bstr::BString::from(program.clone()));
         if let Some(interpreter) = interpreter {
             match interpreter {
                 Interpreter::LdLinux {
                     path,
                     library_paths,
                 } => {
-                    paths.push(path.clone());
-                    paths.extend(library_paths.iter().cloned());
+                    paths.push(bstr::BString::from(path.clone()));
+                    paths.extend(library_paths.iter().cloned().map(bstr::BString::from));
                 }
             }
         }
@@ -49,16 +49,16 @@ impl Pack {
 }
 
 #[serde_with::serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum Interpreter {
     #[serde(rename_all = "camelCase")]
     LdLinux {
         #[serde_as(as = "UrlEncoded")]
-        path: bstr::BString,
+        path: Vec<u8>,
         #[serde_as(as = "Vec<UrlEncoded>")]
-        library_paths: Vec<bstr::BString>,
+        library_paths: Vec<Vec<u8>>,
     },
 }
 
@@ -90,7 +90,8 @@ pub fn find_resource_dir(program: &Path) -> Result<PathBuf, PackResourceDirError
 }
 
 pub fn inject_pack(mut writer: impl std::io::Write, pack: &Pack) -> Result<(), InjectPackError> {
-    let pack_bytes = serde_json::to_vec(pack).map_err(InjectPackError::SerializeError)?;
+    let pack_bytes = bincode::encode_to_vec(pack, bincode::config::standard())
+        .map_err(InjectPackError::SerializeError)?;
     let pack_length: LengthInt = pack_bytes
         .len()
         .try_into()
@@ -132,7 +133,8 @@ pub fn extract_pack(mut reader: impl std::io::Read) -> Result<Pack, ExtractPackE
         .strip_suffix(MARKER)
         .ok_or_else(|| ExtractPackError::MalformedMarker)?;
 
-    let pack = serde_json::from_slice(pack).map_err(ExtractPackError::InvalidPack)?;
+    let (pack, _) = bincode::decode_from_slice(pack, bincode::config::standard())
+        .map_err(ExtractPackError::InvalidPack)?;
 
     Ok(pack)
 }
@@ -152,7 +154,7 @@ pub enum InjectPackError {
     #[error("failed to write packed program: {0}")]
     IoError(#[from] std::io::Error),
     #[error("failed to serialize pack: {0}")]
-    SerializeError(#[source] serde_json::Error),
+    SerializeError(#[source] bincode::error::EncodeError),
     #[error("pack JSON too large")]
     PackTooLarge,
 }
@@ -166,5 +168,5 @@ pub enum ExtractPackError {
     #[error("marker was malformed at the end of the packed program")]
     MalformedMarker,
     #[error("failed to parse pack: {0}")]
-    InvalidPack(#[source] serde_json::Error),
+    InvalidPack(#[source] bincode::error::DecodeError),
 }
