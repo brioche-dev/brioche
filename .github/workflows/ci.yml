@@ -95,7 +95,7 @@ jobs:
           path: artifacts/brioche
   push:
     name: Push artifacts
-    if: github.ref_name == 'main' && github.repository == 'brioche-dev/brioche'
+    if: github.repository == 'brioche-dev/brioche'
     needs: [test, build]
     runs-on: ubuntu-22.04
     steps:
@@ -104,20 +104,42 @@ jobs:
         with:
           name: brioche
           path: artifacts/brioche
-      # Upload all artifacts under the branch name, and upload a subset under the commit hash.
+      # Prepare the upload for the current commit and branch:
+      # - The current branch will be uploaded with all artifacts
+      # - The current commit will be uploaded with most artifacts (with some
+      #   exceptions to avoid wasting space)
+      # - The current files from the bucket will be downloaded first,
+      #   so that existing files are not overwritten. This is so that file
+      #   hashes never change under the commit e.g. if the GitHub Actions
+      #   workflow is re-run
+      - name: Prepare upload
+        run: |
+          mkdir -p artifacts/uploads/commit artifacts/uploads/branch
+          cp -r artifacts/brioche/* artifacts/uploads/commit/
+          cp -r artifacts/brioche/* artifacts/uploads/branch/
+
+          rm artifacts/uploads/commit/*/brioche
+
+          aws s3 sync \
+            --endpoint "$S3_ENDPOINT" \
+            "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/commits/$GITHUB_SHA/" \
+            artifacts/uploads/commit/
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.R2_S3_REGION }}
+          S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
       - name: Upload to S3
         run: |
           aws s3 sync \
             --endpoint "$S3_ENDPOINT" \
             --delete \
-            artifacts/brioche/ \
+            artifacts/uploads/branch/ \
             "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/branches/$GITHUB_REF_NAME/"
-
-          rm artifacts/brioche/*/brioche
-          aws s3 cp \
+          aws s3 sync \
             --endpoint "$S3_ENDPOINT" \
-            --recursive \
-            artifacts/brioche/ \
+            --delete \
+            artifacts/uploads/commit/ \
             "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/commits/$GITHUB_SHA/"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
