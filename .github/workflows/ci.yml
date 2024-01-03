@@ -29,11 +29,17 @@ jobs:
         run: make check-db-schema
       - name: Check Clippy
         run: cargo clippy --all -- -Dwarnings
-      - name: Build runtime distribution
+      - name: Check runtime distribution is up to date
         run: |
           cd crates/brioche/runtime
           npm install
           npm run build
+          if [ -n "$(git status --porcelain)" ]; then
+            git status
+            echo "NPM build in crates/brioche/runtime is out of date!" >&2
+            echo "Re-run 'npm run build' and commit the results" >&2
+            exit 1
+          fi
       - name: Run tests
         run: cargo test --all
   build:
