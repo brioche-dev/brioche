@@ -2,7 +2,8 @@
   "name": "brioche-runtime",
   "version": "0.0.0",
   "scripts": {
-    "build": "esbuild --bundle src/index.ts --format=esm --outfile=dist/index.js --minify-whitespace"
+    "build": "esbuild --bundle src/index.ts --format=esm --outfile=dist/index.js --minify-whitespace",
+    "check": "tsc --noEmit"
   },
   "devDependencies": {
     "esbuild": "^0.19.2"
