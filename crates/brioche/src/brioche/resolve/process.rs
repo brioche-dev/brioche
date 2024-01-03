@@ -27,8 +27,6 @@ use crate::{
 
 const GUEST_UID_HINT: u32 = 1099;
 const GUEST_GID_HINT: u32 = 1099;
-const GUEST_USERNAME_HINT: &str = "brioche-runner";
-const GUEST_HOME_DIR: &str = "/home/brioche-runner";
 
 #[tracing::instrument(skip(brioche, process))]
 pub async fn resolve_lazy_process_to_process(
@@ -116,6 +114,8 @@ pub async fn resolve_process(
     let _permit = brioche.process_semaphore.acquire().await;
     tracing::debug!("acquired process semaphore permit");
 
+    let hash = LazyValue::CompleteProcess(process.clone()).hash();
+
     let temp_dir = brioche.home.join("process-temp");
     let resolve_dir = temp_dir.join(ulid::Ulid::new().to_string());
     let resolve_dir = ResolveDir::create(resolve_dir).await?;
@@ -123,14 +123,20 @@ pub async fn resolve_process(
     tokio::fs::create_dir(&root_dir).await?;
     let output_dir = resolve_dir.path().join("outputs");
     tokio::fs::create_dir(&output_dir).await?;
-    let output_path = output_dir.join("output");
+    let output_path = output_dir.join(format!("output-{hash}"));
     let stdout_file = tokio::fs::File::create(resolve_dir.path().join("stdout.log")).await?;
     let stderr_file = tokio::fs::File::create(resolve_dir.path().join("stderr.log")).await?;
     let status_path = resolve_dir.path().join("status.txt");
 
-    set_up_rootfs(brioche, &root_dir).await?;
+    // Generate a username and home directory in the sandbox based on
+    // the process's hash. This is done so processes can't make assumptions
+    // about what folder they run in, while also ensuring the home directory
+    // path is fully deterministic.
+    let guest_username = format!("brioche-runner-{hash}");
+    let guest_home_dir = format!("/home/{guest_username}");
+    set_up_rootfs(brioche, &root_dir, &guest_username, &guest_home_dir).await?;
 
-    let guest_home_dir = PathBuf::from(GUEST_HOME_DIR);
+    let guest_home_dir = PathBuf::from(guest_home_dir);
     let relative_home_dir = guest_home_dir
         .strip_prefix("/")
         .expect("invalid guest home dir");
@@ -452,28 +458,38 @@ async fn build_process_template(
                     .map_err(|e| anyhow::anyhow!("failed to copy resources dir: {}", e))?;
                 }
 
+                // $HOME/.local/share/brioche/locals/$HASH
+                let guest_local_path: bstr::BString = dirs
+                    .guest_home_dir
+                    .iter()
+                    .copied()
+                    .chain(b"/.local/share/brioche/locals/".iter().copied())
+                    .chain(value.value.hash().to_string().bytes())
+                    .collect();
                 result
                     .components
                     .push(SandboxTemplateComponent::Path(SandboxPath {
                         host_path: local_output.path,
                         options: SandboxPathOptions {
                             mode: HostPathMode::Read,
-                            guest_path_hint: bstr::BString::from(format!(
-                                "/home/brioche-runner/.local/share/brioche/locals/{}",
-                                value.value.hash()
-                            )),
+                            guest_path_hint: guest_local_path,
                         },
                     }));
             }
             CompleteProcessTemplateComponent::OutputPath => {
+                // $HOME/.local/share/brioche/outputs
+                let guest_outputs_path: bstr::BString = dirs
+                    .guest_home_dir
+                    .iter()
+                    .chain(b"/.local/share/brioche/outputs".iter())
+                    .copied()
+                    .collect();
                 result.components.extend([
                     SandboxTemplateComponent::Path(SandboxPath {
                         host_path: output_parent.to_owned(),
                         options: SandboxPathOptions {
                             mode: HostPathMode::ReadWriteCreate,
-                            guest_path_hint: bstr::BString::from(
-                                "/home/brioche-runner/.local/share/brioche/outputs",
-                            ),
+                            guest_path_hint: guest_outputs_path,
                         },
                     }),
                     SandboxTemplateComponent::Literal {
@@ -532,7 +548,12 @@ async fn build_process_template(
 }
 
 #[tracing::instrument(skip(brioche))]
-async fn set_up_rootfs(brioche: &Brioche, rootfs_dir: &Path) -> anyhow::Result<()> {
+async fn set_up_rootfs(
+    brioche: &Brioche,
+    rootfs_dir: &Path,
+    guest_username: &str,
+    guest_home_dir: &str,
+) -> anyhow::Result<()> {
     let output_rootfs_options = crate::brioche::output::OutputOptions {
         output_path: rootfs_dir,
         merge: true,
@@ -589,7 +610,7 @@ async fn set_up_rootfs(brioche: &Brioche, rootfs_dir: &Path) -> anyhow::Result<(
         .context("failed to create etc")?;
 
     let etc_passwd_contents = format!(
-        "{GUEST_USERNAME_HINT}:!x:{GUEST_UID_HINT}:{GUEST_GID_HINT}::{GUEST_HOME_DIR}:/bin/sh\n",
+        "{guest_username}:!x:{GUEST_UID_HINT}:{GUEST_GID_HINT}::{guest_home_dir}:/bin/sh\n",
     );
     tokio::fs::write(etc_dir.join("passwd"), &etc_passwd_contents).await?;
 
