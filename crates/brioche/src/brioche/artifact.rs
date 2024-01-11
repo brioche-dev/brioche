@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
+    io::Write as _,
     sync::{Arc, OnceLock, RwLock},
 };
 
@@ -623,13 +624,22 @@ pub enum DirectoryError {
 pub struct ArtifactHash(blake3::Hash);
 
 impl ArtifactHash {
+    /// A common prefix used when hasing an artifact. When incompatible changes
+    /// are made to the artifact schema, this prefix will be changed to ensure
+    /// that we don't accidentally match a former artifact hash that has the
+    /// same binary representation.
+    const VERSION_PREFIX: &'static [u8] = b"v0              ";
+
     fn from_serializable<V>(value: &V) -> anyhow::Result<Self>
     where
         V: serde::Serialize,
     {
         let mut hasher = blake3::Hasher::new();
+        hasher.write_all(Self::VERSION_PREFIX)?;
+
         let mut serializer = bincode::Serializer::new(&mut hasher, bincode::options());
         value.serialize(&mut serializer)?;
+
         let hash = hasher.finalize();
         Ok(Self(hash))
     }

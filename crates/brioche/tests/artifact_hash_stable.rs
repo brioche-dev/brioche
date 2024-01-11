@@ -26,29 +26,29 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         brioche_test::lazy_file(hello_blob, false)
             .hash()
             .to_string(),
-        "9a079c4980c3379e63c59ce4e2081144eb857e259b48f3851314cc38a955699f",
+        "a6b7080d0b8c52c608680ba9c86cbaf8ddb2fa68782ca56a5e6bb640add8220f",
     ));
     asserts.push((
         brioche_test::file(hello_blob, false).hash().to_string(),
-        "9a079c4980c3379e63c59ce4e2081144eb857e259b48f3851314cc38a955699f",
+        "a6b7080d0b8c52c608680ba9c86cbaf8ddb2fa68782ca56a5e6bb640add8220f",
     ));
 
     asserts.push((
         brioche_test::lazy_file(hi_blob, false).hash().to_string(),
-        "fa86db9cdc5939031686fc72bb07e4fa768951a8d12277abcfe2f1f20af3adab",
+        "a325a432160ad49a11697bd2f18157b5124ed48376453bc851f627b8cef58eac",
     ));
     asserts.push((
         brioche_test::file(hi_blob, false).hash().to_string(),
-        "fa86db9cdc5939031686fc72bb07e4fa768951a8d12277abcfe2f1f20af3adab",
+        "a325a432160ad49a11697bd2f18157b5124ed48376453bc851f627b8cef58eac",
     ));
 
     asserts.push((
         brioche_test::lazy_file(hello_blob, true).hash().to_string(),
-        "cdbf5f4dc5965b5e27973be505fa8aadcb51ce4918679f05ebd00c562498d332",
+        "20ed0a264da3b8fb5c27fca2d70778590a764129de7157070aa25fbcf31ac7ea",
     ));
     asserts.push((
         brioche_test::file(hello_blob, true).hash().to_string(),
-        "cdbf5f4dc5965b5e27973be505fa8aadcb51ce4918679f05ebd00c562498d332",
+        "20ed0a264da3b8fb5c27fca2d70778590a764129de7157070aa25fbcf31ac7ea",
     ));
 
     asserts.push((
@@ -59,7 +59,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "bdb8b2cdc7e9e229487eeaed7794a2db6aed8c212efbfd29a29c338db1866204",
+        "27c41efc8d056e2d571f781032416d95714cd77da82afc40135ce21c0453f4a6",
     ));
     asserts.push((
         brioche_test::file_with_resources(
@@ -69,7 +69,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "bdb8b2cdc7e9e229487eeaed7794a2db6aed8c212efbfd29a29c338db1866204",
+        "27c41efc8d056e2d571f781032416d95714cd77da82afc40135ce21c0453f4a6",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -91,24 +91,24 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
 
     asserts.push((
         brioche_test::lazy_dir_empty().hash().to_string(),
-        "120d30430ef023b30a692898135888e4c874ba0b5c947c7669a52cc4ee7ad627",
+        "2f51f105073a1b8b7644b23c3992439a3f82e6b54c0d06b10ed65575a6283135",
     ));
     asserts.push((
         brioche_test::dir_empty().hash().to_string(),
-        "120d30430ef023b30a692898135888e4c874ba0b5c947c7669a52cc4ee7ad627",
+        "2f51f105073a1b8b7644b23c3992439a3f82e6b54c0d06b10ed65575a6283135",
     ));
 
     asserts.push((
         brioche_test::lazy_dir([("foo.txt", brioche_test::lazy_file(hello_blob, false))])
             .hash()
             .to_string(),
-        "c94c3463d774128e360d449855c77ae4ac445e8d68686ce4a7acd16ba449d5a2",
+        "939a1c5b18900279593cea01e1a78e6ea0604eebd080f845011353c476b64a2c",
     ));
     asserts.push((
         brioche_test::dir([("foo.txt", brioche_test::file(hello_blob, false))])
             .hash()
             .to_string(),
-        "c94c3463d774128e360d449855c77ae4ac445e8d68686ce4a7acd16ba449d5a2",
+        "939a1c5b18900279593cea01e1a78e6ea0604eebd080f845011353c476b64a2c",
     ));
 
     asserts.push((
@@ -121,7 +121,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         ])
         .hash()
         .to_string(),
-        "48aa91e007cb0558f1066d3515d04b84af2045934a922c35dca40d6f5d7b818c",
+        "9a381be2fd8619d55273d037c1ceb6068ddb3fdfaffff85cec0c9fdd78a7bf93",
     ));
     asserts.push((
         brioche_test::dir([
@@ -133,7 +133,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         ])
         .hash()
         .to_string(),
-        "48aa91e007cb0558f1066d3515d04b84af2045934a922c35dca40d6f5d7b818c",
+        "9a381be2fd8619d55273d037c1ceb6068ddb3fdfaffff85cec0c9fdd78a7bf93",
     ));
 
     asserts.push((
@@ -148,7 +148,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         )])
         .hash()
         .to_string(),
-        "98baf3417ffedf6cdf106be3cf417948d7b238efae2c4f5d59c19b55f52436f9",
+        "e68087284af6d54595c2235c97630ac5d2fcdeba87f27e91af278b6c3ab576c4",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -167,20 +167,20 @@ async fn test_artifact_hash_stable_symlink() -> anyhow::Result<()> {
 
     asserts.push((
         brioche_test::lazy_symlink(b"foo").hash().to_string(),
-        "26a52225e2c81f75ff86229de52eac402d8249457f990e2ec3765f1402f1a858",
+        "5beab9f7b650a3804bf79f30355309421e61a3978087a79d1baa299ddc8fac7c",
     ));
     asserts.push((
         brioche_test::symlink(b"foo").hash().to_string(),
-        "26a52225e2c81f75ff86229de52eac402d8249457f990e2ec3765f1402f1a858",
+        "5beab9f7b650a3804bf79f30355309421e61a3978087a79d1baa299ddc8fac7c",
     ));
 
     asserts.push((
         brioche_test::lazy_symlink(b"/foo").hash().to_string(),
-        "adc5ca4776f9692ce4927b5eddfc3805103e44bc40ff9052d81728a219971518",
+        "f815995c6f75a4a37a05b2ce2c9c8605a1f6c194f6a4671bc4cf76ace03e2860",
     ));
     asserts.push((
         brioche_test::symlink(b"/foo").hash().to_string(),
-        "adc5ca4776f9692ce4927b5eddfc3805103e44bc40ff9052d81728a219971518",
+        "f815995c6f75a4a37a05b2ce2c9c8605a1f6c194f6a4671bc4cf76ace03e2860",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -204,7 +204,7 @@ async fn test_artifact_hash_stable_download() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "bd0b77e2b00affe0e5125f225f8be8c526a5ed16d3cdc9c9216097d356ed7927",
+        "9a6643fe132824d8cfb0a2949a7d0e6ae0b84cc73cb7bdf833dd0ab1d65b0937",
     ));
 
     asserts.push((
@@ -214,7 +214,7 @@ async fn test_artifact_hash_stable_download() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "cbe804cc8104b653ef055d63a702c948be1e04dd8d1cb381ebe31b3b0d627404",
+        "0abe03ac1f459602aec0f3ddacbe025d7e318541290287c6357aa284446279b1",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -241,7 +241,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "95d771b576c1744b51a825e301e4ea0a1461d8e4cf871f31182096a01c80afdd",
+        "d9df4f961f526c9124fb19b2a9e9696a83f1d2cdd3f390660e78c465b93f79a8",
     ));
 
     asserts.push((
@@ -258,7 +258,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "283cd9be9a77f7422b83aaf3e3498c526716ae9ee6cf7e2add4239c6cac23f18",
+        "8eaec0e082b66e6344d0ad10e493f4f7d0ca0f47515a2011a5c851d1eaf3419b",
     ));
 
     asserts.push((
@@ -277,7 +277,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "9a4a51b8ac5e8a64029e931dd68803e56833366bf7c8f92291eaa408f8a7155a",
+        "d94023b82816a1b8cb316cfe175a1ab8dcd9c0029cd35065a098474910f9cdab",
     ));
 
     asserts.push((
@@ -303,7 +303,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "97d57a379ac1bcf7b45bfc6cbc0948611356837e185fb9ac8edaf42d99b0caa9",
+        "caf4553cb77d7527cd01d0dc954bf8d083d1f313bdffde2496e9859c1b1f38c1",
     ));
 
     asserts.push((
@@ -334,7 +334,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "2f43b3dd5342d3ee746994eb4406658b35e59ab92ec78c1ffbd430e0f3280d97",
+        "b065cc3f66e108550f62cbbf6202ac2dd9ca423b01ee7ca6d7352782e675601f",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
