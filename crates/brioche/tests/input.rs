@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt as _, path::Path, sync::Arc};
 
 use brioche::brioche::{
-    value::{CompleteValue, Meta},
+    artifact::{CompleteArtifact, Meta},
     Brioche,
 };
 use pretty_assertions::assert_eq;
@@ -12,8 +12,8 @@ async fn create_input(
     brioche: &Brioche,
     input_path: &Path,
     remove_input: bool,
-) -> anyhow::Result<CompleteValue> {
-    let value = brioche::brioche::input::create_input(
+) -> anyhow::Result<CompleteArtifact> {
+    let artifact = brioche::brioche::input::create_input(
         brioche,
         brioche::brioche::input::InputOptions {
             input_path,
@@ -24,7 +24,7 @@ async fn create_input(
     )
     .await?;
 
-    Ok(value.value)
+    Ok(artifact.value)
 }
 
 async fn create_input_with_resources(
@@ -32,8 +32,8 @@ async fn create_input_with_resources(
     input_path: &Path,
     resources_dir: &Path,
     remove_input: bool,
-) -> anyhow::Result<CompleteValue> {
-    let value = brioche::brioche::input::create_input(
+) -> anyhow::Result<CompleteArtifact> {
+    let artifact = brioche::brioche::input::create_input(
         brioche,
         brioche::brioche::input::InputOptions {
             input_path,
@@ -43,7 +43,7 @@ async fn create_input_with_resources(
         },
     )
     .await?;
-    Ok(value.value)
+    Ok(artifact.value)
 }
 
 #[tokio::test]
@@ -52,10 +52,10 @@ async fn test_input_file() -> anyhow::Result<()> {
 
     let file_path = context.write_file("hello.txt", b"hello").await;
 
-    let value = create_input(&brioche, &file_path, false).await?;
+    let artifact = create_input(&brioche, &file_path, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false)
     );
     assert!(file_path.is_file());
@@ -77,10 +77,10 @@ async fn test_input_executable_file() -> anyhow::Result<()> {
         .await
         .expect("failed to set permissions");
 
-    let value = create_input(&brioche, &file_path, false).await?;
+    let artifact = create_input(&brioche, &file_path, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::file(brioche_test::blob(&brioche, b"hello").await, true)
     );
     assert!(file_path.is_file());
@@ -94,9 +94,9 @@ async fn test_input_symlink() -> anyhow::Result<()> {
 
     let symlink_path = context.write_symlink("/foo", "foo").await;
 
-    let value = create_input(&brioche, &symlink_path, false).await?;
+    let artifact = create_input(&brioche, &symlink_path, false).await?;
 
-    assert_eq!(value, brioche_test::symlink("/foo"));
+    assert_eq!(artifact, brioche_test::symlink("/foo"));
     assert!(symlink_path.is_symlink());
 
     Ok(())
@@ -108,9 +108,9 @@ async fn test_input_empty_dir() -> anyhow::Result<()> {
 
     let dir_path = context.mkdir("test").await;
 
-    let value = create_input(&brioche, &dir_path, false).await?;
+    let artifact = create_input(&brioche, &dir_path, false).await?;
 
-    assert_eq!(value, brioche_test::dir_empty());
+    assert_eq!(artifact, brioche_test::dir_empty());
     assert!(dir_path.is_dir());
 
     Ok(())
@@ -125,10 +125,10 @@ async fn test_input_dir() -> anyhow::Result<()> {
     context.mkdir("test/empty").await;
     context.write_symlink("hello/hi.txt", "test/link").await;
 
-    let value = create_input(&brioche, &dir_path, false).await?;
+    let artifact = create_input(&brioche, &dir_path, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::dir([
             (
                 "hello",
@@ -155,10 +155,10 @@ async fn test_input_remove_original() -> anyhow::Result<()> {
     context.mkdir("test/empty").await;
     context.write_symlink("hello/hi.txt", "test/link").await;
 
-    let value = create_input(&brioche, &dir_path, true).await?;
+    let artifact = create_input(&brioche, &dir_path, true).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::dir([
             (
                 "hello",
@@ -196,10 +196,10 @@ async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
         .write_file("test/brioche-pack.d/test", b"test")
         .await;
 
-    let value = create_input(&brioche, &dir_path, false).await?;
+    let artifact = create_input(&brioche, &dir_path, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::dir([
             (
                 "hi",
@@ -238,10 +238,10 @@ async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
     context.write_file("test/hi", &packed_file).await;
     context.write_file("resources/test", b"test").await;
 
-    let value = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::dir([(
             "hi",
             brioche_test::file_with_resources(
@@ -279,10 +279,10 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
     context.write_symlink("test_target", "resources/test").await;
     context.write_file("resources/test_target", b"test").await;
 
-    let value = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::dir([(
             "hi",
             brioche_test::file_with_resources(
@@ -322,10 +322,10 @@ async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
     context.write_file("test/hi", &packed_file).await;
     context.write_symlink("test_target", "resources/test").await;
 
-    let value = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::dir([(
             "hi",
             brioche_test::file_with_resources(
@@ -363,10 +363,10 @@ async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
         .await;
     context.write_file("resources/test_target", b"test").await;
 
-    let value = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::dir([(
             "hi",
             brioche_test::file_with_resources(
@@ -421,10 +421,10 @@ async fn test_input_dir_omits_unused_resources() -> anyhow::Result<()> {
     // Not referenced by any pack
     context.write_file("resources/unused.txt", "other").await;
 
-    let value = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
 
     assert_eq!(
-        value,
+        artifact,
         brioche_test::dir([(
             "hi",
             brioche_test::file_with_resources(

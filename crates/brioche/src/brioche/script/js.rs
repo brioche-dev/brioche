@@ -1,7 +1,7 @@
 use anyhow::Context as _;
 use deno_core::v8;
 
-use crate::brioche::value::StackFrame;
+use crate::brioche::artifact::StackFrame;
 
 deno_core::extension!(
     brioche_js,

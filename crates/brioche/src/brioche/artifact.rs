@@ -25,7 +25,7 @@ use super::{blob::BlobId, platform::Platform, Hash};
 #[strum_discriminants(vis(pub))]
 #[strum_discriminants(derive(serde::Serialize, serde::Deserialize))]
 #[strum_discriminants(serde(rename_all = "snake_case"))]
-pub enum LazyValue {
+pub enum LazyArtifact {
     #[serde(rename_all = "camelCase")]
     File {
         data: BlobId,
@@ -40,59 +40,59 @@ pub enum LazyValue {
     #[serde(rename_all = "camelCase")]
     Directory(LazyDirectory),
     #[serde(rename_all = "camelCase")]
-    Download(DownloadValue),
+    Download(DownloadArtifact),
     #[serde(rename_all = "camelCase")]
-    Unpack(UnpackValue),
-    Process(ProcessValue),
-    CompleteProcess(CompleteProcessValue),
+    Unpack(UnpackArtifact),
+    Process(ProcessArtifact),
+    CompleteProcess(CompleteProcessArtifact),
     #[serde(rename_all = "camelCase")]
     CreateFile {
         #[serde_as(as = "UrlEncoded")]
         data: BString,
         executable: bool,
-        resources: Box<WithMeta<LazyValue>>,
+        resources: Box<WithMeta<LazyArtifact>>,
     },
     #[serde(rename_all = "camelCase")]
     Cast {
-        value: Box<WithMeta<LazyValue>>,
-        to: CompleteValueDiscriminants,
+        artifact: Box<WithMeta<LazyArtifact>>,
+        to: CompleteArtifactDiscriminants,
     },
     #[serde(rename_all = "camelCase")]
     Merge {
-        directories: Vec<WithMeta<LazyValue>>,
+        directories: Vec<WithMeta<LazyArtifact>>,
     },
     #[serde(rename_all = "camelCase")]
     Peel {
-        directory: Box<WithMeta<LazyValue>>,
+        directory: Box<WithMeta<LazyArtifact>>,
         depth: u32,
     },
     #[serde(rename_all = "camelCase")]
     Get {
-        directory: Box<WithMeta<LazyValue>>,
+        directory: Box<WithMeta<LazyArtifact>>,
         #[serde_as(as = "UrlEncoded")]
         path: BString,
     },
     #[serde(rename_all = "camelCase")]
     Remove {
-        directory: Box<WithMeta<LazyValue>>,
+        directory: Box<WithMeta<LazyArtifact>>,
         #[serde_as(as = "Vec<UrlEncoded>")]
         paths: Vec<BString>,
     },
     #[serde(rename_all = "camelCase")]
     SetPermissions {
-        file: Box<WithMeta<LazyValue>>,
+        file: Box<WithMeta<LazyArtifact>>,
         executable: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
     Proxy {
-        hash: ValueHash,
+        hash: ArtifactHash,
     },
 }
 
-impl LazyValue {
+impl LazyArtifact {
     #[tracing::instrument(skip_all)]
-    pub fn try_hash(&self) -> anyhow::Result<ValueHash> {
-        static HASHES: OnceLock<RwLock<HashMap<LazyValue, ValueHash>>> = OnceLock::new();
+    pub fn try_hash(&self) -> anyhow::Result<ArtifactHash> {
+        static HASHES: OnceLock<RwLock<HashMap<LazyArtifact, ArtifactHash>>> = OnceLock::new();
         let hashes = HASHES.get_or_init(|| RwLock::new(HashMap::new()));
         {
             let hashes_reader = hashes
@@ -103,7 +103,7 @@ impl LazyValue {
             }
         }
 
-        let hash = ValueHash::from_serializable(self)?;
+        let hash = ArtifactHash::from_serializable(self)?;
         {
             let mut hashes_writer = hashes
                 .write()
@@ -114,11 +114,11 @@ impl LazyValue {
         Ok(hash)
     }
 
-    pub fn hash(&self) -> ValueHash {
-        self.try_hash().expect("failed to hash value")
+    pub fn hash(&self) -> ArtifactHash {
+        self.try_hash().expect("failed to hash artifact")
     }
 
-    pub fn kind(&self) -> LazyValueDiscriminants {
+    pub fn kind(&self) -> LazyArtifactDiscriminants {
         self.into()
     }
 }
@@ -188,15 +188,15 @@ where
     }
 }
 
-impl std::ops::Deref for WithMeta<LazyValue> {
-    type Target = LazyValue;
+impl std::ops::Deref for WithMeta<LazyArtifact> {
+    type Target = LazyArtifact;
 
     fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
 
-impl std::ops::DerefMut for WithMeta<LazyValue> {
+impl std::ops::DerefMut for WithMeta<LazyArtifact> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
     }
@@ -232,7 +232,7 @@ impl std::fmt::Display for StackFrame {
 #[serde(rename_all = "camelCase")]
 pub struct LazyDirectory {
     #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
-    pub entries: BTreeMap<BString, WithMeta<LazyValue>>,
+    pub entries: BTreeMap<BString, WithMeta<LazyArtifact>>,
 }
 
 impl LazyDirectory {
@@ -243,15 +243,15 @@ impl LazyDirectory {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DownloadValue {
+pub struct DownloadArtifact {
     pub url: url::Url,
     pub hash: Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UnpackValue {
-    pub file: Box<WithMeta<LazyValue>>,
+pub struct UnpackArtifact {
+    pub file: Box<WithMeta<LazyArtifact>>,
     pub archive: ArchiveFormat,
     #[serde(default)]
     pub compression: CompressionFormat,
@@ -260,19 +260,19 @@ pub struct UnpackValue {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProcessValue {
+pub struct ProcessArtifact {
     pub command: ProcessTemplate,
     pub args: Vec<ProcessTemplate>,
     #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
     pub env: BTreeMap<BString, ProcessTemplate>,
-    pub work_dir: Box<WithMeta<LazyValue>>,
+    pub work_dir: Box<WithMeta<LazyArtifact>>,
     pub platform: Platform,
 }
 
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CompleteProcessValue {
+pub struct CompleteProcessArtifact {
     pub command: CompleteProcessTemplate,
     pub args: Vec<CompleteProcessTemplate>,
     #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
@@ -297,7 +297,7 @@ pub struct CompleteProcessValue {
 #[strum_discriminants(vis(pub))]
 #[strum_discriminants(derive(Hash, serde::Serialize, serde::Deserialize))]
 #[strum_discriminants(serde(rename_all = "snake_case"))]
-pub enum CompleteValue {
+pub enum CompleteArtifact {
     #[serde(rename_all = "camelCase")]
     File(File),
     #[serde(rename_all = "camelCase")]
@@ -309,15 +309,15 @@ pub enum CompleteValue {
     Directory(Directory),
 }
 
-impl CompleteValue {
+impl CompleteArtifact {
     #[tracing::instrument(skip_all)]
-    pub fn try_hash(&self) -> anyhow::Result<ValueHash> {
-        let hash = ValueHash::from_serializable(self)?;
+    pub fn try_hash(&self) -> anyhow::Result<ArtifactHash> {
+        let hash = ArtifactHash::from_serializable(self)?;
         Ok(hash)
     }
 
-    pub fn hash(&self) -> ValueHash {
-        self.try_hash().expect("failed to hash value")
+    pub fn hash(&self) -> ArtifactHash {
+        self.try_hash().expect("failed to hash artifact")
     }
 }
 
@@ -335,7 +335,7 @@ pub struct File {
 #[serde(rename_all = "camelCase")]
 pub struct Directory {
     #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
-    pub entries: BTreeMap<BString, WithMeta<CompleteValue>>,
+    pub entries: BTreeMap<BString, WithMeta<CompleteArtifact>>,
 }
 
 impl Directory {
@@ -346,8 +346,8 @@ impl Directory {
     pub fn insert(
         &mut self,
         path: &[u8],
-        value: WithMeta<CompleteValue>,
-    ) -> Result<Option<WithMeta<CompleteValue>>, DirectoryError> {
+        artifact: WithMeta<CompleteArtifact>,
+    ) -> Result<Option<WithMeta<CompleteArtifact>>, DirectoryError> {
         let path = bstr::BStr::new(path);
         let mut components = vec![];
         for component in path.split(|&byte| byte == b'/' || byte == b'\\') {
@@ -375,20 +375,20 @@ impl Directory {
                 .entries
                 .entry(component.to_vec().into())
                 .or_insert_with(|| {
-                    WithMeta::without_meta(CompleteValue::Directory(Directory::default()))
+                    WithMeta::without_meta(CompleteArtifact::Directory(Directory::default()))
                 });
-            let CompleteValue::Directory(entry) = &mut entry.value else {
+            let CompleteArtifact::Directory(entry) = &mut entry.value else {
                 return Err(DirectoryError::PathDescendsIntoNonDirectory { path: path.into() });
             };
             directory = entry;
         }
 
-        let replaced = directory.entries.insert(filename.to_vec().into(), value);
+        let replaced = directory.entries.insert(filename.to_vec().into(), artifact);
 
         Ok(replaced)
     }
 
-    pub fn get(&self, path: &[u8]) -> anyhow::Result<Option<&WithMeta<CompleteValue>>> {
+    pub fn get(&self, path: &[u8]) -> anyhow::Result<Option<&WithMeta<CompleteArtifact>>> {
         let path = bstr::BStr::new(path);
         let mut components = vec![];
         for component in path.split(|&byte| byte == b'/' || byte == b'\\') {
@@ -421,7 +421,7 @@ impl Directory {
                 }
             };
             let entry = match &entry.value {
-                CompleteValue::Directory(directory) => directory,
+                CompleteArtifact::Directory(directory) => directory,
                 other => anyhow::bail!(
                     "tried to descend into non-directory at {}: {other:?}",
                     BString::from(path),
@@ -438,7 +438,7 @@ impl Directory {
     pub fn remove(
         &mut self,
         path: &[u8],
-    ) -> Result<Option<WithMeta<CompleteValue>>, DirectoryError> {
+    ) -> Result<Option<WithMeta<CompleteArtifact>>, DirectoryError> {
         let path = bstr::BStr::new(path);
         let mut components = vec![];
         for component in path.split(|&byte| byte == b'/' || byte == b'\\') {
@@ -465,7 +465,7 @@ impl Directory {
             let Some(entry) = directory.entries.get_mut(&**component) else {
                 return Ok(None);
             };
-            let CompleteValue::Directory(entry) = &mut entry.value else {
+            let CompleteArtifact::Directory(entry) = &mut entry.value else {
                 return Err(DirectoryError::PathDescendsIntoNonDirectory { path: path.into() });
             };
             directory = entry;
@@ -477,62 +477,67 @@ impl Directory {
     }
 
     pub fn merge(&mut self, other: Directory) {
-        for (key, value) in other.entries {
+        for (key, artifact) in other.entries {
             match self.entries.entry(key) {
                 std::collections::btree_map::Entry::Occupied(current) => {
-                    match (&mut current.into_mut().value, value.value) {
-                        (CompleteValue::Directory(current), CompleteValue::Directory(other)) => {
+                    match (&mut current.into_mut().value, artifact.value) {
+                        (
+                            CompleteArtifact::Directory(current),
+                            CompleteArtifact::Directory(other),
+                        ) => {
                             current.merge(other);
                         }
-                        (current, value) => {
-                            *current = value;
+                        (current, artifact) => {
+                            *current = artifact;
                         }
                     }
                 }
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(value);
+                    entry.insert(artifact);
                 }
             }
         }
     }
 }
 
-impl TryFrom<LazyValue> for CompleteValue {
-    type Error = ValueIncomplete;
+impl TryFrom<LazyArtifact> for CompleteArtifact {
+    type Error = ArtifactIncomplete;
 
-    fn try_from(value: LazyValue) -> Result<Self, Self::Error> {
+    fn try_from(value: LazyArtifact) -> Result<Self, Self::Error> {
         match value {
-            LazyValue::File {
+            LazyArtifact::File {
                 data,
                 executable,
                 resources: pack,
-            } => Ok(CompleteValue::File(File {
+            } => Ok(CompleteArtifact::File(File {
                 data,
                 executable,
                 resources: pack.try_into()?,
             })),
-            LazyValue::Symlink { target } => Ok(CompleteValue::Symlink { target }),
-            LazyValue::Directory(directory) => Ok(CompleteValue::Directory(directory.try_into()?)),
-            LazyValue::Download { .. }
-            | LazyValue::Unpack { .. }
-            | LazyValue::Process { .. }
-            | LazyValue::CompleteProcess { .. }
-            | LazyValue::CreateFile { .. }
-            | LazyValue::Cast { .. }
-            | LazyValue::Merge { .. }
-            | LazyValue::Peel { .. }
-            | LazyValue::Get { .. }
-            | LazyValue::Remove { .. }
-            | LazyValue::SetPermissions { .. }
-            | LazyValue::Proxy { .. } => Err(ValueIncomplete),
+            LazyArtifact::Symlink { target } => Ok(CompleteArtifact::Symlink { target }),
+            LazyArtifact::Directory(directory) => {
+                Ok(CompleteArtifact::Directory(directory.try_into()?))
+            }
+            LazyArtifact::Download { .. }
+            | LazyArtifact::Unpack { .. }
+            | LazyArtifact::Process { .. }
+            | LazyArtifact::CompleteProcess { .. }
+            | LazyArtifact::CreateFile { .. }
+            | LazyArtifact::Cast { .. }
+            | LazyArtifact::Merge { .. }
+            | LazyArtifact::Peel { .. }
+            | LazyArtifact::Get { .. }
+            | LazyArtifact::Remove { .. }
+            | LazyArtifact::SetPermissions { .. }
+            | LazyArtifact::Proxy { .. } => Err(ArtifactIncomplete),
         }
     }
 }
 
-impl From<CompleteValue> for LazyValue {
-    fn from(value: CompleteValue) -> Self {
+impl From<CompleteArtifact> for LazyArtifact {
+    fn from(value: CompleteArtifact) -> Self {
         match value {
-            CompleteValue::File(File {
+            CompleteArtifact::File(File {
                 data,
                 executable,
                 resources,
@@ -541,19 +546,19 @@ impl From<CompleteValue> for LazyValue {
                 executable,
                 resources: resources.into(),
             },
-            CompleteValue::Symlink { target } => Self::Symlink { target },
-            CompleteValue::Directory(directory) => Self::Directory(directory.into()),
+            CompleteArtifact::Symlink { target } => Self::Symlink { target },
+            CompleteArtifact::Directory(directory) => Self::Directory(directory.into()),
         }
     }
 }
 
-impl From<Directory> for LazyValue {
+impl From<Directory> for LazyArtifact {
     fn from(value: Directory) -> Self {
         let entries = value
             .entries
             .into_iter()
             .map(|(name, entry)| {
-                let entry = WithMeta::new(LazyValue::from(entry.value), entry.meta);
+                let entry = WithMeta::new(LazyArtifact::from(entry.value), entry.meta);
                 (name, entry)
             })
             .collect();
@@ -562,19 +567,19 @@ impl From<Directory> for LazyValue {
 }
 
 impl TryFrom<LazyDirectory> for Directory {
-    type Error = ValueIncomplete;
+    type Error = ArtifactIncomplete;
 
     fn try_from(value: LazyDirectory) -> Result<Self, Self::Error> {
         let entries = value
             .entries
             .into_iter()
             .map(|(name, entry)| {
-                let entry_value: CompleteValue =
-                    entry.value.try_into().map_err(|_| ValueIncomplete)?;
-                let entry = WithMeta::new(entry_value, entry.meta);
-                Result::<_, ValueIncomplete>::Ok((name, entry))
+                let entry_artifact: CompleteArtifact =
+                    entry.value.try_into().map_err(|_| ArtifactIncomplete)?;
+                let entry = WithMeta::new(entry_artifact, entry.meta);
+                Result::<_, ArtifactIncomplete>::Ok((name, entry))
             })
-            .collect::<Result<BTreeMap<_, _>, ValueIncomplete>>()?;
+            .collect::<Result<BTreeMap<_, _>, ArtifactIncomplete>>()?;
         Ok(Directory { entries })
     }
 }
@@ -585,7 +590,7 @@ impl From<Directory> for LazyDirectory {
             .entries
             .into_iter()
             .map(|(name, entry)| {
-                let entry = WithMeta::new(LazyValue::from(entry.value), entry.meta);
+                let entry = WithMeta::new(LazyArtifact::from(entry.value), entry.meta);
                 (name, entry)
             })
             .collect();
@@ -593,7 +598,7 @@ impl From<Directory> for LazyDirectory {
     }
 }
 
-pub struct ValueIncomplete;
+pub struct ArtifactIncomplete;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DirectoryError {
@@ -615,9 +620,9 @@ pub enum DirectoryError {
     serde_with::SerializeDisplay,
     serde_with::DeserializeFromStr,
 )]
-pub struct ValueHash(blake3::Hash);
+pub struct ArtifactHash(blake3::Hash);
 
-impl ValueHash {
+impl ArtifactHash {
     fn from_serializable<V>(value: &V) -> anyhow::Result<Self>
     where
         V: serde::Serialize,
@@ -630,13 +635,13 @@ impl ValueHash {
     }
 }
 
-impl std::fmt::Display for ValueHash {
+impl std::fmt::Display for ArtifactHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl std::str::FromStr for ValueHash {
+impl std::str::FromStr for ArtifactHash {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -661,7 +666,7 @@ pub enum ProcessTemplateComponent {
         value: BString,
     },
     Input {
-        value: WithMeta<LazyValue>,
+        artifact: WithMeta<LazyArtifact>,
     },
     OutputPath,
     ResourcesDir,
@@ -686,7 +691,7 @@ pub enum CompleteProcessTemplateComponent {
         value: BString,
     },
     Input {
-        value: WithMeta<CompleteValue>,
+        artifact: WithMeta<CompleteArtifact>,
     },
     OutputPath,
     ResourcesDir,

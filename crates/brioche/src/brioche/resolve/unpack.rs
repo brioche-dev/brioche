@@ -5,18 +5,18 @@ use futures::TryStreamExt as _;
 use tracing::Instrument;
 
 use crate::brioche::{
-    value::{CompleteValue, Directory, DirectoryError, File, Meta, UnpackValue, WithMeta},
+    artifact::{CompleteArtifact, Directory, DirectoryError, File, Meta, UnpackArtifact, WithMeta},
     Brioche,
 };
 
-#[tracing::instrument(skip(brioche, unpack), fields(file_value = %unpack.file.hash(), archive = ?unpack.archive, compression = ?unpack.compression))]
+#[tracing::instrument(skip(brioche, unpack), fields(file_artifact = %unpack.file.hash(), archive = ?unpack.archive, compression = ?unpack.compression))]
 pub async fn resolve_unpack(
     brioche: &Brioche,
     meta: &Arc<Meta>,
-    unpack: UnpackValue,
+    unpack: UnpackArtifact,
 ) -> anyhow::Result<Directory> {
     let file = super::resolve(brioche, *unpack.file).await?;
-    let CompleteValue::File(File { data: blob_id, .. }) = file.value else {
+    let CompleteArtifact::File(File { data: blob_id, .. }) = file.value else {
         anyhow::bail!("expected archive to be a file");
     };
 
@@ -48,7 +48,7 @@ pub async fn resolve_unpack(
                 crate::reporter::UpdateJob::Unpack { progress_percent },
             );
 
-            let entry_value = match archive_entry.header().entry_type() {
+            let entry_artifact = match archive_entry.header().entry_type() {
                 tokio_tar::EntryType::Regular => {
                     let entry_blob_id = crate::brioche::blob::save_blob(
                         brioche,
@@ -58,7 +58,7 @@ pub async fn resolve_unpack(
                     .await?;
                     let executable = entry_mode & 0o100 != 0;
 
-                    CompleteValue::File(File {
+                    CompleteArtifact::File(File {
                         data: entry_blob_id,
                         executable,
                         resources: Directory::default(),
@@ -72,7 +72,7 @@ pub async fn resolve_unpack(
                         )
                     })?;
 
-                    CompleteValue::Symlink {
+                    CompleteArtifact::Symlink {
                         target: link_name.into_owned().into(),
                     }
                 }
@@ -92,7 +92,9 @@ pub async fn resolve_unpack(
 
                     linked_entry.value.clone()
                 }
-                tokio_tar::EntryType::Directory => CompleteValue::Directory(Directory::default()),
+                tokio_tar::EntryType::Directory => {
+                    CompleteArtifact::Directory(Directory::default())
+                }
                 other => {
                     anyhow::bail!(
                         "unsupported tar archive: unsupported entry type {:?} at {}",
@@ -102,7 +104,7 @@ pub async fn resolve_unpack(
                 }
             };
 
-            match directory.insert(&entry_path, WithMeta::new(entry_value, meta.clone())) {
+            match directory.insert(&entry_path, WithMeta::new(entry_artifact, meta.clone())) {
                 Ok(_) => {}
                 Err(DirectoryError::EmptyPath { .. }) => {
                     tracing::debug!("skipping empty path in tar archive");

@@ -104,9 +104,9 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             }
         }
 
-        let value =
+        let artifact =
             brioche::brioche::script::evaluate::evaluate(&brioche, &project, &args.export).await?;
-        let result = brioche::brioche::resolve::resolve(&brioche, value).await?;
+        let result = brioche::brioche::resolve::resolve(&brioche, artifact).await?;
 
         guard.shutdown_console().await;
 

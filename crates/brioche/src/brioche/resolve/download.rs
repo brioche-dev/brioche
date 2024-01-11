@@ -3,12 +3,15 @@ use futures::TryStreamExt as _;
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
 use crate::brioche::{
-    value::{Directory, DownloadValue, File},
+    artifact::{Directory, DownloadArtifact, File},
     Brioche,
 };
 
 #[tracing::instrument(skip(brioche, download), fields(url = %download.url))]
-pub async fn resolve_download(brioche: &Brioche, download: DownloadValue) -> anyhow::Result<File> {
+pub async fn resolve_download(
+    brioche: &Brioche,
+    download: DownloadArtifact,
+) -> anyhow::Result<File> {
     tracing::debug!("acquiring download semaphore permit");
     let _permit = brioche.download_semaphore.acquire().await;
     tracing::debug!("acquired download semaphore permit");

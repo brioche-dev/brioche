@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt, path::Path};
 
 use assert_matches::assert_matches;
-use brioche::brioche::{value::CompleteValue, Brioche};
+use brioche::brioche::{artifact::CompleteArtifact, Brioche};
 use pretty_assertions::assert_eq;
 
 mod brioche_test;
@@ -15,12 +15,12 @@ async fn dir_is_empty(path: impl AsRef<Path>) -> bool {
 async fn create_output(
     brioche: &Brioche,
     output_path: &Path,
-    value: &CompleteValue,
+    artifact: &CompleteArtifact,
     merge: bool,
 ) -> anyhow::Result<()> {
     brioche::brioche::output::create_output(
         brioche,
-        value,
+        artifact,
         brioche::brioche::output::OutputOptions {
             output_path,
             merge,
@@ -34,12 +34,12 @@ async fn create_output_with_resources(
     brioche: &Brioche,
     output_path: &Path,
     resources_dir: &Path,
-    value: &CompleteValue,
+    artifact: &CompleteArtifact,
     merge: bool,
 ) -> anyhow::Result<()> {
     brioche::brioche::output::create_output(
         brioche,
-        value,
+        artifact,
         brioche::brioche::output::OutputOptions {
             output_path,
             merge,
@@ -53,9 +53,9 @@ async fn create_output_with_resources(
 async fn test_output_file() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false);
+    let artifact = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false);
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     let contents = tokio::fs::read_to_string(&context.path("output"))
         .await
@@ -75,9 +75,9 @@ async fn test_output_file() -> anyhow::Result<()> {
 async fn test_output_executable_file() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, true);
+    let artifact = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, true);
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     let contents = tokio::fs::read_to_string(&context.path("output"))
         .await
@@ -97,9 +97,9 @@ async fn test_output_executable_file() -> anyhow::Result<()> {
 async fn test_output_symlink() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::symlink("/foo");
+    let artifact = brioche_test::symlink("/foo");
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     assert!(context.path("output").is_symlink());
     let target = tokio::fs::read_link(&context.path("output"))
@@ -114,9 +114,9 @@ async fn test_output_symlink() -> anyhow::Result<()> {
 async fn test_output_empty_dir() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir_empty();
+    let artifact = brioche_test::dir_empty();
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     assert!(context.path("output").is_dir());
     assert!(dir_is_empty(context.path("output")).await);
@@ -128,7 +128,7 @@ async fn test_output_empty_dir() -> anyhow::Result<()> {
 async fn test_output_dir() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([
+    let artifact = brioche_test::dir([
         (
             "hello",
             brioche_test::dir([(
@@ -140,7 +140,7 @@ async fn test_output_dir() -> anyhow::Result<()> {
         ("link", brioche_test::symlink("hello/hi.txt")),
     ]);
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     assert!(context.path("output").is_dir());
 
@@ -163,7 +163,7 @@ async fn test_output_dir() -> anyhow::Result<()> {
 async fn test_output_merge() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([
+    let artifact = brioche_test::dir([
         (
             "hello",
             brioche_test::dir([(
@@ -177,7 +177,7 @@ async fn test_output_merge() -> anyhow::Result<()> {
 
     context.write_file("output/foo.txt", "foo").await;
 
-    create_output(&brioche, &context.path("output"), &value, true).await?;
+    create_output(&brioche, &context.path("output"), &artifact, true).await?;
 
     assert!(context.path("output").is_dir());
 
@@ -202,7 +202,7 @@ async fn test_output_merge() -> anyhow::Result<()> {
 async fn test_output_merge_replace() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([
+    let artifact = brioche_test::dir([
         (
             "test.txt",
             brioche_test::file(brioche_test::blob(&brioche, "new content").await, false),
@@ -214,7 +214,7 @@ async fn test_output_merge_replace() -> anyhow::Result<()> {
     context.write_file("output/test2.txt", "unchanged").await;
     context.write_symlink("test2.txt", "output/link").await;
 
-    create_output(&brioche, &context.path("output"), &value, true).await?;
+    create_output(&brioche, &context.path("output"), &artifact, true).await?;
 
     assert!(context.path("output").is_dir());
 
@@ -238,7 +238,7 @@ async fn test_output_merge_replace() -> anyhow::Result<()> {
 async fn test_output_conflict_no_merge() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([
+    let artifact = brioche_test::dir([
         (
             "hello",
             brioche_test::dir([(
@@ -256,15 +256,15 @@ async fn test_output_conflict_no_merge() -> anyhow::Result<()> {
 
     // Each of these fails because the output path already exists
 
-    let output_1_result = create_output(&brioche, &context.path("output1"), &value, false).await;
+    let output_1_result = create_output(&brioche, &context.path("output1"), &artifact, false).await;
     assert_matches!(output_1_result, Err(_));
     assert!(context.path("output1").is_file());
 
-    let output_2_result = create_output(&brioche, &context.path("output2"), &value, false).await;
+    let output_2_result = create_output(&brioche, &context.path("output2"), &artifact, false).await;
     assert_matches!(output_2_result, Err(_));
     assert!(context.path("output2").is_symlink());
 
-    let output_3_result = create_output(&brioche, &context.path("output3"), &value, false).await;
+    let output_3_result = create_output(&brioche, &context.path("output3"), &artifact, false).await;
     assert_matches!(output_3_result, Err(_));
     assert!(dir_is_empty(context.path("output3")).await);
 
@@ -275,7 +275,7 @@ async fn test_output_conflict_no_merge() -> anyhow::Result<()> {
 async fn test_output_conflict_merge() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([
+    let artifact = brioche_test::dir([
         (
             "hello",
             brioche_test::dir([(
@@ -293,11 +293,11 @@ async fn test_output_conflict_merge() -> anyhow::Result<()> {
 
     // Each of these fails because the output path already exists and is not a directory
 
-    let output_1_result = create_output(&brioche, &context.path("output1"), &value, true).await;
+    let output_1_result = create_output(&brioche, &context.path("output1"), &artifact, true).await;
     assert_matches!(output_1_result, Err(_));
     assert!(context.path("output1").is_file());
 
-    let output_2_result = create_output(&brioche, &context.path("output2"), &value, true).await;
+    let output_2_result = create_output(&brioche, &context.path("output2"), &artifact, true).await;
     assert_matches!(output_2_result, Err(_));
     assert!(context.path("output2").is_symlink());
 
@@ -308,7 +308,7 @@ async fn test_output_conflict_merge() -> anyhow::Result<()> {
 async fn test_output_dir_with_resources() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([(
+    let artifact = brioche_test::dir([(
         "hello",
         brioche_test::dir([
             (
@@ -342,7 +342,7 @@ async fn test_output_dir_with_resources() -> anyhow::Result<()> {
         ]),
     )]);
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     assert!(context.path("output").is_dir());
 
@@ -372,7 +372,7 @@ async fn test_output_dir_with_resources() -> anyhow::Result<()> {
 async fn test_output_dir_with_resources_and_pack_dir() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([
+    let artifact = brioche_test::dir([
         (
             "hi.txt",
             brioche_test::file_with_resources(
@@ -396,7 +396,7 @@ async fn test_output_dir_with_resources_and_pack_dir() -> anyhow::Result<()> {
         ),
     ]);
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     assert!(context.path("output").is_dir());
 
@@ -420,7 +420,7 @@ async fn test_output_dir_with_resources_and_pack_dir() -> anyhow::Result<()> {
 async fn test_output_dir_with_nested_resources() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([(
+    let artifact = brioche_test::dir([(
         "hello",
         brioche_test::dir([(
             "hi.txt",
@@ -445,7 +445,7 @@ async fn test_output_dir_with_nested_resources() -> anyhow::Result<()> {
         )]),
     )]);
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     assert!(context.path("output").is_dir());
 
@@ -470,7 +470,7 @@ async fn test_output_dir_with_nested_resources() -> anyhow::Result<()> {
 async fn test_output_dir_with_equal_resources() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::dir([(
+    let artifact = brioche_test::dir([(
         "hello",
         brioche_test::dir([
             (
@@ -498,7 +498,7 @@ async fn test_output_dir_with_equal_resources() -> anyhow::Result<()> {
         ]),
     )]);
 
-    create_output(&brioche, &context.path("output"), &value, false).await?;
+    create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
     assert_eq!(
         tokio::fs::read_to_string(context.path("output/hello/hi.txt")).await?,
@@ -521,7 +521,7 @@ async fn test_output_dir_with_equal_resources() -> anyhow::Result<()> {
 async fn test_output_top_level_file_with_resources_fails() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::file_with_resources(
+    let artifact = brioche_test::file_with_resources(
         brioche_test::blob(&brioche, b"hello").await,
         false,
         brioche_test::dir_value([(
@@ -530,7 +530,7 @@ async fn test_output_top_level_file_with_resources_fails() -> anyhow::Result<()>
         )]),
     );
 
-    let result = create_output(&brioche, &context.path("output"), &value, false).await;
+    let result = create_output(&brioche, &context.path("output"), &artifact, false).await;
 
     assert_matches!(result, Err(_));
     assert!(!context.path("output").exists());
@@ -542,7 +542,7 @@ async fn test_output_top_level_file_with_resources_fails() -> anyhow::Result<()>
 async fn test_output_top_level_file_with_parallel_resources() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let value = brioche_test::file_with_resources(
+    let artifact = brioche_test::file_with_resources(
         brioche_test::blob(&brioche, b"hello").await,
         false,
         brioche_test::dir_value([(
@@ -555,7 +555,7 @@ async fn test_output_top_level_file_with_parallel_resources() -> anyhow::Result<
         &brioche,
         &context.path("output"),
         &context.path("resources"),
-        &value,
+        &artifact,
         false,
     )
     .await?;

@@ -10,9 +10,9 @@ use deno_core::OpState;
 use self::specifier::BriocheModuleSpecifier;
 
 use super::{
+    artifact::{CompleteArtifact, LazyArtifact, WithMeta},
     blob::BlobId,
     project::Project,
-    value::{CompleteValue, LazyValue, WithMeta},
     Brioche,
 };
 
@@ -152,8 +152,8 @@ deno_core::extension!(brioche_rt,
 #[deno_core::op]
 pub async fn op_brioche_resolve_all(
     state: Rc<RefCell<OpState>>,
-    values: Vec<WithMeta<LazyValue>>,
-) -> anyhow::Result<Vec<CompleteValue>> {
+    artifacts: Vec<WithMeta<LazyArtifact>>,
+) -> anyhow::Result<Vec<CompleteArtifact>> {
     let brioche = {
         let state = state.try_borrow()?;
         state
@@ -163,8 +163,8 @@ pub async fn op_brioche_resolve_all(
     };
 
     let mut results = vec![];
-    for value in values {
-        let result = super::resolve::resolve(&brioche, value).await?;
+    for artifact in artifacts {
+        let result = super::resolve::resolve(&brioche, artifact).await?;
         results.push(result.value);
     }
     Ok(results)
@@ -173,8 +173,8 @@ pub async fn op_brioche_resolve_all(
 #[deno_core::op]
 pub async fn op_brioche_create_proxy(
     state: Rc<RefCell<OpState>>,
-    value: LazyValue,
-) -> anyhow::Result<LazyValue> {
+    artifact: LazyArtifact,
+) -> anyhow::Result<LazyArtifact> {
     let brioche = {
         let state = state.try_borrow()?;
         state
@@ -183,7 +183,7 @@ pub async fn op_brioche_create_proxy(
             .clone()
     };
 
-    let result = super::resolve::create_proxy(&brioche, value).await;
+    let result = super::resolve::create_proxy(&brioche, artifact).await;
     Ok(result)
 }
 

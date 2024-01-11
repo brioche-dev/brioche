@@ -4,7 +4,7 @@ use anyhow::Context as _;
 use bstr::{ByteSlice as _, ByteVec as _};
 
 use super::{
-    value::{CompleteValue, Directory, File, Meta, WithMeta},
+    artifact::{CompleteArtifact, Directory, File, Meta, WithMeta},
     Brioche,
 };
 
@@ -21,7 +21,7 @@ pub struct InputOptions<'a> {
 pub async fn create_input(
     brioche: &Brioche,
     options: InputOptions<'async_recursion>,
-) -> anyhow::Result<WithMeta<CompleteValue>> {
+) -> anyhow::Result<WithMeta<CompleteArtifact>> {
     let metadata = tokio::fs::symlink_metadata(options.input_path)
         .await
         .with_context(|| {
@@ -150,7 +150,7 @@ pub async fn create_input(
         let executable = is_executable(&permissions).await;
 
         Ok(WithMeta::new(
-            CompleteValue::File(File {
+            CompleteArtifact::File(File {
                 data: blob_id,
                 executable,
                 resources,
@@ -201,7 +201,7 @@ pub async fn create_input(
         }
 
         Ok(WithMeta::new(
-            CompleteValue::Directory(result_dir),
+            CompleteArtifact::Directory(result_dir),
             options.meta.clone(),
         ))
     } else if metadata.is_symlink() {
@@ -227,7 +227,7 @@ pub async fn create_input(
         }
 
         Ok(WithMeta::new(
-            CompleteValue::Symlink { target },
+            CompleteArtifact::Symlink { target },
             options.meta.clone(),
         ))
     } else {

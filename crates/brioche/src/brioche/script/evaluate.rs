@@ -3,8 +3,8 @@ use std::rc::Rc;
 use anyhow::Context as _;
 
 use crate::brioche::{
+    artifact::{LazyArtifact, WithMeta},
     script::specifier::BriocheModuleSpecifier,
-    value::{LazyValue, WithMeta},
     Brioche,
 };
 
@@ -15,7 +15,7 @@ pub async fn evaluate(
     brioche: &Brioche,
     project: &Project,
     export: &str,
-) -> anyhow::Result<WithMeta<LazyValue>> {
+) -> anyhow::Result<WithMeta<LazyArtifact>> {
     let module_loader = BriocheModuleLoader::new(brioche);
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(module_loader.clone())),
@@ -128,12 +128,12 @@ pub async fn evaluate(
     let serialized_resolved_result =
         deno_core::v8::Local::new(&mut js_scope, serialized_resolved_result);
 
-    let value: WithMeta<LazyValue> = serde_v8::from_v8(&mut js_scope, serialized_resolved_result)
-        .with_context(|| {
-        format!("invalid value returned when serializing result from {export}")
-    })?;
+    let artifact: WithMeta<LazyArtifact> =
+        serde_v8::from_v8(&mut js_scope, serialized_resolved_result).with_context(|| {
+            format!("invalid artifact returned when serializing result from {export}")
+        })?;
 
-    tracing::debug!(path = %project.local_path.display(), %main_module, value_hash = %value.hash(), "finished evaluating module");
+    tracing::debug!(path = %project.local_path.display(), %main_module, artifact_hash = %artifact.hash(), "finished evaluating module");
 
-    Ok(value)
+    Ok(artifact)
 }

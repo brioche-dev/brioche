@@ -1,10 +1,10 @@
-use brioche::brioche::{value::LazyValue, Brioche};
+use brioche::brioche::{artifact::LazyArtifact, Brioche};
 
 mod brioche_test;
 
-pub async fn resolve_to_lazy(brioche: &Brioche, value: &LazyValue) -> LazyValue {
-    let resolved = brioche_test::resolve_without_meta(brioche, value.clone()).await;
-    LazyValue::from(resolved.expect("failed to resolve"))
+pub async fn resolve_to_lazy(brioche: &Brioche, artifact: &LazyArtifact) -> LazyArtifact {
+    let resolved = brioche_test::resolve_without_meta(brioche, artifact.clone()).await;
+    LazyArtifact::from(resolved.expect("failed to resolve"))
 }
 
 #[tokio::test]

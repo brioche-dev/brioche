@@ -1,4 +1,4 @@
-use brioche::brioche::value::{DownloadValue, LazyValue};
+use brioche::brioche::artifact::{DownloadArtifact, LazyArtifact};
 use brioche_test::resolve_without_meta;
 
 mod brioche_test;
@@ -19,7 +19,7 @@ async fn test_resolve_parallel_no_duplicates() -> anyhow::Result<()> {
         .expect(1)
         .create();
 
-    let hello_download = LazyValue::Download(DownloadValue {
+    let hello_download = LazyArtifact::Download(DownloadArtifact {
         hash: hello_hash,
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });

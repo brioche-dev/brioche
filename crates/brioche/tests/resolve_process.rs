@@ -4,11 +4,11 @@ use assert_matches::assert_matches;
 use pretty_assertions::assert_eq;
 
 use brioche::brioche::{
-    platform::current_platform,
-    value::{
-        ArchiveFormat, CompleteValue, CompressionFormat, DownloadValue, File, LazyValue,
-        ProcessTemplate, ProcessTemplateComponent, ProcessValue, UnpackValue,
+    artifact::{
+        ArchiveFormat, CompleteArtifact, CompressionFormat, DownloadArtifact, File, LazyArtifact,
+        ProcessArtifact, ProcessTemplate, ProcessTemplateComponent, UnpackArtifact,
     },
+    platform::current_platform,
     Hash,
 };
 use brioche_test::resolve_without_meta;
@@ -53,10 +53,10 @@ fn temp_dir_path() -> ProcessTemplate {
     }
 }
 
-fn template_input(input: LazyValue) -> ProcessTemplate {
+fn template_input(input: LazyArtifact) -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::Input {
-            value: brioche_test::without_meta(input),
+            artifact: brioche_test::without_meta(input),
         }],
     }
 }
@@ -76,13 +76,13 @@ fn sha256_hash(hash: &str) -> Hash {
     }
 }
 
-fn utils() -> LazyValue {
-    let utils_download = LazyValue::Download(DownloadValue {
+fn utils() -> LazyArtifact {
+    let utils_download = LazyArtifact::Download(DownloadArtifact {
         url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/utils_amd64_linux.tar.zstd".parse().unwrap(),
         hash: sha256_hash("eb29ea059fcd9ca457841f5c79151721a74761a31610d694bce61a62f4de6d33"),
     });
 
-    LazyValue::Unpack(UnpackValue {
+    LazyArtifact::Unpack(UnpackArtifact {
         file: Box::new(brioche_test::without_meta(utils_download)),
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
@@ -112,7 +112,7 @@ async fn test_resolve_process() -> anyhow::Result<()> {
     let hello = "hello";
     let hello_blob = brioche_test::blob(&brioche, hello).await;
 
-    let hello_process = LazyValue::Process(ProcessValue {
+    let hello_process = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
@@ -133,7 +133,7 @@ async fn test_resolve_process_fail_on_no_output() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process = LazyValue::Process(ProcessValue {
+    let process = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("# ... doing nothing ...")],
         env: BTreeMap::new(),
@@ -151,7 +151,7 @@ async fn test_resolve_process_fail_on_non_zero_exit() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process = LazyValue::Process(ProcessValue {
+    let process = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -173,7 +173,7 @@ async fn test_resolve_process_command_no_path() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process = LazyValue::Process(ProcessValue {
+    let process = LazyArtifact::Process(ProcessArtifact {
         command: tpl("env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
@@ -194,7 +194,7 @@ async fn test_resolve_process_command_path() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process = LazyValue::Process(ProcessValue {
+    let process = LazyArtifact::Process(ProcessArtifact {
         command: tpl("env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([
@@ -215,7 +215,7 @@ async fn test_resolve_process_with_utils() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process = LazyValue::Process(ProcessValue {
+    let process = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("touch $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([
@@ -239,7 +239,7 @@ async fn test_resolve_process_cached() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process_random = LazyValue::Process(ProcessValue {
+    let process_random = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -275,7 +275,7 @@ async fn test_resolve_process_cached_equivalent_inputs() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let empty_dir_1 = brioche_test::lazy_dir_empty();
-    let empty_dir_2 = LazyValue::Process(ProcessValue {
+    let empty_dir_2 = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("mkdir \"$BRIOCHE_OUTPUT\"")],
         env: BTreeMap::from_iter([
@@ -293,7 +293,7 @@ async fn test_resolve_process_cached_equivalent_inputs() -> anyhow::Result<()> {
     let empty_dir_2_resolved = resolve_without_meta(&brioche, empty_dir_2.clone()).await?;
     assert_eq!(empty_dir_1_resolved, empty_dir_2_resolved);
 
-    let process_random_1 = LazyValue::Process(ProcessValue {
+    let process_random_1 = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -312,7 +312,7 @@ async fn test_resolve_process_cached_equivalent_inputs() -> anyhow::Result<()> {
         platform: current_platform(),
     });
 
-    let process_random_2 = LazyValue::Process(ProcessValue {
+    let process_random_2 = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -332,7 +332,7 @@ async fn test_resolve_process_cached_equivalent_inputs() -> anyhow::Result<()> {
     });
 
     // Both processes are different, but their inputs resolve to identical
-    // values, so this should be a cache hit.
+    // artifacts, so this should be a cache hit.
 
     let random_1 = resolve_without_meta(&brioche, process_random_1).await?;
     let random_2 = resolve_without_meta(&brioche, process_random_2).await?;
@@ -348,7 +348,7 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let empty_dir_1 = brioche_test::lazy_dir_empty();
-    let empty_dir_2 = LazyValue::Process(ProcessValue {
+    let empty_dir_2 = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("mkdir \"$BRIOCHE_OUTPUT\"")],
         env: BTreeMap::from_iter([
@@ -366,7 +366,7 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
     let empty_dir_2_resolved = resolve_without_meta(&brioche, empty_dir_2.clone()).await?;
     assert_eq!(empty_dir_1_resolved, empty_dir_2_resolved);
 
-    let process_random_1 = LazyValue::Process(ProcessValue {
+    let process_random_1 = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -385,7 +385,7 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
         platform: current_platform(),
     });
 
-    let process_random_2 = LazyValue::Process(ProcessValue {
+    let process_random_2 = LazyArtifact::Process(ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -416,7 +416,7 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
     ]);
     let process_a_dir = brioche_test::lazy_dir([("a", processes_dir.clone())]);
     let process_b_dir = brioche_test::lazy_dir([("b", processes_dir.clone())]);
-    let merged = LazyValue::Merge {
+    let merged = LazyArtifact::Merge {
         directories: vec![
             brioche_test::without_meta(process_a_dir),
             brioche_test::without_meta(process_b_dir),
@@ -424,10 +424,10 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
     };
 
     // Both processes are different, but their inputs resolve to identical
-    // values, so this should be a cache hit.
+    // artifacts, so this should be a cache hit.
 
     let resolved = resolve_without_meta(&brioche, merged).await?;
-    let CompleteValue::Directory(resolved) = resolved else {
+    let CompleteArtifact::Directory(resolved) = resolved else {
         panic!("expected directory");
     };
 
@@ -457,7 +457,7 @@ async fn test_resolve_process_cache_busted() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process_random_1 = ProcessValue {
+    let process_random_1 = ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -482,8 +482,8 @@ async fn test_resolve_process_cache_busted() -> anyhow::Result<()> {
     // Since the process is different due to a new env var, the cached result
     // from the first execution should not be used.
 
-    let random_1 = resolve_without_meta(&brioche, LazyValue::Process(process_random_1)).await?;
-    let random_2 = resolve_without_meta(&brioche, LazyValue::Process(process_random_2)).await?;
+    let random_1 = resolve_without_meta(&brioche, LazyArtifact::Process(process_random_1)).await?;
+    let random_2 = resolve_without_meta(&brioche, LazyArtifact::Process(process_random_2)).await?;
 
     assert_ne!(random_1, random_2);
 
@@ -495,7 +495,7 @@ async fn test_resolve_process_custom_env_vars() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process = ProcessValue {
+    let process = ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -532,7 +532,7 @@ async fn test_resolve_process_custom_env_vars() -> anyhow::Result<()> {
         platform: current_platform(),
     };
 
-    resolve_without_meta(&brioche, LazyValue::Process(process)).await?;
+    resolve_without_meta(&brioche, LazyArtifact::Process(process)).await?;
 
     Ok(())
 }
@@ -542,7 +542,7 @@ async fn test_resolve_process_no_default_env_vars() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process = ProcessValue {
+    let process = ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -569,7 +569,7 @@ async fn test_resolve_process_no_default_env_vars() -> anyhow::Result<()> {
         platform: current_platform(),
     };
 
-    resolve_without_meta(&brioche, LazyValue::Process(process)).await?;
+    resolve_without_meta(&brioche, LazyArtifact::Process(process)).await?;
 
     Ok(())
 }
@@ -581,7 +581,7 @@ async fn test_resolve_process_starts_with_work_dir_contents() -> anyhow::Result<
 
     let hello_blob = brioche_test::blob(&brioche, b"hello").await;
 
-    let process = ProcessValue {
+    let process = ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -607,7 +607,7 @@ async fn test_resolve_process_starts_with_work_dir_contents() -> anyhow::Result<
         platform: current_platform(),
     };
 
-    resolve_without_meta(&brioche, LazyValue::Process(process)).await?;
+    resolve_without_meta(&brioche, LazyArtifact::Process(process)).await?;
 
     Ok(())
 }
@@ -617,7 +617,7 @@ async fn test_resolve_process_has_resource_dir() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let process = ProcessValue {
+    let process = ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -640,7 +640,7 @@ async fn test_resolve_process_has_resource_dir() -> anyhow::Result<()> {
         platform: current_platform(),
     };
 
-    resolve_without_meta(&brioche, LazyValue::Process(process)).await?;
+    resolve_without_meta(&brioche, LazyArtifact::Process(process)).await?;
 
     Ok(())
 }
@@ -671,7 +671,7 @@ async fn test_resolve_process_contains_all_resources() -> anyhow::Result<()> {
         )]),
     );
 
-    let process = ProcessValue {
+    let process = ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -699,7 +699,7 @@ async fn test_resolve_process_contains_all_resources() -> anyhow::Result<()> {
         platform: current_platform(),
     };
 
-    resolve_without_meta(&brioche, LazyValue::Process(process)).await?;
+    resolve_without_meta(&brioche, LazyArtifact::Process(process)).await?;
 
     Ok(())
 }
@@ -727,7 +727,7 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
     let dummy_packed_blob = brioche_test::blob(&brioche, &dummy_packed_contents).await;
     let dummy_packed = brioche_test::file(dummy_packed_blob, false);
 
-    let process = ProcessValue {
+    let process = ProcessArtifact {
         command: tpl("/usr/bin/env"),
         args: vec![
             tpl("sh"),
@@ -755,8 +755,8 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
         platform: current_platform(),
     };
 
-    let result = resolve_without_meta(&brioche, LazyValue::Process(process)).await?;
-    let CompleteValue::Directory(dir) = result else {
+    let result = resolve_without_meta(&brioche, LazyArtifact::Process(process)).await?;
+    let CompleteArtifact::Directory(dir) = result else {
         panic!("expected directory");
     };
 
@@ -764,7 +764,7 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
         .get(b"bin/program")
         .unwrap()
         .expect("bin/program not found");
-    let CompleteValue::File(File { resources, .. }) = &program.value else {
+    let CompleteArtifact::File(File { resources, .. }) = &program.value else {
         panic!("expected file");
     };
 

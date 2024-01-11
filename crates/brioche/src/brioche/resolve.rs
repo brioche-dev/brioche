@@ -8,9 +8,9 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use tracing::Instrument as _;
 
 use super::{
-    value::{
-        CompleteValue, CompleteValueDiscriminants, Directory, File, LazyDirectory, LazyValue, Meta,
-        ValueHash, WithMeta,
+    artifact::{
+        ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, Directory, File,
+        LazyArtifact, LazyDirectory, Meta, WithMeta,
     },
     Brioche,
 };
@@ -21,29 +21,31 @@ mod unpack;
 
 #[derive(Debug, Default)]
 pub struct Proxies {
-    values_by_hash: HashMap<ValueHash, LazyValue>,
+    artifacts_by_hash: HashMap<ArtifactHash, LazyArtifact>,
 }
 
 #[derive(Debug, Default)]
 pub struct ActiveResolves {
-    resolve_watchers:
-        HashMap<ValueHash, tokio::sync::watch::Receiver<Option<Result<CompleteValue, String>>>>,
+    resolve_watchers: HashMap<
+        ArtifactHash,
+        tokio::sync::watch::Receiver<Option<Result<CompleteArtifact, String>>>,
+    >,
 }
 
 #[async_recursion::async_recursion]
-#[tracing::instrument(skip(brioche, value), fields(value_hash = %value.hash(), value_kind = ?value.kind(), resolved_method))]
+#[tracing::instrument(skip(brioche, artifact), fields(artifact_hash = %artifact.hash(), artifact_kind = ?artifact.kind(), resolved_method))]
 pub async fn resolve(
     brioche: &Brioche,
-    value: WithMeta<LazyValue>,
-) -> anyhow::Result<WithMeta<CompleteValue>> {
-    let meta = value.meta.clone();
-    let value_hash = value.hash();
+    artifact: WithMeta<LazyArtifact>,
+) -> anyhow::Result<WithMeta<CompleteArtifact>> {
+    let meta = artifact.meta.clone();
+    let artifact_hash = artifact.hash();
 
-    // If we're currently resolving the value in another task, wait for it to
+    // If we're currently resolving the artifact in another task, wait for it to
     // complete and return early
     let resolve_tx = {
         let mut active_resolves = brioche.active_resolves.write().await;
-        match active_resolves.resolve_watchers.entry(value_hash) {
+        match active_resolves.resolve_watchers.entry(artifact_hash) {
             std::collections::hash_map::Entry::Occupied(entry) => {
                 let mut active_resolve = entry.get().clone();
 
@@ -60,11 +62,11 @@ pub async fn resolve(
                 let resolve_result = resolve_result.as_ref().expect("expected resolve result");
                 match resolve_result {
                     Ok(resolve_result) => {
-                        tracing::debug!(%value_hash, "received resolve result from in-progress resolve");
+                        tracing::debug!(%artifact_hash, "received resolve result from in-progress resolve");
                         return Ok(WithMeta::new(resolve_result.clone(), meta));
                     }
                     Err(error) => {
-                        tracing::debug!(%value_hash, %error, "received error while waiting for in-progress resolve to finish, resolve already failed");
+                        tracing::debug!(%artifact_hash, %error, "received error while waiting for in-progress resolve to finish, resolve already failed");
                         anyhow::bail!("{error}");
                     }
                 };
@@ -77,26 +79,26 @@ pub async fn resolve(
         }
     };
 
-    // If we have a value that can be trivially converted to a complete value,
-    // avoid saving it and just return it directly
-    let complete_value: Result<CompleteValue, _> = value.value.clone().try_into();
-    if let Ok(complete_value) = complete_value {
+    // If we have a artifact that can be trivially converted to a complete
+    // artifact, avoid saving it and just return it directly
+    let complete_artifact: Result<CompleteArtifact, _> = artifact.value.clone().try_into();
+    if let Ok(complete_artifact) = complete_artifact {
         tracing::Span::current().record("resolve_method", "trivial_conversion");
 
         // Remove the active resolve watcher
         {
             let mut active_resolves = brioche.active_resolves.write().await;
-            active_resolves.resolve_watchers.remove(&value_hash);
+            active_resolves.resolve_watchers.remove(&artifact_hash);
         }
 
-        let _ = resolve_tx.send(Some(Ok(complete_value.clone())));
+        let _ = resolve_tx.send(Some(Ok(complete_artifact.clone())));
 
-        return Ok(WithMeta::new(complete_value, meta));
+        return Ok(WithMeta::new(complete_artifact, meta));
     }
 
-    // Check the database to see if we've cached this value before
+    // Check the database to see if we've cached this artifact before
     let mut db_conn = brioche.db_conn.lock().await;
-    let input_hash = value_hash.to_string();
+    let input_hash = artifact_hash.to_string();
     let result = sqlx::query!(
         "SELECT output_json FROM resolves WHERE input_hash = ? LIMIT 1",
         input_hash,
@@ -106,28 +108,28 @@ pub async fn resolve(
     drop(db_conn);
 
     if let Some(row) = result {
-        let complete_value: CompleteValue = serde_json::from_str(&row.output_json)?;
+        let complete_artifact: CompleteArtifact = serde_json::from_str(&row.output_json)?;
         tracing::Span::current().record("resolve_method", "database_hit");
-        tracing::trace!(%value_hash, complete_hash = %complete_value.hash(), "got resolve result from database");
+        tracing::trace!(%artifact_hash, complete_hash = %complete_artifact.hash(), "got resolve result from database");
 
         // Remove the active resolve watcher
         {
             let mut active_resolves = brioche.active_resolves.write().await;
-            active_resolves.resolve_watchers.remove(&value_hash);
+            active_resolves.resolve_watchers.remove(&artifact_hash);
         }
 
-        let _ = resolve_tx.send(Some(Ok(complete_value.clone())));
+        let _ = resolve_tx.send(Some(Ok(complete_artifact.clone())));
 
-        return Ok(WithMeta::new(complete_value, meta));
+        return Ok(WithMeta::new(complete_artifact, meta));
     }
 
-    let input_json = serde_json::to_string(&value.value)?;
+    let input_json = serde_json::to_string(&artifact.value)?;
 
-    // Resolve the value for real
-    let result_value = tokio::spawn({
+    // Resolve the artifact for real
+    let result_artifact = tokio::spawn({
         let brioche = brioche.clone();
         let meta = meta.clone();
-        async move { resolve_inner(&brioche, value.value, &meta).await }
+        async move { resolve_inner(&brioche, artifact.value, &meta).await }
             .instrument(tracing::debug_span!("resolve_inner_task").or_current())
     })
     .await?
@@ -136,14 +138,14 @@ pub async fn resolve(
         meta: meta.clone(),
     });
 
-    // Write the resolved value to the database on success
-    if let Ok(result_value) = &result_value {
+    // Write the resolved artifact to the database on success
+    if let Ok(result_artifact) = &result_artifact {
         let mut db_conn = brioche.db_conn.lock().await;
         let resolve_id = ulid::Ulid::new().to_string();
         let resolve_series_id = ulid::Ulid::new().to_string();
-        let input_hash = value_hash.to_string();
-        let output_json = serde_json::to_string(&result_value)?;
-        let output_hash = result_value.hash().to_string();
+        let input_hash = artifact_hash.to_string();
+        let output_json = serde_json::to_string(&result_artifact)?;
+        let output_hash = result_artifact.hash().to_string();
         sqlx::query!(
             "INSERT INTO resolves (id, series_id, input_json, input_hash, output_json, output_hash) VALUES (?, ?, ?, ?, ?, ?)",
             resolve_id,
@@ -156,20 +158,20 @@ pub async fn resolve(
         .execute(&mut *db_conn)
         .await?;
 
-        tracing::trace!(%value_hash, result_hash = %output_hash, "saved resolve result to database");
+        tracing::trace!(%artifact_hash, result_hash = %output_hash, "saved resolve result to database");
     }
 
     // Remove the active resolve watcher
     {
         let mut active_resolves = brioche.active_resolves.write().await;
-        active_resolves.resolve_watchers.remove(&value_hash);
+        active_resolves.resolve_watchers.remove(&artifact_hash);
     }
 
-    match result_value {
-        Ok(result_value) => {
+    match result_artifact {
+        Ok(result_artifact) => {
             // Ignore error because channel may have closed
-            let _ = resolve_tx.send(Some(Ok(result_value.clone())));
-            Ok(WithMeta::new(result_value, meta))
+            let _ = resolve_tx.send(Some(Ok(result_artifact.clone())));
+            Ok(WithMeta::new(result_artifact, meta))
         }
         Err(error) => {
             // Ignore error because channel may have closed
@@ -182,28 +184,28 @@ pub async fn resolve(
 #[tracing::instrument(skip_all, err)]
 async fn resolve_inner(
     brioche: &Brioche,
-    value: LazyValue,
+    artifact: LazyArtifact,
     meta: &Arc<Meta>,
-) -> anyhow::Result<CompleteValue> {
-    match value {
-        LazyValue::File {
+) -> anyhow::Result<CompleteArtifact> {
+    match artifact {
+        LazyArtifact::File {
             data,
             executable,
             resources,
         } => {
-            let resources = LazyValue::Directory(resources);
+            let resources = LazyArtifact::Directory(resources);
             let resources = resolve(brioche, WithMeta::new(resources, meta.clone())).await?;
-            let CompleteValue::Directory(resources) = resources.value else {
+            let CompleteArtifact::Directory(resources) = resources.value else {
                 anyhow::bail!("file resources resolved to non-directory value");
             };
-            Ok(CompleteValue::File(File {
+            Ok(CompleteArtifact::File(File {
                 data,
                 executable,
                 resources,
             }))
         }
-        LazyValue::Symlink { target } => Ok(CompleteValue::Symlink { target }),
-        LazyValue::Directory(LazyDirectory { entries }) => {
+        LazyArtifact::Symlink { target } => Ok(CompleteArtifact::Symlink { target }),
+        LazyArtifact::Directory(LazyDirectory { entries }) => {
             let entries = entries
                 .into_iter()
                 .map(|(path, entry)| {
@@ -216,33 +218,33 @@ async fn resolve_inner(
                 .collect::<FuturesUnordered<_>>()
                 .try_collect()
                 .await?;
-            Ok(CompleteValue::Directory(Directory { entries }))
+            Ok(CompleteArtifact::Directory(Directory { entries }))
         }
-        LazyValue::Download(download) => {
+        LazyArtifact::Download(download) => {
             let downloaded = download::resolve_download(brioche, download).await?;
-            Ok(CompleteValue::File(downloaded))
+            Ok(CompleteArtifact::File(downloaded))
         }
-        LazyValue::Unpack(unpack) => {
+        LazyArtifact::Unpack(unpack) => {
             let unpacked = unpack::resolve_unpack(brioche, meta, unpack).await?;
-            Ok(CompleteValue::Directory(unpacked))
+            Ok(CompleteArtifact::Directory(unpacked))
         }
-        LazyValue::Process(process) => {
+        LazyArtifact::Process(process) => {
             // We call `resolve` recursively here so that two different lazy
             // processes that resolve to the same complete process will only
             // run once (since `resolve` is memoized).
             let process = process::resolve_lazy_process_to_process(brioche, process).await?;
             let result = resolve(
                 brioche,
-                WithMeta::new(LazyValue::CompleteProcess(process), meta.clone()),
+                WithMeta::new(LazyArtifact::CompleteProcess(process), meta.clone()),
             )
             .await?;
             Ok(result.value)
         }
-        LazyValue::CompleteProcess(process) => {
+        LazyArtifact::CompleteProcess(process) => {
             let result = process::resolve_process(brioche, meta, process).await?;
             Ok(result)
         }
-        LazyValue::CreateFile {
+        LazyArtifact::CreateFile {
             data,
             executable,
             resources,
@@ -252,23 +254,23 @@ async fn resolve_inner(
                     .await?;
 
             let resources = resolve(brioche, *resources).await?;
-            let CompleteValue::Directory(resources) = resources.value else {
+            let CompleteArtifact::Directory(resources) = resources.value else {
                 anyhow::bail!("file resources resolved to non-directory value");
             };
 
-            Ok(CompleteValue::File(File {
+            Ok(CompleteArtifact::File(File {
                 data: blob_id,
                 executable,
                 resources,
             }))
         }
-        LazyValue::Cast { value, to } => {
-            let result = resolve(brioche, *value).await?;
-            let result_type: CompleteValueDiscriminants = (&result.value).into();
+        LazyArtifact::Cast { artifact, to } => {
+            let result = resolve(brioche, *artifact).await?;
+            let result_type: CompleteArtifactDiscriminants = (&result.value).into();
             anyhow::ensure!(result_type == to, "tried casting {result_type:?} to {to:?}");
             Ok(result.value)
         }
-        LazyValue::Merge { directories } => {
+        LazyArtifact::Merge { directories } => {
             let directories = futures::future::try_join_all(
                 directories.into_iter().map(|dir| resolve(brioche, dir)),
             )
@@ -278,35 +280,35 @@ async fn resolve_inner(
                 directories
                     .into_iter()
                     .try_fold(Directory::default(), |mut merged, dir| {
-                        let CompleteValue::Directory(dir) = dir.value else {
-                            anyhow::bail!("tried merging with non-directory value");
+                        let CompleteArtifact::Directory(dir) = dir.value else {
+                            anyhow::bail!("tried merging with non-directory artifact");
                         };
                         merged.merge(dir);
                         anyhow::Ok(merged)
                     })?;
 
-            Ok(CompleteValue::Directory(merged))
+            Ok(CompleteArtifact::Directory(merged))
         }
-        LazyValue::Proxy { hash } => {
+        LazyArtifact::Proxy { hash } => {
             let proxy = {
                 let proxies = brioche.proxies.read().await;
                 proxies
-                    .values_by_hash
+                    .artifacts_by_hash
                     .get(&hash)
                     .with_context(|| {
-                        format!("tried to resolve proxy value, but hash {hash:?} was not found")
+                        format!("tried to resolve proxy artifact, but hash {hash:?} was not found")
                     })?
                     .clone()
             };
             let resolved = resolve(brioche, WithMeta::new(proxy, meta.clone())).await?;
             Ok(resolved.value)
         }
-        LazyValue::Peel { directory, depth } => {
+        LazyArtifact::Peel { directory, depth } => {
             let mut result = resolve(brioche, *directory).await?;
 
             for _ in 0..depth {
-                let CompleteValue::Directory(dir) = result.value else {
-                    anyhow::bail!("tried peeling non-directory value");
+                let CompleteArtifact::Directory(dir) = result.value else {
+                    anyhow::bail!("tried peeling non-directory artifact");
                 };
                 let mut entries = dir.entries.into_iter();
                 let Some((_, peeled)) = entries.next() else {
@@ -322,9 +324,9 @@ async fn resolve_inner(
 
             Ok(result.value)
         }
-        LazyValue::Get { directory, path } => {
+        LazyArtifact::Get { directory, path } => {
             let resolved = resolve(brioche, *directory).await?;
-            let CompleteValue::Directory(mut directory) = resolved.value else {
+            let CompleteArtifact::Directory(mut directory) = resolved.value else {
                 anyhow::bail!("tried getting item from non-directory");
             };
 
@@ -334,21 +336,21 @@ async fn resolve_inner(
 
             Ok(result.value)
         }
-        LazyValue::Remove { directory, paths } => {
+        LazyArtifact::Remove { directory, paths } => {
             let result = resolve(brioche, *directory).await?;
-            let CompleteValue::Directory(mut directory) = result.value else {
-                anyhow::bail!("tried removing item from non-directory");
+            let CompleteArtifact::Directory(mut directory) = result.value else {
+                anyhow::bail!("tried removing item from non-directory artifact");
             };
 
             for path in paths {
                 directory.remove(&path)?;
             }
 
-            Ok(CompleteValue::Directory(directory))
+            Ok(CompleteArtifact::Directory(directory))
         }
-        LazyValue::SetPermissions { file, executable } => {
+        LazyArtifact::SetPermissions { file, executable } => {
             let result = resolve(brioche, *file).await?;
-            let CompleteValue::File(mut file) = result.value else {
+            let CompleteArtifact::File(mut file) = result.value else {
                 anyhow::bail!("tried setting permissions on non-file");
             };
 
@@ -356,21 +358,26 @@ async fn resolve_inner(
                 file.executable = executable;
             }
 
-            Ok(CompleteValue::File(file))
+            Ok(CompleteArtifact::File(file))
         }
     }
 }
 
-pub async fn create_proxy(brioche: &Brioche, value: LazyValue) -> LazyValue {
-    if let LazyValue::Proxy { .. } = value {
-        return value;
+pub async fn create_proxy(brioche: &Brioche, artifact: LazyArtifact) -> LazyArtifact {
+    if let LazyArtifact::Proxy { .. } = artifact {
+        return artifact;
     }
 
-    let value_hash = value.hash();
+    let artifact_hash = artifact.hash();
     let mut proxies = brioche.proxies.write().await;
-    proxies.values_by_hash.entry(value_hash).or_insert(value);
+    proxies
+        .artifacts_by_hash
+        .entry(artifact_hash)
+        .or_insert(artifact);
 
-    LazyValue::Proxy { hash: value_hash }
+    LazyArtifact::Proxy {
+        hash: artifact_hash,
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

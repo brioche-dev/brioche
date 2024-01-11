@@ -3,8 +3,10 @@
 use std::collections::BTreeMap;
 
 use brioche::brioche::{
+    artifact::{
+        DownloadArtifact, LazyArtifact, ProcessArtifact, ProcessTemplate, ProcessTemplateComponent,
+    },
     platform::Platform,
-    value::{DownloadValue, LazyValue, ProcessTemplate, ProcessTemplateComponent, ProcessValue},
     Hash,
 };
 use pretty_assertions::assert_eq;
@@ -12,7 +14,7 @@ use pretty_assertions::assert_eq;
 mod brioche_test;
 
 #[tokio::test]
-async fn test_value_hash_stable_file() -> anyhow::Result<()> {
+async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let hello_blob = brioche_test::blob(&brioche, b"hello").await;
@@ -79,7 +81,7 @@ async fn test_value_hash_stable_file() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_value_hash_stable_directory() -> anyhow::Result<()> {
+async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let hello_blob = brioche_test::blob(&brioche, b"hello").await;
@@ -137,7 +139,7 @@ async fn test_value_hash_stable_directory() -> anyhow::Result<()> {
     asserts.push((
         brioche_test::lazy_dir([(
             "foo",
-            LazyValue::Merge {
+            LazyArtifact::Merge {
                 directories: vec![
                     brioche_test::without_meta(brioche_test::lazy_dir_empty()),
                     brioche_test::without_meta(brioche_test::lazy_dir_empty()),
@@ -158,7 +160,7 @@ async fn test_value_hash_stable_directory() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_value_hash_stable_symlink() -> anyhow::Result<()> {
+async fn test_artifact_hash_stable_symlink() -> anyhow::Result<()> {
     let (_brioche, _context) = brioche_test::brioche_test().await;
 
     let mut asserts = vec![];
@@ -190,13 +192,13 @@ async fn test_value_hash_stable_symlink() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_value_hash_stable_download() -> anyhow::Result<()> {
+async fn test_artifact_hash_stable_download() -> anyhow::Result<()> {
     let (_brioche, _context) = brioche_test::brioche_test().await;
 
     let mut asserts = vec![];
 
     asserts.push((
-        LazyValue::Download(DownloadValue {
+        LazyArtifact::Download(DownloadArtifact {
             url: "https://example.com/foo".parse()?,
             hash: Hash::Sha256 { value: vec![0x00] },
         })
@@ -206,7 +208,7 @@ async fn test_value_hash_stable_download() -> anyhow::Result<()> {
     ));
 
     asserts.push((
-        LazyValue::Download(DownloadValue {
+        LazyArtifact::Download(DownloadArtifact {
             url: "https://example.com/foo".parse()?,
             hash: Hash::Sha256 { value: vec![0x01] },
         })
@@ -224,13 +226,13 @@ async fn test_value_hash_stable_download() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_value_hash_stable_process() -> anyhow::Result<()> {
+async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
     let (_brioche, _context) = brioche_test::brioche_test().await;
 
     let mut asserts = vec![];
 
     asserts.push((
-        LazyValue::Process(ProcessValue {
+        LazyArtifact::Process(ProcessArtifact {
             command: ProcessTemplate { components: vec![] },
             args: vec![],
             env: BTreeMap::default(),
@@ -243,7 +245,7 @@ async fn test_value_hash_stable_process() -> anyhow::Result<()> {
     ));
 
     asserts.push((
-        LazyValue::Process(ProcessValue {
+        LazyArtifact::Process(ProcessArtifact {
             command: ProcessTemplate {
                 components: vec![ProcessTemplateComponent::Literal {
                     value: "/usr/bin/env".into(),
@@ -260,7 +262,7 @@ async fn test_value_hash_stable_process() -> anyhow::Result<()> {
     ));
 
     asserts.push((
-        LazyValue::Process(ProcessValue {
+        LazyArtifact::Process(ProcessArtifact {
             command: ProcessTemplate {
                 components: vec![ProcessTemplateComponent::Literal {
                     value: "/usr/bin/env".into(),
@@ -279,7 +281,7 @@ async fn test_value_hash_stable_process() -> anyhow::Result<()> {
     ));
 
     asserts.push((
-        LazyValue::Process(ProcessValue {
+        LazyArtifact::Process(ProcessArtifact {
             command: ProcessTemplate {
                 components: vec![ProcessTemplateComponent::Literal {
                     value: "/usr/bin/env".into(),
@@ -305,7 +307,7 @@ async fn test_value_hash_stable_process() -> anyhow::Result<()> {
     ));
 
     asserts.push((
-        LazyValue::Process(ProcessValue {
+        LazyArtifact::Process(ProcessArtifact {
             command: ProcessTemplate {
                 components: vec![ProcessTemplateComponent::Literal {
                     value: "/usr/bin/env".into(),
@@ -319,7 +321,7 @@ async fn test_value_hash_stable_process() -> anyhow::Result<()> {
                 ProcessTemplate {
                     components: vec![
                         ProcessTemplateComponent::Input {
-                            value: brioche_test::without_meta(brioche_test::lazy_dir_empty()),
+                            artifact: brioche_test::without_meta(brioche_test::lazy_dir_empty()),
                         },
                         ProcessTemplateComponent::Literal {
                             value: "/bin".into(),

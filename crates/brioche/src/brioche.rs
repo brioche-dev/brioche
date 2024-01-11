@@ -8,6 +8,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::reporter::Reporter;
 
+pub mod artifact;
 pub mod blob;
 pub mod input;
 pub mod output;
@@ -15,7 +16,6 @@ pub mod platform;
 pub mod project;
 pub mod resolve;
 pub mod script;
-pub mod value;
 
 const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;

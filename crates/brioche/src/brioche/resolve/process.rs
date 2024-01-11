@@ -12,10 +12,11 @@ use tracing::Instrument as _;
 
 use crate::{
     brioche::{
-        value::{
-            ArchiveFormat, CompleteProcessTemplate, CompleteProcessTemplateComponent,
-            CompleteProcessValue, CompleteValue, CompressionFormat, DownloadValue, LazyValue, Meta,
-            ProcessTemplate, ProcessTemplateComponent, ProcessValue, UnpackValue, WithMeta,
+        artifact::{
+            ArchiveFormat, CompleteArtifact, CompleteProcessArtifact, CompleteProcessTemplate,
+            CompleteProcessTemplateComponent, CompressionFormat, DownloadArtifact, LazyArtifact,
+            Meta, ProcessArtifact, ProcessTemplate, ProcessTemplateComponent, UnpackArtifact,
+            WithMeta,
         },
         Brioche,
     },
@@ -31,8 +32,8 @@ const GUEST_GID_HINT: u32 = 1099;
 #[tracing::instrument(skip(brioche, process))]
 pub async fn resolve_lazy_process_to_process(
     brioche: &Brioche,
-    process: ProcessValue,
-) -> anyhow::Result<CompleteProcessValue> {
+    process: ProcessArtifact,
+) -> anyhow::Result<CompleteProcessArtifact> {
     let command =
         resolve_lazy_process_template_to_process_template(brioche, process.command).await?;
     let args = futures::stream::iter(process.args)
@@ -40,19 +41,20 @@ pub async fn resolve_lazy_process_to_process(
         .try_collect()
         .await?;
     let env = futures::stream::iter(process.env)
-        .then(|(key, value)| async move {
-            let value = resolve_lazy_process_template_to_process_template(brioche, value).await?;
-            anyhow::Ok((key, value))
+        .then(|(key, artifact)| async move {
+            let artifact =
+                resolve_lazy_process_template_to_process_template(brioche, artifact).await?;
+            anyhow::Ok((key, artifact))
         })
         .try_collect()
         .await?;
 
     let work_dir = super::resolve(brioche, *process.work_dir).await?;
-    let crate::brioche::value::CompleteValue::Directory(work_dir) = work_dir.value else {
-        anyhow::bail!("expected process workdir to be a file");
+    let crate::brioche::artifact::CompleteArtifact::Directory(work_dir) = work_dir.value else {
+        anyhow::bail!("expected process workdir to be a directory artifact");
     };
 
-    Ok(CompleteProcessValue {
+    Ok(CompleteProcessArtifact {
         command,
         args,
         env,
@@ -76,12 +78,12 @@ async fn resolve_lazy_process_template_to_process_template(
                         value: value.clone(),
                     })
             }
-            ProcessTemplateComponent::Input { value } => {
-                let resolved = super::resolve(brioche, value.clone()).await?;
+            ProcessTemplateComponent::Input { artifact } => {
+                let resolved = super::resolve(brioche, artifact.clone()).await?;
 
                 result
                     .components
-                    .push(CompleteProcessTemplateComponent::Input { value: resolved });
+                    .push(CompleteProcessTemplateComponent::Input { artifact: resolved });
             }
             ProcessTemplateComponent::OutputPath => result
                 .components
@@ -108,13 +110,13 @@ async fn resolve_lazy_process_template_to_process_template(
 pub async fn resolve_process(
     brioche: &Brioche,
     meta: &Arc<Meta>,
-    process: CompleteProcessValue,
-) -> anyhow::Result<CompleteValue> {
+    process: CompleteProcessArtifact,
+) -> anyhow::Result<CompleteArtifact> {
     tracing::debug!("acquiring process semaphore permit");
     let _permit = brioche.process_semaphore.acquire().await;
     tracing::debug!("acquired process semaphore permit");
 
-    let hash = LazyValue::CompleteProcess(process.clone()).hash();
+    let hash = LazyArtifact::CompleteProcess(process.clone()).hash();
 
     let temp_dir = brioche.home.join("process-temp");
     let resolve_dir = temp_dir.join(ulid::Ulid::new().to_string());
@@ -172,7 +174,7 @@ pub async fn resolve_process(
 
     crate::brioche::output::create_output(
         brioche,
-        &crate::brioche::value::CompleteValue::Directory(process.work_dir),
+        &crate::brioche::artifact::CompleteArtifact::Directory(process.work_dir),
         crate::brioche::output::OutputOptions {
             output_path: &host_work_dir,
             merge: true,
@@ -200,9 +202,9 @@ pub async fn resolve_process(
         .await?;
 
     let env = futures::stream::iter(process.env)
-        .then(|(key, value)| async move {
-            let value = build_process_template(brioche, value, dirs).await?;
-            anyhow::Ok((key, value))
+        .then(|(key, artifact)| async move {
+            let artifact = build_process_template(brioche, artifact, dirs).await?;
+            anyhow::Ok((key, artifact))
         })
         .try_collect::<HashMap<_, _>>()
         .await?;
@@ -426,9 +428,9 @@ async fn build_process_template(
                     value: value.clone(),
                 })
             }
-            CompleteProcessTemplateComponent::Input { value } => {
+            CompleteProcessTemplateComponent::Input { artifact } => {
                 let local_output =
-                    crate::brioche::output::create_local_output(brioche, &value.value).await?;
+                    crate::brioche::output::create_local_output(brioche, &artifact.value).await?;
 
                 if let Some(input_resources_dir) = &local_output.resources_dir {
                     tokio::task::spawn_blocking({
@@ -464,7 +466,7 @@ async fn build_process_template(
                     .iter()
                     .copied()
                     .chain(b"/.local/share/brioche/locals/".iter().copied())
-                    .chain(value.value.hash().to_string().bytes())
+                    .chain(artifact.value.hash().to_string().bytes())
                     .collect();
                 result
                     .components
@@ -560,18 +562,18 @@ async fn set_up_rootfs(
         resources_dir: None,
     };
 
-    let dash = LazyValue::Unpack(UnpackValue {
+    let dash = LazyArtifact::Unpack(UnpackArtifact {
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
-        file: Box::new(WithMeta::without_meta(LazyValue::Download(DownloadValue {
+        file: Box::new(WithMeta::without_meta(LazyArtifact::Download(DownloadArtifact {
             url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/dash_amd64_linux.tar.zstd".parse()?,
             hash: crate::brioche::Hash::Sha256 { value: hex::decode("ff52ae7e883ee4cbb0878f0e17decc18cd80b364147881fb576440e72e0129b2")? }
         }))),
     });
-    let env = LazyValue::Unpack(UnpackValue {
+    let env = LazyArtifact::Unpack(UnpackArtifact {
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
-        file: Box::new(WithMeta::without_meta(LazyValue::Download(DownloadValue {
+        file: Box::new(WithMeta::without_meta(LazyArtifact::Download(DownloadArtifact {
             url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/env_amd64_linux.tar.zstd".parse()?,
             hash: crate::brioche::Hash::Sha256 { value: hex::decode("8f5b15a9b5c695663ca2caefa0077c3889fcf65793c9a20ceca4ab12c7007453")? }
         }))),
@@ -580,7 +582,7 @@ async fn set_up_rootfs(
     tracing::debug!("resolving rootfs dash/env dependencies");
     let dash_and_env = super::resolve(
         brioche,
-        WithMeta::without_meta(LazyValue::Merge {
+        WithMeta::without_meta(LazyArtifact::Merge {
             directories: vec![WithMeta::without_meta(dash), WithMeta::without_meta(env)],
         }),
     )
