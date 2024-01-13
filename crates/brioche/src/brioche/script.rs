@@ -19,6 +19,7 @@ use super::{
 pub mod check;
 mod compiler_host;
 pub mod evaluate;
+pub mod format;
 mod js;
 pub mod lsp;
 pub mod specifier;
