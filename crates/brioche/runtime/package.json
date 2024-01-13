@@ -9,6 +9,7 @@
     "esbuild": "^0.19.2"
   },
   "dependencies": {
+    "prettier": "^3.2.1",
     "typescript": "^5.1.6",
     "vscode-languageserver": "^8.1.0"
   }
