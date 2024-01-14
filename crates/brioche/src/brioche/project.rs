@@ -5,6 +5,8 @@ use std::{
 
 use anyhow::Context as _;
 
+use crate::fs_utils::is_dir;
+
 use super::Brioche;
 
 pub mod analyze;
@@ -88,9 +90,11 @@ pub async fn resolve_project_depth(
 pub fn find_project_root_sync(path: &Path) -> anyhow::Result<&Path> {
     let mut current_path = path;
     loop {
-        let project_definition_path = current_path.join("project.bri");
-        if project_definition_path.exists() {
-            return Ok(current_path);
+        if current_path.is_dir() {
+            let project_definition_path = current_path.join("project.bri");
+            if project_definition_path.exists() {
+                return Ok(current_path);
+            }
         }
 
         current_path = match current_path.parent() {
@@ -103,10 +107,12 @@ pub fn find_project_root_sync(path: &Path) -> anyhow::Result<&Path> {
 pub async fn find_project_root(path: &Path) -> anyhow::Result<&Path> {
     let mut current_path = path;
     loop {
-        let project_definition_path = current_path.join("project.bri");
-        let exists = tokio::fs::try_exists(&project_definition_path).await?;
-        if exists {
-            return Ok(current_path);
+        if is_dir(current_path).await {
+            let project_definition_path = current_path.join("project.bri");
+            let exists = tokio::fs::try_exists(&project_definition_path).await?;
+            if exists {
+                return Ok(current_path);
+            }
         }
 
         current_path = match current_path.parent() {

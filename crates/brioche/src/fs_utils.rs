@@ -10,6 +10,14 @@ pub async fn is_file(path: &Path) -> bool {
     metadata.is_file()
 }
 
+pub async fn is_dir(path: &Path) -> bool {
+    let Ok(metadata) = tokio::fs::metadata(path).await else {
+        return false;
+    };
+
+    metadata.is_dir()
+}
+
 pub async fn move_file(source: &Path, dest: &Path) -> anyhow::Result<MoveType> {
     let rename_result = tokio::fs::rename(source, dest).await;
 
