@@ -7,6 +7,8 @@ use std::{
 use anyhow::Context as _;
 use deno_core::OpState;
 
+use crate::brioche::script::specifier::BriocheImportSpecifier;
+
 use self::specifier::BriocheModuleSpecifier;
 
 use super::{
@@ -52,7 +54,8 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         }
 
         let referrer: BriocheModuleSpecifier = referrer.parse()?;
-        let resolved = specifier::resolve(&self.brioche, specifier, &referrer)?;
+        let specifier: BriocheImportSpecifier = specifier.parse()?;
+        let resolved = specifier::resolve(&self.brioche, &specifier, &referrer)?;
 
         tracing::debug!(%specifier, %referrer, %resolved, "resolved module");
 

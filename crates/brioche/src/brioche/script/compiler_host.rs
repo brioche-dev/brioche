@@ -10,7 +10,7 @@ use deno_core::OpState;
 
 use crate::brioche::Brioche;
 
-use super::specifier::BriocheModuleSpecifier;
+use super::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier};
 
 #[derive(Clone)]
 pub struct BriocheCompilerHost {
@@ -164,7 +164,8 @@ pub fn op_brioche_resolve_module(
     let compiler_host = brioche_compiler_host_state(state).ok()?;
 
     let referrer: BriocheModuleSpecifier = referrer.parse().ok()?;
-    let resolved = super::specifier::resolve(&compiler_host.brioche, specifier, &referrer).ok()?;
+    let specifier: BriocheImportSpecifier = specifier.parse().ok()?;
+    let resolved = super::specifier::resolve(&compiler_host.brioche, &specifier, &referrer).ok()?;
 
     Some(resolved.to_string())
 }

@@ -1,9 +1,23 @@
 use assert_matches::assert_matches;
-use brioche::brioche::script::specifier::{
-    read_specifier_contents_sync, resolve, BriocheModuleSpecifier,
+use brioche::brioche::{
+    script::specifier::{
+        self, read_specifier_contents_sync, BriocheImportSpecifier, BriocheModuleSpecifier,
+    },
+    Brioche,
 };
 
 mod brioche_test;
+
+fn resolve(
+    brioche: &Brioche,
+    specifier: &str,
+    referrer: &BriocheModuleSpecifier,
+) -> anyhow::Result<BriocheModuleSpecifier> {
+    let specifier: BriocheImportSpecifier = specifier.parse()?;
+    let resolved = specifier::resolve(brioche, &specifier, referrer)?;
+
+    Ok(resolved)
+}
 
 #[tokio::test]
 async fn test_specifier_read_runtime() -> anyhow::Result<()> {
