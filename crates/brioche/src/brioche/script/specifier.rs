@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     path::{Path, PathBuf},
     pin::Pin,
 };
@@ -173,6 +174,17 @@ impl std::fmt::Display for BriocheModuleSpecifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", url::Url::from(self))
     }
+}
+
+pub fn runtime_specifiers_with_contents(
+) -> impl Iterator<Item = (BriocheModuleSpecifier, Cow<'static, [u8]>)> {
+    crate::brioche::RuntimeFiles::iter().flat_map(|path| {
+        let file = crate::brioche::RuntimeFiles::get(&path)?;
+        let specifier = BriocheModuleSpecifier::Runtime {
+            subpath: RelativePathBuf::from(&*path),
+        };
+        Some((specifier, file.data))
+    })
 }
 
 pub async fn read_specifier_contents(
