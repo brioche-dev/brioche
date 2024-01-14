@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::Context as _;
 use deno_core::OpState;
+use tokio::io::AsyncReadExt as _;
 
 use crate::brioche::Brioche;
 
@@ -49,6 +50,46 @@ impl BriocheCompilerHost {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    pub async fn read_document<R>(
+        &self,
+        specifier: BriocheModuleSpecifier,
+        f: impl FnOnce(&BriocheDocument) -> R,
+    ) -> anyhow::Result<Option<R>> {
+        {
+            let documents = self
+                .documents
+                .read()
+                .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+            if let Some(document) = documents.get(&specifier) {
+                let result = f(document);
+                return Ok(Some(result));
+            }
+        }
+
+        let Some(mut reader) = super::specifier::read_specifier_contents(&specifier).await? else {
+            return Ok(None);
+        };
+
+        let mut contents = String::new();
+        reader.read_to_string(&mut contents).await?;
+
+        let mut documents = self
+            .documents
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+        let document = documents
+            .entry(specifier)
+            .or_insert_with(|| BriocheDocument {
+                contents: contents.to_owned(),
+                version: 0,
+            });
+
+        let result = f(document);
+        Ok(Some(result))
+    }
+
+    // TODO: Remove
     pub fn read_document_sync<R>(
         &self,
         specifier: BriocheModuleSpecifier,
@@ -165,7 +206,8 @@ pub fn op_brioche_resolve_module(
 
     let referrer: BriocheModuleSpecifier = referrer.parse().ok()?;
     let specifier: BriocheImportSpecifier = specifier.parse().ok()?;
-    let resolved = super::specifier::resolve(&compiler_host.brioche, &specifier, &referrer).ok()?;
+    let resolved =
+        super::specifier::resolve_sync(&compiler_host.brioche, &specifier, &referrer).ok()?;
 
     Some(resolved.to_string())
 }
