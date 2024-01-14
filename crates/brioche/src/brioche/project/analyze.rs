@@ -170,56 +170,12 @@ pub fn analyze_module(
 
     let mut imports = HashMap::new();
 
-    for module_item in module.items() {
-        let line = contents[..module_item.syntax().text_range().start().into()]
-            .lines()
-            .count();
-
-        let import_source = match module_item {
-            biome_js_syntax::AnyJsModuleItem::JsExport(export_item) => {
-                let export_clause = export_item
-                    .export_clause()
-                    .with_context(|| format!("{file}:{line}: failed to parse export statement"))?;
-                match export_clause {
-                    biome_js_syntax::AnyJsExportClause::JsExportFromClause(clause) => {
-                        clause.source()
-                    }
-                    biome_js_syntax::AnyJsExportClause::JsExportNamedFromClause(clause) => {
-                        clause.source()
-                    }
-                    biome_js_syntax::AnyJsExportClause::AnyJsDeclarationClause(_)
-                    | biome_js_syntax::AnyJsExportClause::JsExportDefaultDeclarationClause(_)
-                    | biome_js_syntax::AnyJsExportClause::JsExportDefaultExpressionClause(_)
-                    | biome_js_syntax::AnyJsExportClause::JsExportNamedClause(_)
-                    | biome_js_syntax::AnyJsExportClause::TsExportAsNamespaceClause(_)
-                    | biome_js_syntax::AnyJsExportClause::TsExportAssignmentClause(_)
-                    | biome_js_syntax::AnyJsExportClause::TsExportDeclareClause(_) => {
-                        // Not an export from another module
-                        continue;
-                    }
-                }
-            }
-            biome_js_syntax::AnyJsModuleItem::JsImport(import_item) => {
-                let import_clause = import_item
-                    .import_clause()
-                    .with_context(|| format!("{file}:{line}: failed to parse import statement"))?;
-                import_clause.source()
-            }
-            biome_js_syntax::AnyJsModuleItem::AnyJsStatement(_) => {
-                // Not an import or export statement
-                continue;
-            }
-        };
-
-        let import_source = import_source
-            .with_context(|| format!("{file}:{line}: failed to parse import source"))?;
-        let import_source = import_source
-            .inner_string_text()
-            .with_context(|| format!("{file}:{line}: failed to get import source text"))?;
-        let import_source = import_source.text();
-        let import_specifier: BriocheImportSpecifier = import_source
-            .parse()
-            .with_context(|| format!("{file}:{line}: invalid import specifier"))?;
+    let import_specifiers = find_imports(module, |offset| {
+        let line = contents[..offset].lines().count();
+        format!("{module_specifier}:{line}")
+    });
+    for import_specifier in import_specifiers {
+        let import_specifier = import_specifier?;
 
         let import_analysis = match &import_specifier {
             BriocheImportSpecifier::Local(local_import) => {
@@ -255,6 +211,68 @@ pub fn analyze_module(
     local_module.imports = imports;
 
     Ok(module_specifier)
+}
+
+pub fn find_imports<'a, D>(
+    module: &'a biome_js_syntax::JsModule,
+    mut display_location: impl FnMut(usize) -> D + 'a,
+) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
+where
+    D: std::fmt::Display,
+{
+    module
+        .items()
+        .iter()
+        .map(move |item| {
+            let location = display_location(item.syntax().text_range().start().into());
+            let import_source = match item {
+                biome_js_syntax::AnyJsModuleItem::JsExport(export_item) => {
+                    let export_clause = export_item
+                        .export_clause()
+                        .with_context(|| format!("{location}: failed to parse export statement"))?;
+                    match export_clause {
+                        biome_js_syntax::AnyJsExportClause::JsExportFromClause(clause) => {
+                            clause.source()
+                        }
+                        biome_js_syntax::AnyJsExportClause::JsExportNamedFromClause(clause) => {
+                            clause.source()
+                        }
+                        biome_js_syntax::AnyJsExportClause::AnyJsDeclarationClause(_)
+                        | biome_js_syntax::AnyJsExportClause::JsExportDefaultDeclarationClause(_)
+                        | biome_js_syntax::AnyJsExportClause::JsExportDefaultExpressionClause(_)
+                        | biome_js_syntax::AnyJsExportClause::JsExportNamedClause(_)
+                        | biome_js_syntax::AnyJsExportClause::TsExportAsNamespaceClause(_)
+                        | biome_js_syntax::AnyJsExportClause::TsExportAssignmentClause(_)
+                        | biome_js_syntax::AnyJsExportClause::TsExportDeclareClause(_) => {
+                            // Not an export from another module
+                            return Ok(None);
+                        }
+                    }
+                }
+                biome_js_syntax::AnyJsModuleItem::JsImport(import_item) => {
+                    let import_clause = import_item
+                        .import_clause()
+                        .with_context(|| format!("{location}: failed to parse import statement"))?;
+                    import_clause.source()
+                }
+                biome_js_syntax::AnyJsModuleItem::AnyJsStatement(_) => {
+                    // Not an import or export statement
+                    return Ok(None);
+                }
+            };
+
+            let import_source = import_source
+                .with_context(|| format!("{location}: failed to parse import source"))?;
+            let import_source = import_source
+                .inner_string_text()
+                .with_context(|| format!("{location}: failed to get import source text"))?;
+            let import_source = import_source.text();
+            let import_specifier: BriocheImportSpecifier = import_source
+                .parse()
+                .with_context(|| format!("{location}: invalid import specifier"))?;
+            Ok(Some(import_specifier))
+        })
+        .filter_map(|result| result.transpose())
 }
 
 fn expression_to_json(
