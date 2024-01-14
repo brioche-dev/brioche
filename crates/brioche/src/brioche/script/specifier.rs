@@ -8,6 +8,81 @@ use crate::brioche::{
     Brioche,
 };
 
+/// A specifier from an `import` statement in a JavaScript module. Can
+/// be resolved to a module specifier using the `resolve` function.
+pub enum BriocheImportSpecifier {
+    /// A local import.
+    Local(BriocheLocalImportSpecifier),
+
+    /// An external dependency. Example: `import "somedep";`
+    External(String),
+}
+
+impl std::str::FromStr for BriocheImportSpecifier {
+    type Err = anyhow::Error;
+
+    fn from_str(specifier: &str) -> Result<Self, Self::Err> {
+        if specifier == "."
+            || specifier == ".."
+            || specifier.starts_with("./")
+            || specifier.starts_with("../")
+            || specifier.starts_with('/')
+        {
+            let local_specifier = specifier.parse()?;
+            Ok(Self::Local(local_specifier))
+        } else {
+            Ok(Self::External(specifier.to_string()))
+        }
+    }
+}
+
+impl std::fmt::Display for BriocheImportSpecifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BriocheImportSpecifier::Local(specifier) => write!(f, "{}", specifier),
+            BriocheImportSpecifier::External(specifier) => write!(f, "{}", specifier),
+        }
+    }
+}
+
+impl std::str::FromStr for BriocheLocalImportSpecifier {
+    type Err = anyhow::Error;
+
+    fn from_str(specifier: &str) -> Result<Self, Self::Err> {
+        if specifier == "."
+            || specifier == ".."
+            || specifier.starts_with("./")
+            || specifier.starts_with("../")
+        {
+            Ok(Self::Relative(specifier.to_string()))
+        } else if let Some(project_root_subpath) = specifier.strip_prefix('/') {
+            Ok(Self::ProjectRoot(project_root_subpath.to_string()))
+        } else {
+            anyhow::bail!("invlaid local import specifier: {specifier}");
+        }
+    }
+}
+
+impl std::fmt::Display for BriocheLocalImportSpecifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BriocheLocalImportSpecifier::Relative(path) => write!(f, "{path}"),
+            BriocheLocalImportSpecifier::ProjectRoot(path) => write!(f, "/{path}"),
+        }
+    }
+}
+
+/// An `import` specifier referring to a file within the current project.
+pub enum BriocheLocalImportSpecifier {
+    /// An import relative to the current module. Example: `import "./foo.bri";`
+    Relative(String),
+    /// An import relative to the root of the project. Example: `import "/foo.bri`
+    ProjectRoot(String),
+}
+
+/// A specifier for a Brioche module, either from the filesystem or
+/// from the internal runtime package. A module specifier can be converted
+/// from/to a URL.
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
@@ -90,70 +165,6 @@ impl std::fmt::Display for BriocheModuleSpecifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", url::Url::from(self))
     }
-}
-
-pub enum BriocheImportSpecifier {
-    Local(BriocheLocalImportSpecifier),
-    External(String),
-}
-
-impl std::str::FromStr for BriocheImportSpecifier {
-    type Err = anyhow::Error;
-
-    fn from_str(specifier: &str) -> Result<Self, Self::Err> {
-        if specifier == "."
-            || specifier == ".."
-            || specifier.starts_with("./")
-            || specifier.starts_with("../")
-            || specifier.starts_with('/')
-        {
-            let local_specifier = specifier.parse()?;
-            Ok(Self::Local(local_specifier))
-        } else {
-            Ok(Self::External(specifier.to_string()))
-        }
-    }
-}
-
-impl std::fmt::Display for BriocheImportSpecifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BriocheImportSpecifier::Local(specifier) => write!(f, "{}", specifier),
-            BriocheImportSpecifier::External(specifier) => write!(f, "{}", specifier),
-        }
-    }
-}
-
-impl std::str::FromStr for BriocheLocalImportSpecifier {
-    type Err = anyhow::Error;
-
-    fn from_str(specifier: &str) -> Result<Self, Self::Err> {
-        if specifier == "."
-            || specifier == ".."
-            || specifier.starts_with("./")
-            || specifier.starts_with("../")
-        {
-            Ok(Self::Relative(specifier.to_string()))
-        } else if let Some(project_root_subpath) = specifier.strip_prefix('/') {
-            Ok(Self::ProjectRoot(project_root_subpath.to_string()))
-        } else {
-            anyhow::bail!("invlaid local import specifier: {specifier}");
-        }
-    }
-}
-
-impl std::fmt::Display for BriocheLocalImportSpecifier {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BriocheLocalImportSpecifier::Relative(path) => write!(f, "{path}"),
-            BriocheLocalImportSpecifier::ProjectRoot(path) => write!(f, "/{path}"),
-        }
-    }
-}
-
-pub enum BriocheLocalImportSpecifier {
-    Relative(String),
-    ProjectRoot(String),
 }
 
 pub fn read_specifier_contents_sync(
