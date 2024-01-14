@@ -8,8 +8,14 @@ use super::{specifier::BriocheModuleSpecifier, Project};
 
 #[tracing::instrument(skip(brioche, project), err)]
 pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<CheckResult> {
+    let specifier = BriocheModuleSpecifier::File {
+        path: project.local_path.join("project.bri"),
+    };
+
     let module_loader = super::BriocheModuleLoader::new(brioche);
     let compiler_host = super::compiler_host::BriocheCompilerHost::new(brioche.clone());
+    compiler_host.load_document(&specifier).await?;
+
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(module_loader.clone())),
         source_map_getter: Some(Box::new(module_loader.clone())),
@@ -46,9 +52,6 @@ pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<Check
 
     tracing::info!(path = %project.local_path.display(), %main_module, ?export_key_name, "running function");
 
-    let specifier = BriocheModuleSpecifier::File {
-        path: project.local_path.join("project.bri"),
-    };
     let files = serde_v8::to_v8(&mut js_scope, &[specifier])?;
 
     let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
