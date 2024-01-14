@@ -16,7 +16,7 @@ use crate::{
 
 /// A specifier from an `import` statement in a JavaScript module. Can
 /// be resolved to a module specifier using the `resolve` function.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BriocheImportSpecifier {
     /// A local import.
     Local(BriocheLocalImportSpecifier),
@@ -80,7 +80,7 @@ impl std::fmt::Display for BriocheLocalImportSpecifier {
 }
 
 /// An `import` specifier referring to a file within the current project.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BriocheLocalImportSpecifier {
     /// An import relative to the current module. Example: `import "./foo.bri";`
     Relative(String),

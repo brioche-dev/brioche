@@ -29,22 +29,9 @@ pub async fn resolve_project_depth(
         .with_context(|| format!("failed to canonicalize path {}", path.display()))?;
     let repo = &brioche.repo_dir;
 
-    let project_root_path = path.join("project.bri");
-    let project_root_url = url::Url::from_file_path(project_root_path.clone()).map_err(|_| {
-        anyhow::anyhow!("invalid project root path: {}", project_root_path.display())
-    })?;
-    let project_root = tokio::fs::read_to_string(&project_root_path)
-        .await
-        .with_context(|| {
-            format!(
-                "failed to read project root at {}",
-                project_root_path.display()
-            )
-        })?;
-    let project_definition = analyze::analyze_project(&project_root_url, &project_root)?;
-
+    let project_analysis = analyze::analyze_project(&path)?;
     let mut dependencies = HashMap::new();
-    for (name, dependency_def) in &project_definition.dependencies {
+    for (name, dependency_def) in &project_analysis.definition.dependencies {
         static NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         let name_regex = NAME_REGEX
             .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
@@ -61,7 +48,7 @@ pub async fn resolve_project_depth(
                     .with_context(|| {
                         format!(
                             "failed to resolve path dependency {name:?} in {}",
-                            project_root_path.display()
+                            path.display()
                         )
                     })?
             }
@@ -72,7 +59,7 @@ pub async fn resolve_project_depth(
                     .with_context(|| {
                         format!(
                             "failed to resolve repo dependency {name:?} in {}",
-                            project_root_path.display()
+                            path.display()
                         )
                     })?
             }
@@ -128,20 +115,22 @@ pub struct Project {
     pub dependencies: HashMap<String, Project>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ProjectDefinition {
     #[serde(default)]
     pub dependencies: HashMap<String, DependencyDefinition>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum DependencyDefinition {
     Path { path: PathBuf },
     Version(Version),
 }
 
-#[derive(Debug, Clone, serde_with::DeserializeFromStr, serde_with::SerializeDisplay)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+)]
 pub enum Version {
     Any,
 }
