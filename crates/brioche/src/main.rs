@@ -226,11 +226,32 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
 
     let format_future = async {
         let project = brioche::brioche::project::resolve_project(&brioche, &args.project).await?;
-        brioche::brioche::script::format::format(&project).await?;
 
-        guard.shutdown_console().await;
+        if args.check {
+            let mut unformatted_files =
+                brioche::brioche::script::format::check_format(&project).await?;
+            unformatted_files.sort();
 
-        anyhow::Ok(ExitCode::SUCCESS)
+            guard.shutdown_console().await;
+
+            if unformatted_files.is_empty() {
+                println!("All files formatted");
+                Ok(ExitCode::SUCCESS)
+            } else {
+                println!("The following files are not formatted:");
+                for file in unformatted_files {
+                    println!("- {}", file.display());
+                }
+
+                Ok(ExitCode::FAILURE)
+            }
+        } else {
+            brioche::brioche::script::format::format(&project).await?;
+
+            guard.shutdown_console().await;
+
+            anyhow::Ok(ExitCode::SUCCESS)
+        }
     };
 
     let exit_code = format_future
