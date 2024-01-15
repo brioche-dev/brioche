@@ -213,7 +213,8 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
 struct FormatArgs {
     #[clap(long)]
     check: bool,
-    files: Vec<PathBuf>,
+    #[clap(short, long)]
+    project: PathBuf,
 }
 
 async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
@@ -224,7 +225,8 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
         .await?;
 
     let format_future = async {
-        brioche::brioche::script::format::format(&brioche, &args.files).await?;
+        let project = brioche::brioche::project::resolve_project(&brioche, &args.project).await?;
+        brioche::brioche::script::format::format(&brioche, &project).await?;
 
         guard.shutdown_console().await;
 

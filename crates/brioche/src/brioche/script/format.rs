@@ -1,16 +1,16 @@
-use std::{path::PathBuf, rc::Rc};
+use std::rc::Rc;
 
 use anyhow::Context as _;
 
-use crate::brioche::Brioche;
+use crate::brioche::{project::Project, Brioche};
 
 use super::specifier::BriocheModuleSpecifier;
 
-#[tracing::instrument(skip(brioche, paths), err)]
-pub async fn format(brioche: &Brioche, paths: &[PathBuf]) -> anyhow::Result<()> {
+#[tracing::instrument(skip(brioche, project), err)]
+pub async fn format(brioche: &Brioche, project: &Project) -> anyhow::Result<()> {
     let mut formatter = Formatter::new(brioche).await?;
 
-    for path in paths {
+    for path in project.local_module_paths() {
         let contents = tokio::fs::read_to_string(path).await?;
 
         let formatted_contents = formatter.format_code(&contents).await?;
