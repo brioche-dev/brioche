@@ -184,8 +184,8 @@ impl BriocheCompilerHost {
 
 #[derive(Debug, Clone)]
 pub struct BriocheDocument {
-    contents: Arc<String>,
-    version: u64,
+    pub contents: Arc<String>,
+    pub version: u64,
 }
 
 deno_core::extension!(brioche_compiler_host,
