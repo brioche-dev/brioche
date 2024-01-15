@@ -8,9 +8,16 @@ use tracing::Instrument;
 #[derive(Debug, Parser)]
 enum Args {
     Build(BuildArgs),
+
     Check(CheckArgs),
+
+    #[clap(name = "fmt")]
+    Format(FormatArgs),
+
     Lsp(LspArgs),
+
     Analyze(AnalyzeArgs),
+
     RunSandbox(RunSandboxArgs),
 }
 
@@ -35,6 +42,15 @@ fn main() -> anyhow::Result<ExitCode> {
                 .build()?;
 
             let exit_code = rt.block_on(check(args))?;
+
+            Ok(exit_code)
+        }
+        Args::Format(args) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            let exit_code = rt.block_on(format(args))?;
 
             Ok(exit_code)
         }
@@ -189,6 +205,36 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
 
     let exit_code = check_future
         .instrument(tracing::info_span!("check", args = ?args))
+        .await?;
+
+    Ok(exit_code)
+}
+#[derive(Debug, Parser)]
+struct FormatArgs {
+    #[clap(long)]
+    check: bool,
+    #[clap(short, long)]
+    project: PathBuf,
+}
+
+async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
+    let (reporter, mut guard) = brioche::reporter::start_console_reporter()?;
+
+    let brioche = brioche::brioche::BriocheBuilder::new(reporter)
+        .build()
+        .await?;
+
+    let format_future = async {
+        let project = brioche::brioche::project::resolve_project(&brioche, &args.project).await?;
+        brioche::brioche::script::format::format(&project).await?;
+
+        guard.shutdown_console().await;
+
+        anyhow::Ok(ExitCode::SUCCESS)
+    };
+
+    let exit_code = format_future
+        .instrument(tracing::info_span!("format", args = ?args))
         .await?;
 
     Ok(exit_code)

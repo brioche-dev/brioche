@@ -5,7 +5,7 @@ use biome_rowan::{AstNode as _, AstNodeList as _, AstSeparatedList as _};
 
 use crate::brioche::script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProjectAnalysis {
     pub definition: super::ProjectDefinition,
     pub local_modules: HashMap<BriocheModuleSpecifier, ModuleAnalysis>,

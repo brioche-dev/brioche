@@ -70,6 +70,7 @@ pub async fn resolve_project_depth(
 
     Ok(Project {
         local_path: path.to_owned(),
+        analysis: project_analysis,
         dependencies,
     })
 }
@@ -112,7 +113,20 @@ pub async fn find_project_root(path: &Path) -> anyhow::Result<&Path> {
 #[derive(Debug, Clone)]
 pub struct Project {
     pub local_path: PathBuf,
+    pub analysis: analyze::ProjectAnalysis,
     pub dependencies: HashMap<String, Project>,
+}
+
+impl Project {
+    pub fn local_module_paths(&self) -> impl Iterator<Item = &Path> + '_ {
+        self.analysis
+            .local_modules
+            .keys()
+            .filter_map(|module| match module {
+                super::script::specifier::BriocheModuleSpecifier::Runtime { .. } => None,
+                super::script::specifier::BriocheModuleSpecifier::File { path } => Some(&**path),
+            })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

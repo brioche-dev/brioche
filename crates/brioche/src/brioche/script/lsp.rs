@@ -7,6 +7,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::brioche::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
+use crate::brioche::script::format::format_code;
 use crate::brioche::Brioche;
 
 use super::specifier::BriocheModuleSpecifier;
@@ -73,6 +74,7 @@ impl LanguageServer for BriocheLspServer {
                     prepare_provider: Some(true),
                     work_done_progress_options: Default::default(),
                 })),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -302,6 +304,60 @@ impl LanguageServer for BriocheLspServer {
         };
         tracing::info!("rename: {:#?}", workspace_edit);
         Ok(workspace_edit)
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
+        let specifier = match specifier {
+            Ok(specifier) => specifier,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to parse URI");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+        };
+
+        let contents = self
+            .compiler_host
+            .read_loaded_document(specifier, |doc| doc.contents.clone());
+        let contents = match contents {
+            Ok(Some(contents)) => contents,
+            Ok(None) => {
+                tracing::error!("failed to find document");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+            Err(error) => {
+                tracing::error!(error = %error, "failed to read document");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+        };
+
+        let full_range = Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: contents
+                    .lines()
+                    .count()
+                    .try_into()
+                    .expect("could not convert lines"),
+                character: 0,
+            },
+        };
+        let formatted = format_code(&contents);
+        let formatted = match formatted {
+            Ok(formatted) => formatted,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to format document");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+        };
+
+        Ok(Some(vec![TextEdit {
+            range: full_range,
+            new_text: formatted,
+        }]))
     }
 
     // async fn diagnostic(
