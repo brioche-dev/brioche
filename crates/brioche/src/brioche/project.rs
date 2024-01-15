@@ -118,14 +118,17 @@ pub struct Project {
 }
 
 impl Project {
+    pub fn local_modules(
+        &self,
+    ) -> impl Iterator<Item = &super::script::specifier::BriocheModuleSpecifier> + '_ {
+        self.analysis.local_modules.keys()
+    }
+
     pub fn local_module_paths(&self) -> impl Iterator<Item = &Path> + '_ {
-        self.analysis
-            .local_modules
-            .keys()
-            .filter_map(|module| match module {
-                super::script::specifier::BriocheModuleSpecifier::Runtime { .. } => None,
-                super::script::specifier::BriocheModuleSpecifier::File { path } => Some(&**path),
-            })
+        self.local_modules().filter_map(|module| match module {
+            super::script::specifier::BriocheModuleSpecifier::Runtime { .. } => None,
+            super::script::specifier::BriocheModuleSpecifier::File { path } => Some(&**path),
+        })
     }
 }
 
