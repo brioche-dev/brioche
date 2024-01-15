@@ -86,7 +86,7 @@ pub fn op_brioche_file_version(
 
     let version = compiler_host
         .vfs
-        .read_loaded_document(specifier, |doc| doc.version())?;
+        .read_loaded_document(specifier, |doc| doc.version)?;
     Ok(version)
 }
 

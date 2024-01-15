@@ -1,11 +1,15 @@
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     sync::{Arc, RwLock},
 };
 
 use tokio::io::AsyncReadExt as _;
 
-use crate::brioche::{project::analyze::find_imports, Brioche};
+use crate::brioche::{
+    project::{analyze::find_imports, find_project_root},
+    Brioche,
+};
 
 use super::specifier::BriocheModuleSpecifier;
 
@@ -24,6 +28,7 @@ impl Vfs {
                     .unwrap();
                 let document = BriocheDocument {
                     contents: Arc::new(contents.to_owned()),
+                    project_root: None,
                     version: 0,
                 };
                 (specifier, document)
@@ -65,6 +70,14 @@ impl Vfs {
                     let mut contents = String::new();
                     reader.read_to_string(&mut contents).await?;
 
+                    let project_root = match &specifier {
+                        BriocheModuleSpecifier::Runtime { .. } => None,
+                        BriocheModuleSpecifier::File { path } => find_project_root(path)
+                            .await
+                            .ok()
+                            .map(|path| path.to_owned()),
+                    };
+
                     let mut documents = self
                         .documents
                         .write()
@@ -77,8 +90,10 @@ impl Vfs {
                         std::collections::hash_map::Entry::Vacant(entry) => {
                             tracing::info!("loaded new document into vfs: {specifier}");
                             let contents = Arc::new(contents);
+
                             entry.insert(BriocheDocument {
                                 contents: contents.clone(),
+                                project_root,
                                 version: 0,
                             });
                             contents
@@ -134,29 +149,42 @@ impl Vfs {
         let specifier: BriocheModuleSpecifier = uri.try_into()?;
 
         {
+            let project_root = match &specifier {
+                BriocheModuleSpecifier::Runtime { .. } => None,
+                BriocheModuleSpecifier::File { path } => find_project_root(path)
+                    .await
+                    .ok()
+                    .map(|path| path.to_owned()),
+            };
+
             let mut documents = self
                 .documents
                 .write()
                 .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
-            documents
-                .entry(specifier.clone())
-                .and_modify(|doc| {
+
+            match documents.entry(specifier.clone()) {
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    let doc = entry.get_mut();
                     if *doc.contents != contents {
                         doc.version += 1;
 
                         let doc_contents = Arc::make_mut(&mut doc.contents);
                         *doc_contents = contents.to_owned();
                     }
-                })
-                .or_insert_with(|| {
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
                     tracing::info!("inserted new document into vfs: {specifier}");
-                    BriocheDocument {
+
+                    entry.insert(BriocheDocument {
                         contents: Arc::new(contents.to_owned()),
+                        project_root,
                         version: 0,
-                    }
-                });
+                    });
+                }
+            }
         }
 
+        // Load the document to find all imports
         self.load_document(&specifier).await?;
 
         Ok(())
@@ -183,11 +211,6 @@ impl Vfs {
 #[derive(Debug, Clone)]
 pub struct BriocheDocument {
     pub contents: Arc<String>,
-    version: u64,
-}
-
-impl BriocheDocument {
-    pub fn version(&self) -> u64 {
-        self.version
-    }
+    pub project_root: Option<PathBuf>,
+    pub version: u64,
 }
