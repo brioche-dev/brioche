@@ -9,6 +9,8 @@ use tower_lsp::{Client, LanguageServer};
 use crate::brioche::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
 use crate::brioche::Brioche;
 
+use super::specifier::BriocheModuleSpecifier;
+
 pub struct BriocheLspServer {
     compiler_host: BriocheCompilerHost,
     client: Client,
@@ -88,6 +90,26 @@ impl LanguageServer for BriocheLspServer {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         tracing::info!(uri = %params.text_document.uri, "did open");
+
+        let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
+        match specifier {
+            Ok(specifier) => {
+                let result = self.compiler_host.load_document(&specifier).await;
+                match result {
+                    Ok(()) => {}
+                    Err(error) => {
+                        tracing::warn!("failed to load document {specifier}: {error:#}");
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "failed to parse URI {}: {error:#}",
+                    params.text_document.uri
+                );
+            }
+        }
+
         let diagnostics = self
             .diagnostics(TextDocumentIdentifier {
                 uri: params.text_document.uri.clone(),
@@ -313,6 +335,22 @@ impl LanguageServer for BriocheLspServer {
     //         }),
     //     ))
     // }
+}
+
+fn lsp_uri_to_module_specifier(uri: &url::Url) -> anyhow::Result<BriocheModuleSpecifier> {
+    if uri.scheme() == "file" {
+        let uri_string = uri.to_string();
+        if uri_string.ends_with(".bri.ts") {
+            let brioche_uri_string = uri_string
+                .strip_suffix(".ts")
+                .context("failed to truncate URI")?;
+            let specifier = brioche_uri_string.parse()?;
+            return Ok(specifier);
+        }
+    }
+
+    let specifier = BriocheModuleSpecifier::try_from(uri)?;
+    Ok(specifier)
 }
 
 const TIMEOUT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);

@@ -6,6 +6,9 @@ use std::{
 
 use anyhow::Context as _;
 use deno_core::OpState;
+use tokio::io::AsyncReadExt as _;
+
+use crate::brioche::script::specifier::BriocheImportSpecifier;
 
 use self::specifier::BriocheModuleSpecifier;
 
@@ -52,7 +55,8 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         }
 
         let referrer: BriocheModuleSpecifier = referrer.parse()?;
-        let resolved = specifier::resolve(&self.brioche, specifier, &referrer)?;
+        let specifier: BriocheImportSpecifier = specifier.parse()?;
+        let resolved = specifier::resolve_sync(&self.brioche, &specifier, &referrer)?;
 
         tracing::debug!(%specifier, %referrer, %resolved, "resolved module");
 
@@ -70,13 +74,13 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         let sources = self.sources.clone();
         let future = async move {
             let module_specifier = module_specifier?;
-            let Some(mut reader) = specifier::read_specifier_contents_sync(&module_specifier)?
+            let Some(mut reader) = specifier::read_specifier_contents(&module_specifier).await?
             else {
                 anyhow::bail!("file not found for module {module_specifier}");
             };
 
             let mut code = String::new();
-            reader.read_to_string(&mut code)?;
+            reader.read_to_string(&mut code).await?;
 
             let parsed = deno_ast::parse_module(deno_ast::ParseParams {
                 specifier: module_specifier.to_string(),
