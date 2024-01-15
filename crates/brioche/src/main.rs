@@ -226,7 +226,7 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
 
     let format_future = async {
         let project = brioche::brioche::project::resolve_project(&brioche, &args.project).await?;
-        brioche::brioche::script::format::format(&brioche, &project).await?;
+        brioche::brioche::script::format::format(&project).await?;
 
         guard.shutdown_console().await;
 

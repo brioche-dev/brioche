@@ -413,6 +413,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "biome_deserialize"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330eaeb3db672e773201b5b07d1793eac59ab341c5c1c94361b4e962cf072b28"
+dependencies = [
+ "biome_console",
+ "biome_diagnostics",
+ "biome_json_parser",
+ "biome_json_syntax",
+ "biome_rowan",
+ "bitflags 2.4.1",
+ "indexmap 1.9.3",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "biome_diagnostics"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -455,6 +473,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "biome_formatter"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3f91cb8ace52796868117f47e7c41b3e5d561aeca190677ed5e6b0b146c2128"
+dependencies = [
+ "biome_console",
+ "biome_deserialize",
+ "biome_diagnostics",
+ "biome_rowan",
+ "cfg-if 1.0.0",
+ "countme",
+ "drop_bomb",
+ "indexmap 1.9.3",
+ "rustc-hash",
+ "tracing",
+ "unicode-width",
+]
+
+[[package]]
 name = "biome_js_factory"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -462,6 +499,28 @@ checksum = "2ae6461aecbbdae98d8a002f1985cb330994831be697f2c29bf380e595489ce5"
 dependencies = [
  "biome_js_syntax",
  "biome_rowan",
+]
+
+[[package]]
+name = "biome_js_formatter"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0e3154ea173c3609421fea15d799220a4010eaefadc3621df8e1eea7e70571c"
+dependencies = [
+ "biome_console",
+ "biome_deserialize",
+ "biome_diagnostics_categories",
+ "biome_formatter",
+ "biome_js_factory",
+ "biome_js_syntax",
+ "biome_json_syntax",
+ "biome_rowan",
+ "biome_text_size",
+ "biome_unicode_table",
+ "cfg-if 1.0.0",
+ "smallvec",
+ "tracing",
+ "unicode-width",
 ]
 
 [[package]]
@@ -497,6 +556,42 @@ checksum = "7eedd52d731eb06aa9419d87e4133c684e4a927c5d30e38a45034d35318121f0"
 dependencies = [
  "biome_console",
  "biome_diagnostics",
+ "biome_rowan",
+]
+
+[[package]]
+name = "biome_json_factory"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14a0d043a4c76ba9bbbd6ea88a1e304821135a0330f67b2ee4595d786c5a9280"
+dependencies = [
+ "biome_json_syntax",
+ "biome_rowan",
+]
+
+[[package]]
+name = "biome_json_parser"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ad00b326389d0890c3559c439346496d8df84abbe4ecb7e740b746a0c5c2e9a"
+dependencies = [
+ "biome_console",
+ "biome_diagnostics",
+ "biome_json_factory",
+ "biome_json_syntax",
+ "biome_parser",
+ "biome_rowan",
+ "biome_unicode_table",
+ "tracing",
+ "unicode-bom",
+]
+
+[[package]]
+name = "biome_json_syntax"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "969e829f8302cacb15234ac28f49a636f257cfe87c49ee233c261e2a33353084"
+dependencies = [
  "biome_rowan",
 ]
 
@@ -640,6 +735,8 @@ dependencies = [
  "async-compression",
  "async-recursion",
  "bincode 1.3.3",
+ "biome_formatter",
+ "biome_js_formatter",
  "biome_js_parser",
  "biome_js_syntax",
  "biome_rowan",
