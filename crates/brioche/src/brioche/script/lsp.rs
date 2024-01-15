@@ -94,7 +94,7 @@ impl LanguageServer for BriocheLspServer {
         let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
         match specifier {
             Ok(specifier) => {
-                let result = self.compiler_host.load_document(&specifier).await;
+                let result = self.compiler_host.vfs.load_document(&specifier).await;
                 match result {
                     Ok(()) => {}
                     Err(error) => {
@@ -151,6 +151,7 @@ impl LanguageServer for BriocheLspServer {
         if let Some(change) = params.content_changes.first() {
             let result = self
                 .compiler_host
+                .vfs
                 .update_document(&params.text_document.uri, &change.text)
                 .await;
             if result.is_err() {

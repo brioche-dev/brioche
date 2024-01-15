@@ -25,6 +25,7 @@ pub mod evaluate;
 mod js;
 pub mod lsp;
 pub mod specifier;
+pub mod vfs;
 
 #[derive(Clone)]
 struct BriocheModuleLoader {

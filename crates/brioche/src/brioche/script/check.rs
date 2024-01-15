@@ -14,7 +14,7 @@ pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<Check
 
     let module_loader = super::BriocheModuleLoader::new(brioche);
     let compiler_host = super::compiler_host::BriocheCompilerHost::new(brioche.clone());
-    compiler_host.load_document(&specifier).await?;
+    compiler_host.vfs.load_document(&specifier).await?;
 
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(module_loader.clone())),
