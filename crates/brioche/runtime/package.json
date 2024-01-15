@@ -2,13 +2,15 @@
   "name": "brioche-runtime",
   "version": "0.0.0",
   "scripts": {
-    "build": "esbuild --bundle src/index.ts --format=esm --outfile=dist/index.js --minify-whitespace",
+    "build": "esbuild --bundle src/index.ts --format=esm --outfile=dist/index.js --minify-whitespace --define:window=globalThis",
     "check": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/eslint": "^8.56.2",
     "esbuild": "^0.19.2"
   },
   "dependencies": {
+    "eslint-linter-browserify": "^8.56.0",
     "typescript": "^5.1.6",
     "vscode-languageserver": "^8.1.0"
   }

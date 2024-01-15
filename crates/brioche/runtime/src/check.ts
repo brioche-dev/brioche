@@ -1,4 +1,5 @@
 import * as ts from "typescript";
+import { Linter } from "eslint-linter-browserify";
 import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./tscommon.ts";
 
 export function check(files: string[]): Diagnostic[] {
@@ -9,8 +10,48 @@ export function check(files: string[]): Diagnostic[] {
 
   const program = ts.createProgram(files.map(toTsUrl), TS_CONFIG, host);
 
-  const diagnostics = program.getSemanticDiagnostics();
-  return serializeDiagnostics(diagnostics);
+  const tsDiagnostics = program.getSemanticDiagnostics();
+  const serializedTsDiagnostics = serializeDiagnostics(tsDiagnostics);
+
+  const linter = new Linter();
+  const serializedEslintDiagnostics = files.flatMap((file) => {
+    const tsFile = program.getSourceFile(toTsUrl(file));
+    if (tsFile == null) {
+      return [];
+    }
+
+    const diagnostics = linter.verify(tsFile.text, {
+      rules: {
+        "no-unused-vars": "error",
+      },
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: "module",
+      },
+    });
+    return diagnostics.map((diag): Diagnostic => {
+      const startPosition = tsFile.getPositionOfLineAndCharacter(diag.line - 1, diag.column - 1);
+      let endPosition: number;
+      if (diag.endLine != null && diag.endColumn != null) {
+        endPosition = tsFile.getPositionOfLineAndCharacter(diag.endLine - 1, diag.endColumn - 1);
+      } else {
+        endPosition = startPosition + 1;
+      }
+
+      return {
+        specifier: file,
+        start: startPosition,
+        length: endPosition - startPosition,
+        message: {
+          text: diag.message,
+          level: "warning",
+          nested: [],
+        },
+      };
+    });
+  });
+
+  return [...serializedTsDiagnostics, ...serializedEslintDiagnostics];
 }
 
 function serializeDiagnostics(diagnostics: readonly ts.Diagnostic[]): Diagnostic[] {

@@ -1,6 +1,7 @@
 import * as brioche from "./tscommon";
 import * as ts from "typescript";
 import * as lsp from "vscode-languageserver";
+import { Linter } from "eslint-linter-browserify";
 
 export function buildLsp(): Lsp {
   return new Lsp();
@@ -80,11 +81,13 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
 class Lsp {
   private host: BriocheLanguageServiceHost;
   private languageService: ts.LanguageService;
+  private linter: Linter;
 
   constructor() {
     this.host = new BriocheLanguageServiceHost();
     const servicesHost: ts.LanguageServiceHost = this.host;
     this.languageService = ts.createLanguageService(servicesHost);
+    this.linter = new Linter();
   }
 
   completion(params: lsp.TextDocumentPositionParams): lsp.CompletionItem[] {
@@ -125,9 +128,9 @@ class Lsp {
     this.host.files.add(fileName);
 
     const sourceFile = this.host.getSourceFile(fileName);
-    const diagnostics = this.languageService.getSemanticDiagnostics(brioche.toTsUrl(fileName));
+    const tsLangaugeDiagnostics = this.languageService.getSemanticDiagnostics(brioche.toTsUrl(fileName));
 
-    return diagnostics.flatMap((diagnostic) => {
+    const tsDiagnostics = tsLangaugeDiagnostics.flatMap((diagnostic): lsp.Diagnostic[] => {
       if (diagnostic.start == null || diagnostic.length == null) {
         return [];
       }
@@ -142,6 +145,37 @@ class Lsp {
         message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
       }];
     });
+
+    const eslintDiagnostics = this.linter.verify(sourceFile.getText(), {
+      rules: {
+        "no-unused-vars": "error",
+      },
+      parserOptions: {
+        ecmaVersion: 2020,
+        sourceType: "module",
+      },
+    });
+    const lintDiagnostics = eslintDiagnostics.flatMap((diagnostic): lsp.Diagnostic[] => {
+      const endLine = diagnostic.endLine ?? diagnostic.line;
+      const endColumn = diagnostic.endColumn ?? diagnostic.column + 1;
+      return [{
+        range: {
+          start: {
+            line: diagnostic.line - 1,
+            character: diagnostic.column,
+          },
+          end: {
+            line: endLine - 1,
+            character: endColumn,
+          },
+        },
+        message: diagnostic.message,
+        severity: lsp.DiagnosticSeverity.Warning,
+      }]
+    });
+
+
+    return [...tsDiagnostics, ...lintDiagnostics];
   }
 
   gotoDefinition(params: lsp.TextDocumentPositionParams): lsp.Location | null {
