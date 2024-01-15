@@ -16,6 +16,8 @@ enum Args {
 
     Lsp(LspArgs),
 
+    Analyze(AnalyzeArgs),
+
     RunSandbox(RunSandboxArgs),
 }
 
@@ -58,6 +60,15 @@ fn main() -> anyhow::Result<ExitCode> {
                 .build()?;
 
             rt.block_on(lsp(args))?;
+
+            Ok(ExitCode::SUCCESS)
+        }
+        Args::Analyze(args) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            rt.block_on(analyze(args))?;
 
             Ok(ExitCode::SUCCESS)
         }
@@ -260,6 +271,18 @@ async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
         .serve(service)
         .await;
 
+    Ok(())
+}
+
+#[derive(Debug, Parser)]
+struct AnalyzeArgs {
+    #[clap(short, long)]
+    project: PathBuf,
+}
+
+async fn analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
+    let project = brioche::brioche::project::analyze::analyze_project(&args.project)?;
+    println!("{project:#?}");
     Ok(())
 }
 
