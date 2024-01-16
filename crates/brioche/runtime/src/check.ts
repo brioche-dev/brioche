@@ -23,12 +23,17 @@ export function check(files: string[]): Diagnostic[] {
 
     const diagnostics = linter.verify(tsFile.text, ESLINT_CONFIG);
     return diagnostics.flatMap((diag): Diagnostic[] => {
-      const startPosition = tsFile.getPositionOfLineAndCharacter(diag.line - 1, diag.column - 1);
+      let startPosition = safeGetPositionOfLineAndCharacter(tsFile, diag.line - 1, diag.column - 1);
       let endPosition: number;
-      if (diag.endLine != null && diag.endColumn != null) {
-        endPosition = tsFile.getPositionOfLineAndCharacter(diag.endLine - 1, diag.endColumn - 1);
+      if (startPosition != null) {
+        if (diag.endLine != null && diag.endColumn != null) {
+          endPosition = safeGetPositionOfLineAndCharacter(tsFile, diag.endLine - 1, diag.endColumn - 1) ?? (startPosition + 1);
+        } else {
+          endPosition = startPosition + 1;
+        }
       } else {
-        endPosition = startPosition + 1;
+        startPosition = 0;
+        endPosition = 0;
       }
 
       const level = eslintLevel(diag.severity);
@@ -50,6 +55,14 @@ export function check(files: string[]): Diagnostic[] {
   });
 
   return [...serializedTsDiagnostics, ...serializedEslintDiagnostics];
+}
+
+function safeGetPositionOfLineAndCharacter(tsFile: ts.SourceFile, line: number, character: number): number | undefined {
+  try {
+    return tsFile.getPositionOfLineAndCharacter(line, character);
+  } catch {
+    return undefined;
+  }
 }
 
 function serializeDiagnostics(diagnostics: readonly ts.Diagnostic[]): Diagnostic[] {

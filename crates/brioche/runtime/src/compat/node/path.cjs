@@ -16,6 +16,10 @@ function extname(path) {
     return path.split("/").at(-1)?.split(".")?.at(-1) ?? "";
 }
 
+function join(...paths) {
+    return paths.join("/");
+}
+
 function isAbsolute(path) {
     return path.startsWith("file://");
 }
@@ -25,5 +29,6 @@ module.exports = {
     posix: module.exports,
     dirname,
     extname,
+    join,
     isAbsolute,
 };
