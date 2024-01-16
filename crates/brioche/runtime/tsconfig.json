@@ -1,6 +1,7 @@
 {
     "compilerOptions": {
         "target": "ESNext",
+        "module": "ESNext",
         "skipDefaultLibCheck": true,
         "strict": true,
         "moduleResolution": "bundler",
