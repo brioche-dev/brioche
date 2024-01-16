@@ -12,6 +12,7 @@
     "esbuild-plugin-alias": "^0.2.1"
   },
   "dependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "buffer": "^6.0.3",
     "crypto-browserify": "^3.12.0",

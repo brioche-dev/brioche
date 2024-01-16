@@ -1,7 +1,8 @@
 import * as ts from "typescript";
 import type * as eslint from "eslint";
+import { extname } from "path";
 import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./ts-common.ts";
-import { buildLinter, ESLINT_CONFIG } from "./eslint-common.ts";
+import { buildLinter, buildEslintConfig } from "./eslint-common.ts";
 
 export function check(files: string[]): Diagnostic[] {
   const firstFile = files.at(0);
@@ -15,13 +16,15 @@ export function check(files: string[]): Diagnostic[] {
   const serializedTsDiagnostics = serializeDiagnostics(tsDiagnostics);
 
   const linter = buildLinter();
+  const linterConfig = buildEslintConfig([program]);
   const serializedEslintDiagnostics = files.flatMap((file) => {
-    const tsFile = program.getSourceFile(toTsUrl(file));
+    const tsUrl = toTsUrl(file);
+    const tsFile = program.getSourceFile(tsUrl);
     if (tsFile == null) {
       return [];
     }
 
-    const diagnostics = linter.verify(tsFile.text, ESLINT_CONFIG);
+    const diagnostics = linter.verify(tsFile.text, linterConfig, tsUrl);
     return diagnostics.flatMap((diag): Diagnostic[] => {
       let startPosition = safeGetPositionOfLineAndCharacter(tsFile, diag.line - 1, diag.column - 1);
       let endPosition: number;

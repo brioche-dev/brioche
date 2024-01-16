@@ -1,9 +1,8 @@
 import * as ts from "typescript";
 import * as lsp from "vscode-languageserver";
 import type * as eslint from "eslint";
-import * as typescriptEslintParser from "@typescript-eslint/parser";
 import * as brioche from "./ts-common";
-import { buildLinter, ESLINT_CONFIG } from "./eslint-common.ts";
+import { buildLinter, buildEslintConfig } from "./eslint-common.ts";
 
 export function buildLsp(): Lsp {
   return new Lsp();
@@ -127,10 +126,11 @@ class Lsp {
 
   diagnostic(params: lsp.DocumentDiagnosticParams): lsp.Diagnostic[] {
     const fileName = params.textDocument.uri;
+    const tsUrl = brioche.toTsUrl(fileName);
     this.host.files.add(fileName);
 
     const sourceFile = this.host.getSourceFile(fileName);
-    const tsLangaugeDiagnostics = this.languageService.getSemanticDiagnostics(brioche.toTsUrl(fileName));
+    const tsLangaugeDiagnostics = this.languageService.getSemanticDiagnostics(tsUrl);
 
     const tsDiagnostics = tsLangaugeDiagnostics.flatMap((diagnostic): lsp.Diagnostic[] => {
       if (diagnostic.start == null || diagnostic.length == null) {
@@ -148,10 +148,15 @@ class Lsp {
       }];
     });
 
-    const eslintDiagnostics = this.linter.verify(sourceFile.getText(), ESLINT_CONFIG);
+    const tsProgram = this.languageService.getProgram();
+    const tsPrograms = tsProgram != null ? [tsProgram] : [];
+    const eslintConfig = buildEslintConfig(tsPrograms);
+    const eslintDiagnostics = this.linter.verify(sourceFile.getText(), eslintConfig, tsUrl);
     const lintDiagnostics = eslintDiagnostics.flatMap((diagnostic): lsp.Diagnostic[] => {
-      const endLine = diagnostic.endLine ?? diagnostic.line;
-      const endColumn = diagnostic.endColumn ?? diagnostic.column + 1;
+      const startLine = diagnostic.line ?? 1;
+      const startColumn = diagnostic.column ?? 1;
+      const endLine = diagnostic.endLine ?? startLine;
+      const endColumn = diagnostic.endColumn ?? startColumn + 1;
 
       const severity = lspSeverityFromEslint(diagnostic.severity);
       if (severity == null) {
@@ -161,8 +166,8 @@ class Lsp {
       return [{
         range: {
           start: {
-            line: diagnostic.line - 1,
-            character: diagnostic.column - 1,
+            line: startLine - 1,
+            character: startColumn - 1,
           },
           end: {
             line: endLine - 1,
@@ -173,7 +178,6 @@ class Lsp {
         severity,
       }]
     });
-
 
     return [...tsDiagnostics, ...lintDiagnostics];
   }
