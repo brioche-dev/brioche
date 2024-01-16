@@ -2,6 +2,7 @@ import * as brioche from "./tscommon";
 import * as ts from "typescript";
 import * as lsp from "vscode-languageserver";
 import { Linter } from "eslint";
+import * as typescriptEslintParser from "@typescript-eslint/parser";
 
 export function buildLsp(): Lsp {
   return new Lsp();
@@ -88,6 +89,7 @@ class Lsp {
     const servicesHost: ts.LanguageServiceHost = this.host;
     this.languageService = ts.createLanguageService(servicesHost);
     this.linter = new Linter();
+    this.linter.defineParser("@typescript-eslint/parser", typescriptEslintParser as Linter.ParserModule);
   }
 
   completion(params: lsp.TextDocumentPositionParams): lsp.CompletionItem[] {
@@ -150,6 +152,7 @@ class Lsp {
       rules: {
         "no-unused-vars": "error",
       },
+      parser: "@typescript-eslint/parser",
       parserOptions: {
         ecmaVersion: 2020,
         sourceType: "module",
