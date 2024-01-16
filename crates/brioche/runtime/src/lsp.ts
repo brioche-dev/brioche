@@ -1,7 +1,7 @@
 import * as brioche from "./tscommon";
 import * as ts from "typescript";
 import * as lsp from "vscode-languageserver";
-import { Linter } from "eslint-linter-browserify";
+import { Linter } from "eslint";
 
 export function buildLsp(): Lsp {
   return new Lsp();

@@ -1,5 +1,5 @@
 import * as ts from "typescript";
-import { Linter } from "eslint-linter-browserify";
+import { Linter } from "eslint";
 import * as typescriptEslintParser from "@typescript-eslint/parser";
 import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./tscommon.ts";
 
