@@ -1,4 +1,5 @@
 import * as ts from "typescript";
+import type * as eslint from "eslint";
 import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./ts-common.ts";
 import { buildLinter, ESLINT_CONFIG } from "./eslint-common.ts";
 
@@ -21,7 +22,7 @@ export function check(files: string[]): Diagnostic[] {
     }
 
     const diagnostics = linter.verify(tsFile.text, ESLINT_CONFIG);
-    return diagnostics.map((diag): Diagnostic => {
+    return diagnostics.flatMap((diag): Diagnostic[] => {
       const startPosition = tsFile.getPositionOfLineAndCharacter(diag.line - 1, diag.column - 1);
       let endPosition: number;
       if (diag.endLine != null && diag.endColumn != null) {
@@ -30,16 +31,21 @@ export function check(files: string[]): Diagnostic[] {
         endPosition = startPosition + 1;
       }
 
-      return {
+      const level = eslintLevel(diag.severity);
+      if (level == null) {
+        return [];
+      }
+
+      return [{
         specifier: file,
         start: startPosition,
         length: endPosition - startPosition,
         message: {
           text: diag.message,
-          level: "warning",
+          level,
           nested: [],
         },
-      };
+      }];
     });
   });
 
@@ -82,6 +88,18 @@ function level(category: ts.DiagnosticCategory): DiagnosticLevel {
     case ts.DiagnosticCategory.Warning:
       return "warning";
     case ts.DiagnosticCategory.Error:
+      return "error";
+  }
+}
+
+function eslintLevel(severity: eslint.Linter.Severity): DiagnosticLevel | undefined {
+  switch (severity) {
+    case 0:
+      return undefined;
+    case 1:
+      return "warning";
+    case 2:
+    default:
       return "error";
   }
 }

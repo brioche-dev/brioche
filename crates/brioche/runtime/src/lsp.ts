@@ -152,6 +152,12 @@ class Lsp {
     const lintDiagnostics = eslintDiagnostics.flatMap((diagnostic): lsp.Diagnostic[] => {
       const endLine = diagnostic.endLine ?? diagnostic.line;
       const endColumn = diagnostic.endColumn ?? diagnostic.column + 1;
+
+      const severity = lspSeverityFromEslint(diagnostic.severity);
+      if (severity == null) {
+        return [];
+      }
+
       return [{
         range: {
           start: {
@@ -164,7 +170,7 @@ class Lsp {
           },
         },
         message: diagnostic.message,
-        severity: lsp.DiagnosticSeverity.Warning,
+        severity,
       }]
     });
 
@@ -362,5 +368,17 @@ class Lsp {
     }
 
     return { changes };
+  }
+}
+
+function lspSeverityFromEslint(severity: eslint.Linter.Severity): lsp.DiagnosticSeverity | undefined {
+  switch (severity) {
+    case 0:
+      return undefined;
+    case 1:
+      return lsp.DiagnosticSeverity.Warning;
+    case 2:
+    default:
+      return lsp.DiagnosticSeverity.Error;
   }
 }
