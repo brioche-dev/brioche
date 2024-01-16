@@ -1,5 +1,6 @@
 import * as ts from "typescript";
 import { Linter } from "eslint-linter-browserify";
+import * as typescriptEslintParser from "@typescript-eslint/parser";
 import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./tscommon.ts";
 
 export function check(files: string[]): Diagnostic[] {
@@ -14,6 +15,7 @@ export function check(files: string[]): Diagnostic[] {
   const serializedTsDiagnostics = serializeDiagnostics(tsDiagnostics);
 
   const linter = new Linter();
+  linter.defineParser("@typescript-eslint/parser", typescriptEslintParser as Linter.ParserModule);
   const serializedEslintDiagnostics = files.flatMap((file) => {
     const tsFile = program.getSourceFile(toTsUrl(file));
     if (tsFile == null) {
@@ -24,6 +26,7 @@ export function check(files: string[]): Diagnostic[] {
       rules: {
         "no-unused-vars": "error",
       },
+      parser: "@typescript-eslint/parser",
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: "module",
