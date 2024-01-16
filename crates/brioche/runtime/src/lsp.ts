@@ -165,11 +165,11 @@ class Lsp {
         range: {
           start: {
             line: diagnostic.line - 1,
-            character: diagnostic.column,
+            character: diagnostic.column - 1,
           },
           end: {
             line: endLine - 1,
-            character: endColumn,
+            character: endColumn - 1,
           },
         },
         message: diagnostic.message,
