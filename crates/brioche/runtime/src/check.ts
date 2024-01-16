@@ -1,7 +1,6 @@
 import * as ts from "typescript";
-import { Linter } from "eslint";
-import * as typescriptEslintParser from "@typescript-eslint/parser";
-import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./tscommon.ts";
+import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./ts-common.ts";
+import { buildLinter, ESLINT_CONFIG } from "./eslint-common.ts";
 
 export function check(files: string[]): Diagnostic[] {
   const firstFile = files.at(0);
@@ -14,24 +13,14 @@ export function check(files: string[]): Diagnostic[] {
   const tsDiagnostics = program.getSemanticDiagnostics();
   const serializedTsDiagnostics = serializeDiagnostics(tsDiagnostics);
 
-  const linter = new Linter();
-  linter.defineParser("@typescript-eslint/parser", typescriptEslintParser as Linter.ParserModule);
+  const linter = buildLinter();
   const serializedEslintDiagnostics = files.flatMap((file) => {
     const tsFile = program.getSourceFile(toTsUrl(file));
     if (tsFile == null) {
       return [];
     }
 
-    const diagnostics = linter.verify(tsFile.text, {
-      rules: {
-        "no-unused-vars": "error",
-      },
-      parser: "@typescript-eslint/parser",
-      parserOptions: {
-        ecmaVersion: 2022,
-        sourceType: "module",
-      },
-    });
+    const diagnostics = linter.verify(tsFile.text, ESLINT_CONFIG);
     return diagnostics.map((diag): Diagnostic => {
       const startPosition = tsFile.getPositionOfLineAndCharacter(diag.line - 1, diag.column - 1);
       let endPosition: number;

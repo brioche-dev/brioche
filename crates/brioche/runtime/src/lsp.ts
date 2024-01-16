@@ -1,8 +1,9 @@
-import * as brioche from "./tscommon";
 import * as ts from "typescript";
 import * as lsp from "vscode-languageserver";
-import { Linter } from "eslint";
+import type * as eslint from "eslint";
 import * as typescriptEslintParser from "@typescript-eslint/parser";
+import * as brioche from "./ts-common";
+import { buildLinter, ESLINT_CONFIG } from "./eslint-common.ts";
 
 export function buildLsp(): Lsp {
   return new Lsp();
@@ -82,14 +83,13 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
 class Lsp {
   private host: BriocheLanguageServiceHost;
   private languageService: ts.LanguageService;
-  private linter: Linter;
+  private linter: eslint.Linter;
 
   constructor() {
     this.host = new BriocheLanguageServiceHost();
     const servicesHost: ts.LanguageServiceHost = this.host;
     this.languageService = ts.createLanguageService(servicesHost);
-    this.linter = new Linter();
-    this.linter.defineParser("@typescript-eslint/parser", typescriptEslintParser as Linter.ParserModule);
+    this.linter = buildLinter();
   }
 
   completion(params: lsp.TextDocumentPositionParams): lsp.CompletionItem[] {
@@ -148,16 +148,7 @@ class Lsp {
       }];
     });
 
-    const eslintDiagnostics = this.linter.verify(sourceFile.getText(), {
-      rules: {
-        "no-unused-vars": "error",
-      },
-      parser: "@typescript-eslint/parser",
-      parserOptions: {
-        ecmaVersion: 2020,
-        sourceType: "module",
-      },
-    });
+    const eslintDiagnostics = this.linter.verify(sourceFile.getText(), ESLINT_CONFIG);
     const lintDiagnostics = eslintDiagnostics.flatMap((diagnostic): lsp.Diagnostic[] => {
       const endLine = diagnostic.endLine ?? diagnostic.line;
       const endColumn = diagnostic.endColumn ?? diagnostic.column + 1;
