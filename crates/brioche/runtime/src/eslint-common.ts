@@ -11,7 +11,7 @@ export function buildLinter(): Linter {
 
 export const ESLINT_CONFIG: Linter.Config = {
   rules: {
-    "no-unused-vars": "error",
+    "no-unused-vars": "warn",
   },
   parser: "@typescript-eslint/parser",
   parserOptions: {
