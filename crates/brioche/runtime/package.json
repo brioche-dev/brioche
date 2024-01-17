@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "ts-node-esm build.ts",
+    "build": "node --loader=ts-node/esm build.ts",
     "check": "tsc --noEmit"
   },
   "devDependencies": {
