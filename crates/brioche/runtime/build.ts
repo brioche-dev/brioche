@@ -3,6 +3,7 @@ import alias from "esbuild-plugin-alias";
 import * as path from "node:path";
 
 await esbuild.build({
+  logLevel: "info",
   bundle: true,
   entryPoints: ["./src/index.ts"],
   format: "esm",
