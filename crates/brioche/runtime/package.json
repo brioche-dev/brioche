@@ -9,7 +9,7 @@
   "devDependencies": {
     "@types/eslint": "^8.56.2",
     "esbuild": "^0.19.2",
-    "esbuild-plugin-alias": "^0.2.1"
+    "esbuild-plugin-alias-path": "^2.0.2"
   },
   "dependencies": {
     "@typescript-eslint/eslint-plugin": "^6.19.0",
