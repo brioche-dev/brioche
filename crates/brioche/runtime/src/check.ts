@@ -1,5 +1,8 @@
 import * as ts from "typescript";
-import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./tscommon.ts";
+import type * as eslint from "eslint";
+import { extname } from "path";
+import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./ts-common.ts";
+import { buildLinter, buildEslintConfig } from "./eslint-common.ts";
 
 export function check(files: string[]): Diagnostic[] {
   const firstFile = files.at(0);
@@ -9,8 +12,60 @@ export function check(files: string[]): Diagnostic[] {
 
   const program = ts.createProgram(files.map(toTsUrl), TS_CONFIG, host);
 
-  const diagnostics = program.getSemanticDiagnostics();
-  return serializeDiagnostics(diagnostics);
+  const tsDiagnostics = program.getSemanticDiagnostics();
+  const serializedTsDiagnostics = serializeDiagnostics(tsDiagnostics);
+
+  const linter = buildLinter();
+  const linterConfig = buildEslintConfig([program]);
+  const serializedEslintDiagnostics = files.flatMap((file) => {
+    const tsUrl = toTsUrl(file);
+    const tsFile = program.getSourceFile(tsUrl);
+    if (tsFile == null) {
+      return [];
+    }
+
+    const diagnostics = linter.verify(tsFile.text, linterConfig, tsUrl);
+    return diagnostics.flatMap((diag): Diagnostic[] => {
+      let startPosition = safeGetPositionOfLineAndCharacter(tsFile, diag.line - 1, diag.column - 1);
+      let endPosition: number;
+      if (startPosition != null) {
+        if (diag.endLine != null && diag.endColumn != null) {
+          endPosition = safeGetPositionOfLineAndCharacter(tsFile, diag.endLine - 1, diag.endColumn - 1) ?? (startPosition + 1);
+        } else {
+          endPosition = startPosition + 1;
+        }
+      } else {
+        startPosition = 0;
+        endPosition = 0;
+      }
+
+      const level = eslintLevel(diag.severity);
+      if (level == null) {
+        return [];
+      }
+
+      return [{
+        specifier: file,
+        start: startPosition,
+        length: endPosition - startPosition,
+        message: {
+          text: diag.message,
+          level,
+          nested: [],
+        },
+      }];
+    });
+  });
+
+  return [...serializedTsDiagnostics, ...serializedEslintDiagnostics];
+}
+
+function safeGetPositionOfLineAndCharacter(tsFile: ts.SourceFile, line: number, character: number): number | undefined {
+  try {
+    return tsFile.getPositionOfLineAndCharacter(line, character);
+  } catch {
+    return undefined;
+  }
 }
 
 function serializeDiagnostics(diagnostics: readonly ts.Diagnostic[]): Diagnostic[] {
@@ -49,6 +104,18 @@ function level(category: ts.DiagnosticCategory): DiagnosticLevel {
     case ts.DiagnosticCategory.Warning:
       return "warning";
     case ts.DiagnosticCategory.Error:
+      return "error";
+  }
+}
+
+function eslintLevel(severity: eslint.Linter.Severity): DiagnosticLevel | undefined {
+  switch (severity) {
+    case 0:
+      return undefined;
+    case 1:
+      return "warning";
+    case 2:
+    default:
       return "error";
   }
 }

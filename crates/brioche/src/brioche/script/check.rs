@@ -52,7 +52,8 @@ pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<Check
 
     tracing::info!(path = %project.local_path.display(), %main_module, ?export_key_name, "running function");
 
-    let files = serde_v8::to_v8(&mut js_scope, &[specifier])?;
+    let files = project.local_modules().collect::<Vec<_>>();
+    let files = serde_v8::to_v8(&mut js_scope, &files)?;
 
     let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
 
@@ -125,7 +126,7 @@ pub enum DiagnosticLevel {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticMessage {
-    level: DiagnosticLevel,
+    pub level: DiagnosticLevel,
     text: String,
     nested: Vec<DiagnosticMessage>,
 }

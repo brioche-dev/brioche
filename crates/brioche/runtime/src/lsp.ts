@@ -1,6 +1,8 @@
-import * as brioche from "./tscommon";
 import * as ts from "typescript";
 import * as lsp from "vscode-languageserver";
+import type * as eslint from "eslint";
+import * as brioche from "./ts-common";
+import { buildLinter, buildEslintConfig } from "./eslint-common.ts";
 
 export function buildLsp(): Lsp {
   return new Lsp();
@@ -80,11 +82,13 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
 class Lsp {
   private host: BriocheLanguageServiceHost;
   private languageService: ts.LanguageService;
+  private linter: eslint.Linter;
 
   constructor() {
     this.host = new BriocheLanguageServiceHost();
     const servicesHost: ts.LanguageServiceHost = this.host;
     this.languageService = ts.createLanguageService(servicesHost);
+    this.linter = buildLinter();
   }
 
   completion(params: lsp.TextDocumentPositionParams): lsp.CompletionItem[] {
@@ -122,12 +126,13 @@ class Lsp {
 
   diagnostic(params: lsp.DocumentDiagnosticParams): lsp.Diagnostic[] {
     const fileName = params.textDocument.uri;
+    const tsUrl = brioche.toTsUrl(fileName);
     this.host.files.add(fileName);
 
     const sourceFile = this.host.getSourceFile(fileName);
-    const diagnostics = this.languageService.getSemanticDiagnostics(brioche.toTsUrl(fileName));
+    const tsLangaugeDiagnostics = this.languageService.getSemanticDiagnostics(tsUrl);
 
-    return diagnostics.flatMap((diagnostic) => {
+    const tsDiagnostics = tsLangaugeDiagnostics.flatMap((diagnostic): lsp.Diagnostic[] => {
       if (diagnostic.start == null || diagnostic.length == null) {
         return [];
       }
@@ -142,6 +147,39 @@ class Lsp {
         message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
       }];
     });
+
+    const tsProgram = this.languageService.getProgram();
+    const tsPrograms = tsProgram != null ? [tsProgram] : [];
+    const eslintConfig = buildEslintConfig(tsPrograms);
+    const eslintDiagnostics = this.linter.verify(sourceFile.getText(), eslintConfig, tsUrl);
+    const lintDiagnostics = eslintDiagnostics.flatMap((diagnostic): lsp.Diagnostic[] => {
+      const startLine = diagnostic.line ?? 1;
+      const startColumn = diagnostic.column ?? 1;
+      const endLine = diagnostic.endLine ?? startLine;
+      const endColumn = diagnostic.endColumn ?? startColumn + 1;
+
+      const severity = lspSeverityFromEslint(diagnostic.severity);
+      if (severity == null) {
+        return [];
+      }
+
+      return [{
+        range: {
+          start: {
+            line: startLine - 1,
+            character: startColumn - 1,
+          },
+          end: {
+            line: endLine - 1,
+            character: endColumn - 1,
+          },
+        },
+        message: diagnostic.message,
+        severity,
+      }]
+    });
+
+    return [...tsDiagnostics, ...lintDiagnostics];
   }
 
   gotoDefinition(params: lsp.TextDocumentPositionParams): lsp.Location | null {
@@ -334,5 +372,17 @@ class Lsp {
     }
 
     return { changes };
+  }
+}
+
+function lspSeverityFromEslint(severity: eslint.Linter.Severity): lsp.DiagnosticSeverity | undefined {
+  switch (severity) {
+    case 0:
+      return undefined;
+    case 1:
+      return lsp.DiagnosticSeverity.Warning;
+    case 2:
+    default:
+      return lsp.DiagnosticSeverity.Error;
   }
 }
