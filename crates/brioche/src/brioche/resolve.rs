@@ -336,14 +336,30 @@ async fn resolve_inner(
 
             Ok(result.value)
         }
-        LazyArtifact::Remove { directory, paths } => {
-            let result = resolve(brioche, *directory).await?;
-            let CompleteArtifact::Directory(mut directory) = result.value else {
+        LazyArtifact::Insert {
+            directory,
+            path,
+            artifact,
+        } => {
+            let (directory, artifact) =
+                tokio::try_join!(resolve(brioche, *directory), async move {
+                    match artifact {
+                        Some(artifact) => Ok(Some(resolve(brioche, *artifact).await?)),
+                        None => Ok(None),
+                    }
+                })?;
+
+            let CompleteArtifact::Directory(mut directory) = directory.value else {
                 anyhow::bail!("tried removing item from non-directory artifact");
             };
 
-            for path in paths {
-                directory.remove(&path)?;
+            match artifact {
+                Some(artifact) => {
+                    directory.insert(&path, artifact)?;
+                }
+                None => {
+                    directory.remove(&path)?;
+                }
             }
 
             Ok(CompleteArtifact::Directory(directory))
