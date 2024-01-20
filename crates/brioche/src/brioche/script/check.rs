@@ -126,7 +126,7 @@ pub enum DiagnosticLevel {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticMessage {
-    level: DiagnosticLevel,
+    pub level: DiagnosticLevel,
     text: String,
     nested: Vec<DiagnosticMessage>,
 }
