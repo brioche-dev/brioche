@@ -212,3 +212,78 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_check_invalid_unused_var() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = write_project(
+        &context,
+        "myproject",
+        r#"
+            export const project = {};
+            export default () => {
+                const foo: number = 123;
+                return {
+                    briocheSerialize: () => {
+                        return {
+                            type: "directory",
+                            entries: {},
+                        }
+                    },
+                };
+            };
+        "#,
+    )
+    .await;
+    let project = resolve_project(&brioche, &project_dir).await?;
+
+    let result = brioche::brioche::script::check::check(&brioche, &project)
+        .await?
+        .ensure_ok(DiagnosticLevel::Message);
+
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = write_project(
+        &context,
+        "myproject",
+        r#"
+            export const project = {};
+
+            function foo(): Promise<void> {
+                return new Promise((resolve) => {
+                    resolve();
+                });
+            }
+
+            export default () => {
+                foo();
+                return {
+                    briocheSerialize: () => {
+                        return {
+                            type: "directory",
+                            entries: {},
+                        }
+                    },
+                };
+            };
+        "#,
+    )
+    .await;
+    let project = resolve_project(&brioche, &project_dir).await?;
+
+    let result = brioche::brioche::script::check::check(&brioche, &project)
+        .await?
+        .ensure_ok(DiagnosticLevel::Message);
+
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
