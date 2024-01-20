@@ -23,7 +23,7 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
         "myproject",
         r#"
             export const project = {};
-            const foo: number = 123;
+            export const foo: number = 123;
             export default () => {
                 return {
                     briocheSerialize: () => {
@@ -57,7 +57,7 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
         "myproject",
         r#"
             export const project = {};
-            const foo: number = "123";
+            export const foo: number = "123";
             export default () => {
                 return {
                     briocheSerialize: () => {
@@ -96,7 +96,9 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
                     foo: "*",
                 },
             };
+            function ignore(_value: unknown): void {}
             export default () => {
+                ignore(foo);
                 return {
                     briocheSerialize: () => {
                         return {
