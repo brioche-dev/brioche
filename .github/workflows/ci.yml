@@ -10,8 +10,8 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2023-12-30
 
 jobs:
-  test:
-    name: Run tests
+  check:
+    name: Run checks
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout code
@@ -48,6 +48,12 @@ jobs:
             echo "Re-run 'npm run build' and commit the results" >&2
             exit 1
           fi
+  test:
+    name: Run tests
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Run tests
         run: cargo test --all
   build:
@@ -110,7 +116,7 @@ jobs:
   push:
     name: Push artifacts
     if: github.repository == 'brioche-dev/brioche'
-    needs: [test, build]
+    needs: [check, test, build]
     runs-on: ubuntu-22.04
     steps:
       - name: Download artifacts
