@@ -110,8 +110,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         if args.check {
             let checked = brioche::brioche::script::check::check(&brioche, &project).await?;
 
-            let result =
-                checked.ensure_ok(brioche::brioche::script::check::DiagnosticLevel::Warning);
+            let result = checked.ensure_ok(brioche::brioche::script::check::DiagnosticLevel::Error);
 
             match result {
                 Ok(()) => reporter.emit(superconsole::Lines::from_multiline_string(
