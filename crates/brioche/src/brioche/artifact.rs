@@ -74,10 +74,11 @@ pub enum LazyArtifact {
         path: BString,
     },
     #[serde(rename_all = "camelCase")]
-    Remove {
+    Insert {
         directory: Box<WithMeta<LazyArtifact>>,
-        #[serde_as(as = "Vec<UrlEncoded>")]
-        paths: Vec<BString>,
+        #[serde_as(as = "UrlEncoded")]
+        path: BString,
+        artifact: Option<Box<WithMeta<LazyArtifact>>>,
     },
     #[serde(rename_all = "camelCase")]
     SetPermissions {
@@ -528,7 +529,7 @@ impl TryFrom<LazyArtifact> for CompleteArtifact {
             | LazyArtifact::Merge { .. }
             | LazyArtifact::Peel { .. }
             | LazyArtifact::Get { .. }
-            | LazyArtifact::Remove { .. }
+            | LazyArtifact::Insert { .. }
             | LazyArtifact::SetPermissions { .. }
             | LazyArtifact::Proxy { .. } => Err(ArtifactIncomplete),
         }
