@@ -22,12 +22,14 @@ pub fn start_console_reporter() -> anyhow::Result<(Reporter, ReporterGuard)> {
 
     let brioche_jaeger_endpoint = std::env::var("BRIOCHE_JAEGER_ENDPOINT").ok();
 
+    let start = std::time::Instant::now();
     let is_evaluating = Arc::new(AtomicBool::new(false));
 
     let reporter = Reporter {
-        tx: tx.clone(),
+        start,
+        num_jobs: Arc::new(AtomicUsize::new(0)),
         is_evaluating: is_evaluating.clone(),
-        next_id: Arc::new(AtomicUsize::new(0)),
+        tx: tx.clone(),
     };
     let guard = ReporterGuard {
         tx,
@@ -43,7 +45,7 @@ pub fn start_console_reporter() -> anyhow::Result<(Reporter, ReporterGuard)> {
             let mut console = match superconsole {
                 Some(console) => {
                     let root = JobsComponent {
-                        start: std::time::Instant::now(),
+                        start,
                         is_evaluating,
                         jobs,
                         terminal: tokio::sync::RwLock::new(termwiz::surface::Surface::new(80, 24)),
@@ -343,7 +345,8 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
 
     let reporter = Reporter {
-        next_id: Arc::new(AtomicUsize::new(0)),
+        start: std::time::Instant::now(),
+        num_jobs: Arc::new(AtomicUsize::new(0)),
         is_evaluating: Arc::new(AtomicBool::new(false)),
         tx: tx.clone(),
     };
@@ -409,7 +412,8 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
     };
 
     let reporter = Reporter {
-        next_id: Arc::new(AtomicUsize::new(0)),
+        start: std::time::Instant::now(),
+        num_jobs: Arc::new(AtomicUsize::new(0)),
         is_evaluating: Arc::new(AtomicBool::new(false)),
         tx: tx.clone(),
     };
@@ -695,9 +699,10 @@ pub struct JobId(usize);
 
 #[derive(Debug, Clone)]
 pub struct Reporter {
-    tx: tokio::sync::mpsc::UnboundedSender<ReportEvent>,
+    start: std::time::Instant,
+    num_jobs: Arc<AtomicUsize>,
     is_evaluating: Arc<AtomicBool>,
-    next_id: Arc<AtomicUsize>,
+    tx: tokio::sync::mpsc::UnboundedSender<ReportEvent>,
 }
 
 impl Reporter {
@@ -712,7 +717,7 @@ impl Reporter {
 
     pub fn add_job(&self, job: NewJob) -> JobId {
         let id = self
-            .next_id
+            .num_jobs
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let id = JobId(id);
 
@@ -723,6 +728,14 @@ impl Reporter {
 
     pub fn update_job(&self, id: JobId, update: UpdateJob) {
         let _ = self.tx.send(ReportEvent::UpdateJobState { id, update });
+    }
+
+    pub fn elapsed(&self) -> std::time::Duration {
+        self.start.elapsed()
+    }
+
+    pub fn num_jobs(&self) -> usize {
+        self.num_jobs.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -814,27 +827,26 @@ impl superconsole::Component for JobsComponent {
         let elapsed = self.start.elapsed().human_duration();
         let summary_line = match mode {
             superconsole::DrawMode::Normal => {
-                format!(
+                let summary_line = format!(
                     "[{elapsed}] {num_complete_jobs} / {num_jobs}{or_more} job{s} complete",
                     s = if num_jobs == 1 { "" } else { "s" },
                     or_more = if is_evaluating { "+" } else { "" },
-                )
+                );
+                Some(superconsole::Line::from_iter([summary_line
+                    .try_into()
+                    .unwrap()]))
             }
             superconsole::DrawMode::Final => {
-                let jobs_message = match num_jobs {
-                    0 => "(no new jobs)".to_string(),
-                    1 => "1 job".to_string(),
-                    n => format!("{n} jobs"),
-                };
-                format!("Build finished, completed {jobs_message} in {elapsed}")
+                // Don't show the summary line on the final draw. The final
+                // summary will be written outside the reporter, since we also
+                // want to show the summary when not using SuperConsole
+                None
             }
         };
 
-        let summary_line = superconsole::Line::from_iter([summary_line.try_into().unwrap()]);
-
         let lines = terminal_lines
             .chain(jobs_lines.into_iter().flatten())
-            .chain([summary_line])
+            .chain(summary_line)
             .collect();
         Ok(lines)
     }

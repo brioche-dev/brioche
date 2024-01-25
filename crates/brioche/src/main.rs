@@ -3,6 +3,7 @@ use std::{path::PathBuf, process::ExitCode};
 use anyhow::Context as _;
 use brioche::{fs_utils, sandbox::SandboxExecutionConfig};
 use clap::Parser;
+use human_repr::HumanDuration;
 use tracing::Instrument;
 
 #[derive(Debug, Parser)]
@@ -137,6 +138,15 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         let result = brioche::brioche::resolve::resolve(&brioche, artifact).await?;
 
         guard.shutdown_console().await;
+
+        let elapsed = reporter.elapsed().human_duration();
+        let num_jobs = reporter.num_jobs();
+        let jobs_message = match num_jobs {
+            0 => "(no new jobs)".to_string(),
+            1 => "1 job".to_string(),
+            n => format!("{n} jobs"),
+        };
+        println!("Build finished, completed {jobs_message} in {elapsed}");
 
         let result_hash = result.value.hash();
         println!("Result: {result_hash}");
