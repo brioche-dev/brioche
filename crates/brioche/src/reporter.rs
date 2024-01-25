@@ -812,11 +812,24 @@ impl superconsole::Component for JobsComponent {
             .take(num_terminal_lines);
 
         let elapsed = self.start.elapsed().human_duration();
-        let summary_line = format!(
-            "[{elapsed}] {num_complete_jobs} / {num_jobs}{or_more} job{s} complete",
-            s = if num_jobs == 1 { "" } else { "s" },
-            or_more = if is_evaluating { "+" } else { "" },
-        );
+        let summary_line = match mode {
+            superconsole::DrawMode::Normal => {
+                format!(
+                    "[{elapsed}] {num_complete_jobs} / {num_jobs}{or_more} job{s} complete",
+                    s = if num_jobs == 1 { "" } else { "s" },
+                    or_more = if is_evaluating { "+" } else { "" },
+                )
+            }
+            superconsole::DrawMode::Final => {
+                let jobs_message = match num_jobs {
+                    0 => "(no new jobs)".to_string(),
+                    1 => "1 job".to_string(),
+                    n => format!("{n} jobs"),
+                };
+                format!("Build finished, completed {jobs_message} in {elapsed}")
+            }
+        };
+
         let summary_line = superconsole::Line::from_iter([summary_line.try_into().unwrap()]);
 
         let lines = terminal_lines
