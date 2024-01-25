@@ -98,6 +98,7 @@ struct BuildArgs {
 
 async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = brioche::reporter::start_console_reporter()?;
+    reporter.set_is_evaluating(true);
 
     let brioche = brioche::brioche::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep)
@@ -131,6 +132,8 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 
         let artifact =
             brioche::brioche::script::evaluate::evaluate(&brioche, &project, &args.export).await?;
+
+        reporter.set_is_evaluating(false);
         let result = brioche::brioche::resolve::resolve(&brioche, artifact).await?;
 
         guard.shutdown_console().await;

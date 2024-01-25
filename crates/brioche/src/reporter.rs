@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicUsize, Arc, RwLock},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize},
+        Arc, RwLock,
+    },
 };
 
 use bstr::ByteSlice;
@@ -19,9 +22,12 @@ pub fn start_console_reporter() -> anyhow::Result<(Reporter, ReporterGuard)> {
 
     let brioche_jaeger_endpoint = std::env::var("BRIOCHE_JAEGER_ENDPOINT").ok();
 
+    let is_evaluating = Arc::new(AtomicBool::new(false));
+
     let reporter = Reporter {
-        next_id: Arc::new(AtomicUsize::new(0)),
         tx: tx.clone(),
+        is_evaluating: is_evaluating.clone(),
+        next_id: Arc::new(AtomicUsize::new(0)),
     };
     let guard = ReporterGuard {
         tx,
@@ -38,6 +44,7 @@ pub fn start_console_reporter() -> anyhow::Result<(Reporter, ReporterGuard)> {
                 Some(console) => {
                     let root = JobsComponent {
                         start: std::time::Instant::now(),
+                        is_evaluating,
                         jobs,
                         terminal: tokio::sync::RwLock::new(termwiz::surface::Surface::new(80, 24)),
                     };
@@ -337,6 +344,7 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
 
     let reporter = Reporter {
         next_id: Arc::new(AtomicUsize::new(0)),
+        is_evaluating: Arc::new(AtomicBool::new(false)),
         tx: tx.clone(),
     };
     let guard = ReporterGuard {
@@ -402,6 +410,7 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
 
     let reporter = Reporter {
         next_id: Arc::new(AtomicUsize::new(0)),
+        is_evaluating: Arc::new(AtomicBool::new(false)),
         tx: tx.clone(),
     };
     let guard = ReporterGuard {
@@ -687,12 +696,18 @@ pub struct JobId(usize);
 #[derive(Debug, Clone)]
 pub struct Reporter {
     tx: tokio::sync::mpsc::UnboundedSender<ReportEvent>,
+    is_evaluating: Arc<AtomicBool>,
     next_id: Arc<AtomicUsize>,
 }
 
 impl Reporter {
     pub fn emit(&self, lines: superconsole::Lines) {
         let _ = self.tx.send(ReportEvent::Emit { lines });
+    }
+
+    pub fn set_is_evaluating(&self, is_evaluating: bool) {
+        self.is_evaluating
+            .store(is_evaluating, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn add_job(&self, job: NewJob) -> JobId {
@@ -741,6 +756,7 @@ impl std::io::Write for ReporterWriter {
 
 struct JobsComponent {
     start: std::time::Instant,
+    is_evaluating: Arc<AtomicBool>,
     jobs: Arc<tokio::sync::RwLock<HashMap<JobId, Job>>>,
     terminal: tokio::sync::RwLock<termwiz::surface::Surface>,
 }
@@ -761,6 +777,7 @@ impl superconsole::Component for JobsComponent {
 
         let num_jobs = jobs.len();
         let num_complete_jobs = complete_jobs.len();
+        let is_evaluating = self.is_evaluating.load(std::sync::atomic::Ordering::SeqCst);
 
         let jobs = incomplete_jobs
             .iter()
@@ -796,8 +813,9 @@ impl superconsole::Component for JobsComponent {
 
         let elapsed = self.start.elapsed().human_duration();
         let summary_line = format!(
-            "[{elapsed}] {num_complete_jobs} / {num_jobs} job{s} complete",
-            s = if num_jobs == 1 { "" } else { "s" }
+            "[{elapsed}] {num_complete_jobs} / {num_jobs}{or_more} job{s} complete",
+            s = if num_jobs == 1 { "" } else { "s" },
+            or_more = if is_evaluating { "+" } else { "" },
         );
         let summary_line = superconsole::Line::from_iter([summary_line.try_into().unwrap()]);
 
