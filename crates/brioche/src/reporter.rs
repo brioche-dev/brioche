@@ -37,6 +37,7 @@ pub fn start_console_reporter() -> anyhow::Result<(Reporter, ReporterGuard)> {
             let mut console = match superconsole {
                 Some(console) => {
                     let root = JobsComponent {
+                        start: std::time::Instant::now(),
                         jobs,
                         terminal: tokio::sync::RwLock::new(termwiz::surface::Surface::new(80, 24)),
                     };
@@ -739,6 +740,7 @@ impl std::io::Write for ReporterWriter {
 }
 
 struct JobsComponent {
+    start: std::time::Instant,
     jobs: Arc<tokio::sync::RwLock<HashMap<JobId, Job>>>,
     terminal: tokio::sync::RwLock<termwiz::surface::Surface>,
 }
@@ -756,6 +758,10 @@ impl superconsole::Component for JobsComponent {
         jobs.sort_by(cmp_job_entries);
         let job_partition_point = jobs.partition_point(|&(_, job)| !job.is_complete());
         let (incomplete_jobs, complete_jobs) = jobs.split_at(job_partition_point);
+
+        let num_jobs = jobs.len();
+        let num_complete_jobs = complete_jobs.len();
+
         let jobs = incomplete_jobs
             .iter()
             .chain(complete_jobs.iter().take(3))
@@ -776,7 +782,7 @@ impl superconsole::Component for JobsComponent {
         let num_terminal_lines = dimensions
             .height
             .saturating_sub(jobs_lines.len())
-            .saturating_sub(2);
+            .saturating_sub(3);
         let mut terminal = self.terminal.blocking_write();
 
         terminal.resize(dimensions.width, std::cmp::max(num_terminal_lines, 1));
@@ -788,8 +794,16 @@ impl superconsole::Component for JobsComponent {
             .map(|line| superconsole::Line::sanitized(&line.as_str()))
             .take(num_terminal_lines);
 
+        let elapsed = self.start.elapsed().human_duration();
+        let summary_line = format!(
+            "[{elapsed}] {num_complete_jobs} / {num_jobs} job{s} complete",
+            s = if num_jobs == 1 { "" } else { "s" }
+        );
+        let summary_line = superconsole::Line::from_iter([summary_line.try_into().unwrap()]);
+
         let lines = terminal_lines
             .chain(jobs_lines.into_iter().flatten())
+            .chain([summary_line])
             .collect();
         Ok(lines)
     }
