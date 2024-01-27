@@ -667,7 +667,7 @@ impl ArtifactHash {
     /// are made to the artifact schema, this prefix will be changed to ensure
     /// that we don't accidentally match a former artifact hash that has the
     /// same binary representation.
-    const VERSION_PREFIX: &'static [u8] = b"v0              ";
+    const VERSION_PREFIX: &'static [u8] = b"v0.0.1          ";
 
     fn from_serializable<V>(value: &V) -> anyhow::Result<Self>
     where
