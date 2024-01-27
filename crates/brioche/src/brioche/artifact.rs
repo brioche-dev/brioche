@@ -360,8 +360,7 @@ impl Directory {
         listing.serialize(&mut serializer)?;
 
         let tree_blob_id =
-            blob::save_blob_from_bytes(brioche, &listing_json, blob::SaveBlobOptions::default())
-                .await?;
+            blob::save_blob(brioche, &listing_json, blob::SaveBlobOptions::default()).await?;
 
         Ok(Self {
             tree: Some(tree_blob_id),

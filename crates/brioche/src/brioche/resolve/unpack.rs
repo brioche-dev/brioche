@@ -53,7 +53,7 @@ pub async fn resolve_unpack(
 
             let entry_artifact = match archive_entry.header().entry_type() {
                 tokio_tar::EntryType::Regular => {
-                    let entry_blob_id = crate::brioche::blob::save_blob(
+                    let entry_blob_id = crate::brioche::blob::save_blob_from_reader(
                         brioche,
                         archive_entry,
                         crate::brioche::blob::SaveBlobOptions::new(),

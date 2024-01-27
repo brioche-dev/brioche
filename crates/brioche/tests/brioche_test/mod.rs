@@ -48,7 +48,7 @@ pub async fn resolve_without_meta(
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobId {
     let mut cursor = std::io::Cursor::new(content);
-    brioche::brioche::blob::save_blob(brioche, &mut cursor, SaveBlobOptions::default())
+    brioche::brioche::blob::save_blob_from_reader(brioche, &mut cursor, SaveBlobOptions::default())
         .await
         .unwrap()
 }
