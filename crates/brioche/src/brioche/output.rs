@@ -24,7 +24,7 @@ pub async fn create_output<'a: 'async_recursion>(
 ) -> anyhow::Result<()> {
     match artifact {
         CompleteArtifact::File(File {
-            data,
+            content_blob,
             executable,
             resources,
         }) => {
@@ -45,7 +45,7 @@ pub async fn create_output<'a: 'async_recursion>(
                 .await?;
             }
 
-            let blob_path = super::blob::blob_path(brioche, *data);
+            let blob_path = super::blob::blob_path(brioche, *content_blob);
             tokio::fs::copy(&blob_path, options.output_path)
                 .await
                 .with_context(|| {

@@ -154,7 +154,7 @@ pub async fn create_input(
 
         Ok(WithMeta::new(
             CompleteArtifact::File(File {
-                data: blob_id,
+                content_blob: blob_id,
                 executable,
                 resources,
             }),

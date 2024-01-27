@@ -189,7 +189,7 @@ async fn resolve_inner(
 ) -> anyhow::Result<CompleteArtifact> {
     match artifact {
         LazyArtifact::File {
-            data,
+            content_blob,
             executable,
             resources,
         } => {
@@ -198,7 +198,7 @@ async fn resolve_inner(
                 anyhow::bail!("file resources resolved to non-directory value");
             };
             Ok(CompleteArtifact::File(File {
-                data,
+                content_blob,
                 executable,
                 resources,
             }))
@@ -230,12 +230,12 @@ async fn resolve_inner(
             Ok(result)
         }
         LazyArtifact::CreateFile {
-            data,
+            content,
             executable,
             resources,
         } => {
             let blob_id =
-                super::blob::save_blob(brioche, &data, super::blob::SaveBlobOptions::default())
+                super::blob::save_blob(brioche, &content, super::blob::SaveBlobOptions::default())
                     .await?;
 
             let resources = resolve(brioche, *resources).await?;
@@ -244,7 +244,7 @@ async fn resolve_inner(
             };
 
             Ok(CompleteArtifact::File(File {
-                data: blob_id,
+                content_blob: blob_id,
                 executable,
                 resources,
             }))

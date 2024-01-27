@@ -72,7 +72,7 @@ pub async fn resolve_download(
     );
 
     Ok(File {
-        data: blob_id,
+        content_blob: blob_id,
         executable: false,
         resources: Directory::default(),
     })

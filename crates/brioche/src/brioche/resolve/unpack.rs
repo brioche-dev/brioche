@@ -19,7 +19,11 @@ pub async fn resolve_unpack(
     unpack: UnpackArtifact,
 ) -> anyhow::Result<Directory> {
     let file = super::resolve(brioche, *unpack.file).await?;
-    let CompleteArtifact::File(File { data: blob_id, .. }) = file.value else {
+    let CompleteArtifact::File(File {
+        content_blob: blob_id,
+        ..
+    }) = file.value
+    else {
         anyhow::bail!("expected archive to be a file");
     };
 
@@ -62,7 +66,7 @@ pub async fn resolve_unpack(
                     let executable = entry_mode & 0o100 != 0;
 
                     CompleteArtifact::File(File {
-                        data: entry_blob_id,
+                        content_blob: entry_blob_id,
                         executable,
                         resources: Directory::default(),
                     })

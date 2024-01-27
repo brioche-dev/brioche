@@ -63,7 +63,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "4ffde3f046dfb46f4d7e7c794799dfe81b452683fd90bc18659dccd792c4a400",
+        "47bb5f180d0206135e843e3aa81f12106124851e8f48f0143e7d6a35053c6f6e",
     ));
     asserts.push((
         brioche_test::lazy_file_with_resources(
@@ -79,7 +79,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "551c9204afe0b6fe0438b84b889df3c76d19368e2c3ed0a4c13ebde8fadf6dfe",
+        "3ded790822fdddc49a48fef5ec466d4cfa5b36629799e732be561dad7cad1cef",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -118,7 +118,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         .await
         .hash()
         .to_string(),
-        "e741c7f33e7845f3f659c0484bb889645daf338677d2a3209a472e4406eae404",
+        "773e23ae9256d18dbea707c79f6d2d2c018b910a992b6c75e71ef26dd7a32233",
     ));
     asserts.push((
         LazyArtifact::from(
@@ -130,7 +130,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "e741c7f33e7845f3f659c0484bb889645daf338677d2a3209a472e4406eae404",
+        "773e23ae9256d18dbea707c79f6d2d2c018b910a992b6c75e71ef26dd7a32233",
     ));
 
     asserts.push((
@@ -148,7 +148,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         .await
         .hash()
         .to_string(),
-        "02360a3026e4c5623a29b0437b5f7ca21fc23810befdc20c3ce5915dce96ba17",
+        "04155278894583935b64b9fe655e6d865ac3aff93fa790bcff4bbe9710ebe08b",
     ));
     asserts.push((
         LazyArtifact::from(
@@ -170,7 +170,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "02360a3026e4c5623a29b0437b5f7ca21fc23810befdc20c3ce5915dce96ba17",
+        "04155278894583935b64b9fe655e6d865ac3aff93fa790bcff4bbe9710ebe08b",
     ));
 
     asserts.push((

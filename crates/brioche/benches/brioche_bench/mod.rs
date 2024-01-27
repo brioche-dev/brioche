@@ -46,7 +46,7 @@ pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Un
 
 pub fn lazy_file(blob: BlobId, executable: bool) -> brioche::brioche::artifact::LazyArtifact {
     brioche::brioche::artifact::LazyArtifact::File {
-        data: blob,
+        content_blob: blob,
         executable,
         resources: Box::new(WithMeta::without_meta(
             brioche::brioche::artifact::LazyArtifact::Directory(Directory::default()),
@@ -56,7 +56,7 @@ pub fn lazy_file(blob: BlobId, executable: bool) -> brioche::brioche::artifact::
 
 pub fn file(blob: BlobId, executable: bool) -> brioche::brioche::artifact::CompleteArtifact {
     brioche::brioche::artifact::CompleteArtifact::File(File {
-        data: blob,
+        content_blob: blob,
         executable,
         resources: Directory::default(),
     })
@@ -68,7 +68,7 @@ pub fn file_with_resources(
     resources: brioche::brioche::artifact::Directory,
 ) -> brioche::brioche::artifact::CompleteArtifact {
     brioche::brioche::artifact::CompleteArtifact::File(File {
-        data: blob,
+        content_blob: blob,
         executable,
         resources,
     })

@@ -34,7 +34,7 @@ use super::{
 pub enum LazyArtifact {
     #[serde(rename_all = "camelCase")]
     File {
-        data: BlobId,
+        content_blob: BlobId,
         executable: bool,
         resources: Box<WithMeta<LazyArtifact>>,
     },
@@ -54,7 +54,7 @@ pub enum LazyArtifact {
     #[serde(rename_all = "camelCase")]
     CreateFile {
         #[serde_as(as = "UrlEncoded")]
-        data: BString,
+        content: BString,
         executable: bool,
         resources: Box<WithMeta<LazyArtifact>>,
     },
@@ -334,7 +334,7 @@ impl CompleteArtifact {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct File {
-    pub data: BlobId,
+    pub content_blob: BlobId,
     pub executable: bool,
     pub resources: Directory,
 }
@@ -343,7 +343,7 @@ pub struct File {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Directory {
-    pub tree: Option<BlobId>,
+    pub listing_blob: Option<BlobId>,
 }
 
 impl Directory {
@@ -359,16 +359,16 @@ impl Directory {
         );
         listing.serialize(&mut serializer)?;
 
-        let tree_blob_id =
+        let listing_blob =
             blob::save_blob(brioche, &listing_json, blob::SaveBlobOptions::default()).await?;
 
         Ok(Self {
-            tree: Some(tree_blob_id),
+            listing_blob: Some(listing_blob),
         })
     }
 
     pub async fn listing(&self, brioche: &Brioche) -> anyhow::Result<DirectoryListing> {
-        match self.tree {
+        match self.listing_blob {
             Some(tree_blob_id) => {
                 let blob_path = blob::blob_path(brioche, tree_blob_id);
                 let listing_json = tokio::fs::read(&blob_path).await?;
@@ -380,7 +380,7 @@ impl Directory {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tree.is_none()
+        self.listing_blob.is_none()
     }
 }
 
@@ -576,7 +576,7 @@ impl TryFrom<LazyArtifact> for CompleteArtifact {
     fn try_from(value: LazyArtifact) -> Result<Self, Self::Error> {
         match value {
             LazyArtifact::File {
-                data,
+                content_blob: data,
                 executable,
                 resources,
             } => {
@@ -585,7 +585,7 @@ impl TryFrom<LazyArtifact> for CompleteArtifact {
                     return Err(ArtifactIncomplete);
                 };
                 Ok(CompleteArtifact::File(File {
-                    data,
+                    content_blob: data,
                     executable,
                     resources,
                 }))
@@ -616,11 +616,11 @@ impl From<CompleteArtifact> for LazyArtifact {
     fn from(value: CompleteArtifact) -> Self {
         match value {
             CompleteArtifact::File(File {
-                data,
+                content_blob: data,
                 executable,
                 resources,
             }) => Self::File {
-                data,
+                content_blob: data,
                 executable,
                 resources: Box::new(WithMeta::without_meta(LazyArtifact::Directory(resources))),
             },
