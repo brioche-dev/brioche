@@ -6,7 +6,7 @@ use std::{
 };
 
 use brioche::brioche::{
-    artifact::{Directory, DirectoryListing, File, LazyDirectory, WithMeta},
+    artifact::{CreateDirectory, Directory, DirectoryListing, File, WithMeta},
     blob::{BlobId, SaveBlobOptions},
     Brioche, BriocheBuilder,
 };
@@ -78,7 +78,7 @@ pub fn lazy_dir<K: AsRef<[u8]>>(
     entries: impl IntoIterator<Item = (K, brioche::brioche::artifact::LazyArtifact)>,
 ) -> WithMeta<brioche::brioche::artifact::LazyArtifact> {
     WithMeta::without_meta(brioche::brioche::artifact::LazyArtifact::CreateDirectory(
-        LazyDirectory {
+        CreateDirectory {
             entries: entries
                 .into_iter()
                 .map(|(k, v)| (k.as_ref().into(), WithMeta::without_meta(v)))
@@ -116,7 +116,7 @@ pub async fn dir<K: AsRef<[u8]>>(
 }
 
 pub fn lazy_dir_empty() -> brioche::brioche::artifact::LazyArtifact {
-    brioche::brioche::artifact::LazyArtifact::CreateDirectory(LazyDirectory::default())
+    brioche::brioche::artifact::LazyArtifact::CreateDirectory(CreateDirectory::default())
 }
 
 pub fn dir_empty() -> brioche::brioche::artifact::CompleteArtifact {

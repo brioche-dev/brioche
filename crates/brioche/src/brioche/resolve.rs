@@ -9,8 +9,8 @@ use tracing::Instrument as _;
 
 use super::{
     artifact::{
-        ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, Directory, DirectoryListing,
-        File, LazyArtifact, LazyDirectory, Meta, WithMeta,
+        ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, CreateDirectory, Directory,
+        DirectoryListing, File, LazyArtifact, Meta, WithMeta,
     },
     Brioche,
 };
@@ -249,7 +249,7 @@ async fn resolve_inner(
                 resources,
             }))
         }
-        LazyArtifact::CreateDirectory(LazyDirectory { entries }) => {
+        LazyArtifact::CreateDirectory(CreateDirectory { entries }) => {
             let entries = entries
                 .into_iter()
                 .map(|(path, entry)| {

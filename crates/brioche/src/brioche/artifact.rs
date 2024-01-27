@@ -59,7 +59,7 @@ pub enum LazyArtifact {
         resources: Box<WithMeta<LazyArtifact>>,
     },
     #[serde(rename_all = "camelCase")]
-    CreateDirectory(LazyDirectory),
+    CreateDirectory(CreateDirectory),
     #[serde(rename_all = "camelCase")]
     Cast {
         artifact: Box<WithMeta<LazyArtifact>>,
@@ -239,12 +239,12 @@ impl std::fmt::Display for StackFrame {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LazyDirectory {
+pub struct CreateDirectory {
     #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
     pub entries: BTreeMap<BString, WithMeta<LazyArtifact>>,
 }
 
-impl LazyDirectory {
+impl CreateDirectory {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
