@@ -234,12 +234,9 @@ async fn resolve_inner(
             executable,
             resources,
         } => {
-            let blob_id = super::blob::save_blob_from_reader(
-                brioche,
-                &**data,
-                super::blob::SaveBlobOptions::default(),
-            )
-            .await?;
+            let blob_id =
+                super::blob::save_blob(brioche, &data, super::blob::SaveBlobOptions::default())
+                    .await?;
 
             let resources = resolve(brioche, *resources).await?;
             let CompleteArtifact::Directory(resources) = resources.value else {
