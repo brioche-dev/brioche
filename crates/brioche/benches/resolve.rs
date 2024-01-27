@@ -1,5 +1,5 @@
 use brioche::brioche::{
-    artifact::{Directory, LazyArtifact, WithMeta},
+    artifact::{Directory, DirectoryListing, LazyArtifact, WithMeta},
     Brioche,
 };
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -8,50 +8,58 @@ use futures::StreamExt as _;
 mod brioche_bench;
 
 async fn make_deep_dir(brioche: &Brioche, key: &str) -> Directory {
-    let mut dir = Directory::default();
+    let mut listing = DirectoryListing::default();
     for a in 0..10 {
         for b in 0..3 {
             for c in 0..3 {
                 for d in 0..3 {
                     for e in 0..3 {
-                        dir.insert(
-                            format!("{key}a{a}/{key}b{b}/{key}c{c}/{key}d{d}/{key}e{e}/file.txt")
-                                .as_bytes(),
-                            WithMeta::without_meta(brioche_bench::file(
-                                brioche_bench::blob(
-                                    brioche,
-                                    format!("a={a},b={b},c={c},d={d},e={e}"),
+                        listing
+                            .insert(
+                                brioche,
+                                format!(
+                                    "{key}a{a}/{key}b{b}/{key}c{c}/{key}d{d}/{key}e{e}/file.txt"
                                 )
-                                .await,
-                                false,
-                            )),
-                        )
-                        .unwrap();
+                                .as_bytes(),
+                                Some(WithMeta::without_meta(brioche_bench::file(
+                                    brioche_bench::blob(
+                                        brioche,
+                                        format!("a={a},b={b},c={c},d={d},e={e}"),
+                                    )
+                                    .await,
+                                    false,
+                                ))),
+                            )
+                            .await
+                            .unwrap();
                     }
                 }
             }
         }
     }
 
-    dir
+    Directory::create(brioche, &listing).await.unwrap()
 }
 
 async fn make_wide_dir(brioche: &Brioche, key: &str) -> Directory {
-    let mut dir = Directory::default();
+    let mut listing = DirectoryListing::default();
     for a in 0..100 {
         for b in 0..10 {
-            dir.insert(
-                format!("{key}a{a}/{key}b{b}/file.txt").as_bytes(),
-                WithMeta::without_meta(brioche_bench::file(
-                    brioche_bench::blob(brioche, format!("a={a},b={b}")).await,
-                    false,
-                )),
-            )
-            .unwrap();
+            listing
+                .insert(
+                    brioche,
+                    format!("{key}a{a}/{key}b{b}/file.txt").as_bytes(),
+                    Some(WithMeta::without_meta(brioche_bench::file(
+                        brioche_bench::blob(brioche, format!("a={a},b={b}")).await,
+                        false,
+                    ))),
+                )
+                .await
+                .unwrap();
         }
     }
 
-    dir
+    Directory::create(brioche, &listing).await.unwrap()
 }
 
 fn run_resolve_benchmark(c: &mut Criterion) {

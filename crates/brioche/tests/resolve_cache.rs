@@ -34,7 +34,11 @@ async fn test_resolve_cache_nested() -> anyhow::Result<()> {
     // The cache from hello_download should be re-used
     assert_eq!(
         resolve_without_meta(&brioche, hello_nested_download).await?,
-        brioche_test::dir([("file.txt", brioche_test::file(hello_blob, false))]),
+        brioche_test::dir(
+            &brioche,
+            [("file.txt", brioche_test::file(hello_blob, false))]
+        )
+        .await,
     );
 
     hello_endpoint.assert();
@@ -67,7 +71,11 @@ async fn test_resolve_cache_unnested() -> anyhow::Result<()> {
 
     assert_eq!(
         resolve_without_meta(&brioche, hello_nested_download).await?,
-        brioche_test::dir([("file.txt", brioche_test::file(hello_blob, false))]),
+        brioche_test::dir(
+            &brioche,
+            [("file.txt", brioche_test::file(hello_blob, false))]
+        )
+        .await,
     );
 
     // The cache from hello_nested_download should be re-used

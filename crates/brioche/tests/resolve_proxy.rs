@@ -28,7 +28,7 @@ async fn test_resolve_proxy() -> anyhow::Result<()> {
     let merge_proxy_result = resolve_without_meta(&brioche, merge_proxy).await?;
     assert_eq!(
         merge_proxy_result,
-        brioche_test::dir([("hello", brioche_test::file(hello_blob, false))])
+        brioche_test::dir(&brioche, [("hello", brioche_test::file(hello_blob, false))]).await,
     );
 
     Ok(())

@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 
+use anyhow::Context;
 use assert_matches::assert_matches;
 use pretty_assertions::assert_eq;
 
 use brioche::brioche::{
     artifact::{
-        ArchiveFormat, CompleteArtifact, CompressionFormat, DownloadArtifact, File, LazyArtifact,
-        ProcessArtifact, ProcessTemplate, ProcessTemplateComponent, UnpackArtifact,
+        ArchiveFormat, CompleteArtifact, CompressionFormat, Directory, DownloadArtifact, File,
+        LazyArtifact, ProcessArtifact, ProcessTemplate, ProcessTemplateComponent, UnpackArtifact,
+        WithMeta,
     },
     platform::current_platform,
     Hash,
@@ -87,6 +89,30 @@ fn utils() -> LazyArtifact {
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
     })
+}
+
+async fn try_get(
+    brioche: &brioche::brioche::Brioche,
+    dir: &Directory,
+    path: impl AsRef<[u8]>,
+) -> anyhow::Result<Option<WithMeta<CompleteArtifact>>> {
+    let listing = dir.listing(brioche).await?;
+    let artifact = listing.get(brioche, path.as_ref()).await?;
+    Ok(artifact)
+}
+
+async fn get(
+    brioche: &brioche::brioche::Brioche,
+    dir: &Directory,
+    path: impl AsRef<[u8]>,
+) -> WithMeta<CompleteArtifact> {
+    let path = bstr::BStr::new(path.as_ref());
+    try_get(brioche, dir, &path)
+        .await
+        .with_context(|| format!("error getting context for path {path:?}",))
+        .unwrap()
+        .with_context(|| format!("no artifact found for path {path:?}"))
+        .unwrap()
 }
 
 // HACK: This semaphore is used to ensure only one process test runs at a time.
@@ -431,15 +457,15 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
         panic!("expected directory");
     };
 
-    let resolved_a1 = resolved.get(b"a/process1.txt")?.unwrap();
-    let resolved_a1p = resolved.get(b"a/process1p.txt")?.unwrap();
-    let resolved_b1 = resolved.get(b"b/process1.txt")?.unwrap();
-    let resolved_b1p = resolved.get(b"b/process1p.txt")?.unwrap();
+    let resolved_a1 = get(&brioche, &resolved, "a/process1.txt").await;
+    let resolved_a1p = get(&brioche, &resolved, "a/process1p.txt").await;
+    let resolved_b1 = get(&brioche, &resolved, "b/process1.txt").await;
+    let resolved_b1p = get(&brioche, &resolved, "b/process1p.txt").await;
 
-    let resolved_a2 = resolved.get(b"a/process2.txt")?.unwrap();
-    let resolved_a2p = resolved.get(b"a/process2p.txt")?.unwrap();
-    let resolved_b2 = resolved.get(b"b/process2.txt")?.unwrap();
-    let resolved_b2p = resolved.get(b"b/process2p.txt")?.unwrap();
+    let resolved_a2 = get(&brioche, &resolved, "a/process2.txt").await;
+    let resolved_a2p = get(&brioche, &resolved, "a/process2p.txt").await;
+    let resolved_b2 = get(&brioche, &resolved, "b/process2.txt").await;
+    let resolved_b2p = get(&brioche, &resolved, "b/process2p.txt").await;
 
     assert_eq!(resolved_a1, resolved_a1p);
     assert_eq!(resolved_a1, resolved_b1);
@@ -650,25 +676,40 @@ async fn test_resolve_process_contains_all_resources() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
 
-    let fizz = brioche_test::dir([(
-        "file.txt",
-        brioche_test::file_with_resources(
-            brioche_test::blob(&brioche, b"foo").await,
-            false,
-            brioche_test::dir_value([(
-                "foo/bar.txt",
-                brioche_test::file(brioche_test::blob(&brioche, b"resource a").await, false),
-            )]),
-        ),
-    )]);
+    let fizz = brioche_test::dir(
+        &brioche,
+        [(
+            "file.txt",
+            brioche_test::file_with_resources(
+                brioche_test::blob(&brioche, b"foo").await,
+                false,
+                brioche_test::dir_value(
+                    &brioche,
+                    [(
+                        "foo/bar.txt",
+                        brioche_test::file(
+                            brioche_test::blob(&brioche, b"resource a").await,
+                            false,
+                        ),
+                    )],
+                )
+                .await,
+            ),
+        )],
+    )
+    .await;
 
     let buzz = brioche_test::file_with_resources(
         brioche_test::blob(&brioche, b"bar").await,
         false,
-        brioche_test::dir_value([(
-            "foo/baz.txt",
-            brioche_test::file(brioche_test::blob(&brioche, b"resource b").await, false),
-        )]),
+        brioche_test::dir_value(
+            &brioche,
+            [(
+                "foo/baz.txt",
+                brioche_test::file(brioche_test::blob(&brioche, b"resource b").await, false),
+            )],
+        )
+        .await,
     );
 
     let process = ProcessArtifact {
@@ -760,26 +801,30 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
         panic!("expected directory");
     };
 
-    let program = dir
-        .get(b"bin/program")
-        .unwrap()
-        .expect("bin/program not found");
+    let program = get(&brioche, &dir, "bin/program").await;
     let CompleteArtifact::File(File { resources, .. }) = &program.value else {
         panic!("expected file");
     };
 
     assert_eq!(
         *resources,
-        brioche_test::dir_value([
-            (
-                "program",
-                brioche_test::file(brioche_test::blob(&brioche, b"dummy_program").await, false)
-            ),
-            (
-                "ld-linux.so",
-                brioche_test::file(brioche_test::blob(&brioche, b"dummy_ld_linux").await, false)
-            ),
-        ])
+        brioche_test::dir_value(
+            &brioche,
+            [
+                (
+                    "program",
+                    brioche_test::file(brioche_test::blob(&brioche, b"dummy_program").await, false)
+                ),
+                (
+                    "ld-linux.so",
+                    brioche_test::file(
+                        brioche_test::blob(&brioche, b"dummy_ld_linux").await,
+                        false
+                    )
+                ),
+            ]
+        )
+        .await
     );
 
     Ok(())

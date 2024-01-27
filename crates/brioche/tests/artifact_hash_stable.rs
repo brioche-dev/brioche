@@ -23,53 +23,63 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
     let mut asserts = vec![];
 
     asserts.push((
-        brioche_test::lazy_file(hello_blob, false)
-            .hash()
-            .to_string(),
-        "a6b7080d0b8c52c608680ba9c86cbaf8ddb2fa68782ca56a5e6bb640add8220f",
-    ));
-    asserts.push((
         brioche_test::file(hello_blob, false).hash().to_string(),
         "a6b7080d0b8c52c608680ba9c86cbaf8ddb2fa68782ca56a5e6bb640add8220f",
     ));
-
     asserts.push((
-        brioche_test::lazy_file(hi_blob, false).hash().to_string(),
-        "a325a432160ad49a11697bd2f18157b5124ed48376453bc851f627b8cef58eac",
+        brioche_test::lazy_file(hello_blob, false)
+            .hash()
+            .to_string(),
+        "2b49864e5a614c122da7aca0503c47df6410608b0874e4730e9229b3faa908b7",
     ));
+
     asserts.push((
         brioche_test::file(hi_blob, false).hash().to_string(),
         "a325a432160ad49a11697bd2f18157b5124ed48376453bc851f627b8cef58eac",
     ));
-
     asserts.push((
-        brioche_test::lazy_file(hello_blob, true).hash().to_string(),
-        "20ed0a264da3b8fb5c27fca2d70778590a764129de7157070aa25fbcf31ac7ea",
+        brioche_test::lazy_file(hi_blob, false).hash().to_string(),
+        "81a8bfd7a02285a6eae9fab40ffaccd649711e21cf0bca5f192f52062192b86f",
     ));
+
     asserts.push((
         brioche_test::file(hello_blob, true).hash().to_string(),
         "20ed0a264da3b8fb5c27fca2d70778590a764129de7157070aa25fbcf31ac7ea",
     ));
-
     asserts.push((
-        brioche_test::lazy_file_with_resources(
-            hello_blob,
-            false,
-            brioche_test::lazy_dir_value([("foo.txt", brioche_test::lazy_file(hello_blob, false))]),
-        )
-        .hash()
-        .to_string(),
-        "27c41efc8d056e2d571f781032416d95714cd77da82afc40135ce21c0453f4a6",
+        brioche_test::lazy_file(hello_blob, true).hash().to_string(),
+        "b176eb8dea170f247a2eafe1a4e35e1598818ce077e13b7783b56c3c9db7af91",
     ));
+
     asserts.push((
         brioche_test::file_with_resources(
             hello_blob,
             false,
-            brioche_test::dir_value([("foo.txt", brioche_test::file(hello_blob, false))]),
+            brioche_test::dir_value(
+                &brioche,
+                [("foo.txt", brioche_test::file(hello_blob, false))],
+            )
+            .await,
         )
         .hash()
         .to_string(),
-        "27c41efc8d056e2d571f781032416d95714cd77da82afc40135ce21c0453f4a6",
+        "4ffde3f046dfb46f4d7e7c794799dfe81b452683fd90bc18659dccd792c4a400",
+    ));
+    asserts.push((
+        brioche_test::lazy_file_with_resources(
+            hello_blob,
+            false,
+            LazyArtifact::from(
+                brioche_test::dir(
+                    &brioche,
+                    [("foo.txt", brioche_test::file(hello_blob, false))],
+                )
+                .await,
+            ),
+        )
+        .hash()
+        .to_string(),
+        "551c9204afe0b6fe0438b84b889df3c76d19368e2c3ed0a4c13ebde8fadf6dfe",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -90,50 +100,77 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
     let mut asserts = vec![];
 
     asserts.push((
-        brioche_test::lazy_dir_empty().hash().to_string(),
-        "2f51f105073a1b8b7644b23c3992439a3f82e6b54c0d06b10ed65575a6283135",
-    ));
-    asserts.push((
         brioche_test::dir_empty().hash().to_string(),
         "2f51f105073a1b8b7644b23c3992439a3f82e6b54c0d06b10ed65575a6283135",
     ));
-
     asserts.push((
-        brioche_test::lazy_dir([("foo.txt", brioche_test::lazy_file(hello_blob, false))])
+        LazyArtifact::from(brioche_test::dir_empty())
             .hash()
             .to_string(),
-        "939a1c5b18900279593cea01e1a78e6ea0604eebd080f845011353c476b64a2c",
-    ));
-    asserts.push((
-        brioche_test::dir([("foo.txt", brioche_test::file(hello_blob, false))])
-            .hash()
-            .to_string(),
-        "939a1c5b18900279593cea01e1a78e6ea0604eebd080f845011353c476b64a2c",
+        "2f51f105073a1b8b7644b23c3992439a3f82e6b54c0d06b10ed65575a6283135",
     ));
 
     asserts.push((
-        brioche_test::lazy_dir([
-            ("foo.txt", brioche_test::lazy_file(hello_blob, false)),
-            (
-                "bar",
-                brioche_test::lazy_dir([("hi.txt", brioche_test::lazy_file(hi_blob, false))]),
-            ),
-        ])
+        brioche_test::dir(
+            &brioche,
+            [("foo.txt", brioche_test::file(hello_blob, false))],
+        )
+        .await
         .hash()
         .to_string(),
-        "9a381be2fd8619d55273d037c1ceb6068ddb3fdfaffff85cec0c9fdd78a7bf93",
+        "e741c7f33e7845f3f659c0484bb889645daf338677d2a3209a472e4406eae404",
     ));
     asserts.push((
-        brioche_test::dir([
-            ("foo.txt", brioche_test::file(hello_blob, false)),
-            (
-                "bar",
-                brioche_test::dir([("hi.txt", brioche_test::file(hi_blob, false))]),
-            ),
-        ])
+        LazyArtifact::from(
+            brioche_test::dir(
+                &brioche,
+                [("foo.txt", brioche_test::file(hello_blob, false))],
+            )
+            .await,
+        )
         .hash()
         .to_string(),
-        "9a381be2fd8619d55273d037c1ceb6068ddb3fdfaffff85cec0c9fdd78a7bf93",
+        "e741c7f33e7845f3f659c0484bb889645daf338677d2a3209a472e4406eae404",
+    ));
+
+    asserts.push((
+        brioche_test::dir(
+            &brioche,
+            [
+                ("foo.txt", brioche_test::file(hello_blob, false)),
+                (
+                    "bar",
+                    brioche_test::dir(&brioche, [("hi.txt", brioche_test::file(hi_blob, false))])
+                        .await,
+                ),
+            ],
+        )
+        .await
+        .hash()
+        .to_string(),
+        "02360a3026e4c5623a29b0437b5f7ca21fc23810befdc20c3ce5915dce96ba17",
+    ));
+    asserts.push((
+        LazyArtifact::from(
+            brioche_test::dir(
+                &brioche,
+                [
+                    ("foo.txt", brioche_test::file(hello_blob, false)),
+                    (
+                        "bar",
+                        brioche_test::dir(
+                            &brioche,
+                            [("hi.txt", brioche_test::file(hi_blob, false))],
+                        )
+                        .await,
+                    ),
+                ],
+            )
+            .await,
+        )
+        .hash()
+        .to_string(),
+        "02360a3026e4c5623a29b0437b5f7ca21fc23810befdc20c3ce5915dce96ba17",
     ));
 
     asserts.push((
@@ -148,7 +185,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         )])
         .hash()
         .to_string(),
-        "e68087284af6d54595c2235c97630ac5d2fcdeba87f27e91af278b6c3ab576c4",
+        "59c5921cc57e0ee5f7b2206cdb64c1f874b8043d1aca6d93d5d079740704879a",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -241,7 +278,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "d9df4f961f526c9124fb19b2a9e9696a83f1d2cdd3f390660e78c465b93f79a8",
+        "bcd2e9a337eed8ffa23c200779874689a47b99e695c2e9b78fbf40f341b67ea8",
     ));
 
     asserts.push((
@@ -258,7 +295,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "8eaec0e082b66e6344d0ad10e493f4f7d0ca0f47515a2011a5c851d1eaf3419b",
+        "6fd9e60413f06f081ca8fb4848fc64bd43b56bacbc5754b8b4a7b8998c93c5ed",
     ));
 
     asserts.push((
@@ -277,7 +314,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "d94023b82816a1b8cb316cfe175a1ab8dcd9c0029cd35065a098474910f9cdab",
+        "5d79fba94bcfa6a7f059c2d7f672a0a76d00aaf60ab41fd3871b2ce48f8889c3",
     ));
 
     asserts.push((
@@ -303,7 +340,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "caf4553cb77d7527cd01d0dc954bf8d083d1f313bdffde2496e9859c1b1f38c1",
+        "7504517f95f4aa3de6af11f7cc5e6b9eba2f67037c2df425756c09a6b87bc98a",
     ));
 
     asserts.push((
@@ -334,7 +371,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "b065cc3f66e108550f62cbbf6202ac2dd9ca423b01ee7ca6d7352782e675601f",
+        "bfda06bcc63fb6fb88cb2d3be3a8bd3ba6a549c22c7b6f2be0009d311d8f398b",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();

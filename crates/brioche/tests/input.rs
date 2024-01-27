@@ -129,17 +129,25 @@ async fn test_input_dir() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir([
-            (
-                "hello",
-                brioche_test::dir([(
-                    "hi.txt",
-                    brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false)
-                ),])
-            ),
-            ("empty", brioche_test::dir_empty()),
-            ("link", brioche_test::symlink("hello/hi.txt"))
-        ])
+        brioche_test::dir(
+            &brioche,
+            [
+                (
+                    "hello",
+                    brioche_test::dir(
+                        &brioche,
+                        [(
+                            "hi.txt",
+                            brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false)
+                        ),]
+                    )
+                    .await
+                ),
+                ("empty", brioche_test::dir_empty()),
+                ("link", brioche_test::symlink("hello/hi.txt"))
+            ]
+        )
+        .await
     );
     assert!(dir_path.is_dir());
 
@@ -159,17 +167,25 @@ async fn test_input_remove_original() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir([
-            (
-                "hello",
-                brioche_test::dir([(
-                    "hi.txt",
-                    brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false)
-                ),])
-            ),
-            ("empty", brioche_test::dir_empty()),
-            ("link", brioche_test::symlink("hello/hi.txt"))
-        ])
+        brioche_test::dir(
+            &brioche,
+            [
+                (
+                    "hello",
+                    brioche_test::dir(
+                        &brioche,
+                        [(
+                            "hi.txt",
+                            brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false)
+                        ),]
+                    )
+                    .await
+                ),
+                ("empty", brioche_test::dir_empty()),
+                ("link", brioche_test::symlink("hello/hi.txt"))
+            ]
+        )
+        .await
     );
     assert!(!dir_path.is_dir());
 
@@ -200,19 +216,27 @@ async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir([
-            (
-                "hi",
-                brioche_test::file(brioche_test::blob(&brioche, &packed_file).await, false)
-            ),
-            (
-                "brioche-pack.d",
-                brioche_test::dir([(
-                    "test",
-                    brioche_test::file(brioche_test::blob(&brioche, b"test").await, false)
-                ),])
-            ),
-        ])
+        brioche_test::dir(
+            &brioche,
+            [
+                (
+                    "hi",
+                    brioche_test::file(brioche_test::blob(&brioche, &packed_file).await, false)
+                ),
+                (
+                    "brioche-pack.d",
+                    brioche_test::dir(
+                        &brioche,
+                        [(
+                            "test",
+                            brioche_test::file(brioche_test::blob(&brioche, b"test").await, false)
+                        ),]
+                    )
+                    .await
+                ),
+            ]
+        )
+        .await
     );
     assert!(dir_path.is_dir());
 
@@ -242,17 +266,25 @@ async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir([(
-            "hi",
-            brioche_test::file_with_resources(
-                brioche_test::blob(&brioche, &packed_file).await,
-                false,
-                brioche_test::dir_value([(
-                    "test",
-                    brioche_test::file(brioche_test::blob(&brioche, b"test").await, false),
-                )]),
-            )
-        ),])
+        brioche_test::dir(
+            &brioche,
+            [(
+                "hi",
+                brioche_test::file_with_resources(
+                    brioche_test::blob(&brioche, &packed_file).await,
+                    false,
+                    brioche_test::dir_value(
+                        &brioche,
+                        [(
+                            "test",
+                            brioche_test::file(brioche_test::blob(&brioche, b"test").await, false),
+                        )]
+                    )
+                    .await,
+                )
+            ),]
+        )
+        .await
     );
     assert!(dir_path.is_dir());
 
@@ -283,20 +315,31 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir([(
-            "hi",
-            brioche_test::file_with_resources(
-                brioche_test::blob(&brioche, &packed_file).await,
-                false,
-                brioche_test::dir_value([
-                    ("test", brioche_test::symlink(b"test_target")),
-                    (
-                        "test_target",
-                        brioche_test::file(brioche_test::blob(&brioche, b"test").await, false)
-                    ),
-                ]),
-            )
-        ),])
+        brioche_test::dir(
+            &brioche,
+            [(
+                "hi",
+                brioche_test::file_with_resources(
+                    brioche_test::blob(&brioche, &packed_file).await,
+                    false,
+                    brioche_test::dir_value(
+                        &brioche,
+                        [
+                            ("test", brioche_test::symlink(b"test_target")),
+                            (
+                                "test_target",
+                                brioche_test::file(
+                                    brioche_test::blob(&brioche, b"test").await,
+                                    false
+                                )
+                            ),
+                        ]
+                    )
+                    .await,
+                )
+            ),]
+        )
+        .await
     );
     assert!(dir_path.is_dir());
 
@@ -326,14 +369,22 @@ async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir([(
-            "hi",
-            brioche_test::file_with_resources(
-                brioche_test::blob(&brioche, &packed_file).await,
-                false,
-                brioche_test::dir_value([("test", brioche_test::symlink(b"test_target"))]),
-            )
-        ),])
+        brioche_test::dir(
+            &brioche,
+            [(
+                "hi",
+                brioche_test::file_with_resources(
+                    brioche_test::blob(&brioche, &packed_file).await,
+                    false,
+                    brioche_test::dir_value(
+                        &brioche,
+                        [("test", brioche_test::symlink(b"test_target"))]
+                    )
+                    .await,
+                )
+            ),]
+        )
+        .await
     );
     assert!(dir_path.is_dir());
 
@@ -367,32 +418,47 @@ async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir([(
-            "hi",
-            brioche_test::file_with_resources(
-                brioche_test::blob(&brioche, &packed_file).await,
-                false,
-                brioche_test::dir_value([
-                    (
-                        "test",
-                        brioche_test::dir([
+        brioche_test::dir(
+            &brioche,
+            [(
+                "hi",
+                brioche_test::file_with_resources(
+                    brioche_test::blob(&brioche, &packed_file).await,
+                    false,
+                    brioche_test::dir_value(
+                        &brioche,
+                        [
                             (
-                                "hi",
+                                "test",
+                                brioche_test::dir(
+                                    &brioche,
+                                    [
+                                        (
+                                            "hi",
+                                            brioche_test::file(
+                                                brioche_test::blob(&brioche, b"test").await,
+                                                false
+                                            )
+                                        ),
+                                        ("target", brioche_test::symlink(b"../test_target")),
+                                    ]
+                                )
+                                .await
+                            ),
+                            (
+                                "test_target",
                                 brioche_test::file(
                                     brioche_test::blob(&brioche, b"test").await,
                                     false
                                 )
                             ),
-                            ("target", brioche_test::symlink(b"../test_target")),
-                        ])
-                    ),
-                    (
-                        "test_target",
-                        brioche_test::file(brioche_test::blob(&brioche, b"test").await, false)
-                    ),
-                ]),
-            )
-        ),])
+                        ]
+                    )
+                    .await,
+                )
+            ),]
+        )
+        .await
     );
     assert!(dir_path.is_dir());
 
@@ -425,17 +491,25 @@ async fn test_input_dir_omits_unused_resources() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir([(
-            "hi",
-            brioche_test::file_with_resources(
-                brioche_test::blob(&brioche, &packed_file).await,
-                false,
-                brioche_test::dir_value([(
-                    "test",
-                    brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false),
-                )]),
-            )
-        ),])
+        brioche_test::dir(
+            &brioche,
+            [(
+                "hi",
+                brioche_test::file_with_resources(
+                    brioche_test::blob(&brioche, &packed_file).await,
+                    false,
+                    brioche_test::dir_value(
+                        &brioche,
+                        [(
+                            "test",
+                            brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false),
+                        )]
+                    )
+                    .await,
+                )
+            ),]
+        )
+        .await
     );
     assert!(dir_path.is_dir());
 

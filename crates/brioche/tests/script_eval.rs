@@ -18,7 +18,7 @@ async fn test_eval_basic() -> anyhow::Result<()> {
                         briocheSerialize: () => {
                             return {
                                 type: "directory",
-                                entries: {},
+                                tree: null,
                             }
                         },
                     };
@@ -31,7 +31,7 @@ async fn test_eval_basic() -> anyhow::Result<()> {
 
     let resolved = evaluate(&brioche, &project, "default").await?.value;
 
-    assert_eq!(resolved, brioche_test::lazy_dir_empty());
+    assert_eq!(resolved, brioche_test::dir_empty().into());
 
     Ok(())
 }
@@ -52,7 +52,7 @@ async fn test_eval_custom_export() -> anyhow::Result<()> {
                         briocheSerialize: () => {
                             return {
                                 type: "directory",
-                                entries: {},
+                                tree: null,
                             }
                         },
                     };
@@ -65,7 +65,7 @@ async fn test_eval_custom_export() -> anyhow::Result<()> {
 
     let resolved = evaluate(&brioche, &project, "custom").await?.value;
 
-    assert_eq!(resolved, brioche_test::lazy_dir_empty());
+    assert_eq!(resolved, brioche_test::dir_empty().into());
 
     Ok(())
 }
@@ -86,7 +86,7 @@ async fn test_eval_async() -> anyhow::Result<()> {
                         briocheSerialize: () => {
                             return {
                                 type: "directory",
-                                entries: {},
+                                tree: null,
                             }
                         },
                     };
@@ -99,7 +99,7 @@ async fn test_eval_async() -> anyhow::Result<()> {
 
     let resolved = evaluate(&brioche, &project, "default").await?.value;
 
-    assert_eq!(resolved, brioche_test::lazy_dir_empty());
+    assert_eq!(resolved, brioche_test::dir_empty().into());
 
     Ok(())
 }
@@ -120,7 +120,7 @@ async fn test_eval_serialize_async() -> anyhow::Result<()> {
                         briocheSerialize: async () => {
                             return {
                                 type: "directory",
-                                entries: {},
+                                tree: null,
                             }
                         },
                     };
@@ -133,7 +133,7 @@ async fn test_eval_serialize_async() -> anyhow::Result<()> {
 
     let resolved = evaluate(&brioche, &project, "default").await?.value;
 
-    assert_eq!(resolved, brioche_test::lazy_dir_empty());
+    assert_eq!(resolved, brioche_test::dir_empty().into());
 
     Ok(())
 }
@@ -153,7 +153,7 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
                         briocheSerialize: () => {
                             return {
                                 type: "directory",
-                                entries: {},
+                                tree: null,
                             }
                         },
                     };
@@ -179,7 +179,7 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
 
     let resolved = evaluate(&brioche, &project, "default").await?.value;
 
-    assert_eq!(resolved, brioche_test::lazy_dir_empty());
+    assert_eq!(resolved, brioche_test::dir_empty().into());
 
     Ok(())
 }
@@ -217,7 +217,7 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
                         briocheSerialize: () => {
                             return {
                                 type: "directory",
-                                entries: {},
+                                tree: null,
                             }
                         },
                     };
@@ -230,7 +230,7 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
 
     let resolved = evaluate(&brioche, &project, "default").await?.value;
 
-    assert_eq!(resolved, brioche_test::lazy_dir_empty());
+    assert_eq!(resolved, brioche_test::dir_empty().into());
 
     Ok(())
 }
