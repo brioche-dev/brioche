@@ -108,6 +108,86 @@ where
 }
 
 #[tracing::instrument(skip(brioche, options), err)]
+pub async fn save_blob_from_bytes<'a>(
+    brioche: &Brioche,
+    bytes: &[u8],
+    options: SaveBlobOptions<'a>,
+) -> anyhow::Result<BlobId> {
+    let mut hasher = blake3::Hasher::new();
+    let mut validation_hashing = options
+        .expected_hash
+        .as_ref()
+        .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
+
+    hasher.update(bytes);
+
+    if let Some((_, validate_hasher)) = &mut validation_hashing {
+        validate_hasher.update(bytes);
+    }
+
+    let hash = hasher.finalize();
+    let id = BlobId(hash);
+    let blob_path = blob_path(brioche, id);
+
+    if let Some((expected_hash, validate_hasher)) = validation_hashing {
+        let actual_hash = validate_hasher.finish()?;
+
+        if *expected_hash != actual_hash {
+            anyhow::bail!("expected hash {} but got {}", expected_hash, actual_hash);
+        }
+
+        let expected_hash_string = expected_hash.to_string();
+        let blob_id_string = id.to_string();
+
+        let mut db_conn = brioche.db_conn.lock().await;
+        sqlx::query!(
+            r"
+                INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
+                ON CONFLICT (hash) DO UPDATE SET blob_id = ?
+            ",
+            expected_hash_string,
+            blob_id_string,
+            blob_id_string,
+        )
+        .execute(&mut *db_conn)
+        .await?;
+        drop(db_conn);
+    }
+
+    if let Some(parent) = blob_path.parent() {
+        tokio::fs::create_dir_all(&parent)
+            .await
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+
+    if tokio::fs::try_exists(&blob_path).await? {
+        return Ok(id);
+    }
+
+    let temp_dir = brioche.home.join("blobs-temp");
+    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+    let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
+
+    let mut temp_file = tokio::fs::File::create(&temp_path)
+        .await
+        .context("failed to open temp file")?;
+    temp_file
+        .write_all(bytes)
+        .await
+        .context("failed to write blob to temp file")?;
+    temp_file
+        .set_permissions(blob_permissions())
+        .await
+        .context("failed to set blob permissions")?;
+
+    tokio::fs::rename(&temp_path, &blob_path)
+        .await
+        .context("failed to rename blob from temp file")?;
+
+    Ok(id)
+}
+
+#[tracing::instrument(skip(brioche, options), err)]
 pub async fn save_blob_from_file<'a>(
     brioche: &Brioche,
     input_path: &Path,
