@@ -4,7 +4,7 @@ use anyhow::Context as _;
 use bstr::ByteSlice;
 
 use super::{
-    artifact::{CompleteArtifact, Directory, File},
+    artifact::{CompleteArtifact, File},
     Brioche,
 };
 
@@ -24,7 +24,7 @@ pub async fn create_output<'a: 'async_recursion>(
 ) -> anyhow::Result<()> {
     match artifact {
         CompleteArtifact::File(File {
-            data,
+            content_blob,
             executable,
             resources,
         }) => {
@@ -45,7 +45,7 @@ pub async fn create_output<'a: 'async_recursion>(
                 .await?;
             }
 
-            let blob_path = super::blob::blob_path(brioche, *data);
+            let blob_path = super::blob::blob_path(brioche, *content_blob);
             tokio::fs::copy(&blob_path, options.output_path)
                 .await
                 .with_context(|| {
@@ -77,7 +77,7 @@ pub async fn create_output<'a: 'async_recursion>(
                     )
                 })?;
         }
-        CompleteArtifact::Directory(Directory { entries }) => {
+        CompleteArtifact::Directory(directory) => {
             let result = tokio::fs::create_dir(options.output_path).await;
 
             match result {
@@ -94,7 +94,9 @@ pub async fn create_output<'a: 'async_recursion>(
                 }
             }
 
-            for (path, entry) in entries {
+            let listing = directory.listing(brioche).await?;
+
+            for (path, entry) in listing.entries {
                 let path = bytes_to_path_component(path.as_bstr())?;
                 let entry_path = options.output_path.join(path);
                 let resources_dir_buf;

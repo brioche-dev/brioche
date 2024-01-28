@@ -4,7 +4,7 @@ use anyhow::Context as _;
 use bstr::{ByteSlice as _, ByteVec as _};
 
 use super::{
-    artifact::{CompleteArtifact, Directory, File, Meta, WithMeta},
+    artifact::{CompleteArtifact, Directory, DirectoryListing, File, Meta, WithMeta},
     Brioche,
 };
 
@@ -50,7 +50,7 @@ pub async fn create_input(
                 let pack_paths = pack.iter().flat_map(|pack| pack.paths());
 
                 let mut pack_paths: Vec<_> = pack_paths.collect();
-                let mut resources = Directory::default();
+                let mut resources = DirectoryListing::default();
                 while let Some(pack_path) = pack_paths.pop() {
                     let path = pack_path.to_path().context("invalid resource path")?;
                     let resource_path = resources_dir.join(path);
@@ -75,7 +75,9 @@ pub async fn create_input(
                         .await?;
 
                         tracing::debug!(resource = %resource_path.display(), "found resource");
-                        resources.insert(&pack_path, resource)?;
+                        resources
+                            .insert(brioche, &pack_path, Some(resource))
+                            .await?;
 
                         // Add the symlink's target to the resources dir as well
                         if resource_metadata.is_symlink() {
@@ -137,8 +139,9 @@ pub async fn create_input(
 
                 resources
             }
-            None => Directory::default(),
+            None => DirectoryListing::default(),
         };
+        let resources = Directory::create(brioche, &resources).await?;
 
         let blob_id = super::blob::save_blob_from_file(
             brioche,
@@ -151,7 +154,7 @@ pub async fn create_input(
 
         Ok(WithMeta::new(
             CompleteArtifact::File(File {
-                data: blob_id,
+                content_blob: blob_id,
                 executable,
                 resources,
             }),
@@ -164,7 +167,7 @@ pub async fn create_input(
                 format!("failed to read directory {}", options.input_path.display())
             })?;
 
-        let mut result_dir = Directory::default();
+        let mut result_dir = DirectoryListing::default();
 
         while let Some(entry) = dir.next_entry().await? {
             let entry_name = <Vec<u8> as bstr::ByteVec>::from_os_string(entry.file_name())
@@ -200,6 +203,7 @@ pub async fn create_input(
                 })?;
         }
 
+        let result_dir = Directory::create(brioche, &result_dir).await?;
         Ok(WithMeta::new(
             CompleteArtifact::Directory(result_dir),
             options.meta.clone(),

@@ -5,7 +5,10 @@ use futures::TryStreamExt as _;
 use tracing::Instrument;
 
 use crate::brioche::{
-    artifact::{CompleteArtifact, Directory, DirectoryError, File, Meta, UnpackArtifact, WithMeta},
+    artifact::{
+        CompleteArtifact, Directory, DirectoryError, DirectoryListing, File, Meta, UnpackArtifact,
+        WithMeta,
+    },
     Brioche,
 };
 
@@ -16,7 +19,11 @@ pub async fn resolve_unpack(
     unpack: UnpackArtifact,
 ) -> anyhow::Result<Directory> {
     let file = super::resolve(brioche, *unpack.file).await?;
-    let CompleteArtifact::File(File { data: blob_id, .. }) = file.value else {
+    let CompleteArtifact::File(File {
+        content_blob: blob_id,
+        ..
+    }) = file.value
+    else {
         anyhow::bail!("expected archive to be a file");
     };
 
@@ -33,7 +40,7 @@ pub async fn resolve_unpack(
 
     let mut archive = tokio_tar::Archive::new(decompressed_archive_file);
     let mut archive_entries = archive.entries()?;
-    let mut directory = Directory::default();
+    let mut directory = DirectoryListing::default();
 
     let save_blobs_future = async {
         while let Some(archive_entry) = archive_entries.try_next().await? {
@@ -50,7 +57,7 @@ pub async fn resolve_unpack(
 
             let entry_artifact = match archive_entry.header().entry_type() {
                 tokio_tar::EntryType::Regular => {
-                    let entry_blob_id = crate::brioche::blob::save_blob(
+                    let entry_blob_id = crate::brioche::blob::save_blob_from_reader(
                         brioche,
                         archive_entry,
                         crate::brioche::blob::SaveBlobOptions::new(),
@@ -59,7 +66,7 @@ pub async fn resolve_unpack(
                     let executable = entry_mode & 0o100 != 0;
 
                     CompleteArtifact::File(File {
-                        data: entry_blob_id,
+                        content_blob: entry_blob_id,
                         executable,
                         resources: Directory::default(),
                     })
@@ -83,12 +90,15 @@ pub async fn resolve_unpack(
                             entry_path
                         )
                     })?;
-                    let linked_entry = directory.get(link_name.as_ref())?.with_context(|| {
-                        format!(
+                    let linked_entry = directory
+                        .get(brioche, link_name.as_ref())
+                        .await?
+                        .with_context(|| {
+                            format!(
                             "unsupported tar archive: could not find target for link entry at {}",
                             entry_path
                         )
-                    })?;
+                        })?;
 
                     linked_entry.value.clone()
                 }
@@ -104,7 +114,14 @@ pub async fn resolve_unpack(
                 }
             };
 
-            match directory.insert(&entry_path, WithMeta::new(entry_artifact, meta.clone())) {
+            let insert_result = directory
+                .insert(
+                    brioche,
+                    &entry_path,
+                    Some(WithMeta::new(entry_artifact, meta.clone())),
+                )
+                .await;
+            match insert_result {
                 Ok(_) => {}
                 Err(DirectoryError::EmptyPath { .. }) => {
                     tracing::debug!("skipping empty path in tar archive");
@@ -130,5 +147,6 @@ pub async fn resolve_unpack(
 
     save_blobs_future.await?;
 
+    let directory = Directory::create(brioche, &directory).await?;
     Ok(directory)
 }
