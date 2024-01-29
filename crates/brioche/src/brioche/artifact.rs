@@ -7,7 +7,7 @@ use std::{
 use bstr::{BStr, BString};
 use serde::Serialize;
 
-use crate::encoding::UrlEncoded;
+use crate::encoding::TickEncoded;
 
 use super::{
     blob::{self, BlobId},
@@ -42,7 +42,7 @@ pub enum LazyArtifact {
     Directory(Directory),
     #[serde(rename_all = "camelCase")]
     Symlink {
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         target: BString,
     },
     #[serde(rename_all = "camelCase")]
@@ -53,7 +53,7 @@ pub enum LazyArtifact {
     CompleteProcess(CompleteProcessArtifact),
     #[serde(rename_all = "camelCase")]
     CreateFile {
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         content: BString,
         executable: bool,
         resources: Box<WithMeta<LazyArtifact>>,
@@ -77,13 +77,13 @@ pub enum LazyArtifact {
     #[serde(rename_all = "camelCase")]
     Get {
         directory: Box<WithMeta<LazyArtifact>>,
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         path: BString,
     },
     #[serde(rename_all = "camelCase")]
     Insert {
         directory: Box<WithMeta<LazyArtifact>>,
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         path: BString,
         artifact: Option<Box<WithMeta<LazyArtifact>>>,
     },
@@ -240,7 +240,7 @@ impl std::fmt::Display for StackFrame {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDirectory {
-    #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
+    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub entries: BTreeMap<BString, WithMeta<LazyArtifact>>,
 }
 
@@ -272,7 +272,7 @@ pub struct UnpackArtifact {
 pub struct ProcessArtifact {
     pub command: ProcessTemplate,
     pub args: Vec<ProcessTemplate>,
-    #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
+    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, ProcessTemplate>,
     pub work_dir: Box<WithMeta<LazyArtifact>>,
     pub platform: Platform,
@@ -284,7 +284,7 @@ pub struct ProcessArtifact {
 pub struct CompleteProcessArtifact {
     pub command: CompleteProcessTemplate,
     pub args: Vec<CompleteProcessTemplate>,
-    #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
+    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, CompleteProcessTemplate>,
     pub work_dir: Directory,
     pub platform: Platform,
@@ -311,7 +311,7 @@ pub enum CompleteArtifact {
     File(File),
     #[serde(rename_all = "camelCase")]
     Symlink {
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         target: BString,
     },
     #[serde(rename_all = "camelCase")]
@@ -388,7 +388,7 @@ impl Directory {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DirectoryListing {
-    #[serde_as(as = "BTreeMap<UrlEncoded, _>")]
+    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub entries: BTreeMap<BString, WithMeta<CompleteArtifact>>,
 }
 
@@ -711,7 +711,7 @@ pub struct ProcessTemplate {
 #[serde(rename_all = "snake_case")]
 pub enum ProcessTemplateComponent {
     Literal {
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         value: BString,
     },
     Input {
@@ -736,7 +736,7 @@ pub struct CompleteProcessTemplate {
 #[serde(rename_all = "snake_case")]
 pub enum CompleteProcessTemplateComponent {
     Literal {
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         value: BString,
     },
     Input {

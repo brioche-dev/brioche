@@ -10,8 +10,8 @@ deno_core::extension!(
         op_brioche_stack_frames_from_exception,
         op_brioche_utf8_encode,
         op_brioche_utf8_decode,
-        op_brioche_url_encode,
-        op_brioche_url_decode,
+        op_brioche_tick_encode,
+        op_brioche_tick_decode,
     ],
 );
 
@@ -80,17 +80,17 @@ fn op_brioche_utf8_decode(bytes: v8::Local<v8::Uint8Array>) -> anyhow::Result<St
 
 #[deno_core::op2]
 #[string]
-fn op_brioche_url_encode(bytes: v8::Local<v8::Uint8Array>) -> anyhow::Result<String> {
+fn op_brioche_tick_encode(bytes: v8::Local<v8::Uint8Array>) -> anyhow::Result<String> {
     let byte_length = bytes.byte_length();
     let mut buffer = vec![0; byte_length];
     let copied_length = bytes.copy_contents(&mut buffer);
     anyhow::ensure!(copied_length == byte_length, "mismatch in copied bytes");
-    let encoded = urlencoding::encode_binary(&buffer).into_owned();
+    let encoded = tick_encoding::encode(&buffer).into_owned();
     Ok(encoded)
 }
 
 #[deno_core::op2]
-fn op_brioche_url_decode<'a>(
+fn op_brioche_tick_decode<'a>(
     scope: &'a mut v8::HandleScope,
     bytes: v8::Local<'a, v8::Uint8Array>,
 ) -> anyhow::Result<v8::Local<'a, v8::Uint8Array>> {
@@ -99,7 +99,7 @@ fn op_brioche_url_decode<'a>(
     let copied_length = bytes.copy_contents(&mut buffer);
     anyhow::ensure!(copied_length == byte_length, "mismatch in copied bytes");
 
-    let encoded = urlencoding::decode_binary(&buffer).into_owned();
+    let encoded = tick_encoding::decode(&buffer)?.into_owned();
 
     let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(encoded);
     let encoded_buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());

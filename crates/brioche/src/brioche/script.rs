@@ -192,12 +192,12 @@ pub async fn op_brioche_create_proxy(
     Ok(result)
 }
 
-// TODO: Return a Uint8Array instead of URL-encoding
+// TODO: Return a Uint8Array instead of tick-encoding
 #[deno_core::op]
 pub async fn op_brioche_read_blob(
     state: Rc<RefCell<OpState>>,
     blob_id: BlobId,
-) -> anyhow::Result<crate::encoding::UrlEncode<Vec<u8>>> {
+) -> anyhow::Result<crate::encoding::TickEncode<Vec<u8>>> {
     let brioche = {
         let state = state.try_borrow()?;
         state
@@ -211,5 +211,5 @@ pub async fn op_brioche_read_blob(
         .await
         .with_context(|| format!("failed to read blob {blob_id}"))?;
 
-    Ok(crate::encoding::UrlEncode(bytes))
+    Ok(crate::encoding::TickEncode(bytes))
 }
