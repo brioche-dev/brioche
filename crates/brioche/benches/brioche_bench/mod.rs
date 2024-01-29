@@ -58,7 +58,9 @@ pub fn file(blob: BlobId, executable: bool) -> brioche::brioche::artifact::Compl
     brioche::brioche::artifact::CompleteArtifact::File(File {
         content_blob: blob,
         executable,
-        resources: Directory::default(),
+        resources: Box::new(brioche::brioche::artifact::CompleteArtifact::Directory(
+            Directory::default(),
+        )),
     })
 }
 
@@ -70,7 +72,9 @@ pub fn file_with_resources(
     brioche::brioche::artifact::CompleteArtifact::File(File {
         content_blob: blob,
         executable,
-        resources,
+        resources: Box::new(brioche::brioche::artifact::CompleteArtifact::Directory(
+            resources,
+        )),
     })
 }
 

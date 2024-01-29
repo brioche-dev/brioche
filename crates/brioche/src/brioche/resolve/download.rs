@@ -3,7 +3,7 @@ use futures::TryStreamExt as _;
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
 use crate::brioche::{
-    artifact::{Directory, DownloadArtifact, File},
+    artifact::{CompleteArtifact, Directory, DownloadArtifact, File},
     Brioche,
 };
 
@@ -74,6 +74,6 @@ pub async fn resolve_download(
     Ok(File {
         content_blob: blob_id,
         executable: false,
-        resources: Directory::default(),
+        resources: Box::new(CompleteArtifact::Directory(Directory::default())),
     })
 }

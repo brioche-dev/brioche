@@ -320,7 +320,7 @@ impl CompleteArtifact {
 pub struct File {
     pub content_blob: BlobId,
     pub executable: bool,
-    pub resources: Directory,
+    pub resources: Box<CompleteArtifact>,
 }
 
 #[serde_with::serde_as]
@@ -571,7 +571,7 @@ impl TryFrom<LazyArtifact> for CompleteArtifact {
                 Ok(CompleteArtifact::File(File {
                     content_blob: data,
                     executable,
-                    resources,
+                    resources: Box::new(CompleteArtifact::Directory(resources)),
                 }))
             }
             LazyArtifact::Symlink { target } => Ok(CompleteArtifact::Symlink { target }),
@@ -606,7 +606,7 @@ impl From<CompleteArtifact> for LazyArtifact {
             }) => Self::File {
                 content_blob: data,
                 executable,
-                resources: Box::new(WithMeta::without_meta(LazyArtifact::Directory(resources))),
+                resources: Box::new(WithMeta::without_meta(LazyArtifact::from(*resources))),
             },
             CompleteArtifact::Symlink { target } => Self::Symlink { target },
             CompleteArtifact::Directory(directory) => Self::Directory(directory),

@@ -24,7 +24,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
 
     asserts.push((
         brioche_test::file(hello_blob, false).hash().to_string(),
-        "6fb4535c83b1589958a5a77cf7eb108d26950eaced48e97af0a2af813049cc71",
+        "d227def794e3645dde5eaec99c66b593b6f3c2bcc0769104c3fb69c2058ae186",
     ));
     asserts.push((
         brioche_test::lazy_file(hello_blob, false)
@@ -35,7 +35,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
 
     asserts.push((
         brioche_test::file(hi_blob, false).hash().to_string(),
-        "523d859354928e55293c31408448f1612e2462bc0767677984be7914fb1d7c2b",
+        "97908c17864a649c59ad0e2fece3ea6769e473e4b8472fe1c010e2b307713f05",
     ));
     asserts.push((
         brioche_test::lazy_file(hi_blob, false).hash().to_string(),
@@ -44,7 +44,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
 
     asserts.push((
         brioche_test::file(hello_blob, true).hash().to_string(),
-        "0a2becce28ad606df34ce295d3fd3a32367faf74308da44edaccb27fc9379d6b",
+        "3648fb32ff94b7e51853e70b220a1012bfa38e33d4e88f5dfa6d1b1b0a231a4e",
     ));
     asserts.push((
         brioche_test::lazy_file(hello_blob, true).hash().to_string(),
@@ -63,7 +63,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "a14ca3b495a29622f02c985360446dbd0542fe1c568e9d321022467868143012",
+        "6b8e393b935024be81b311363e87e5ec04ee0c708325f1d2caee89986ebf1e2a",
     ));
     asserts.push((
         brioche_test::lazy_file_with_resources(
@@ -79,7 +79,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "27c51c86970f3ec17b0284a75cefd4a0693e392c5dc7402bde43ea012d7c11ce",
+        "6b8e393b935024be81b311363e87e5ec04ee0c708325f1d2caee89986ebf1e2a",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -118,7 +118,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         .await
         .hash()
         .to_string(),
-        "4e3f2610ff359d0675591f85ad87494907f16bb7089a16443a79c0506dbfbd52",
+        "b09749fe2c801b5dae89cf6a98475a9c5a4a99740cccf8b89aa0459f709d71c2",
     ));
     asserts.push((
         LazyArtifact::from(
@@ -130,7 +130,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "4e3f2610ff359d0675591f85ad87494907f16bb7089a16443a79c0506dbfbd52",
+        "b09749fe2c801b5dae89cf6a98475a9c5a4a99740cccf8b89aa0459f709d71c2",
     ));
 
     asserts.push((
@@ -148,7 +148,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         .await
         .hash()
         .to_string(),
-        "9aa768d5c3ccf65c5cf7fdb7494d029106790189bc0422319368651c88434b6e",
+        "3416a6ebc40bdf233c4747db9af2d227e7a368948e23dabca8f54de072f567ce",
     ));
     asserts.push((
         LazyArtifact::from(
@@ -170,7 +170,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "9aa768d5c3ccf65c5cf7fdb7494d029106790189bc0422319368651c88434b6e",
+        "3416a6ebc40bdf233c4747db9af2d227e7a368948e23dabca8f54de072f567ce",
     ));
 
     asserts.push((
