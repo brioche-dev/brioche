@@ -14,5 +14,5 @@ serde = { version = "1.0.193", features = ["derive"] }
 serde_with = { version = "3.4.0" }
 serde_json = { version = "1.0.108" }
 thiserror = "1.0.51"
+tick-encoding = "0.1.2"
 ulid = "1.1.0"
-urlencoding = "2.1.3"

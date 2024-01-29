@@ -821,8 +821,8 @@ dependencies = [
  "serde_json",
  "serde_with",
  "thiserror",
+ "tick-encoding",
  "ulid",
- "urlencoding",
 ]
 
 [[package]]
