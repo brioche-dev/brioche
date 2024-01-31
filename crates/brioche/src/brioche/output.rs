@@ -4,7 +4,7 @@ use anyhow::Context as _;
 use bstr::ByteSlice;
 
 use super::{
-    artifact::{CompleteArtifact, File},
+    artifact::{CompleteArtifact, Directory, File},
     Brioche,
 };
 
@@ -64,7 +64,33 @@ async fn create_output_inner<'a: 'async_recursion>(
             executable,
             resources,
         }) => {
-            if !resources.is_empty() {
+            if resources.is_empty() {
+                let blob_path = super::blob::blob_path(brioche, *content_blob);
+
+                if options.link_locals && !*executable {
+                    crate::fs_utils::try_remove(options.output_path).await?;
+                    tokio::fs::hard_link(&blob_path, options.output_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to create hardlink from {} to {}",
+                                blob_path.display(),
+                                options.output_path.display()
+                            )
+                        })?;
+                } else {
+                    tokio::fs::copy(&blob_path, options.output_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to copy blob from {} to {}",
+                                blob_path.display(),
+                                options.output_path.display()
+                            )
+                        })?;
+                    set_file_permissions(options.output_path, *executable).await?;
+                }
+            } else {
                 let Some(resources_dir) = options.resources_dir else {
                     anyhow::bail!("cannot output file outside of a directory, file has references");
                 };
@@ -81,19 +107,42 @@ async fn create_output_inner<'a: 'async_recursion>(
                     link_lock,
                 )
                 .await?;
-            }
 
-            let blob_path = super::blob::blob_path(brioche, *content_blob);
-            tokio::fs::copy(&blob_path, options.output_path)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to copy blob from {} to {}",
-                        blob_path.display(),
-                        options.output_path.display()
+                let artifact_without_resources = CompleteArtifact::File(File {
+                    content_blob: *content_blob,
+                    executable: *executable,
+                    resources: Directory::default(),
+                });
+
+                if let Some(link_lock) = link_lock {
+                    let local_path =
+                        create_local_output_inner(brioche, &artifact_without_resources, link_lock)
+                            .await?;
+                    crate::fs_utils::try_remove(options.output_path).await?;
+                    tokio::fs::hard_link(&local_path.path, options.output_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to create hardlink from {} to {}",
+                                local_path.path.display(),
+                                options.output_path.display()
+                            )
+                        })?;
+                } else {
+                    create_output_inner(
+                        brioche,
+                        &artifact_without_resources,
+                        OutputOptions {
+                            output_path: options.output_path,
+                            resources_dir: None,
+                            merge: options.merge,
+                            link_locals: options.link_locals,
+                        },
+                        link_lock,
                     )
-                })?;
-            set_file_permissions(options.output_path, *executable).await?;
+                    .await?;
+                }
+            }
         }
         CompleteArtifact::Symlink { target } => {
             let target = target.to_path()?;

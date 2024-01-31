@@ -722,12 +722,20 @@ async fn test_output_top_level_file_with_parallel_resources() -> anyhow::Result<
 async fn test_output_with_links() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
-    let hello = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false);
-    let hello_exe = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, true);
+    let hello_blob = brioche_test::blob(&brioche, b"hello").await;
+    let hello_blob_path = brioche::brioche::blob::blob_path(&brioche, hello_blob);
+
+    let hello = brioche_test::file(hello_blob, false);
+    let hello_exe = brioche_test::file(hello_blob, true);
 
     let hello_with_resource = brioche_test::file_with_resources(
-        brioche_test::blob(&brioche, b"hello").await,
+        hello_blob,
         false,
+        brioche_test::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
+    );
+    let hello_exe_with_resource = brioche_test::file_with_resources(
+        hello_blob,
+        true,
         brioche_test::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
     );
 
@@ -740,6 +748,12 @@ async fn test_output_with_links() -> anyhow::Result<()> {
             ("hello_res2.txt", hello_with_resource.clone()),
             ("hello_exe", hello_exe.clone()),
             ("hello_exe2", hello_exe.clone()),
+            ("hello_exe_res", hello_exe_with_resource.clone()),
+            ("hello_exe_res2", hello_exe_with_resource.clone()),
+            (
+                "hi.txt",
+                brioche_test::file(brioche_test::blob(&brioche, b"hi").await, false),
+            ),
         ],
     )
     .await;
@@ -767,6 +781,62 @@ async fn test_output_with_links() -> anyhow::Result<()> {
     assert_linked(context.path("output/hello_exe"), &hello_exe_local.path);
     assert_linked(context.path("output/hello_exe2"), &hello_exe_local.path);
 
+    assert_linked(context.path("output/hello_exe_res"), &hello_exe_local.path);
+    assert_linked(context.path("output/hello_exe_res2"), &hello_exe_local.path);
+
+    assert_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello2.txt"),
+    );
+    assert_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_res.txt"),
+    );
+    assert_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_res2.txt"),
+    );
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_exe"),
+    );
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_exe2"),
+    );
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_exe_res"),
+    );
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_exe_res2"),
+    );
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hi.txt"),
+    );
+
+    assert_linked(
+        context.path("output/hello_exe"),
+        context.path("output/hello_exe2"),
+    );
+    assert_linked(
+        context.path("output/hello_exe"),
+        context.path("output/hello_exe_res"),
+    );
+    assert_linked(
+        context.path("output/hello_exe"),
+        context.path("output/hello_exe_res2"),
+    );
+    assert_not_linked(
+        context.path("output/hello_exe"),
+        context.path("output/hi.txt"),
+    );
+
+    assert_linked(context.path("output/hello.txt"), &hello_blob_path);
+    assert_not_linked(context.path("output/hello_exe"), &hello_blob_path);
+
     Ok(())
 }
 
@@ -780,7 +850,18 @@ cfg_if::cfg_if! {
             let a_metadata = std::fs::metadata(a).expect("failed to get metadata");
             let b_metadata = std::fs::metadata(b).expect("failed to get metadata");
 
-            assert!(a_metadata.ino() == b_metadata.ino(), "expected {} to be linked to {}", a.display(), b.display());
+            assert_eq!(a_metadata.ino(), b_metadata.ino(), "expected {} to be linked to {}", a.display(), b.display());
+        }
+
+        fn assert_not_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
+            use std::os::unix::fs::MetadataExt;
+            let a = a.as_ref();
+            let b = b.as_ref();
+
+            let a_metadata = std::fs::metadata(a).expect("failed to get metadata");
+            let b_metadata = std::fs::metadata(b).expect("failed to get metadata");
+
+            assert_ne!(a_metadata.ino(), b_metadata.ino(), "expected {} not to be linked to {}", a.display(), b.display());
         }
     }
 }
