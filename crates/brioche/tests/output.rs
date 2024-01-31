@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt, path::Path};
 
 use assert_matches::assert_matches;
-use brioche::brioche::{artifact::CompleteArtifact, Brioche};
+use brioche::brioche::{artifact::CompleteArtifact, output::create_local_output, Brioche};
 use pretty_assertions::assert_eq;
 
 mod brioche_test;
@@ -25,6 +25,7 @@ async fn create_output(
             output_path,
             merge,
             resources_dir: None,
+            link_locals: false,
         },
     )
     .await
@@ -44,6 +45,26 @@ async fn create_output_with_resources(
             output_path,
             merge,
             resources_dir: Some(resources_dir),
+            link_locals: false,
+        },
+    )
+    .await
+}
+
+async fn create_output_with_links(
+    brioche: &Brioche,
+    output_path: &Path,
+    artifact: &CompleteArtifact,
+    merge: bool,
+) -> anyhow::Result<()> {
+    brioche::brioche::output::create_output(
+        brioche,
+        artifact,
+        brioche::brioche::output::OutputOptions {
+            output_path,
+            merge,
+            resources_dir: None,
+            link_locals: true,
         },
     )
     .await
@@ -695,4 +716,71 @@ async fn test_output_top_level_file_with_parallel_resources() -> anyhow::Result<
     );
 
     Ok(())
+}
+
+#[tokio::test]
+async fn test_output_with_links() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let hello = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false);
+    let hello_exe = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, true);
+
+    let hello_with_resource = brioche_test::file_with_resources(
+        brioche_test::blob(&brioche, b"hello").await,
+        false,
+        brioche_test::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
+    );
+
+    let artifact = brioche_test::dir(
+        &brioche,
+        [
+            ("hello.txt", hello.clone()),
+            ("hello2.txt", hello.clone()),
+            ("hello_res.txt", hello_with_resource.clone()),
+            ("hello_res2.txt", hello_with_resource.clone()),
+            ("hello_exe", hello_exe.clone()),
+            ("hello_exe2", hello_exe.clone()),
+        ],
+    )
+    .await;
+
+    create_output_with_links(&brioche, &context.path("output"), &artifact, false).await?;
+
+    let hello_local = create_local_output(&brioche, &hello).await?;
+    let hello_exe_local = create_local_output(&brioche, &hello_exe).await?;
+    let hello_with_resource_local = create_local_output(&brioche, &hello_with_resource).await?;
+
+    assert!(context.path("output").is_dir());
+
+    assert_linked(context.path("output/hello.txt"), &hello_local.path);
+    assert_linked(context.path("output/hello2.txt"), &hello_local.path);
+
+    assert_linked(
+        context.path("output/hello_res.txt"),
+        &hello_with_resource_local.path,
+    );
+    assert_linked(
+        context.path("output/hello_res2.txt"),
+        &hello_with_resource_local.path,
+    );
+
+    assert_linked(context.path("output/hello_exe"), &hello_exe_local.path);
+    assert_linked(context.path("output/hello_exe2"), &hello_exe_local.path);
+
+    Ok(())
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(unix)] {
+        fn assert_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
+            use std::os::unix::fs::MetadataExt;
+            let a = a.as_ref();
+            let b = b.as_ref();
+
+            let a_metadata = std::fs::metadata(a).expect("failed to get metadata");
+            let b_metadata = std::fs::metadata(b).expect("failed to get metadata");
+
+            assert!(a_metadata.ino() == b_metadata.ino(), "expected {} to be linked to {}", a.display(), b.display());
+        }
+    }
 }

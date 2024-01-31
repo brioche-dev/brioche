@@ -166,6 +166,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                     output_path: output,
                     merge: false,
                     resources_dir: None,
+                    link_locals: false,
                 },
             )
             .await?;

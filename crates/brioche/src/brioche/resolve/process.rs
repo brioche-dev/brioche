@@ -179,6 +179,7 @@ pub async fn resolve_process(
             output_path: &host_work_dir,
             merge: true,
             resources_dir: Some(&host_pack_dir),
+            link_locals: true,
         },
     )
     .await?;
@@ -560,6 +561,7 @@ async fn set_up_rootfs(
         output_path: rootfs_dir,
         merge: true,
         resources_dir: None,
+        link_locals: true,
     };
 
     let dash = LazyArtifact::Unpack(UnpackArtifact {
