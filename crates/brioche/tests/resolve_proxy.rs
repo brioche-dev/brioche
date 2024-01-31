@@ -19,7 +19,7 @@ async fn test_resolve_proxy() -> anyhow::Result<()> {
         ],
     };
 
-    let merge_proxy = create_proxy(&brioche, merge.clone()).await;
+    let merge_proxy = create_proxy(&brioche, merge.clone()).await?;
 
     // The hash of the proxy artifact should be different from the hash of the
     // lazy artifact it wraps

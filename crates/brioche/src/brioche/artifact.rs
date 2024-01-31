@@ -92,7 +92,7 @@ pub enum LazyArtifact {
     },
     #[serde(rename_all = "camelCase")]
     Proxy {
-        hash: ArtifactHash,
+        blob: BlobId,
     },
 }
 
