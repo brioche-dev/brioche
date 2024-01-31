@@ -68,7 +68,7 @@ pub async fn resolve_unpack(
                     CompleteArtifact::File(File {
                         content_blob: entry_blob_id,
                         executable,
-                        resources: Directory::default(),
+                        resources: Box::new(CompleteArtifact::Directory(Directory::default())),
                     })
                 }
                 tokio_tar::EntryType::Symlink => {

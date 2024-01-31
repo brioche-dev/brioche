@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    io::Write as _,
     sync::{Arc, OnceLock, RwLock},
 };
 
@@ -137,7 +136,7 @@ pub struct Meta {
     pub source: Option<Vec<StackFrame>>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WithMeta<T> {
     #[serde(flatten)]
     pub value: T,
@@ -159,21 +158,6 @@ impl<T> WithMeta<T> {
 
     pub fn source_frame(&self) -> Option<&StackFrame> {
         self.meta.source.as_ref().and_then(|frames| frames.first())
-    }
-}
-
-// TODO: This manual impl is a workaround because bincode doesn't support
-// `#[serde(flatten)]`. We should either use the bincode derive macros
-// or see if we can elimiinate this manual impl some other way.
-impl<T> serde::Serialize for WithMeta<T>
-where
-    T: serde::Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.value.serialize(serializer)
     }
 }
 
@@ -336,7 +320,7 @@ impl CompleteArtifact {
 pub struct File {
     pub content_blob: BlobId,
     pub executable: bool,
-    pub resources: Directory,
+    pub resources: Box<CompleteArtifact>,
 }
 
 #[serde_with::serde_as]
@@ -587,7 +571,7 @@ impl TryFrom<LazyArtifact> for CompleteArtifact {
                 Ok(CompleteArtifact::File(File {
                     content_blob: data,
                     executable,
-                    resources,
+                    resources: Box::new(CompleteArtifact::Directory(resources)),
                 }))
             }
             LazyArtifact::Symlink { target } => Ok(CompleteArtifact::Symlink { target }),
@@ -622,7 +606,7 @@ impl From<CompleteArtifact> for LazyArtifact {
             }) => Self::File {
                 content_blob: data,
                 executable,
-                resources: Box::new(WithMeta::without_meta(LazyArtifact::Directory(resources))),
+                resources: Box::new(WithMeta::without_meta(LazyArtifact::from(*resources))),
             },
             CompleteArtifact::Symlink { target } => Self::Symlink { target },
             CompleteArtifact::Directory(directory) => Self::Directory(directory),
@@ -663,20 +647,16 @@ pub enum DirectoryError {
 pub struct ArtifactHash(blake3::Hash);
 
 impl ArtifactHash {
-    /// A common prefix used when hasing an artifact. When incompatible changes
-    /// are made to the artifact schema, this prefix will be changed to ensure
-    /// that we don't accidentally match a former artifact hash that has the
-    /// same binary representation.
-    const VERSION_PREFIX: &'static [u8] = b"v0.0.1          ";
-
     fn from_serializable<V>(value: &V) -> anyhow::Result<Self>
     where
         V: serde::Serialize,
     {
         let mut hasher = blake3::Hasher::new();
-        hasher.write_all(Self::VERSION_PREFIX)?;
 
-        let mut serializer = bincode::Serializer::new(&mut hasher, bincode::options());
+        let mut serializer = serde_json::Serializer::with_formatter(
+            &mut hasher,
+            olpc_cjson::CanonicalFormatter::new(),
+        );
         value.serialize(&mut serializer)?;
 
         let hash = hasher.finalize();
