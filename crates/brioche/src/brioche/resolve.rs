@@ -200,7 +200,7 @@ async fn resolve_inner(
             Ok(CompleteArtifact::File(File {
                 content_blob,
                 executable,
-                resources: Box::new(CompleteArtifact::Directory(resources)),
+                resources,
             }))
         }
         LazyArtifact::Directory(directory) => Ok(CompleteArtifact::Directory(directory)),
@@ -246,7 +246,7 @@ async fn resolve_inner(
             Ok(CompleteArtifact::File(File {
                 content_blob: blob_id,
                 executable,
-                resources: Box::new(CompleteArtifact::Directory(resources)),
+                resources,
             }))
         }
         LazyArtifact::CreateDirectory(CreateDirectory { entries }) => {

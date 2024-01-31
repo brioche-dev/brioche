@@ -28,10 +28,6 @@ pub async fn create_output<'a: 'async_recursion>(
             executable,
             resources,
         }) => {
-            let CompleteArtifact::Directory(resources) = &**resources else {
-                anyhow::bail!("expected file resources to be a directory");
-            };
-
             if !resources.is_empty() {
                 let Some(resources_dir) = options.resources_dir else {
                     anyhow::bail!("cannot output file outside of a directory, file has references");

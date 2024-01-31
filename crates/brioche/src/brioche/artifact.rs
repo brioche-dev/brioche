@@ -319,8 +319,11 @@ impl CompleteArtifact {
 #[serde(rename_all = "camelCase")]
 pub struct File {
     pub content_blob: BlobId,
+
     pub executable: bool,
-    pub resources: Box<CompleteArtifact>,
+
+    #[serde_as(as = "serde_with::TryFromInto<LazyArtifact>")]
+    pub resources: Directory,
 }
 
 #[serde_with::serde_as]
@@ -571,7 +574,7 @@ impl TryFrom<LazyArtifact> for CompleteArtifact {
                 Ok(CompleteArtifact::File(File {
                     content_blob: data,
                     executable,
-                    resources: Box::new(CompleteArtifact::Directory(resources)),
+                    resources,
                 }))
             }
             LazyArtifact::Symlink { target } => Ok(CompleteArtifact::Symlink { target }),
@@ -606,7 +609,7 @@ impl From<CompleteArtifact> for LazyArtifact {
             }) => Self::File {
                 content_blob: data,
                 executable,
-                resources: Box::new(WithMeta::without_meta(LazyArtifact::from(*resources))),
+                resources: Box::new(WithMeta::without_meta(LazyArtifact::Directory(resources))),
             },
             CompleteArtifact::Symlink { target } => Self::Symlink { target },
             CompleteArtifact::Directory(directory) => Self::Directory(directory),
@@ -617,6 +620,19 @@ impl From<CompleteArtifact> for LazyArtifact {
 impl From<Directory> for LazyArtifact {
     fn from(value: Directory) -> Self {
         Self::Directory(value)
+    }
+}
+
+impl TryFrom<LazyArtifact> for Directory {
+    type Error = anyhow::Error;
+
+    fn try_from(value: LazyArtifact) -> Result<Self, Self::Error> {
+        match value {
+            LazyArtifact::Directory(directory) => Ok(directory),
+            _ => {
+                anyhow::bail!("expected directory artifact");
+            }
+        }
     }
 }
 

@@ -807,8 +807,8 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
     };
 
     assert_eq!(
-        **resources,
-        brioche_test::dir(
+        *resources,
+        brioche_test::dir_value(
             &brioche,
             [
                 (

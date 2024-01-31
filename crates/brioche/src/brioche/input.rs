@@ -156,7 +156,7 @@ pub async fn create_input(
             CompleteArtifact::File(File {
                 content_blob: blob_id,
                 executable,
-                resources: Box::new(CompleteArtifact::Directory(resources)),
+                resources,
             }),
             options.meta.clone(),
         ))
