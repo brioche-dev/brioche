@@ -12,6 +12,7 @@ use super::{
         ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, CreateDirectory, Directory,
         DirectoryListing, File, LazyArtifact, Meta, WithMeta,
     },
+    blob::BlobId,
     Brioche,
 };
 
@@ -21,7 +22,7 @@ mod unpack;
 
 #[derive(Debug, Default)]
 pub struct Proxies {
-    artifacts_by_hash: HashMap<ArtifactHash, LazyArtifact>,
+    artifacts_by_hash: HashMap<ArtifactHash, (LazyArtifact, BlobId)>,
 }
 
 #[derive(Debug, Default)]
@@ -382,14 +383,16 @@ pub async fn create_proxy(
         return Ok(artifact);
     }
 
-    let artifact_json = json_canon::to_string(&artifact).context("failed to serialize artifact")?;
-
     let artifact_hash = artifact.hash();
-    let mut proxies = brioche.proxies.write().await;
-    proxies
-        .artifacts_by_hash
-        .entry(artifact_hash)
-        .or_insert(artifact);
+
+    {
+        let proxies = brioche.proxies.read().await;
+        if let Some((_, blob)) = proxies.artifacts_by_hash.get(&artifact_hash) {
+            return Ok(LazyArtifact::Proxy { blob: *blob });
+        }
+    }
+
+    let artifact_json = json_canon::to_string(&artifact).context("failed to serialize artifact")?;
 
     let blob = super::blob::save_blob(
         brioche,
@@ -397,6 +400,11 @@ pub async fn create_proxy(
         super::blob::SaveBlobOptions::default(),
     )
     .await?;
+
+    let mut proxies = brioche.proxies.write().await;
+    proxies
+        .artifacts_by_hash
+        .insert(artifact_hash, (artifact.clone(), blob));
 
     Ok(LazyArtifact::Proxy { blob })
 }
