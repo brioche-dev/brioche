@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use encoding::UrlEncoded;
+use encoding::TickEncoded;
 
 pub mod autowrap;
 mod encoding;
@@ -17,7 +17,7 @@ type LengthInt = u32;
 #[derive(Debug, bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pack {
-    #[serde_as(as = "UrlEncoded")]
+    #[serde_as(as = "TickEncoded")]
     pub program: Vec<u8>,
     pub interpreter: Option<Interpreter>,
 }
@@ -55,9 +55,9 @@ impl Pack {
 pub enum Interpreter {
     #[serde(rename_all = "camelCase")]
     LdLinux {
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         path: Vec<u8>,
-        #[serde_as(as = "Vec<UrlEncoded>")]
+        #[serde_as(as = "Vec<TickEncoded>")]
         library_paths: Vec<Vec<u8>>,
     },
 }

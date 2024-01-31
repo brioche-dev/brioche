@@ -2,9 +2,9 @@ use std::{borrow::Cow, path::PathBuf};
 
 use bstr::{ByteSlice, ByteVec as _};
 
-pub enum UrlEncoded {}
+pub enum TickEncoded {}
 
-impl<T> serde_with::SerializeAs<T> for UrlEncoded
+impl<T> serde_with::SerializeAs<T> for TickEncoded
 where
     T: AsRef<[u8]>,
 {
@@ -12,12 +12,12 @@ where
     where
         S: serde::Serializer,
     {
-        let encoded = urlencoding::encode_binary(source.as_ref());
+        let encoded = tick_encoding::encode(source.as_ref());
         serializer.serialize_str(encoded.as_ref())
     }
 }
 
-impl<'de, T> serde_with::DeserializeAs<'de, T> for UrlEncoded
+impl<'de, T> serde_with::DeserializeAs<'de, T> for TickEncoded
 where
     T: TryFrom<Vec<u8>>,
     T::Error: std::fmt::Display,
@@ -27,7 +27,8 @@ where
         D: serde::Deserializer<'de>,
     {
         let encoded: Cow<'de, str> = serde::de::Deserialize::deserialize(deserializer)?;
-        let decoded = urlencoding::decode_binary(encoded.as_bytes());
+        let decoded =
+            tick_encoding::decode(encoded.as_bytes()).map_err(serde::de::Error::custom)?;
         let deserialized = T::try_from(decoded.into_owned()).map_err(serde::de::Error::custom)?;
         Ok(deserialized)
     }

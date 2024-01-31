@@ -213,11 +213,11 @@ async fn test_artifact_hash_stable_symlink() -> anyhow::Result<()> {
 
     asserts.push((
         brioche_test::lazy_symlink(b"/foo").hash().to_string(),
-        "9d1f6c07805817d5e6608bae751fe65e7e9c0f90435140c33934de8250fe4be1",
+        "c8c223c202dff16e2c257dd1f5e764c2ab919bb6ae4e019e1c6eee1aa66a6393",
     ));
     asserts.push((
         brioche_test::symlink(b"/foo").hash().to_string(),
-        "9d1f6c07805817d5e6608bae751fe65e7e9c0f90435140c33934de8250fe4be1",
+        "c8c223c202dff16e2c257dd1f5e764c2ab919bb6ae4e019e1c6eee1aa66a6393",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -295,7 +295,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "024e1e606bdbbfafbc6be05b0e60186a023500ca446a534a2637ef48a11563c8",
+        "66900de43c1d7425a3613aed799e3728bc87e004843c019e56f619c52ef903cd",
     ));
 
     asserts.push((
@@ -314,7 +314,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "357d2e036720b2fd5b872f5d3b746d49a40e6a293a18ce05f56fa50986049a53",
+        "636ada2393c79fb91afb11b3a536daa6bd6f92e66be3ebe2e521efe7644da4c1",
     ));
 
     asserts.push((
@@ -340,7 +340,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "323435cce7936a9bb68834908a2e37c80e5e1bd8223100103081d1f4d6808544",
+        "bd926c17a17897022fdae3d6e899eeb770b0994caf34366c0b6ed0acc8e2648f",
     ));
 
     asserts.push((
@@ -371,7 +371,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
         })
         .hash()
         .to_string(),
-        "256263f7acbeb184b90eed36a27784d171816944315948399b62837a44d1ca0c",
+        "2fa878536d82f6be721ae00b8b404f3aef20b67d301fa9535ad867ca4ea4bf0c",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();

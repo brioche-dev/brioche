@@ -52,6 +52,7 @@ strum = { version = "0.25.0", features = ["derive"] }
 superconsole = "0.2.0"
 termwiz = "0.20.0"
 thiserror = "1.0.51"
+tick-encoding = "0.1.2"
 tokio = { version = "1.35.0", features = ["full", "tracing"] }
 tokio-tar = "0.3.1"
 tokio-util = { version = "0.7.10", features = ["compat", "full"] }
@@ -63,7 +64,6 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json", "tr
 ulid = "1.1.0"
 unshare = { git = "https://github.com/brioche-dev/unshare.git" }
 url = { version = "2.5.0", features = ["serde"] }
-urlencoding = "2.1.3"
 
 [dev-dependencies]
 assert_matches = "1.5.0"

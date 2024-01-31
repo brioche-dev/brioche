@@ -2,19 +2,19 @@ use std::{collections::HashMap, ffi::OsString, path::PathBuf};
 
 use bstr::ByteSlice as _;
 
-use crate::encoding::{AsPath, UrlEncoded};
+use crate::encoding::{AsPath, TickEncoded};
 
 #[serde_with::serde_as]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxExecutionConfig {
-    #[serde_as(as = "AsPath<UrlEncoded>")]
+    #[serde_as(as = "AsPath<TickEncoded>")]
     pub sandbox_root: PathBuf,
-    #[serde_as(as = "HashMap<AsPath<UrlEncoded>, _>")]
+    #[serde_as(as = "HashMap<AsPath<TickEncoded>, _>")]
     pub include_host_paths: HashMap<PathBuf, SandboxPathOptions>,
     pub command: SandboxTemplate,
     pub args: Vec<SandboxTemplate>,
-    #[serde_as(as = "HashMap<UrlEncoded, _>")]
+    #[serde_as(as = "HashMap<TickEncoded, _>")]
     pub env: HashMap<bstr::BString, SandboxTemplate>,
     pub current_dir: SandboxPath,
     pub uid_hint: u32,
@@ -25,7 +25,7 @@ pub struct SandboxExecutionConfig {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxPath {
-    #[serde_as(as = "AsPath<UrlEncoded>")]
+    #[serde_as(as = "AsPath<TickEncoded>")]
     pub host_path: PathBuf,
     #[serde(flatten)]
     pub options: SandboxPathOptions,
@@ -36,7 +36,7 @@ pub struct SandboxPath {
 #[serde(rename_all = "camelCase")]
 pub struct SandboxPathOptions {
     pub mode: HostPathMode,
-    #[serde_as(as = "UrlEncoded")]
+    #[serde_as(as = "TickEncoded")]
     pub guest_path_hint: bstr::BString,
 }
 
@@ -52,7 +52,7 @@ pub struct SandboxTemplate {
 #[serde(rename_all = "camelCase")]
 pub enum SandboxTemplateComponent {
     Literal {
-        #[serde_as(as = "UrlEncoded")]
+        #[serde_as(as = "TickEncoded")]
         value: bstr::BString,
     },
     Path(SandboxPath),
