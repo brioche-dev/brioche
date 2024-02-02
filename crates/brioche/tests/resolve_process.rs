@@ -143,6 +143,7 @@ async fn test_resolve_process() -> anyhow::Result<()> {
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -164,10 +165,71 @@ async fn test_resolve_process_fail_on_no_output() -> anyhow::Result<()> {
         args: vec![tpl("sh"), tpl("-c"), tpl("# ... doing nothing ...")],
         env: BTreeMap::new(),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
     assert_matches!(resolve_without_meta(&brioche, process).await, Err(_));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_resolve_process_scaffold_output() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let hello_blob = brioche_test::blob(&brioche, "hello").await;
+
+    let process = LazyArtifact::Process(ProcessArtifact {
+        command: tpl("/usr/bin/env"),
+        args: vec![tpl("sh"), tpl("-c"), tpl("# ... doing nothing ...")],
+        env: BTreeMap::new(),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: Some(Box::new(WithMeta::without_meta(brioche_test::lazy_file(
+            hello_blob, false,
+        )))),
+        platform: current_platform(),
+    });
+
+    assert_eq!(
+        resolve_without_meta(&brioche, process).await?,
+        brioche_test::file(hello_blob, false)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_resolve_process_scaffold_and_modify_output() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let hello_blob = brioche_test::blob(&brioche, "hello").await;
+
+    let process = LazyArtifact::Process(ProcessArtifact {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"echo -n hello > "$BRIOCHE_OUTPUT/hi.txt""#),
+        ],
+        env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: Some(Box::new(WithMeta::without_meta(
+            brioche_test::lazy_dir_empty(),
+        ))),
+        platform: current_platform(),
+    });
+
+    assert_eq!(
+        resolve_without_meta(&brioche, process).await?,
+        brioche_test::dir(
+            &brioche,
+            [("hi.txt", brioche_test::file(hello_blob, false)),]
+        )
+        .await
+    );
 
     Ok(())
 }
@@ -186,6 +248,7 @@ async fn test_resolve_process_fail_on_non_zero_exit() -> anyhow::Result<()> {
         ],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -204,6 +267,7 @@ async fn test_resolve_process_command_no_path() -> anyhow::Result<()> {
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -228,6 +292,7 @@ async fn test_resolve_process_command_path() -> anyhow::Result<()> {
             ("PATH".into(), tpl("/usr/bin")),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -252,6 +317,7 @@ async fn test_resolve_process_with_utils() -> anyhow::Result<()> {
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -313,6 +379,7 @@ async fn test_resolve_process_cached() -> anyhow::Result<()> {
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -345,6 +412,7 @@ async fn test_resolve_process_cached_equivalent_inputs() -> anyhow::Result<()> {
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -368,6 +436,7 @@ async fn test_resolve_process_cached_equivalent_inputs() -> anyhow::Result<()> {
             ("input".into(), template_input(empty_dir_1)),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -387,6 +456,7 @@ async fn test_resolve_process_cached_equivalent_inputs() -> anyhow::Result<()> {
             ("input".into(), template_input(empty_dir_2)),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -418,6 +488,7 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -441,6 +512,7 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
             ("input".into(), template_input(empty_dir_1)),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -460,6 +532,7 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
             ("input".into(), template_input(empty_dir_2)),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
@@ -531,6 +604,7 @@ async fn test_resolve_process_cache_busted() -> anyhow::Result<()> {
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     };
     let mut process_random_2 = process_random_1.clone();
@@ -588,6 +662,7 @@ async fn test_resolve_process_custom_env_vars() -> anyhow::Result<()> {
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     };
 
@@ -625,6 +700,7 @@ async fn test_resolve_process_no_default_env_vars() -> anyhow::Result<()> {
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     };
 
@@ -663,6 +739,7 @@ async fn test_resolve_process_starts_with_work_dir_contents() -> anyhow::Result<
             "file.txt",
             brioche_test::lazy_file(hello_blob, false),
         )]))),
+        output_scaffold: None,
         platform: current_platform(),
     };
 
@@ -696,6 +773,7 @@ async fn test_resolve_process_has_resource_dir() -> anyhow::Result<()> {
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     };
 
@@ -770,6 +848,7 @@ async fn test_resolve_process_contains_all_resources() -> anyhow::Result<()> {
             ("buzz".into(), template_input(buzz.into())),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     };
 
@@ -826,6 +905,7 @@ async fn test_resolve_process_output_with_resources() -> anyhow::Result<()> {
             ("dummy_packed".into(), template_input(dummy_packed.into())),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     };
 
