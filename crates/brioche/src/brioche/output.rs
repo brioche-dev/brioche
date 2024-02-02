@@ -88,7 +88,21 @@ async fn create_output_inner<'a: 'async_recursion>(
                                 options.output_path.display()
                             )
                         })?;
-                    set_file_permissions(options.output_path, *executable).await?;
+
+                    // Set the file permissions. We set the file to be
+                    // read-only if `link_locals` is enabled even if the
+                    // file wasn't created as a hardlink. That way, the
+                    // permissions are the same whether or not we used
+                    // a hardlink.
+                    set_file_permissions(
+                        options.output_path,
+                        SetFilePermissions {
+                            executable: *executable,
+                            readonly: options.link_locals,
+                        },
+                    )
+                    .await
+                    .context("failed to set output file permissions")?;
                 }
             } else {
                 let Some(resources_dir) = options.resources_dir else {
@@ -239,7 +253,11 @@ async fn create_output_inner<'a: 'async_recursion>(
                 }
             }
 
-            set_directory_permissions(options.output_path).await?;
+            set_directory_permissions(
+                options.output_path,
+                SetDirectoryPermissions { readonly: false },
+            )
+            .await?;
         }
     }
 
@@ -272,7 +290,7 @@ async fn create_local_output_inner(
     let local_path = local_dir.join(artifact_hash.to_string());
     let local_resources_dir = local_dir.join(format!("{artifact_hash}-pack.d"));
 
-    if !tokio::fs::try_exists(&local_path).await? {
+    if !try_exists_and_ensure_readonly(&local_path).await? {
         let local_temp_dir = brioche.home.join("locals-temp");
         tokio::fs::create_dir_all(&local_temp_dir).await?;
         let temp_id = ulid::Ulid::new();
@@ -296,14 +314,41 @@ async fn create_local_output_inner(
             .await
             .context("failed to finish saving local output")?;
 
+        match artifact {
+            CompleteArtifact::File(file) => {
+                set_file_permissions(
+                    &local_path,
+                    SetFilePermissions {
+                        executable: file.executable,
+                        readonly: true,
+                    },
+                )
+                .await
+                .context("failed to set permissions for local file")?;
+            }
+            CompleteArtifact::Directory(_) => {
+                set_directory_permissions(&local_path, SetDirectoryPermissions { readonly: true })
+                    .await
+                    .context("failed to set permissions for local output directory")?
+            }
+            CompleteArtifact::Symlink { .. } => {}
+        }
+
         if tokio::fs::try_exists(&local_temp_resources_dir).await? {
             tokio::fs::rename(&local_temp_resources_dir, &local_resources_dir)
                 .await
                 .context("failed to finish saving local output resources")?;
+
+            set_directory_permissions(
+                &local_resources_dir,
+                SetDirectoryPermissions { readonly: true },
+            )
+            .await
+            .context("failed to set permissions for local output resources")?;
         }
     }
 
-    let resources_dir = if tokio::fs::try_exists(&local_resources_dir).await? {
+    let resources_dir = if try_exists_and_ensure_readonly(&local_resources_dir).await? {
         Some(local_resources_dir)
     } else {
         None
@@ -318,6 +363,29 @@ async fn create_local_output_inner(
 pub struct LocalOutput {
     pub path: PathBuf,
     pub resources_dir: Option<PathBuf>,
+}
+
+/// Check if a path exists and change it's permissions to read-only. Returns
+/// `true` if the path exists and is now read-only, `false` if the path does
+/// not exist, or `Err(_)` if an error occurred.
+async fn try_exists_and_ensure_readonly(path: &Path) -> anyhow::Result<bool> {
+    let metadata = tokio::fs::symlink_metadata(path).await;
+
+    let metadata = match metadata {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+
+    let mut permissions = metadata.permissions();
+    if !permissions.readonly() {
+        permissions.set_readonly(true);
+        tokio::fs::set_permissions(path, permissions)
+            .await
+            .with_context(|| format!("failed to mark path as read-only: {}", path.display()))?;
+    }
+
+    Ok(true)
 }
 
 fn bytes_to_path_component(bytes: &bstr::BStr) -> anyhow::Result<std::path::PathBuf> {
@@ -344,25 +412,40 @@ fn bytes_to_path_component(bytes: &bstr::BStr) -> anyhow::Result<std::path::Path
     Ok(path_buf)
 }
 
+struct SetFilePermissions {
+    executable: bool,
+    readonly: bool,
+}
+
+struct SetDirectoryPermissions {
+    readonly: bool,
+}
+
 cfg_if::cfg_if! {
     if #[cfg(unix)] {
-        async fn set_file_permissions(path: &Path, executable: bool) -> anyhow::Result<()> {
+        async fn set_file_permissions(path: &Path, permissions: SetFilePermissions) -> anyhow::Result<()> {
             use std::os::unix::fs::PermissionsExt as _;
 
-            let mode = if executable {
-                0o755
-            } else {
-                0o644
+            let mode = match permissions {
+                SetFilePermissions { executable: true, readonly: false } => 0o755,
+                SetFilePermissions { executable: false, readonly: false } => 0o644,
+                SetFilePermissions { executable: true, readonly: true } => 0o555,
+                SetFilePermissions { executable: false, readonly: true } => 0o444,
             };
             let permissions = std::fs::Permissions::from_mode(mode);
             tokio::fs::set_permissions(path, permissions).await?;
             Ok(())
         }
 
-        async fn set_directory_permissions(path: &Path) -> anyhow::Result<()> {
+        async fn set_directory_permissions(path: &Path, permissions: SetDirectoryPermissions) -> anyhow::Result<()> {
             use std::os::unix::fs::PermissionsExt as _;
 
-            let permissions = std::fs::Permissions::from_mode(0o755);
+            let mode = match permissions {
+                SetDirectoryPermissions { readonly: false } => 0o755,
+                SetDirectoryPermissions { readonly: true } => 0o555,
+            };
+
+            let permissions = std::fs::Permissions::from_mode(mode);
             tokio::fs::set_permissions(path, permissions).await?;
             Ok(())
         }

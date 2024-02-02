@@ -111,6 +111,16 @@ async fn test_output_executable_file() -> anyhow::Result<()> {
         .permissions();
     assert_eq!(permissions.mode() & 0o777, 0o755);
 
+    assert_mode(
+        context.path("output"),
+        Mode {
+            read: Some(true),
+            write: Some(true),
+            execute: Some(true),
+        },
+    )
+    .await;
+
     Ok(())
 }
 
@@ -766,102 +776,229 @@ async fn test_output_with_links() -> anyhow::Result<()> {
 
     assert!(context.path("output").is_dir());
 
-    assert_linked(context.path("output/hello.txt"), &hello_local.path);
-    assert_linked(context.path("output/hello2.txt"), &hello_local.path);
+    assert_linked(context.path("output/hello.txt"), &hello_local.path).await;
+    assert_linked(context.path("output/hello2.txt"), &hello_local.path).await;
 
     assert_linked(
         context.path("output/hello_res.txt"),
         &hello_with_resource_local.path,
-    );
+    )
+    .await;
     assert_linked(
         context.path("output/hello_res2.txt"),
         &hello_with_resource_local.path,
-    );
+    )
+    .await;
 
-    assert_linked(context.path("output/hello_exe"), &hello_exe_local.path);
-    assert_linked(context.path("output/hello_exe2"), &hello_exe_local.path);
+    assert_linked(context.path("output/hello_exe"), &hello_exe_local.path).await;
+    assert_linked(context.path("output/hello_exe2"), &hello_exe_local.path).await;
 
-    assert_linked(context.path("output/hello_exe_res"), &hello_exe_local.path);
-    assert_linked(context.path("output/hello_exe_res2"), &hello_exe_local.path);
+    assert_linked(context.path("output/hello_exe_res"), &hello_exe_local.path).await;
+    assert_linked(context.path("output/hello_exe_res2"), &hello_exe_local.path).await;
 
     assert_linked(
         context.path("output/hello.txt"),
         context.path("output/hello2.txt"),
-    );
+    )
+    .await;
     assert_linked(
         context.path("output/hello.txt"),
         context.path("output/hello_res.txt"),
-    );
+    )
+    .await;
     assert_linked(
         context.path("output/hello.txt"),
         context.path("output/hello_res2.txt"),
-    );
+    )
+    .await;
     assert_not_linked(
         context.path("output/hello.txt"),
         context.path("output/hello_exe"),
-    );
+    )
+    .await;
     assert_not_linked(
         context.path("output/hello.txt"),
         context.path("output/hello_exe2"),
-    );
+    )
+    .await;
     assert_not_linked(
         context.path("output/hello.txt"),
         context.path("output/hello_exe_res"),
-    );
+    )
+    .await;
     assert_not_linked(
         context.path("output/hello.txt"),
         context.path("output/hello_exe_res2"),
-    );
+    )
+    .await;
     assert_not_linked(
         context.path("output/hello.txt"),
         context.path("output/hi.txt"),
-    );
+    )
+    .await;
 
     assert_linked(
         context.path("output/hello_exe"),
         context.path("output/hello_exe2"),
-    );
+    )
+    .await;
     assert_linked(
         context.path("output/hello_exe"),
         context.path("output/hello_exe_res"),
-    );
+    )
+    .await;
     assert_linked(
         context.path("output/hello_exe"),
         context.path("output/hello_exe_res2"),
-    );
+    )
+    .await;
     assert_not_linked(
         context.path("output/hello_exe"),
         context.path("output/hi.txt"),
-    );
+    )
+    .await;
 
-    assert_linked(context.path("output/hello.txt"), &hello_blob_path);
-    assert_not_linked(context.path("output/hello_exe"), &hello_blob_path);
+    assert_linked(context.path("output/hello.txt"), &hello_blob_path).await;
+    assert_not_linked(context.path("output/hello_exe"), &hello_blob_path).await;
+
+    assert_mode(
+        context.path("output"),
+        Mode {
+            read: Some(true),
+            write: Some(true),
+            execute: Some(true),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello.txt"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(false),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello2.txt"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(false),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_res.txt"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(false),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_res2.txt"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(false),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_exe"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(true),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_exe2"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(true),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_exe_res"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(true),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_exe_res2"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(true),
+        },
+    )
+    .await;
 
     Ok(())
 }
 
+struct Mode {
+    read: Option<bool>,
+    write: Option<bool>,
+    execute: Option<bool>,
+}
+
 cfg_if::cfg_if! {
     if #[cfg(unix)] {
-        fn assert_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
-            use std::os::unix::fs::MetadataExt;
+        async fn assert_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
+            use std::os::unix::fs::MetadataExt as _;
             let a = a.as_ref();
             let b = b.as_ref();
 
-            let a_metadata = std::fs::metadata(a).expect("failed to get metadata");
-            let b_metadata = std::fs::metadata(b).expect("failed to get metadata");
+            let a_metadata = tokio::fs::metadata(a).await.expect("failed to get metadata");
+            let b_metadata = tokio::fs::metadata(b).await.expect("failed to get metadata");
 
             assert_eq!(a_metadata.ino(), b_metadata.ino(), "expected {} to be linked to {}", a.display(), b.display());
         }
 
-        fn assert_not_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
-            use std::os::unix::fs::MetadataExt;
+        async fn assert_not_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
+            use std::os::unix::fs::MetadataExt as _;
             let a = a.as_ref();
             let b = b.as_ref();
 
-            let a_metadata = std::fs::metadata(a).expect("failed to get metadata");
-            let b_metadata = std::fs::metadata(b).expect("failed to get metadata");
+            let a_metadata = tokio::fs::metadata(a).await.expect("failed to get metadata");
+            let b_metadata = tokio::fs::metadata(b).await.expect("failed to get metadata");
 
             assert_ne!(a_metadata.ino(), b_metadata.ino(), "expected {} not to be linked to {}", a.display(), b.display());
+        }
+
+        async fn assert_mode(path: impl AsRef<Path>, mode: Mode) {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let path = path.as_ref();
+
+            let metadata = tokio::fs::metadata(path).await.expect("failed to get metadata");
+            let permissions = metadata.permissions();
+
+            let unix_mode = permissions.mode();
+            if let Some(read_expected) = mode.read {
+                let read_actual = unix_mode & 0o400 == 0o400;
+                assert_eq!(read_expected, read_actual, "expected read permission for {} to be {read_expected}", path.display());
+            }
+
+            if let Some(write_expected) = mode.write {
+                let write_actual = unix_mode & 0o200 == 0o200;
+                assert_eq!(write_expected, write_actual, "expected write permission for {} to be {write_expected}", path.display());
+            }
+
+            if let Some(execute_expected) = mode.execute {
+                let execute_actual = unix_mode & 0o100 == 0o100;
+                assert_eq!(execute_expected, execute_actual, "expected execute permission for {} to be {execute_expected}", path.display());
+            }
         }
     }
 }
