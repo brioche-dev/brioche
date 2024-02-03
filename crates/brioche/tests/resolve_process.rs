@@ -261,6 +261,39 @@ async fn test_resolve_process_with_utils() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_resolve_process_with_readonly_contents() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let process = LazyArtifact::Process(ProcessArtifact {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                mkdir -p output/foo/bar &&
+                echo 'hello' > output/foo/bar/baz.txt &&
+                cp -r output "$BRIOCHE_OUTPUT" &&
+                chmod -R a-w output "$BRIOCHE_OUTPUT"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+        ]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        platform: current_platform(),
+    });
+
+    assert_matches!(resolve_without_meta(&brioche, process).await, Ok(_));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_resolve_process_cached() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;

@@ -639,6 +639,13 @@ impl ResolveDir {
 
     async fn remove(mut self) -> anyhow::Result<()> {
         let path = self.path.take().context("resolve dir not found")?;
+
+        // Ensure that directories are writable so we can recursively remove
+        // all files
+        crate::fs_utils::set_directory_rwx_recursive(&path)
+            .await
+            .context("failed to set permissions for temprorary resolve directory")?;
+
         tokio::fs::remove_dir_all(&path)
             .await
             .context("failed to remove temporary resolve directory")?;

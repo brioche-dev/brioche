@@ -3,6 +3,8 @@ use std::{path::Path, sync::Arc};
 use anyhow::Context as _;
 use bstr::{ByteSlice as _, ByteVec as _};
 
+use crate::fs_utils::{is_executable, set_directory_rwx_recursive};
+
 use super::{
     artifact::{CompleteArtifact, Directory, DirectoryListing, File, Meta, WithMeta},
     Brioche,
@@ -16,9 +18,26 @@ pub struct InputOptions<'a> {
     pub meta: &'a Arc<Meta>,
 }
 
-#[async_recursion::async_recursion]
 #[tracing::instrument(skip(brioche), err)]
 pub async fn create_input(
+    brioche: &Brioche,
+    options: InputOptions<'_>,
+) -> anyhow::Result<WithMeta<CompleteArtifact>> {
+    // Ensure directories that we will remove are writable and executable
+    if options.remove_input {
+        set_directory_rwx_recursive(options.input_path).await?;
+        if let Some(resources_dir) = options.resources_dir {
+            set_directory_rwx_recursive(resources_dir).await?;
+        }
+    }
+
+    let result = create_input_inner(brioche, options).await?;
+    Ok(result)
+}
+
+#[async_recursion::async_recursion]
+#[tracing::instrument(skip(brioche), err)]
+pub async fn create_input_inner(
     brioche: &Brioche,
     options: InputOptions<'async_recursion>,
 ) -> anyhow::Result<WithMeta<CompleteArtifact>> {
@@ -63,7 +82,7 @@ pub async fn create_input(
                     let resource_metadata = resource_metadata.as_ref();
 
                     if let Some(resource_metadata) = resource_metadata {
-                        let resource = create_input(
+                        let resource = create_input_inner(
                             brioche,
                             InputOptions {
                                 input_path: &resource_path,
@@ -150,7 +169,7 @@ pub async fn create_input(
         )
         .await?;
         let permissions = metadata.permissions();
-        let executable = is_executable(&permissions).await;
+        let executable = is_executable(&permissions);
 
         Ok(WithMeta::new(
             CompleteArtifact::File(File {
@@ -180,7 +199,7 @@ pub async fn create_input(
                 })?;
             let entry_name = bstr::BString::from(entry_name);
 
-            let result_entry = create_input(
+            let result_entry = create_input_inner(
                 brioche,
                 InputOptions {
                     input_path: &entry.path(),
@@ -239,15 +258,5 @@ pub async fn create_input(
             "unsupported input file type at {}",
             options.input_path.display()
         );
-    }
-}
-
-cfg_if::cfg_if! {
-    if #[cfg(unix)] {
-        async fn is_executable(permissions: &std::fs::Permissions) -> bool {
-            use std::os::unix::fs::PermissionsExt as _;
-
-            permissions.mode() & 0o100 != 0
-        }
     }
 }
