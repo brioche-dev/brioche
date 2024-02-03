@@ -88,6 +88,63 @@ pub async fn try_remove(path: &Path) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+#[async_recursion::async_recursion]
+pub async fn set_directory_rwx_recursive(path: &Path) -> anyhow::Result<()> {
+    let metadata = tokio::fs::symlink_metadata(path).await;
+    let metadata = match metadata {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!("failed to get metadata for directory {}", path.display())
+            });
+        }
+    };
+
+    if metadata.is_dir() {
+        let mut permissions = metadata.permissions();
+        if permissions.readonly() {
+            set_rwx(&mut permissions);
+            tokio::fs::set_permissions(path, permissions)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to set write permissions for directory {}",
+                        path.display()
+                    )
+                })?;
+        }
+
+        let mut dir = tokio::fs::read_dir(path)
+            .await
+            .with_context(|| format!("failed to read directory {}", path.display()))?;
+        while let Some(entry) = dir.next_entry().await? {
+            set_directory_rwx_recursive(&entry.path()).await?;
+        }
+    }
+
+    Ok(())
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(unix)] {
+        pub fn is_executable(permissions: &std::fs::Permissions) -> bool {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            permissions.mode() & 0o100 != 0
+        }
+
+        pub fn set_rwx(permissions: &mut std::fs::Permissions) {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let new_mode = permissions.mode() | 0o700;
+            permissions.set_mode(new_mode);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum MoveType {
     Rename,

@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt, path::Path};
 
 use assert_matches::assert_matches;
-use brioche::brioche::{artifact::CompleteArtifact, Brioche};
+use brioche::brioche::{artifact::CompleteArtifact, output::create_local_output, Brioche};
 use pretty_assertions::assert_eq;
 
 mod brioche_test;
@@ -25,6 +25,7 @@ async fn create_output(
             output_path,
             merge,
             resources_dir: None,
+            link_locals: false,
         },
     )
     .await
@@ -44,6 +45,26 @@ async fn create_output_with_resources(
             output_path,
             merge,
             resources_dir: Some(resources_dir),
+            link_locals: false,
+        },
+    )
+    .await
+}
+
+async fn create_output_with_links(
+    brioche: &Brioche,
+    output_path: &Path,
+    artifact: &CompleteArtifact,
+    merge: bool,
+) -> anyhow::Result<()> {
+    brioche::brioche::output::create_output(
+        brioche,
+        artifact,
+        brioche::brioche::output::OutputOptions {
+            output_path,
+            merge,
+            resources_dir: None,
+            link_locals: true,
         },
     )
     .await
@@ -89,6 +110,16 @@ async fn test_output_executable_file() -> anyhow::Result<()> {
         .expect("failed to get metadata")
         .permissions();
     assert_eq!(permissions.mode() & 0o777, 0o755);
+
+    assert_mode(
+        context.path("output"),
+        Mode {
+            read: Some(true),
+            write: Some(true),
+            execute: Some(true),
+        },
+    )
+    .await;
 
     Ok(())
 }
@@ -695,4 +726,279 @@ async fn test_output_top_level_file_with_parallel_resources() -> anyhow::Result<
     );
 
     Ok(())
+}
+
+#[tokio::test]
+async fn test_output_with_links() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let hello_blob = brioche_test::blob(&brioche, b"hello").await;
+    let hello_blob_path = brioche::brioche::blob::blob_path(&brioche, hello_blob);
+
+    let hello = brioche_test::file(hello_blob, false);
+    let hello_exe = brioche_test::file(hello_blob, true);
+
+    let hello_with_resource = brioche_test::file_with_resources(
+        hello_blob,
+        false,
+        brioche_test::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
+    );
+    let hello_exe_with_resource = brioche_test::file_with_resources(
+        hello_blob,
+        true,
+        brioche_test::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
+    );
+
+    let artifact = brioche_test::dir(
+        &brioche,
+        [
+            ("hello.txt", hello.clone()),
+            ("hello2.txt", hello.clone()),
+            ("hello_res.txt", hello_with_resource.clone()),
+            ("hello_res2.txt", hello_with_resource.clone()),
+            ("hello_exe", hello_exe.clone()),
+            ("hello_exe2", hello_exe.clone()),
+            ("hello_exe_res", hello_exe_with_resource.clone()),
+            ("hello_exe_res2", hello_exe_with_resource.clone()),
+            (
+                "hi.txt",
+                brioche_test::file(brioche_test::blob(&brioche, b"hi").await, false),
+            ),
+        ],
+    )
+    .await;
+
+    create_output_with_links(&brioche, &context.path("output"), &artifact, false).await?;
+
+    let hello_local = create_local_output(&brioche, &hello).await?;
+    let hello_exe_local = create_local_output(&brioche, &hello_exe).await?;
+    let hello_with_resource_local = create_local_output(&brioche, &hello_with_resource).await?;
+
+    assert!(context.path("output").is_dir());
+
+    assert_linked(context.path("output/hello.txt"), &hello_local.path).await;
+    assert_linked(context.path("output/hello2.txt"), &hello_local.path).await;
+
+    assert_linked(
+        context.path("output/hello_res.txt"),
+        &hello_with_resource_local.path,
+    )
+    .await;
+    assert_linked(
+        context.path("output/hello_res2.txt"),
+        &hello_with_resource_local.path,
+    )
+    .await;
+
+    assert_linked(context.path("output/hello_exe"), &hello_exe_local.path).await;
+    assert_linked(context.path("output/hello_exe2"), &hello_exe_local.path).await;
+
+    assert_linked(context.path("output/hello_exe_res"), &hello_exe_local.path).await;
+    assert_linked(context.path("output/hello_exe_res2"), &hello_exe_local.path).await;
+
+    assert_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello2.txt"),
+    )
+    .await;
+    assert_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_res.txt"),
+    )
+    .await;
+    assert_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_res2.txt"),
+    )
+    .await;
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_exe"),
+    )
+    .await;
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_exe2"),
+    )
+    .await;
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_exe_res"),
+    )
+    .await;
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hello_exe_res2"),
+    )
+    .await;
+    assert_not_linked(
+        context.path("output/hello.txt"),
+        context.path("output/hi.txt"),
+    )
+    .await;
+
+    assert_linked(
+        context.path("output/hello_exe"),
+        context.path("output/hello_exe2"),
+    )
+    .await;
+    assert_linked(
+        context.path("output/hello_exe"),
+        context.path("output/hello_exe_res"),
+    )
+    .await;
+    assert_linked(
+        context.path("output/hello_exe"),
+        context.path("output/hello_exe_res2"),
+    )
+    .await;
+    assert_not_linked(
+        context.path("output/hello_exe"),
+        context.path("output/hi.txt"),
+    )
+    .await;
+
+    assert_linked(context.path("output/hello.txt"), &hello_blob_path).await;
+    assert_not_linked(context.path("output/hello_exe"), &hello_blob_path).await;
+
+    assert_mode(
+        context.path("output"),
+        Mode {
+            read: Some(true),
+            write: Some(true),
+            execute: Some(true),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello.txt"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(false),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello2.txt"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(false),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_res.txt"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(false),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_res2.txt"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(false),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_exe"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(true),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_exe2"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(true),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_exe_res"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(true),
+        },
+    )
+    .await;
+    assert_mode(
+        context.path("output/hello_exe_res2"),
+        Mode {
+            read: Some(true),
+            write: Some(false),
+            execute: Some(true),
+        },
+    )
+    .await;
+
+    Ok(())
+}
+
+struct Mode {
+    read: Option<bool>,
+    write: Option<bool>,
+    execute: Option<bool>,
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(unix)] {
+        async fn assert_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
+            use std::os::unix::fs::MetadataExt as _;
+            let a = a.as_ref();
+            let b = b.as_ref();
+
+            let a_metadata = tokio::fs::metadata(a).await.expect("failed to get metadata");
+            let b_metadata = tokio::fs::metadata(b).await.expect("failed to get metadata");
+
+            assert_eq!(a_metadata.ino(), b_metadata.ino(), "expected {} to be linked to {}", a.display(), b.display());
+        }
+
+        async fn assert_not_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
+            use std::os::unix::fs::MetadataExt as _;
+            let a = a.as_ref();
+            let b = b.as_ref();
+
+            let a_metadata = tokio::fs::metadata(a).await.expect("failed to get metadata");
+            let b_metadata = tokio::fs::metadata(b).await.expect("failed to get metadata");
+
+            assert_ne!(a_metadata.ino(), b_metadata.ino(), "expected {} not to be linked to {}", a.display(), b.display());
+        }
+
+        async fn assert_mode(path: impl AsRef<Path>, mode: Mode) {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            let path = path.as_ref();
+
+            let metadata = tokio::fs::metadata(path).await.expect("failed to get metadata");
+            let permissions = metadata.permissions();
+
+            let unix_mode = permissions.mode();
+            if let Some(read_expected) = mode.read {
+                let read_actual = unix_mode & 0o400 == 0o400;
+                assert_eq!(read_expected, read_actual, "expected read permission for {} to be {read_expected}", path.display());
+            }
+
+            if let Some(write_expected) = mode.write {
+                let write_actual = unix_mode & 0o200 == 0o200;
+                assert_eq!(write_expected, write_actual, "expected write permission for {} to be {write_expected}", path.display());
+            }
+
+            if let Some(execute_expected) = mode.execute {
+                let execute_actual = unix_mode & 0o100 == 0o100;
+                assert_eq!(execute_expected, execute_actual, "expected execute permission for {} to be {execute_expected}", path.display());
+            }
+        }
+    }
 }

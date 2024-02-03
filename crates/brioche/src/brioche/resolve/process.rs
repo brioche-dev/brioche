@@ -179,6 +179,7 @@ pub async fn resolve_process(
             output_path: &host_work_dir,
             merge: true,
             resources_dir: Some(&host_pack_dir),
+            link_locals: true,
         },
     )
     .await?;
@@ -560,6 +561,7 @@ async fn set_up_rootfs(
         output_path: rootfs_dir,
         merge: true,
         resources_dir: None,
+        link_locals: true,
     };
 
     let dash = LazyArtifact::Unpack(UnpackArtifact {
@@ -637,6 +639,13 @@ impl ResolveDir {
 
     async fn remove(mut self) -> anyhow::Result<()> {
         let path = self.path.take().context("resolve dir not found")?;
+
+        // Ensure that directories are writable so we can recursively remove
+        // all files
+        crate::fs_utils::set_directory_rwx_recursive(&path)
+            .await
+            .context("failed to set permissions for temprorary resolve directory")?;
+
         tokio::fs::remove_dir_all(&path)
             .await
             .context("failed to remove temporary resolve directory")?;

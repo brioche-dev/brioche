@@ -4,58 +4,159 @@ use anyhow::Context as _;
 use bstr::ByteSlice;
 
 use super::{
-    artifact::{CompleteArtifact, File},
+    artifact::{CompleteArtifact, Directory, File},
     Brioche,
 };
+
+struct LocalOutputLock(());
+
+static LOCAL_OUTPUT_MUTEX: tokio::sync::Mutex<LocalOutputLock> =
+    tokio::sync::Mutex::const_new(LocalOutputLock(()));
 
 #[derive(Debug, Clone, Copy)]
 pub struct OutputOptions<'a> {
     pub output_path: &'a Path,
     pub resources_dir: Option<&'a Path>,
     pub merge: bool,
+    pub link_locals: bool,
+}
+
+#[tracing::instrument(skip(brioche, artifact), fields(artifact_hash = %artifact.hash()), err)]
+pub async fn create_output(
+    brioche: &Brioche,
+    artifact: &CompleteArtifact,
+    options: OutputOptions<'_>,
+) -> anyhow::Result<()> {
+    let lock = if options.link_locals {
+        // If we use links into the `~/.local/share/brioche/locals` directory,
+        // lock a mutex to ensure we don't write to the same local more
+        // than once at a time
+        Some(LOCAL_OUTPUT_MUTEX.lock().await)
+    } else {
+        None
+    };
+
+    create_output_inner(brioche, artifact, options, lock.as_ref()).await?;
+    Ok(())
 }
 
 #[async_recursion::async_recursion]
-#[tracing::instrument(skip(brioche, artifact), fields(artifact_hash = %artifact.hash()), err)]
-pub async fn create_output<'a: 'async_recursion>(
+#[tracing::instrument(skip(brioche, artifact, link_lock), fields(artifact_hash = %artifact.hash()), err)]
+async fn create_output_inner<'a: 'async_recursion>(
     brioche: &Brioche,
     artifact: &CompleteArtifact,
     options: OutputOptions<'a>,
+    link_lock: Option<&'a tokio::sync::MutexGuard<'a, LocalOutputLock>>,
 ) -> anyhow::Result<()> {
+    let link_lock = match (options.link_locals, link_lock) {
+        (false, _) => None,
+        (true, Some(lock)) => Some(lock),
+        (true, None) => {
+            anyhow::bail!(
+                "tried to call `create_output_inner` with `link_locals`, but no lock was provided"
+            );
+        }
+    };
+
     match artifact {
         CompleteArtifact::File(File {
             content_blob,
             executable,
             resources,
         }) => {
-            if !resources.is_empty() {
+            if resources.is_empty() {
+                let blob_path = super::blob::blob_path(brioche, *content_blob);
+
+                if options.link_locals && !*executable {
+                    crate::fs_utils::try_remove(options.output_path).await?;
+                    tokio::fs::hard_link(&blob_path, options.output_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to create hardlink from {} to {}",
+                                blob_path.display(),
+                                options.output_path.display()
+                            )
+                        })?;
+                } else {
+                    tokio::fs::copy(&blob_path, options.output_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to copy blob from {} to {}",
+                                blob_path.display(),
+                                options.output_path.display()
+                            )
+                        })?;
+
+                    // Set the file permissions. We set the file to be
+                    // read-only if `link_locals` is enabled even if the
+                    // file wasn't created as a hardlink. That way, the
+                    // permissions are the same whether or not we used
+                    // a hardlink.
+                    set_file_permissions(
+                        options.output_path,
+                        SetFilePermissions {
+                            executable: *executable,
+                            readonly: options.link_locals,
+                        },
+                    )
+                    .await
+                    .context("failed to set output file permissions")?;
+                }
+            } else {
                 let Some(resources_dir) = options.resources_dir else {
                     anyhow::bail!("cannot output file outside of a directory, file has references");
                 };
 
-                create_output(
+                create_output_inner(
                     brioche,
                     &CompleteArtifact::Directory(resources.clone()),
                     OutputOptions {
                         output_path: resources_dir,
                         resources_dir: Some(resources_dir),
                         merge: true,
+                        link_locals: options.link_locals,
                     },
+                    link_lock,
                 )
                 .await?;
-            }
 
-            let blob_path = super::blob::blob_path(brioche, *content_blob);
-            tokio::fs::copy(&blob_path, options.output_path)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to copy blob from {} to {}",
-                        blob_path.display(),
-                        options.output_path.display()
+                let artifact_without_resources = CompleteArtifact::File(File {
+                    content_blob: *content_blob,
+                    executable: *executable,
+                    resources: Directory::default(),
+                });
+
+                if let Some(link_lock) = link_lock {
+                    let local_path =
+                        create_local_output_inner(brioche, &artifact_without_resources, link_lock)
+                            .await?;
+                    crate::fs_utils::try_remove(options.output_path).await?;
+                    tokio::fs::hard_link(&local_path.path, options.output_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to create hardlink from {} to {}",
+                                local_path.path.display(),
+                                options.output_path.display()
+                            )
+                        })?;
+                } else {
+                    create_output_inner(
+                        brioche,
+                        &artifact_without_resources,
+                        OutputOptions {
+                            output_path: options.output_path,
+                            resources_dir: None,
+                            merge: options.merge,
+                            link_locals: options.link_locals,
+                        },
+                        link_lock,
                     )
-                })?;
-            set_file_permissions(options.output_path, *executable).await?;
+                    .await?;
+                }
+            }
         }
         CompleteArtifact::Symlink { target } => {
             let target = target.to_path()?;
@@ -108,19 +209,55 @@ pub async fn create_output<'a: 'async_recursion>(
                     }
                 };
 
-                create_output(
-                    brioche,
-                    &entry.value,
-                    OutputOptions {
-                        output_path: &entry_path,
-                        resources_dir: Some(resources_dir),
-                        merge: true,
-                    },
-                )
-                .await?;
+                match (&entry.value, link_lock) {
+                    (CompleteArtifact::File(file), Some(link_lock)) => {
+                        if !file.resources.is_empty() {
+                            create_output_inner(
+                                brioche,
+                                &CompleteArtifact::Directory(file.resources.clone()),
+                                OutputOptions {
+                                    output_path: resources_dir,
+                                    resources_dir: Some(resources_dir),
+                                    merge: true,
+                                    link_locals: options.link_locals,
+                                },
+                                Some(link_lock),
+                            )
+                            .await?;
+                        }
+
+                        // If `link_locals` is enabled, create a local output
+                        // for the file, then hardlink to it
+
+                        let local_output =
+                            create_local_output_inner(brioche, &entry.value, link_lock).await?;
+                        crate::fs_utils::try_remove(&entry_path).await?;
+                        tokio::fs::hard_link(&local_output.path, &entry_path)
+                            .await
+                            .context("failed to create hardlink into Brioche `locals` directory")?;
+                    }
+                    _ => {
+                        create_output_inner(
+                            brioche,
+                            &entry.value,
+                            OutputOptions {
+                                output_path: &entry_path,
+                                resources_dir: Some(resources_dir),
+                                merge: true,
+                                link_locals: options.link_locals,
+                            },
+                            link_lock,
+                        )
+                        .await?;
+                    }
+                }
             }
 
-            set_directory_permissions(options.output_path).await?;
+            set_directory_permissions(
+                options.output_path,
+                SetDirectoryPermissions { readonly: false },
+            )
+            .await?;
         }
     }
 
@@ -134,10 +271,18 @@ pub async fn create_local_output(
     // Use a mutex to ensure we don't try to create the same local output
     // simultaneously.
     // TODO: Make this function parallelizable
-    // TODO: Handle cleanup if creating a local output fails
-    static LOCAL_OUTPUT_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-    let _lock = LOCAL_OUTPUT_MUTEX.lock().await;
+    let lock = LOCAL_OUTPUT_MUTEX.lock().await;
 
+    let result = create_local_output_inner(brioche, artifact, &lock).await?;
+
+    Ok(result)
+}
+
+async fn create_local_output_inner(
+    brioche: &Brioche,
+    artifact: &CompleteArtifact,
+    lock: &tokio::sync::MutexGuard<'_, LocalOutputLock>,
+) -> anyhow::Result<LocalOutput> {
     let local_dir = brioche.home.join("locals");
     tokio::fs::create_dir_all(&local_dir).await?;
 
@@ -145,21 +290,23 @@ pub async fn create_local_output(
     let local_path = local_dir.join(artifact_hash.to_string());
     let local_resources_dir = local_dir.join(format!("{artifact_hash}-pack.d"));
 
-    if !tokio::fs::try_exists(&local_path).await? {
+    if !try_exists_and_ensure_readonly(&local_path).await? {
         let local_temp_dir = brioche.home.join("locals-temp");
         tokio::fs::create_dir_all(&local_temp_dir).await?;
         let temp_id = ulid::Ulid::new();
         let local_temp_path = local_temp_dir.join(temp_id.to_string());
         let local_temp_resources_dir = local_temp_dir.join(format!("{temp_id}-pack.d"));
 
-        create_output(
+        create_output_inner(
             brioche,
             artifact,
             OutputOptions {
                 output_path: &local_temp_path,
                 resources_dir: Some(&local_temp_resources_dir),
                 merge: false,
+                link_locals: true,
             },
+            Some(lock),
         )
         .await?;
 
@@ -167,14 +314,41 @@ pub async fn create_local_output(
             .await
             .context("failed to finish saving local output")?;
 
+        match artifact {
+            CompleteArtifact::File(file) => {
+                set_file_permissions(
+                    &local_path,
+                    SetFilePermissions {
+                        executable: file.executable,
+                        readonly: true,
+                    },
+                )
+                .await
+                .context("failed to set permissions for local file")?;
+            }
+            CompleteArtifact::Directory(_) => {
+                set_directory_permissions(&local_path, SetDirectoryPermissions { readonly: true })
+                    .await
+                    .context("failed to set permissions for local output directory")?
+            }
+            CompleteArtifact::Symlink { .. } => {}
+        }
+
         if tokio::fs::try_exists(&local_temp_resources_dir).await? {
             tokio::fs::rename(&local_temp_resources_dir, &local_resources_dir)
                 .await
                 .context("failed to finish saving local output resources")?;
+
+            set_directory_permissions(
+                &local_resources_dir,
+                SetDirectoryPermissions { readonly: true },
+            )
+            .await
+            .context("failed to set permissions for local output resources")?;
         }
     }
 
-    let resources_dir = if tokio::fs::try_exists(&local_resources_dir).await? {
+    let resources_dir = if try_exists_and_ensure_readonly(&local_resources_dir).await? {
         Some(local_resources_dir)
     } else {
         None
@@ -189,6 +363,29 @@ pub async fn create_local_output(
 pub struct LocalOutput {
     pub path: PathBuf,
     pub resources_dir: Option<PathBuf>,
+}
+
+/// Check if a path exists and change it's permissions to read-only. Returns
+/// `true` if the path exists and is now read-only, `false` if the path does
+/// not exist, or `Err(_)` if an error occurred.
+async fn try_exists_and_ensure_readonly(path: &Path) -> anyhow::Result<bool> {
+    let metadata = tokio::fs::symlink_metadata(path).await;
+
+    let metadata = match metadata {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+
+    let mut permissions = metadata.permissions();
+    if !permissions.readonly() {
+        permissions.set_readonly(true);
+        tokio::fs::set_permissions(path, permissions)
+            .await
+            .with_context(|| format!("failed to mark path as read-only: {}", path.display()))?;
+    }
+
+    Ok(true)
 }
 
 fn bytes_to_path_component(bytes: &bstr::BStr) -> anyhow::Result<std::path::PathBuf> {
@@ -215,25 +412,40 @@ fn bytes_to_path_component(bytes: &bstr::BStr) -> anyhow::Result<std::path::Path
     Ok(path_buf)
 }
 
+struct SetFilePermissions {
+    executable: bool,
+    readonly: bool,
+}
+
+struct SetDirectoryPermissions {
+    readonly: bool,
+}
+
 cfg_if::cfg_if! {
     if #[cfg(unix)] {
-        async fn set_file_permissions(path: &Path, executable: bool) -> anyhow::Result<()> {
+        async fn set_file_permissions(path: &Path, permissions: SetFilePermissions) -> anyhow::Result<()> {
             use std::os::unix::fs::PermissionsExt as _;
 
-            let mode = if executable {
-                0o755
-            } else {
-                0o644
+            let mode = match permissions {
+                SetFilePermissions { executable: true, readonly: false } => 0o755,
+                SetFilePermissions { executable: false, readonly: false } => 0o644,
+                SetFilePermissions { executable: true, readonly: true } => 0o555,
+                SetFilePermissions { executable: false, readonly: true } => 0o444,
             };
             let permissions = std::fs::Permissions::from_mode(mode);
             tokio::fs::set_permissions(path, permissions).await?;
             Ok(())
         }
 
-        async fn set_directory_permissions(path: &Path) -> anyhow::Result<()> {
+        async fn set_directory_permissions(path: &Path, permissions: SetDirectoryPermissions) -> anyhow::Result<()> {
             use std::os::unix::fs::PermissionsExt as _;
 
-            let permissions = std::fs::Permissions::from_mode(0o755);
+            let mode = match permissions {
+                SetDirectoryPermissions { readonly: false } => 0o755,
+                SetDirectoryPermissions { readonly: true } => 0o555,
+            };
+
+            let permissions = std::fs::Permissions::from_mode(mode);
             tokio::fs::set_permissions(path, permissions).await?;
             Ok(())
         }
