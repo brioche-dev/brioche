@@ -4,7 +4,6 @@ use std::{
 };
 
 use bstr::{BStr, BString};
-use serde::Serialize;
 
 use crate::encoding::TickEncoded;
 
@@ -339,15 +338,13 @@ impl Directory {
             return Ok(Self::default());
         }
 
-        let mut listing_json = vec![];
-        let mut serializer = serde_json::Serializer::with_formatter(
-            &mut listing_json,
-            olpc_cjson::CanonicalFormatter::new(),
-        );
-        listing.serialize(&mut serializer)?;
-
-        let listing_blob =
-            blob::save_blob(brioche, &listing_json, blob::SaveBlobOptions::default()).await?;
+        let listing_json = json_canon::to_string(&listing)?;
+        let listing_blob = blob::save_blob(
+            brioche,
+            listing_json.as_bytes(),
+            blob::SaveBlobOptions::default(),
+        )
+        .await?;
 
         Ok(Self {
             listing_blob: Some(listing_blob),
@@ -669,11 +666,7 @@ impl ArtifactHash {
     {
         let mut hasher = blake3::Hasher::new();
 
-        let mut serializer = serde_json::Serializer::with_formatter(
-            &mut hasher,
-            olpc_cjson::CanonicalFormatter::new(),
-        );
-        value.serialize(&mut serializer)?;
+        json_canon::to_writer(&mut hasher, value)?;
 
         let hash = hasher.finalize();
         Ok(Self(hash))

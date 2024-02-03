@@ -28,9 +28,9 @@ futures = "0.3.29"
 hex = "0.4.3"
 human-repr = "1.1.0"
 joinery = "3.1.0"
+json-canon = "0.1.3"
 libmount = "0.1.15"
 nix = { version = "0.27.1", features = ["user"] }
-olpc-cjson = "0.1.3"
 opentelemetry = "0.21.0"
 opentelemetry-http = { version = "0.10.0", features = ["reqwest"] }
 opentelemetry-jaeger = "0.20.0"
