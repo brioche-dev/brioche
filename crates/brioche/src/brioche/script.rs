@@ -188,7 +188,7 @@ pub async fn op_brioche_create_proxy(
             .clone()
     };
 
-    let result = super::resolve::create_proxy(&brioche, artifact).await;
+    let result = super::resolve::create_proxy(&brioche, artifact).await?;
     Ok(result)
 }
 

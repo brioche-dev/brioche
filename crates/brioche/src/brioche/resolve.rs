@@ -12,6 +12,7 @@ use super::{
         ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, CreateDirectory, Directory,
         DirectoryListing, File, LazyArtifact, Meta, WithMeta,
     },
+    blob::BlobId,
     Brioche,
 };
 
@@ -21,7 +22,7 @@ mod unpack;
 
 #[derive(Debug, Default)]
 pub struct Proxies {
-    artifacts_by_hash: HashMap<ArtifactHash, LazyArtifact>,
+    artifacts_by_hash: HashMap<ArtifactHash, (LazyArtifact, BlobId)>,
 }
 
 #[derive(Debug, Default)]
@@ -290,16 +291,13 @@ async fn resolve_inner(
             let merged = Directory::create(brioche, &merged).await?;
             Ok(CompleteArtifact::Directory(merged))
         }
-        LazyArtifact::Proxy { hash } => {
+        LazyArtifact::Proxy { blob } => {
             let proxy = {
-                let proxies = brioche.proxies.read().await;
-                proxies
-                    .artifacts_by_hash
-                    .get(&hash)
-                    .with_context(|| {
-                        format!("tried to resolve proxy artifact, but hash {hash:?} was not found")
-                    })?
-                    .clone()
+                let blob_path = super::blob::blob_path(brioche, blob);
+                let blob_contents = tokio::fs::read(blob_path)
+                    .await
+                    .with_context(|| format!("failed to read blob for proxy: {blob:?}"))?;
+                serde_json::from_slice(&blob_contents)?
             };
             let resolved = resolve(brioche, WithMeta::new(proxy, meta.clone())).await?;
             Ok(resolved.value)
@@ -377,21 +375,38 @@ async fn resolve_inner(
     }
 }
 
-pub async fn create_proxy(brioche: &Brioche, artifact: LazyArtifact) -> LazyArtifact {
+pub async fn create_proxy(
+    brioche: &Brioche,
+    artifact: LazyArtifact,
+) -> anyhow::Result<LazyArtifact> {
     if let LazyArtifact::Proxy { .. } = artifact {
-        return artifact;
+        return Ok(artifact);
     }
 
     let artifact_hash = artifact.hash();
+
+    {
+        let proxies = brioche.proxies.read().await;
+        if let Some((_, blob)) = proxies.artifacts_by_hash.get(&artifact_hash) {
+            return Ok(LazyArtifact::Proxy { blob: *blob });
+        }
+    }
+
+    let artifact_json = json_canon::to_string(&artifact).context("failed to serialize artifact")?;
+
+    let blob = super::blob::save_blob(
+        brioche,
+        artifact_json.as_bytes(),
+        super::blob::SaveBlobOptions::default(),
+    )
+    .await?;
+
     let mut proxies = brioche.proxies.write().await;
     proxies
         .artifacts_by_hash
-        .entry(artifact_hash)
-        .or_insert(artifact);
+        .insert(artifact_hash, (artifact.clone(), blob));
 
-    LazyArtifact::Proxy {
-        hash: artifact_hash,
-    }
+    Ok(LazyArtifact::Proxy { blob })
 }
 
 #[derive(Debug, thiserror::Error)]

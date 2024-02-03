@@ -464,9 +464,9 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
     });
 
     let process_random_1_proxy =
-        brioche::brioche::resolve::create_proxy(&brioche, process_random_1.clone()).await;
+        brioche::brioche::resolve::create_proxy(&brioche, process_random_1.clone()).await?;
     let process_random_2_proxy =
-        brioche::brioche::resolve::create_proxy(&brioche, process_random_2.clone()).await;
+        brioche::brioche::resolve::create_proxy(&brioche, process_random_2.clone()).await?;
     let processes_dir = brioche_test::lazy_dir([
         ("process1.txt", process_random_1.clone()),
         ("process2.txt", process_random_2.clone()),
