@@ -351,6 +351,7 @@ async fn test_resolve_process_with_readonly_contents() -> anyhow::Result<()> {
             ),
         ]),
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
         platform: current_platform(),
     });
 
