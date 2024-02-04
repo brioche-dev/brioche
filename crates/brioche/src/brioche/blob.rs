@@ -80,6 +80,12 @@ pub async fn save_blob<'a>(
         .set_permissions(blob_permissions())
         .await
         .context("failed to set blob permissions")?;
+    let temp_file = temp_file.into_std().await;
+    tokio::task::spawn_blocking(move || {
+        temp_file.set_modified(std::time::UNIX_EPOCH)?;
+        anyhow::Ok(())
+    })
+    .await??;
 
     tokio::fs::rename(&temp_path, &blob_path)
         .await
@@ -180,6 +186,13 @@ where
         .set_permissions(blob_permissions())
         .await
         .context("failed to set blob permissions")?;
+    let temp_file = temp_file.into_std().await;
+    tokio::task::spawn_blocking(move || {
+        temp_file.set_modified(std::time::UNIX_EPOCH)?;
+        anyhow::Ok(())
+    })
+    .await??;
+
     tokio::fs::rename(&temp_path, &blob_path)
         .await
         .context("failed to rename blob from temp file")?;
@@ -284,11 +297,17 @@ pub async fn save_blob_from_file<'a>(
                 .with_context(|| format!("failed to remove input file {}", input_path.display()))?;
         }
 
-        // Make sure the blob's permissions are set properly
+        // Make sure the blob's permissions and modified time are set properly
         existing_blob_file
             .set_permissions(permissions)
             .await
             .context("failed to set blob permissions")?;
+        let existing_blob_file = existing_blob_file.into_std().await;
+        tokio::task::spawn_blocking(move || {
+            existing_blob_file.set_modified(std::time::UNIX_EPOCH)?;
+            anyhow::Ok(())
+        })
+        .await??;
     } else if options.remove_input && is_file_exclusive(&input_metadata) {
         // Since this file is exclusive (i.e. has no hardlinks), we can
         // change its permissions and move it into place. We need to check
