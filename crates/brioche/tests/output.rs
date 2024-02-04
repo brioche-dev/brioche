@@ -25,6 +25,7 @@ async fn create_output(
             output_path,
             merge,
             resources_dir: None,
+            mtime: None,
             link_locals: false,
         },
     )
@@ -45,6 +46,7 @@ async fn create_output_with_resources(
             output_path,
             merge,
             resources_dir: Some(resources_dir),
+            mtime: None,
             link_locals: false,
         },
     )
@@ -64,6 +66,7 @@ async fn create_output_with_links(
             output_path,
             merge,
             resources_dir: None,
+            mtime: None,
             link_locals: true,
         },
     )

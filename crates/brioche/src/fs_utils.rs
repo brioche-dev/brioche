@@ -128,6 +128,11 @@ pub async fn set_directory_rwx_recursive(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn set_mtime_to_epoch(path: &Path) -> anyhow::Result<()> {
+    set_mtime(path, std::time::UNIX_EPOCH).await?;
+    Ok(())
+}
+
 cfg_if::cfg_if! {
     if #[cfg(unix)] {
         pub fn is_executable(permissions: &std::fs::Permissions) -> bool {
@@ -143,11 +148,11 @@ cfg_if::cfg_if! {
             permissions.set_mode(new_mode);
         }
 
-        pub async fn set_mtime_to_epoch(path: &Path) -> anyhow::Result<()> {
+        pub async fn set_mtime(path: &Path, mtime: std::time::SystemTime) -> anyhow::Result<()> {
             let path = path.to_owned();
             tokio::task::spawn_blocking(move || {
                 let file = std::fs::File::open(path)?;
-                file.set_modified(std::time::UNIX_EPOCH)?;
+                file.set_modified(mtime)?;
                 anyhow::Ok(())
             }).await??;
 

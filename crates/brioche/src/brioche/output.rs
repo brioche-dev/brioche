@@ -18,6 +18,7 @@ pub struct OutputOptions<'a> {
     pub output_path: &'a Path,
     pub resources_dir: Option<&'a Path>,
     pub merge: bool,
+    pub mtime: Option<std::time::SystemTime>,
     pub link_locals: bool,
 }
 
@@ -104,9 +105,15 @@ async fn create_output_inner<'a: 'async_recursion>(
                     .await
                     .context("failed to set output file permissions")?;
 
-                    crate::fs_utils::set_mtime_to_epoch(options.output_path)
-                        .await
-                        .context("failed to set output file modified time")?;
+                    if let Some(mtime) = options.mtime {
+                        crate::fs_utils::set_mtime(options.output_path, mtime)
+                            .await
+                            .context("failed to set output file modified time")?;
+                    } else if options.link_locals {
+                        crate::fs_utils::set_mtime_to_epoch(options.output_path)
+                            .await
+                            .context("failed to set output file modified time")?;
+                    }
                 }
             } else {
                 let Some(resources_dir) = options.resources_dir else {
@@ -120,6 +127,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                         output_path: resources_dir,
                         resources_dir: Some(resources_dir),
                         merge: true,
+                        mtime: None,
                         link_locals: options.link_locals,
                     },
                     link_lock,
@@ -154,6 +162,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                             output_path: options.output_path,
                             resources_dir: None,
                             merge: options.merge,
+                            mtime: options.mtime,
                             link_locals: options.link_locals,
                         },
                         link_lock,
@@ -223,6 +232,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                                     output_path: resources_dir,
                                     resources_dir: Some(resources_dir),
                                     merge: true,
+                                    mtime: options.mtime,
                                     link_locals: options.link_locals,
                                 },
                                 Some(link_lock),
@@ -248,6 +258,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                                 output_path: &entry_path,
                                 resources_dir: Some(resources_dir),
                                 merge: true,
+                                mtime: options.mtime,
                                 link_locals: options.link_locals,
                             },
                             link_lock,
@@ -308,6 +319,7 @@ async fn create_local_output_inner(
                 output_path: &local_temp_path,
                 resources_dir: Some(&local_temp_resources_dir),
                 merge: false,
+                mtime: None,
                 link_locals: true,
             },
             Some(lock),
