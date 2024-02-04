@@ -189,7 +189,7 @@ pub async fn resolve_process(
                 output_path: &host_work_dir,
                 merge: true,
                 resources_dir: Some(&host_pack_dir),
-                link_locals: true,
+                link_locals: false,
             },
         )
         .await
@@ -203,7 +203,7 @@ pub async fn resolve_process(
                     output_path: &output_path,
                     merge: false,
                     resources_dir: Some(&host_pack_dir),
-                    link_locals: true,
+                    link_locals: false,
                 },
             )
             .await

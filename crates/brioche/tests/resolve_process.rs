@@ -750,6 +750,49 @@ async fn test_resolve_process_starts_with_work_dir_contents() -> anyhow::Result<
 }
 
 #[tokio::test]
+async fn test_resolve_process_edit_work_dir_contents() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let hello_blob = brioche_test::blob(&brioche, b"hello").await;
+
+    let process = ProcessArtifact {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                set -euo pipefail
+                echo -n new > file.txt
+                echo -n new2 > dir/other.txt
+                touch "$BRIOCHE_OUTPUT"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            ("BRIOCHE_PACK_RESOURCES_DIR".into(), resources_path()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+        ]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir([
+            ("file.txt", brioche_test::lazy_file(hello_blob, false)),
+            (
+                "dir",
+                brioche_test::lazy_dir([("other.txt", brioche_test::lazy_file(hello_blob, false))]),
+            ),
+        ]))),
+        output_scaffold: None,
+        platform: current_platform(),
+    };
+
+    resolve_without_meta(&brioche, LazyArtifact::Process(process)).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_resolve_process_has_resource_dir() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
