@@ -54,8 +54,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      # Run tests in release mode. Running tests in debug mode uses a lot
+      # more disk space, so much so that it can cause the run to fail
       - name: Run tests
-        run: cargo test --all
+        run: cargo test --all --release
   build:
     name: Build artifacts
     runs-on: ubuntu-22.04
