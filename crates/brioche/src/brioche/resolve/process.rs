@@ -54,11 +54,20 @@ pub async fn resolve_lazy_process_to_process(
         anyhow::bail!("expected process workdir to be a directory artifact");
     };
 
+    let output_scaffold = match process.output_scaffold {
+        Some(output_scaffold) => {
+            let output_scaffold = super::resolve(brioche, *output_scaffold).await?;
+            Some(Box::new(output_scaffold.value))
+        }
+        None => None,
+    };
+
     Ok(CompleteProcessArtifact {
         command,
         args,
         env,
         work_dir,
+        output_scaffold,
         platform: process.platform,
     })
 }
@@ -172,17 +181,37 @@ pub async fn resolve_process(
         Vec::<u8>::from_path_buf(guest_pack_dir).expect("failed to build pack dir path");
     tokio::fs::create_dir_all(&host_pack_dir).await?;
 
-    crate::brioche::output::create_output(
-        brioche,
-        &crate::brioche::artifact::CompleteArtifact::Directory(process.work_dir),
-        crate::brioche::output::OutputOptions {
-            output_path: &host_work_dir,
-            merge: true,
-            resources_dir: Some(&host_pack_dir),
-            link_locals: true,
-        },
-    )
-    .await?;
+    let create_work_dir_fut = async {
+        crate::brioche::output::create_output(
+            brioche,
+            &crate::brioche::artifact::CompleteArtifact::Directory(process.work_dir),
+            crate::brioche::output::OutputOptions {
+                output_path: &host_work_dir,
+                merge: true,
+                resources_dir: Some(&host_pack_dir),
+                link_locals: true,
+            },
+        )
+        .await
+    };
+    let create_output_scaffold_fut = async {
+        if let Some(output_scaffold) = &process.output_scaffold {
+            crate::brioche::output::create_output(
+                brioche,
+                output_scaffold,
+                crate::brioche::output::OutputOptions {
+                    output_path: &output_path,
+                    merge: false,
+                    resources_dir: Some(&host_pack_dir),
+                    link_locals: true,
+                },
+            )
+            .await
+        } else {
+            Ok(())
+        }
+    };
+    tokio::try_join!(create_work_dir_fut, create_output_scaffold_fut)?;
 
     let dirs = ProcessTemplateDirs {
         output_path: &output_path,

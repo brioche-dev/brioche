@@ -254,10 +254,17 @@ pub struct UnpackArtifact {
 #[serde(rename_all = "camelCase")]
 pub struct ProcessArtifact {
     pub command: ProcessTemplate,
+
     pub args: Vec<ProcessTemplate>,
+
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, ProcessTemplate>,
+
     pub work_dir: Box<WithMeta<LazyArtifact>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_scaffold: Option<Box<WithMeta<LazyArtifact>>>,
+
     pub platform: Platform,
 }
 
@@ -266,10 +273,18 @@ pub struct ProcessArtifact {
 #[serde(rename_all = "camelCase")]
 pub struct CompleteProcessArtifact {
     pub command: CompleteProcessTemplate,
+
     pub args: Vec<CompleteProcessTemplate>,
+
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, CompleteProcessTemplate>,
+
+    #[serde_as(as = "serde_with::TryFromInto<LazyArtifact>")]
     pub work_dir: Directory,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_scaffold: Option<Box<CompleteArtifact>>,
+
     pub platform: Platform,
 }
 

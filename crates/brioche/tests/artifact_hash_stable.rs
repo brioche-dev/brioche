@@ -274,6 +274,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
             args: vec![],
             env: BTreeMap::default(),
             work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            output_scaffold: None,
             platform: Platform::X86_64Linux,
         })
         .hash()
@@ -291,6 +292,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
             args: vec![],
             env: BTreeMap::default(),
             work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            output_scaffold: None,
             platform: Platform::X86_64Linux,
         })
         .hash()
@@ -310,6 +312,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
             }],
             env: BTreeMap::default(),
             work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            output_scaffold: None,
             platform: Platform::X86_64Linux,
         })
         .hash()
@@ -336,6 +339,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
                 },
             )]),
             work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            output_scaffold: None,
             platform: Platform::X86_64Linux,
         })
         .hash()
@@ -367,6 +371,7 @@ async fn test_artifact_hash_stable_process() -> anyhow::Result<()> {
                 },
             )]),
             work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            output_scaffold: None,
             platform: Platform::X86_64Linux,
         })
         .hash()
