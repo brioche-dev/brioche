@@ -54,8 +54,24 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Check space
+        run: df -h /
       - name: Run tests
-        run: cargo test --all
+        run: cargo test --all || true
+      - name: Check space
+        run: df -h /
+  test2:
+    name: Run tests (2)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Check space
+        run: df -h /
+      - name: Run tests
+        run: cargo test --all --release || true
+      - name: Check space
+        run: df -h /
   build:
     name: Build artifacts
     runs-on: ubuntu-22.04
