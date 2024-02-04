@@ -142,6 +142,17 @@ cfg_if::cfg_if! {
             let new_mode = permissions.mode() | 0o700;
             permissions.set_mode(new_mode);
         }
+
+        pub async fn set_mtime_to_epoch(path: &Path) -> anyhow::Result<()> {
+            let path = path.to_owned();
+            tokio::task::spawn_blocking(move || {
+                let file = std::fs::File::open(path)?;
+                file.set_modified(std::time::UNIX_EPOCH)?;
+                anyhow::Ok(())
+            }).await??;
+
+            Ok(())
+        }
     }
 }
 

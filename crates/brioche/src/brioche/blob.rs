@@ -294,9 +294,13 @@ pub async fn save_blob_from_file<'a>(
         // change its permissions and move it into place. We need to check
         // for exclusivity, because we would otherwise ruin the permission
         // of other hard links to the same file.
+
         tokio::fs::set_permissions(input_path, permissions)
             .await
             .context("failed to set blob permissions")?;
+        crate::fs_utils::set_mtime_to_epoch(input_path)
+            .await
+            .context("failed to set blob modified time")?;
         let move_type = crate::fs_utils::move_file(input_path, &blob_path)
             .await
             .with_context(|| {
@@ -320,6 +324,9 @@ pub async fn save_blob_from_file<'a>(
         tokio::fs::set_permissions(&blob_path, permissions)
             .await
             .context("failed to set blob permissions")?;
+        crate::fs_utils::set_mtime_to_epoch(input_path)
+            .await
+            .context("failed to set blob modified time")?;
         tracing::debug!(input_path = %input_path.display(), blob_id = %id, "saved blob by copying file");
 
         if options.remove_input {

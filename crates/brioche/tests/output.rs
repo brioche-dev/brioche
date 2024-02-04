@@ -943,7 +943,30 @@ async fn test_output_with_links() -> anyhow::Result<()> {
     )
     .await;
 
+    assert_mtime_epoch(context.path("output/hello.txt")).await;
+    assert_mtime_epoch(context.path("output/hello2.txt")).await;
+    assert_mtime_epoch(context.path("output/hello_res.txt")).await;
+    assert_mtime_epoch(context.path("output/hello_res2.txt")).await;
+    assert_mtime_epoch(context.path("output/hello_exe")).await;
+    assert_mtime_epoch(context.path("output/hello_exe2")).await;
+    assert_mtime_epoch(context.path("output/hello_exe_res")).await;
+    assert_mtime_epoch(context.path("output/hello_exe_res2")).await;
+
     Ok(())
+}
+
+async fn assert_mtime_epoch(path: impl AsRef<Path>) {
+    let path = path.as_ref();
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .expect("failed to get metadata");
+    let mtime = metadata.modified().expect("failed to get mtime");
+    assert_eq!(
+        mtime
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("mtime is before epoch"),
+        std::time::Duration::ZERO,
+    );
 }
 
 struct Mode {

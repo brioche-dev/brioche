@@ -89,11 +89,11 @@ async fn create_output_inner<'a: 'async_recursion>(
                             )
                         })?;
 
-                    // Set the file permissions. We set the file to be
-                    // read-only if `link_locals` is enabled even if the
-                    // file wasn't created as a hardlink. That way, the
-                    // permissions are the same whether or not we used
-                    // a hardlink.
+                    // Set the file permissions and mtime. We set the file
+                    // to be read-only and reset the file's modified time
+                    // if `link_locals` is enabled even if the file wasn't
+                    // created as a hardlink. That way, the permissions are
+                    // the same whether or not we used a hardlink.
                     set_file_permissions(
                         options.output_path,
                         SetFilePermissions {
@@ -103,6 +103,10 @@ async fn create_output_inner<'a: 'async_recursion>(
                     )
                     .await
                     .context("failed to set output file permissions")?;
+
+                    crate::fs_utils::set_mtime_to_epoch(options.output_path)
+                        .await
+                        .context("failed to set output file modified time")?;
                 }
             } else {
                 let Some(resources_dir) = options.resources_dir else {
@@ -290,7 +294,7 @@ async fn create_local_output_inner(
     let local_path = local_dir.join(artifact_hash.to_string());
     let local_resources_dir = local_dir.join(format!("{artifact_hash}-pack.d"));
 
-    if !try_exists_and_ensure_readonly(&local_path).await? {
+    if !try_exists_and_ensure_local_meta(&local_path).await? {
         let local_temp_dir = brioche.home.join("locals-temp");
         tokio::fs::create_dir_all(&local_temp_dir).await?;
         let temp_id = ulid::Ulid::new();
@@ -325,6 +329,9 @@ async fn create_local_output_inner(
                 )
                 .await
                 .context("failed to set permissions for local file")?;
+                crate::fs_utils::set_mtime_to_epoch(&local_path)
+                    .await
+                    .context("failed to set modified time for local file")?;
             }
             CompleteArtifact::Directory(_) => {
                 set_directory_permissions(&local_path, SetDirectoryPermissions { readonly: true })
@@ -348,7 +355,7 @@ async fn create_local_output_inner(
         }
     }
 
-    let resources_dir = if try_exists_and_ensure_readonly(&local_resources_dir).await? {
+    let resources_dir = if try_exists_and_ensure_local_meta(&local_resources_dir).await? {
         Some(local_resources_dir)
     } else {
         None
@@ -365,10 +372,12 @@ pub struct LocalOutput {
     pub resources_dir: Option<PathBuf>,
 }
 
-/// Check if a path exists and change it's permissions to read-only. Returns
-/// `true` if the path exists and is now read-only, `false` if the path does
-/// not exist, or `Err(_)` if an error occurred.
-async fn try_exists_and_ensure_readonly(path: &Path) -> anyhow::Result<bool> {
+/// Check if a path exists, and change the file metadata to ensure it matches
+/// other local values (i.e. files are marked as read-only and the file
+/// modified time is set to the Unix epoch). Returns `true` if the path
+/// exists and is now read-only, `false` if the path does not exist, or `Err(_)`
+/// if an error occurred.
+async fn try_exists_and_ensure_local_meta(path: &Path) -> anyhow::Result<bool> {
     let metadata = tokio::fs::symlink_metadata(path).await;
 
     let metadata = match metadata {
@@ -383,6 +392,17 @@ async fn try_exists_and_ensure_readonly(path: &Path) -> anyhow::Result<bool> {
         tokio::fs::set_permissions(path, permissions)
             .await
             .with_context(|| format!("failed to mark path as read-only: {}", path.display()))?;
+    }
+
+    let mtime = metadata
+        .modified()
+        .context("failed to get fil modified time")?;
+    let is_mtime_at_epoch = mtime
+        .duration_since(std::time::UNIX_EPOCH)
+        .is_ok_and(|duration| duration.is_zero());
+
+    if metadata.is_file() && !is_mtime_at_epoch {
+        crate::fs_utils::set_mtime_to_epoch(path).await?;
     }
 
     Ok(true)
