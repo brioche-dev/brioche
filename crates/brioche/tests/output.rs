@@ -25,6 +25,7 @@ async fn create_output(
             output_path,
             merge,
             resources_dir: None,
+            mtime: None,
             link_locals: false,
         },
     )
@@ -45,6 +46,7 @@ async fn create_output_with_resources(
             output_path,
             merge,
             resources_dir: Some(resources_dir),
+            mtime: None,
             link_locals: false,
         },
     )
@@ -64,6 +66,7 @@ async fn create_output_with_links(
             output_path,
             merge,
             resources_dir: None,
+            mtime: None,
             link_locals: true,
         },
     )
@@ -943,7 +946,30 @@ async fn test_output_with_links() -> anyhow::Result<()> {
     )
     .await;
 
+    assert_mtime_is_brioche_epoch(context.path("output/hello.txt")).await;
+    assert_mtime_is_brioche_epoch(context.path("output/hello2.txt")).await;
+    assert_mtime_is_brioche_epoch(context.path("output/hello_res.txt")).await;
+    assert_mtime_is_brioche_epoch(context.path("output/hello_res2.txt")).await;
+    assert_mtime_is_brioche_epoch(context.path("output/hello_exe")).await;
+    assert_mtime_is_brioche_epoch(context.path("output/hello_exe2")).await;
+    assert_mtime_is_brioche_epoch(context.path("output/hello_exe_res")).await;
+    assert_mtime_is_brioche_epoch(context.path("output/hello_exe_res2")).await;
+
     Ok(())
+}
+
+async fn assert_mtime_is_brioche_epoch(path: impl AsRef<Path>) {
+    let path = path.as_ref();
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .expect("failed to get metadata");
+    let mtime = metadata.modified().expect("failed to get mtime");
+    assert_eq!(
+        mtime
+            .duration_since(brioche::fs_utils::brioche_epoch())
+            .expect("mtime is before epoch"),
+        std::time::Duration::ZERO,
+    );
 }
 
 struct Mode {

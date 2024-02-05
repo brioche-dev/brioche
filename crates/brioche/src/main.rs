@@ -166,6 +166,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                     output_path: output,
                     merge: false,
                     resources_dir: None,
+                    mtime: Some(std::time::SystemTime::now()),
                     link_locals: false,
                 },
             )

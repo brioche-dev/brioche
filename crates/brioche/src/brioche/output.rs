@@ -18,6 +18,7 @@ pub struct OutputOptions<'a> {
     pub output_path: &'a Path,
     pub resources_dir: Option<&'a Path>,
     pub merge: bool,
+    pub mtime: Option<std::time::SystemTime>,
     pub link_locals: bool,
 }
 
@@ -89,11 +90,11 @@ async fn create_output_inner<'a: 'async_recursion>(
                             )
                         })?;
 
-                    // Set the file permissions. We set the file to be
-                    // read-only if `link_locals` is enabled even if the
-                    // file wasn't created as a hardlink. That way, the
-                    // permissions are the same whether or not we used
-                    // a hardlink.
+                    // Set the file permissions and mtime. We set the file
+                    // to be read-only and reset the file's modified time
+                    // if `link_locals` is enabled even if the file wasn't
+                    // created as a hardlink. That way, the permissions are
+                    // the same whether or not we used a hardlink.
                     set_file_permissions(
                         options.output_path,
                         SetFilePermissions {
@@ -103,6 +104,16 @@ async fn create_output_inner<'a: 'async_recursion>(
                     )
                     .await
                     .context("failed to set output file permissions")?;
+
+                    if let Some(mtime) = options.mtime {
+                        crate::fs_utils::set_mtime(options.output_path, mtime)
+                            .await
+                            .context("failed to set output file modified time")?;
+                    } else if options.link_locals {
+                        crate::fs_utils::set_mtime_to_brioche_epoch(options.output_path)
+                            .await
+                            .context("failed to set output file modified time")?;
+                    }
                 }
             } else {
                 let Some(resources_dir) = options.resources_dir else {
@@ -116,6 +127,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                         output_path: resources_dir,
                         resources_dir: Some(resources_dir),
                         merge: true,
+                        mtime: None,
                         link_locals: options.link_locals,
                     },
                     link_lock,
@@ -150,6 +162,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                             output_path: options.output_path,
                             resources_dir: None,
                             merge: options.merge,
+                            mtime: options.mtime,
                             link_locals: options.link_locals,
                         },
                         link_lock,
@@ -219,6 +232,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                                     output_path: resources_dir,
                                     resources_dir: Some(resources_dir),
                                     merge: true,
+                                    mtime: options.mtime,
                                     link_locals: options.link_locals,
                                 },
                                 Some(link_lock),
@@ -244,6 +258,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                                 output_path: &entry_path,
                                 resources_dir: Some(resources_dir),
                                 merge: true,
+                                mtime: options.mtime,
                                 link_locals: options.link_locals,
                             },
                             link_lock,
@@ -290,7 +305,7 @@ async fn create_local_output_inner(
     let local_path = local_dir.join(artifact_hash.to_string());
     let local_resources_dir = local_dir.join(format!("{artifact_hash}-pack.d"));
 
-    if !try_exists_and_ensure_readonly(&local_path).await? {
+    if !try_exists_and_ensure_local_meta(&local_path).await? {
         let local_temp_dir = brioche.home.join("locals-temp");
         tokio::fs::create_dir_all(&local_temp_dir).await?;
         let temp_id = ulid::Ulid::new();
@@ -304,6 +319,7 @@ async fn create_local_output_inner(
                 output_path: &local_temp_path,
                 resources_dir: Some(&local_temp_resources_dir),
                 merge: false,
+                mtime: None,
                 link_locals: true,
             },
             Some(lock),
@@ -325,6 +341,9 @@ async fn create_local_output_inner(
                 )
                 .await
                 .context("failed to set permissions for local file")?;
+                crate::fs_utils::set_mtime_to_brioche_epoch(&local_path)
+                    .await
+                    .context("failed to set modified time for local file")?;
             }
             CompleteArtifact::Directory(_) => {
                 set_directory_permissions(&local_path, SetDirectoryPermissions { readonly: true })
@@ -348,7 +367,7 @@ async fn create_local_output_inner(
         }
     }
 
-    let resources_dir = if try_exists_and_ensure_readonly(&local_resources_dir).await? {
+    let resources_dir = if try_exists_and_ensure_local_meta(&local_resources_dir).await? {
         Some(local_resources_dir)
     } else {
         None
@@ -365,10 +384,12 @@ pub struct LocalOutput {
     pub resources_dir: Option<PathBuf>,
 }
 
-/// Check if a path exists and change it's permissions to read-only. Returns
-/// `true` if the path exists and is now read-only, `false` if the path does
-/// not exist, or `Err(_)` if an error occurred.
-async fn try_exists_and_ensure_readonly(path: &Path) -> anyhow::Result<bool> {
+/// Check if a path exists, and change the file metadata to ensure it matches
+/// other local values (i.e. files are marked as read-only and the file
+/// modified time is set to the Unix epoch). Returns `true` if the path
+/// exists and is now read-only, `false` if the path does not exist, or `Err(_)`
+/// if an error occurred.
+async fn try_exists_and_ensure_local_meta(path: &Path) -> anyhow::Result<bool> {
     let metadata = tokio::fs::symlink_metadata(path).await;
 
     let metadata = match metadata {
@@ -383,6 +404,17 @@ async fn try_exists_and_ensure_readonly(path: &Path) -> anyhow::Result<bool> {
         tokio::fs::set_permissions(path, permissions)
             .await
             .with_context(|| format!("failed to mark path as read-only: {}", path.display()))?;
+    }
+
+    let mtime = metadata
+        .modified()
+        .context("failed to get file modified time")?;
+    let is_mtime_at_epoch = mtime
+        .duration_since(crate::fs_utils::brioche_epoch())
+        .is_ok_and(|duration| duration.is_zero());
+
+    if metadata.is_file() && !is_mtime_at_epoch {
+        crate::fs_utils::set_mtime_to_brioche_epoch(path).await?;
     }
 
     Ok(true)

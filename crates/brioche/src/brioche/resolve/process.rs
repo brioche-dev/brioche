@@ -189,6 +189,7 @@ pub async fn resolve_process(
                 output_path: &host_work_dir,
                 merge: true,
                 resources_dir: Some(&host_pack_dir),
+                mtime: Some(crate::fs_utils::brioche_epoch()),
                 link_locals: false,
             },
         )
@@ -203,6 +204,7 @@ pub async fn resolve_process(
                     output_path: &output_path,
                     merge: false,
                     resources_dir: Some(&host_pack_dir),
+                    mtime: Some(crate::fs_utils::brioche_epoch()),
                     link_locals: false,
                 },
             )
@@ -590,6 +592,7 @@ async fn set_up_rootfs(
         output_path: rootfs_dir,
         merge: true,
         resources_dir: None,
+        mtime: None,
         link_locals: true,
     };
 
