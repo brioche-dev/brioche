@@ -82,7 +82,7 @@ pub async fn save_blob<'a>(
         .context("failed to set blob permissions")?;
     let temp_file = temp_file.into_std().await;
     tokio::task::spawn_blocking(move || {
-        temp_file.set_modified(std::time::UNIX_EPOCH)?;
+        temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
         anyhow::Ok(())
     })
     .await??;
@@ -188,7 +188,7 @@ where
         .context("failed to set blob permissions")?;
     let temp_file = temp_file.into_std().await;
     tokio::task::spawn_blocking(move || {
-        temp_file.set_modified(std::time::UNIX_EPOCH)?;
+        temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
         anyhow::Ok(())
     })
     .await??;
@@ -304,7 +304,7 @@ pub async fn save_blob_from_file<'a>(
             .context("failed to set blob permissions")?;
         let existing_blob_file = existing_blob_file.into_std().await;
         tokio::task::spawn_blocking(move || {
-            existing_blob_file.set_modified(std::time::UNIX_EPOCH)?;
+            existing_blob_file.set_modified(crate::fs_utils::brioche_epoch())?;
             anyhow::Ok(())
         })
         .await??;
@@ -317,7 +317,7 @@ pub async fn save_blob_from_file<'a>(
         tokio::fs::set_permissions(input_path, permissions)
             .await
             .context("failed to set blob permissions")?;
-        crate::fs_utils::set_mtime_to_epoch(input_path)
+        crate::fs_utils::set_mtime_to_brioche_epoch(input_path)
             .await
             .context("failed to set blob modified time")?;
         let move_type = crate::fs_utils::move_file(input_path, &blob_path)
@@ -343,7 +343,7 @@ pub async fn save_blob_from_file<'a>(
         tokio::fs::set_permissions(&blob_path, permissions)
             .await
             .context("failed to set blob permissions")?;
-        crate::fs_utils::set_mtime_to_epoch(input_path)
+        crate::fs_utils::set_mtime_to_brioche_epoch(input_path)
             .await
             .context("failed to set blob modified time")?;
         tracing::debug!(input_path = %input_path.display(), blob_id = %id, "saved blob by copying file");

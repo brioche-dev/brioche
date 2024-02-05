@@ -110,7 +110,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                             .await
                             .context("failed to set output file modified time")?;
                     } else if options.link_locals {
-                        crate::fs_utils::set_mtime_to_epoch(options.output_path)
+                        crate::fs_utils::set_mtime_to_brioche_epoch(options.output_path)
                             .await
                             .context("failed to set output file modified time")?;
                     }
@@ -341,7 +341,7 @@ async fn create_local_output_inner(
                 )
                 .await
                 .context("failed to set permissions for local file")?;
-                crate::fs_utils::set_mtime_to_epoch(&local_path)
+                crate::fs_utils::set_mtime_to_brioche_epoch(&local_path)
                     .await
                     .context("failed to set modified time for local file")?;
             }
@@ -408,13 +408,13 @@ async fn try_exists_and_ensure_local_meta(path: &Path) -> anyhow::Result<bool> {
 
     let mtime = metadata
         .modified()
-        .context("failed to get fil modified time")?;
+        .context("failed to get file modified time")?;
     let is_mtime_at_epoch = mtime
-        .duration_since(std::time::UNIX_EPOCH)
+        .duration_since(crate::fs_utils::brioche_epoch())
         .is_ok_and(|duration| duration.is_zero());
 
     if metadata.is_file() && !is_mtime_at_epoch {
-        crate::fs_utils::set_mtime_to_epoch(path).await?;
+        crate::fs_utils::set_mtime_to_brioche_epoch(path).await?;
     }
 
     Ok(true)

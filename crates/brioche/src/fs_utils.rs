@@ -128,8 +128,19 @@ pub async fn set_directory_rwx_recursive(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn set_mtime_to_epoch(path: &Path) -> anyhow::Result<()> {
-    set_mtime(path, std::time::UNIX_EPOCH).await?;
+/// A timestamp used for as the modified time for files during Brioche builds.
+/// Defined as 2000-01-01 00:00:00 UTC, or 946,684,800 seconds after the Unix
+/// epoch.
+///
+/// The main motivation for not using the Unix epoch is that ZIP files don't
+/// support dates eariler than 1980, which is inconvenient. The chosen timestamp
+/// beyond that is arbitrary.
+pub fn brioche_epoch() -> std::time::SystemTime {
+    std::time::UNIX_EPOCH + std::time::Duration::from_secs(946_684_800)
+}
+
+pub async fn set_mtime_to_brioche_epoch(path: &Path) -> anyhow::Result<()> {
+    set_mtime(path, brioche_epoch()).await?;
     Ok(())
 }
 
