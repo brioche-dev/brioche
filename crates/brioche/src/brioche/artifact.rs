@@ -766,6 +766,7 @@ pub enum ArchiveFormat {
 pub enum CompressionFormat {
     #[default]
     None,
+    Bzip2,
     Gzip,
     Xz,
     Zstd,
@@ -778,6 +779,7 @@ impl CompressionFormat {
     ) -> Box<dyn tokio::io::AsyncRead + Unpin + Send> {
         match self {
             Self::None => Box::new(input),
+            Self::Bzip2 => Box::new(async_compression::tokio::bufread::BzDecoder::new(input)),
             Self::Gzip => Box::new(async_compression::tokio::bufread::GzipDecoder::new(input)),
             Self::Xz => Box::new(async_compression::tokio::bufread::XzDecoder::new(input)),
             Self::Zstd => Box::new(async_compression::tokio::bufread::ZstdDecoder::new(input)),

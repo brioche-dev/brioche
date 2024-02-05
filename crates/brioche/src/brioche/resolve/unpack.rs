@@ -65,11 +65,11 @@ pub async fn resolve_unpack(
                     .await?;
                     let executable = entry_mode & 0o100 != 0;
 
-                    CompleteArtifact::File(File {
+                    Some(CompleteArtifact::File(File {
                         content_blob: entry_blob_id,
                         executable,
                         resources: Directory::default(),
-                    })
+                    }))
                 }
                 tokio_tar::EntryType::Symlink => {
                     let link_name = archive_entry.link_name_bytes().with_context(|| {
@@ -79,9 +79,9 @@ pub async fn resolve_unpack(
                         )
                     })?;
 
-                    CompleteArtifact::Symlink {
+                    Some(CompleteArtifact::Symlink {
                         target: link_name.into_owned().into(),
-                    }
+                    })
                 }
                 tokio_tar::EntryType::Link => {
                     let link_name = archive_entry.link_name_bytes().with_context(|| {
@@ -100,10 +100,14 @@ pub async fn resolve_unpack(
                         )
                         })?;
 
-                    linked_entry.value.clone()
+                    Some(linked_entry.value.clone())
                 }
                 tokio_tar::EntryType::Directory => {
-                    CompleteArtifact::Directory(Directory::default())
+                    Some(CompleteArtifact::Directory(Directory::default()))
+                }
+                tokio_tar::EntryType::XGlobalHeader | tokio_tar::EntryType::XHeader => {
+                    // Ignore
+                    None
                 }
                 other => {
                     anyhow::bail!(
@@ -114,13 +118,17 @@ pub async fn resolve_unpack(
                 }
             };
 
-            let insert_result = directory
-                .insert(
-                    brioche,
-                    &entry_path,
-                    Some(WithMeta::new(entry_artifact, meta.clone())),
-                )
-                .await;
+            let insert_result = match entry_artifact {
+                Some(entry_artifact) => directory
+                    .insert(
+                        brioche,
+                        &entry_path,
+                        Some(WithMeta::new(entry_artifact, meta.clone())),
+                    )
+                    .await
+                    .map(|_| ()),
+                None => Ok(()),
+            };
             match insert_result {
                 Ok(_) => {}
                 Err(DirectoryError::EmptyPath { .. }) => {
