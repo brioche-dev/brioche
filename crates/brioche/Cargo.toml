@@ -75,3 +75,8 @@ tempdir = "0.3.7"
 [[bench]]
 name = "resolve"
 harness = false
+
+[lints.clippy]
+# Temporarily ignore false positives from `tracing::instrument`, see:
+# https://github.com/rust-lang/rust-clippy/issues/12281
+blocks_in_conditions = "allow"
