@@ -134,9 +134,7 @@ impl Projects {
             .inner
             .read()
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
-        projects
-            .project(project_hash)
-            .map(|project| project.clone())
+        projects.project(project_hash).cloned()
     }
 
     pub fn local_paths(&self, project_hash: ProjectHash) -> anyhow::Result<BTreeSet<PathBuf>> {
