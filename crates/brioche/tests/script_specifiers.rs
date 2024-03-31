@@ -26,7 +26,7 @@ async fn test_specifier_read_runtime() -> anyhow::Result<()> {
     let specifier: BriocheModuleSpecifier = "briocheruntime:///dist/index.js"
         .parse()
         .expect("failed to parse specifier");
-    let contents = read_specifier_contents(&brioche.vfs.snapshot().await, &specifier)?;
+    let contents = read_specifier_contents(&brioche.vfs, &specifier)?;
 
     assert!(!contents.is_empty());
 
@@ -54,7 +54,7 @@ async fn test_specifier_read_project() -> anyhow::Result<()> {
     brioche_test::load_project(&brioche, &project_dir).await?;
 
     let specifier = BriocheModuleSpecifier::from_path(&foo_path);
-    let contents = read_specifier_contents(&brioche.vfs.snapshot().await, &specifier)?;
+    let contents = read_specifier_contents(&brioche.vfs, &specifier)?;
     let contents = std::str::from_utf8(&contents).unwrap();
 
     assert_eq!(contents, foo_script);

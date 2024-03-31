@@ -4,7 +4,7 @@ use anyhow::Context as _;
 
 use crate::brioche::{
     project::{ProjectHash, Projects},
-    vfs::VfsSnapshot,
+    vfs::Vfs,
     Brioche,
 };
 
@@ -144,7 +144,7 @@ pub struct DiagnosticError {
 }
 
 impl DiagnosticError {
-    pub fn write(&self, vfs: &VfsSnapshot, out: &mut impl std::io::Write) -> anyhow::Result<()> {
+    pub fn write(&self, vfs: &Vfs, out: &mut impl std::io::Write) -> anyhow::Result<()> {
         for (n, diagnostic) in self.diagnostics.iter().enumerate() {
             if n != 0 {
                 writeln!(out)?;

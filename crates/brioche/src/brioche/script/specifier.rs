@@ -7,10 +7,7 @@ use std::{
 use anyhow::Context as _;
 use relative_path::{PathExt, RelativePathBuf};
 
-use crate::brioche::{
-    project::Projects,
-    vfs::{Vfs, VfsSnapshot},
-};
+use crate::brioche::{project::Projects, vfs::Vfs};
 
 /// A specifier from an `import` statement in a JavaScript module. Can
 /// be resolved to a module specifier using the `resolve` function.
@@ -185,7 +182,7 @@ pub fn runtime_specifiers_with_contents(
 }
 
 pub fn read_specifier_contents(
-    vfs: &VfsSnapshot,
+    vfs: &Vfs,
     specifier: &BriocheModuleSpecifier,
 ) -> anyhow::Result<Arc<Vec<u8>>> {
     match specifier {
@@ -196,7 +193,7 @@ pub fn read_specifier_contents(
         }
         BriocheModuleSpecifier::File { path } => {
             let (_, contents) = vfs
-                .load_cached(path)
+                .load_cached(path)?
                 .with_context(|| format!("module '{specifier}' not loaded"))?;
             Ok(contents)
         }
@@ -216,8 +213,7 @@ pub async fn load_specifier_contents(
         }
     }
 
-    let snapshot = vfs.snapshot().await;
-    read_specifier_contents(&snapshot, specifier)
+    read_specifier_contents(vfs, specifier)
 }
 
 pub fn resolve(

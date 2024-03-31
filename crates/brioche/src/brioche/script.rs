@@ -78,7 +78,6 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         let vfs = self.brioche.vfs.clone();
         let future = async move {
             let module_specifier = module_specifier?;
-            let vfs = vfs.snapshot().await;
             let contents = specifier::read_specifier_contents(&vfs, &module_specifier)?;
 
             let code = std::str::from_utf8(&contents)

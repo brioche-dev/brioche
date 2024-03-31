@@ -127,7 +127,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                 Err(diagnostics) => {
                     guard.shutdown_console().await;
 
-                    diagnostics.write(&brioche.vfs.snapshot().await, &mut std::io::stdout())?;
+                    diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
                     return anyhow::Ok(ExitCode::FAILURE);
                 }
             }
@@ -220,7 +220,7 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
                 anyhow::Ok(ExitCode::SUCCESS)
             }
             Err(diagnostics) => {
-                diagnostics.write(&brioche.vfs.snapshot().await, &mut std::io::stdout())?;
+                diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
                 anyhow::Ok(ExitCode::FAILURE)
             }
         }

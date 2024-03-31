@@ -1,15 +1,14 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use anyhow::Context as _;
-use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Default)]
 pub struct Vfs {
-    inner: Arc<RwLock<Arc<VfsInner>>>,
+    inner: Arc<RwLock<VfsInner>>,
 }
 
 impl Vfs {
@@ -17,10 +16,8 @@ impl Vfs {
         let path = crate::fs_utils::logical_path(path);
 
         {
-            let vfs = self.inner.read().await;
-            if let Some(file_id) = vfs.locations_to_ids.get(&path) {
-                let contents = vfs.contents[file_id].clone();
-                return Ok((*file_id, contents));
+            if let Some((file_id, contents)) = self.load_cached(&path)? {
+                return Ok((file_id, contents));
             }
         }
 
@@ -32,8 +29,10 @@ impl Vfs {
         let hash = blake3::hash(&contents);
         let file_id = FileId(hash);
 
-        let mut vfs = self.inner.write().await;
-        let vfs = Arc::make_mut(&mut vfs);
+        let mut vfs = self
+            .inner
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire VFS lock"))?;
         vfs.contents.insert(file_id, contents.clone());
         vfs.locations_to_ids.insert(path.clone(), file_id);
         vfs.ids_to_locations
@@ -46,31 +45,27 @@ impl Vfs {
         Ok((file_id, contents))
     }
 
-    pub async fn read(&self, file_id: FileId) -> Option<Arc<Vec<u8>>> {
-        let vfs = self.inner.read().await;
-        vfs.contents.get(&file_id).cloned()
-    }
-
-    pub async fn snapshot(&self) -> VfsSnapshot {
-        let inner = self.inner.read().await.clone();
-        VfsSnapshot { inner }
-    }
-}
-
-pub struct VfsSnapshot {
-    inner: Arc<VfsInner>,
-}
-
-impl VfsSnapshot {
-    pub fn load_cached(&self, path: &Path) -> Option<(FileId, Arc<Vec<u8>>)> {
+    pub fn load_cached(&self, path: &Path) -> anyhow::Result<Option<(FileId, Arc<Vec<u8>>)>> {
         let path = crate::fs_utils::logical_path(path);
-        let file_id = self.inner.locations_to_ids.get(&path)?;
-        let contents = self.inner.contents.get(file_id)?.clone();
-        Some((*file_id, contents))
+
+        let vfs = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire VFS lock"))?;
+        let Some(file_id) = vfs.locations_to_ids.get(&path) else {
+            return Ok(None);
+        };
+
+        let contents = vfs.contents[file_id].clone();
+        Ok(Some((*file_id, contents)))
     }
 
-    pub fn read(&self, file_id: FileId) -> Option<Arc<Vec<u8>>> {
-        self.inner.contents.get(&file_id).cloned()
+    pub fn read(&self, file_id: FileId) -> anyhow::Result<Option<Arc<Vec<u8>>>> {
+        let vfs = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire VFS lock"))?;
+        Ok(vfs.contents.get(&file_id).cloned())
     }
 }
 
