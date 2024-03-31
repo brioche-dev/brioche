@@ -37,7 +37,7 @@ opentelemetry-jaeger = "0.20.0"
 opentelemetry-otlp = { version = "0.14.0", features = ["http-proto", "reqwest", "tls-roots", "grpc-tonic"] }
 pathdiff = "0.2.1"
 regex = "1.10.2"
-relative-path = "1.9.0"
+relative-path = { version = "1.9.0", features = ["serde"] }
 reqwest = { version = "0.11.22", default-features = false, features = ["rustls-tls", "stream"] }
 reqwest-middleware = "0.2.4"
 reqwest-retry = "0.3.0"

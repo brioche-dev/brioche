@@ -1,18 +1,15 @@
 use std::{
     borrow::Cow,
     path::{Path, PathBuf},
-    pin::Pin,
+    sync::Arc,
 };
 
 use anyhow::Context as _;
 use relative_path::{PathExt, RelativePathBuf};
 
-use crate::{
-    brioche::{
-        project::{find_project_root, find_project_root_sync, resolve_project},
-        Brioche,
-    },
-    fs_utils::is_file,
+use crate::brioche::{
+    project::Projects,
+    vfs::{Vfs, VfsSnapshot},
 };
 
 /// A specifier from an `import` statement in a JavaScript module. Can
@@ -187,52 +184,44 @@ pub fn runtime_specifiers_with_contents(
     })
 }
 
-pub async fn read_specifier_contents(
+pub fn read_specifier_contents(
+    vfs: &VfsSnapshot,
     specifier: &BriocheModuleSpecifier,
-) -> anyhow::Result<Option<Pin<Box<dyn tokio::io::AsyncRead + Send + Sync>>>> {
+) -> anyhow::Result<Arc<Vec<u8>>> {
     match specifier {
         BriocheModuleSpecifier::Runtime { subpath } => {
-            let Some(file) = crate::brioche::RuntimeFiles::get(subpath.as_str()) else {
-                return Ok(None);
-            };
-            let reader = std::io::Cursor::new(file.data);
-            Ok(Some(Box::pin(reader)))
+            let file = crate::brioche::RuntimeFiles::get(subpath.as_str())
+                .with_context(|| format!("internal module '{specifier}' not found"))?;
+            Ok(Arc::new(file.data.to_vec()))
         }
         BriocheModuleSpecifier::File { path } => {
-            let file = match tokio::fs::File::open(path).await {
-                Ok(file) => file,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(error) => return Err(error).context("failed to open file"),
-            };
-            Ok(Some(Box::pin(file)))
+            let (_, contents) = vfs
+                .load_cached(path)
+                .with_context(|| format!("module '{specifier}' not loaded"))?;
+            Ok(contents)
         }
     }
 }
 
-pub fn read_specifier_contents_sync(
+pub async fn load_specifier_contents(
+    vfs: &Vfs,
     specifier: &BriocheModuleSpecifier,
-) -> anyhow::Result<Option<Box<dyn std::io::Read>>> {
+) -> anyhow::Result<Arc<Vec<u8>>> {
     match specifier {
-        BriocheModuleSpecifier::Runtime { subpath } => {
-            let Some(file) = crate::brioche::RuntimeFiles::get(subpath.as_str()) else {
-                return Ok(None);
-            };
-            let reader = std::io::Cursor::new(file.data);
-            Ok(Some(Box::new(reader)))
-        }
+        BriocheModuleSpecifier::Runtime { .. } => {}
         BriocheModuleSpecifier::File { path } => {
-            let file = match std::fs::File::open(path) {
-                Ok(file) => file,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                Err(error) => return Err(error).context("failed to open file"),
-            };
-            Ok(Some(Box::new(file)))
+            vfs.load(path)
+                .await
+                .with_context(|| format!("failed to load module '{specifier}'"))?;
         }
     }
+
+    let snapshot = vfs.snapshot().await;
+    read_specifier_contents(&snapshot, specifier)
 }
 
-pub async fn resolve(
-    brioche: &Brioche,
+pub fn resolve(
+    projects: &Projects,
     specifier: &BriocheImportSpecifier,
     referrer: &BriocheModuleSpecifier,
 ) -> anyhow::Result<BriocheModuleSpecifier> {
@@ -271,8 +260,13 @@ pub async fn resolve(
             anyhow::bail!("internal module '{specifier}' not found (imported from {referrer})");
         }
         BriocheModuleSpecifier::File { path } => {
-            let project_root = find_project_root(path).await?;
-            let subpath = path.relative_to(project_root)?;
+            let project_hash = projects.find_containing_project(path)?.with_context(|| {
+                format!(
+                    "project containing module '{specifier}' not found (imported from {referrer})"
+                )
+            })?;
+            let project_root = projects.find_containing_project_root(path, project_hash)?;
+            let subpath = path.relative_to(&project_root)?;
 
             match specifier {
                 BriocheImportSpecifier::Local(BriocheLocalImportSpecifier::Relative(
@@ -284,9 +278,9 @@ pub async fn resolve(
                         .unwrap_or(RelativePathBuf::from(""))
                         .join_normalized(specifier_path);
 
-                    let candidate_module_path = new_subpath.to_logical_path(project_root);
+                    let candidate_module_path = new_subpath.to_logical_path(&project_root);
                     anyhow::ensure!(
-                        candidate_module_path.starts_with(project_root),
+                        candidate_module_path.starts_with(&project_root),
                         "module '{specifier}' escapes project path {}",
                         project_root.display(),
                     );
@@ -302,143 +296,7 @@ pub async fn resolve(
 
                     for candidate in candidates {
                         anyhow::ensure!(
-                            candidate.starts_with(project_root),
-                            "module '{specifier}' escapes project path {}",
-                            project_root.display(),
-                        );
-
-                        if is_file(&candidate).await {
-                            return Ok(BriocheModuleSpecifier::File { path: candidate });
-                        }
-                    }
-
-                    anyhow::bail!("module '{specifier}' not found (imported from {referrer})");
-                }
-                BriocheImportSpecifier::Local(BriocheLocalImportSpecifier::ProjectRoot(
-                    specifier_path,
-                )) => {
-                    let new_subpath = RelativePathBuf::from(specifier_path);
-
-                    let candidate_module_path = new_subpath.to_logical_path(project_root);
-                    anyhow::ensure!(
-                        candidate_module_path.starts_with(project_root),
-                        "module '{specifier}' escapes project path {}",
-                        project_root.display(),
-                    );
-
-                    let candidates = if candidate_module_path == *project_root {
-                        vec![candidate_module_path.join("project.bri")]
-                    } else {
-                        vec![
-                            candidate_module_path.clone(),
-                            candidate_module_path.join("index.bri"),
-                        ]
-                    };
-
-                    for candidate in candidates {
-                        anyhow::ensure!(
-                            candidate.starts_with(project_root),
-                            "module '{specifier}' escapes project path {}",
-                            project_root.display(),
-                        );
-
-                        if is_file(&candidate).await {
-                            return Ok(BriocheModuleSpecifier::File { path: candidate });
-                        }
-                    }
-
-                    anyhow::bail!("module '{specifier}' not found (imported from {referrer})");
-                }
-                BriocheImportSpecifier::External(dep) => {
-                    let project = resolve_project(brioche, project_root).await?;
-                    let dependency_project = project.dependencies.get(dep).with_context(|| {
-                        format!("dependency '{specifier}' not found (imported from {referrer})")
-                    })?;
-
-                    let dependency_path = dependency_project.local_path.join("project.bri");
-
-                    Ok(BriocheModuleSpecifier::File {
-                        path: dependency_path,
-                    })
-                }
-            }
-        }
-    }
-}
-
-// TODO: Remove
-pub fn resolve_sync(
-    brioche: &Brioche,
-    specifier: &BriocheImportSpecifier,
-    referrer: &BriocheModuleSpecifier,
-) -> anyhow::Result<BriocheModuleSpecifier> {
-    match referrer {
-        BriocheModuleSpecifier::Runtime { subpath } => {
-            let specifier_path = match specifier {
-                BriocheImportSpecifier::Local(BriocheLocalImportSpecifier::Relative(
-                    specifier_path,
-                )) => specifier_path,
-                _ => {
-                    anyhow::bail!("invalid specifier '{specifier}' imported from {referrer}");
-                }
-            };
-
-            let new_subpath = subpath
-                .parent()
-                .map(|parent| parent.to_owned())
-                .unwrap_or(RelativePathBuf::from(""))
-                .join(specifier_path);
-
-            let candidates = [
-                new_subpath.join("index.js"),
-                new_subpath.join("index.ts"),
-                new_subpath.with_extension("js"),
-                new_subpath.with_extension("ts"),
-                new_subpath,
-            ];
-
-            for candidate in candidates {
-                let file = crate::brioche::RuntimeFiles::get(candidate.as_str());
-                if file.is_some() {
-                    return Ok(BriocheModuleSpecifier::Runtime { subpath: candidate });
-                }
-            }
-
-            anyhow::bail!("internal module '{specifier}' not found (imported from {referrer})");
-        }
-        BriocheModuleSpecifier::File { path } => {
-            let project_root = find_project_root_sync(path)?;
-            let subpath = path.relative_to(project_root)?;
-
-            match specifier {
-                BriocheImportSpecifier::Local(BriocheLocalImportSpecifier::Relative(
-                    specifier_path,
-                )) => {
-                    let new_subpath = subpath
-                        .parent()
-                        .map(|parent| parent.to_owned())
-                        .unwrap_or(RelativePathBuf::from(""))
-                        .join_normalized(specifier_path);
-
-                    let candidate_module_path = new_subpath.to_logical_path(project_root);
-                    anyhow::ensure!(
-                        candidate_module_path.starts_with(project_root),
-                        "module '{specifier}' escapes project path {}",
-                        project_root.display(),
-                    );
-
-                    let candidates = if candidate_module_path == *project_root {
-                        vec![candidate_module_path.join("project.bri")]
-                    } else {
-                        vec![
-                            candidate_module_path.clone(),
-                            candidate_module_path.join("index.bri"),
-                        ]
-                    };
-
-                    for candidate in candidates {
-                        anyhow::ensure!(
-                            candidate.starts_with(project_root),
+                            candidate.starts_with(&project_root),
                             "module '{specifier}' escapes project path {}",
                             project_root.display(),
                         );
@@ -455,9 +313,9 @@ pub fn resolve_sync(
                 )) => {
                     let new_subpath = RelativePathBuf::from(specifier_path);
 
-                    let candidate_module_path = new_subpath.to_logical_path(project_root);
+                    let candidate_module_path = new_subpath.to_logical_path(&project_root);
                     anyhow::ensure!(
-                        candidate_module_path.starts_with(project_root),
+                        candidate_module_path.starts_with(&project_root),
                         "module '{specifier}' escapes project path {}",
                         project_root.display(),
                     );
@@ -473,7 +331,7 @@ pub fn resolve_sync(
 
                     for candidate in candidates {
                         anyhow::ensure!(
-                            candidate.starts_with(project_root),
+                            candidate.starts_with(&project_root),
                             "module '{specifier}' escapes project path {}",
                             project_root.display(),
                         );
@@ -486,17 +344,15 @@ pub fn resolve_sync(
                     anyhow::bail!("module '{specifier}' not found (imported from {referrer})");
                 }
                 BriocheImportSpecifier::External(dep) => {
-                    let project =
-                        futures::executor::block_on(resolve_project(brioche, project_root))?;
-                    let dependency_project = project.dependencies.get(dep).with_context(|| {
-                        format!("dependency '{specifier}' not found (imported from {referrer})")
-                    })?;
+                    let project = projects.project(project_hash)?;
+                    let dependency_project_hash =
+                        project.dependencies.get(dep).with_context(|| {
+                            format!("dependency '{specifier}' not found (imported from {referrer})")
+                        })?;
 
-                    let dependency_path = dependency_project.local_path.join("project.bri");
-
-                    Ok(BriocheModuleSpecifier::File {
-                        path: dependency_path,
-                    })
+                    let dependency_root_module_specifier =
+                        projects.project_root_module_specifier(*dependency_project_hash)?;
+                    Ok(dependency_root_module_specifier)
                 }
             }
         }

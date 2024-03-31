@@ -7,20 +7,23 @@ use std::{
 
 use anyhow::Context as _;
 use deno_core::OpState;
-use tokio::io::AsyncReadExt as _;
 
-use crate::brioche::{project::analyze::find_imports, Brioche};
+use crate::brioche::{
+    project::{analyze::find_imports, Projects},
+    Brioche,
+};
 
 use super::specifier::{self, resolve, BriocheImportSpecifier, BriocheModuleSpecifier};
 
 #[derive(Clone)]
 pub struct BriocheCompilerHost {
     pub brioche: Brioche,
+    pub projects: Projects,
     pub documents: Arc<RwLock<HashMap<BriocheModuleSpecifier, BriocheDocument>>>,
 }
 
 impl BriocheCompilerHost {
-    pub fn new(brioche: Brioche) -> Self {
+    pub async fn new(brioche: Brioche, projects: Projects) -> Self {
         let documents: HashMap<_, _> = specifier::runtime_specifiers_with_contents()
             .map(|(specifier, contents)| {
                 let contents = std::str::from_utf8(&contents)
@@ -33,11 +36,16 @@ impl BriocheCompilerHost {
                 (specifier, document)
             })
             .collect();
+
         Self {
             brioche,
+            projects,
             documents: Arc::new(RwLock::new(documents)),
         }
     }
+
+    // FIXME: Ensure that loading/updating a document can reload a project
+    // FIXME: Update project snapshots when loading/updating a document
 
     pub async fn load_document(&self, specifier: &BriocheModuleSpecifier) -> anyhow::Result<()> {
         let mut already_visited = HashSet::new();
@@ -56,17 +64,27 @@ impl BriocheCompilerHost {
                 documents.get(&specifier).map(|doc| doc.contents.clone())
             };
 
+            match &specifier {
+                BriocheModuleSpecifier::File { path } => {
+                    self.projects
+                        .load_from_module_path(&self.brioche, path)
+                        .await
+                        .inspect_err(|err| {
+                            tracing::warn!("failed to load project from module path: {err:#}");
+                        })?;
+                }
+                BriocheModuleSpecifier::Runtime { .. } => {}
+            }
+
             let contents = match contents {
                 Some(contents) => contents,
                 None => {
-                    let Some(mut reader) =
-                        super::specifier::read_specifier_contents(&specifier).await?
-                    else {
-                        tracing::warn!("failed to load document {specifier}");
-                        return Ok(());
-                    };
-                    let mut contents = String::new();
-                    reader.read_to_string(&mut contents).await?;
+                    let contents =
+                        super::specifier::load_specifier_contents(&self.brioche.vfs, &specifier)
+                            .await?;
+                    let contents = std::str::from_utf8(&contents).with_context(|| {
+                        format!("failed to parse module '{specifier}' contents as UTF-8 string")
+                    })?;
 
                     let mut documents = self
                         .documents
@@ -79,7 +97,7 @@ impl BriocheCompilerHost {
                         }
                         std::collections::hash_map::Entry::Vacant(entry) => {
                             tracing::info!("loaded new document into compiler host: {specifier}");
-                            let contents = Arc::new(contents);
+                            let contents = Arc::new(contents.to_string());
                             entry.insert(BriocheDocument {
                                 contents: contents.clone(),
                                 version: 0,
@@ -116,7 +134,7 @@ impl BriocheCompilerHost {
                         continue;
                     }
                 };
-                let resolved = resolve(&self.brioche, &import_specifier, &specifier).await;
+                let resolved = resolve(&self.projects, &import_specifier, &specifier);
                 let resolved = match resolved {
                     Ok(resolved) => resolved,
                     Err(error) => {
@@ -260,7 +278,7 @@ pub fn op_brioche_resolve_module(
     let referrer: BriocheModuleSpecifier = referrer.parse().ok()?;
     let specifier: BriocheImportSpecifier = specifier.parse().ok()?;
     let resolved =
-        super::specifier::resolve_sync(&compiler_host.brioche, &specifier, &referrer).ok()?;
+        super::specifier::resolve(&compiler_host.projects, &specifier, &referrer).ok()?;
 
     Some(resolved.to_string())
 }

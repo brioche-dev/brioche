@@ -16,6 +16,7 @@ pub mod platform;
 pub mod project;
 pub mod resolve;
 pub mod script;
+pub mod vfs;
 
 const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
@@ -23,6 +24,7 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 #[derive(Clone)]
 pub struct Brioche {
     reporter: Reporter,
+    pub vfs: vfs::Vfs,
     db_conn: Arc<Mutex<sqlx::SqliteConnection>>,
     pub repo_dir: PathBuf,
     /// The directory where all of Brioche's data is stored. Usually configured
@@ -146,6 +148,7 @@ impl BriocheBuilder {
 
         Ok(Brioche {
             reporter: self.reporter,
+            vfs: vfs::Vfs::default(),
             db_conn: Arc::new(Mutex::new(db_conn)),
             home: brioche_home,
             repo_dir,

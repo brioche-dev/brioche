@@ -2,8 +2,12 @@ use std::{collections::HashMap, path::Path};
 
 use anyhow::Context as _;
 use biome_rowan::{AstNode as _, AstNodeList as _, AstSeparatedList as _};
+use relative_path::{PathExt as _, RelativePathBuf};
 
-use crate::brioche::script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier};
+use crate::brioche::{
+    script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier},
+    vfs::{FileId, Vfs},
+};
 
 #[derive(Debug, Clone)]
 pub struct ProjectAnalysis {
@@ -14,6 +18,8 @@ pub struct ProjectAnalysis {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleAnalysis {
+    pub file_id: FileId,
+    pub project_subpath: RelativePathBuf,
     pub specifier: BriocheModuleSpecifier,
     pub imports: HashMap<BriocheImportSpecifier, ImportAnalysis>,
 }
@@ -24,14 +30,17 @@ pub enum ImportAnalysis {
     LocalModule(BriocheModuleSpecifier),
 }
 
-// TODO: Make async
-pub fn analyze_project(project_path: &Path) -> anyhow::Result<ProjectAnalysis> {
+pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<ProjectAnalysis> {
     let root_module_path = project_path.join("project.bri");
     let file = root_module_path.display();
-    let contents = std::fs::read_to_string(&root_module_path)
-        .with_context(|| format!("{file}: Failed to read root module file"))?;
+    let (_, contents) = vfs
+        .load(&root_module_path)
+        .await
+        .with_context(|| format!("{file}: failed to read root module file"))?;
+    let contents =
+        std::str::from_utf8(&contents).with_context(|| format!("{file}: invalid UTF-8"))?;
     let parsed = biome_js_parser::parse(
-        &contents,
+        contents,
         biome_js_syntax::JsFileSource::ts().with_module_kind(biome_js_syntax::ModuleKind::Module),
         biome_js_parser::JsParserOptions::default(),
     )
@@ -87,12 +96,13 @@ pub fn analyze_project(project_path: &Path) -> anyhow::Result<ProjectAnalysis> {
 
     let mut local_modules = HashMap::new();
     let root_module = analyze_module(
+        vfs,
         &root_module_path,
         project_path,
-        Some(&contents),
         Some(&module),
         &mut local_modules,
-    )?;
+    )
+    .await?;
 
     Ok(ProjectAnalysis {
         definition: project_definition,
@@ -101,12 +111,12 @@ pub fn analyze_project(project_path: &Path) -> anyhow::Result<ProjectAnalysis> {
     })
 }
 
-// TODO: Make async
-pub fn analyze_module(
+#[async_recursion::async_recursion(?Send)]
+pub async fn analyze_module(
+    vfs: &Vfs,
     module_path: &Path,
     project_path: &Path,
-    contents: Option<&str>,
-    module: Option<&biome_js_syntax::JsModule>,
+    module: Option<&'async_recursion biome_js_syntax::JsModule>,
     local_modules: &mut HashMap<BriocheModuleSpecifier, ModuleAnalysis>,
 ) -> anyhow::Result<BriocheModuleSpecifier> {
     let module_path = if module_path == project_path {
@@ -120,33 +130,42 @@ pub fn analyze_module(
     let module_specifier = BriocheModuleSpecifier::File {
         path: module_path.clone(),
     };
-    match local_modules.entry(module_specifier.clone()) {
+
+    let display_path = module_path.display();
+
+    let contents = match local_modules.entry(module_specifier.clone()) {
         std::collections::hash_map::Entry::Occupied(_) => {
             // We've already analyzed this module (or we're still analyzing it)
             return Ok(module_specifier);
         }
         std::collections::hash_map::Entry::Vacant(entry) => {
+            let project_subpath = module_path.relative_to(project_path).with_context(|| {
+                format!(
+                    "{display_path}: failed to resolve relative to project root {}",
+                    project_path.display()
+                )
+            })?;
+            let (file_id, contents) = vfs
+                .load(&module_path)
+                .await
+                .with_context(|| format!("{display_path}: failed to read file"))?;
+
             // We haven't analyzed this module yet. When recursing, we don't
             // want to re-analyze this module again, so insert a placeholder
             // that we'll update later.
             entry.insert(ModuleAnalysis {
+                file_id,
+                project_subpath,
                 specifier: module_specifier.clone(),
                 imports: HashMap::new(),
             });
+
+            contents
         }
     };
 
-    let file = module_path.display();
-
-    let read_contents;
-    let contents = match contents {
-        Some(contents) => contents,
-        None => {
-            read_contents = std::fs::read_to_string(&module_path)
-                .with_context(|| format!("{file}: Failed to read file"))?;
-            &read_contents
-        }
-    };
+    let contents =
+        std::str::from_utf8(&contents).with_context(|| format!("{display_path}: invalid UTF-8"))?;
 
     let parsed_module;
     let module = match module {
@@ -163,7 +182,7 @@ pub fn analyze_module(
 
             parsed_module = parsed
                 .try_tree()
-                .with_context(|| format!("{file}: failed to parse module"))?;
+                .with_context(|| format!("{display_path}: failed to parse module"))?;
             &parsed_module
         }
     };
@@ -195,7 +214,8 @@ pub fn analyze_module(
                     "invalid import path: must be within project root",
                 );
                 let import_module_specifier =
-                    analyze_module(&import_module_path, project_path, None, None, local_modules)?;
+                    analyze_module(vfs, &import_module_path, project_path, None, local_modules)
+                        .await?;
                 ImportAnalysis::LocalModule(import_module_specifier)
             }
             BriocheImportSpecifier::External(dependency) => {

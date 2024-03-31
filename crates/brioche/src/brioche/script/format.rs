@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
-use crate::brioche::project::Project;
+use crate::brioche::project::{ProjectHash, Projects};
 
-#[tracing::instrument(skip(project), err)]
-pub async fn format(project: &Project) -> anyhow::Result<()> {
-    for path in project.local_module_paths() {
+#[tracing::instrument(skip(projects), err)]
+pub async fn format(projects: &Projects, project_hash: ProjectHash) -> anyhow::Result<()> {
+    let module_paths = projects.project_module_paths(project_hash)?;
+    for path in &module_paths {
         let contents = tokio::fs::read_to_string(path).await?;
 
         let formatted_contents = format_code(&contents)?;
@@ -15,11 +16,15 @@ pub async fn format(project: &Project) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip(project), err)]
-pub async fn check_format(project: &Project) -> anyhow::Result<Vec<PathBuf>> {
+#[tracing::instrument(skip(projects), err)]
+pub async fn check_format(
+    projects: &Projects,
+    project_hash: ProjectHash,
+) -> anyhow::Result<Vec<PathBuf>> {
     let mut unformatted = vec![];
 
-    for path in project.local_module_paths() {
+    let module_paths = projects.project_module_paths(project_hash)?;
+    for path in &module_paths {
         let contents = tokio::fs::read_to_string(path).await?;
 
         let formatted_contents = format_code(&contents)?;

@@ -8,6 +8,7 @@ use std::{
 use brioche::brioche::{
     artifact::{CreateDirectory, Directory, DirectoryListing, File, WithMeta},
     blob::{BlobId, SaveBlobOptions},
+    project::{ProjectHash, Projects},
     Brioche, BriocheBuilder,
 };
 
@@ -36,6 +37,16 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
         _reporter_guard: reporter_guard,
     };
     (brioche, context)
+}
+
+pub async fn load_project(
+    brioche: &Brioche,
+    path: &Path,
+) -> anyhow::Result<(Projects, ProjectHash)> {
+    let projects = Projects::default();
+    let project_hash = projects.load(brioche, path).await?;
+
+    Ok((projects, project_hash))
 }
 
 pub async fn resolve_without_meta(

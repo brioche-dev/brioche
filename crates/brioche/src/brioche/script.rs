@@ -2,11 +2,11 @@ use std::{
     cell::RefCell,
     collections::{hash_map::Entry, HashMap},
     rc::Rc,
+    sync::Arc,
 };
 
 use anyhow::Context as _;
 use deno_core::OpState;
-use tokio::io::AsyncReadExt as _;
 
 use crate::brioche::script::specifier::BriocheImportSpecifier;
 
@@ -15,7 +15,7 @@ use self::specifier::BriocheModuleSpecifier;
 use super::{
     artifact::{CompleteArtifact, LazyArtifact, WithMeta},
     blob::BlobId,
-    project::Project,
+    project::Projects,
     Brioche,
 };
 
@@ -30,13 +30,15 @@ pub mod specifier;
 #[derive(Clone)]
 struct BriocheModuleLoader {
     pub brioche: Brioche,
+    pub projects: Projects,
     pub sources: Rc<RefCell<HashMap<BriocheModuleSpecifier, ModuleSource>>>,
 }
 
 impl BriocheModuleLoader {
-    fn new(brioche: &Brioche) -> Self {
+    fn new(brioche: &Brioche, projects: &Projects) -> Self {
         Self {
             brioche: brioche.clone(),
+            projects: projects.clone(),
             sources: Rc::new(RefCell::new(HashMap::new())),
         }
     }
@@ -57,7 +59,7 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
 
         let referrer: BriocheModuleSpecifier = referrer.parse()?;
         let specifier: BriocheImportSpecifier = specifier.parse()?;
-        let resolved = specifier::resolve_sync(&self.brioche, &specifier, &referrer)?;
+        let resolved = specifier::resolve(&self.projects, &specifier, &referrer)?;
 
         tracing::debug!(%specifier, %referrer, %resolved, "resolved module");
 
@@ -73,19 +75,18 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
     ) -> std::pin::Pin<Box<deno_core::ModuleSourceFuture>> {
         let module_specifier: Result<BriocheModuleSpecifier, _> = module_specifier.try_into();
         let sources = self.sources.clone();
+        let vfs = self.brioche.vfs.clone();
         let future = async move {
             let module_specifier = module_specifier?;
-            let Some(mut reader) = specifier::read_specifier_contents(&module_specifier).await?
-            else {
-                anyhow::bail!("file not found for module {module_specifier}");
-            };
+            let vfs = vfs.snapshot().await;
+            let contents = specifier::read_specifier_contents(&vfs, &module_specifier)?;
 
-            let mut code = String::new();
-            reader.read_to_string(&mut code).await?;
+            let code = std::str::from_utf8(&contents)
+                .context("failed to parse module contents as UTF-8 string")?;
 
             let parsed = deno_ast::parse_module(deno_ast::ParseParams {
                 specifier: module_specifier.to_string(),
-                text_info: deno_ast::SourceTextInfo::from_string(code.clone()),
+                text_info: deno_ast::SourceTextInfo::from_string(code.to_string()),
                 media_type: deno_ast::MediaType::TypeScript,
                 capture_tokens: false,
                 scope_analysis: false,
@@ -102,7 +103,7 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
                 let source_map = transpiled.source_map.context("source map not generated")?;
                 entry.insert(ModuleSource {
                     source_map: source_map.into_bytes(),
-                    source_text: code.clone(),
+                    source_contents: contents.clone(),
                 });
             }
 
@@ -130,13 +131,18 @@ impl deno_core::SourceMapGetter for BriocheModuleLoader {
         let sources = self.sources.borrow();
         let specifier: BriocheModuleSpecifier = file_name.parse().ok()?;
         let source = sources.get(&specifier)?;
-        let line = source.source_text.lines().nth(line_number)?;
+        let code = std::str::from_utf8(&source.source_contents)
+            .inspect_err(|err| {
+                tracing::warn!("failed to parse source contents of {file_name} as UTF-8: {err}");
+            })
+            .ok()?;
+        let line = code.lines().nth(line_number)?;
         Some(line.to_string())
     }
 }
 
 struct ModuleSource {
-    pub source_text: String,
+    pub source_contents: Arc<Vec<u8>>,
     pub source_map: Vec<u8>,
 }
 

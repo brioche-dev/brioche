@@ -32,7 +32,7 @@ fn get_local_module(
 
 #[tokio::test]
 async fn test_analyze_simple_project() -> anyhow::Result<()> {
-    let (_brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -44,7 +44,7 @@ async fn test_analyze_simple_project() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = analyze_project(&project_dir)?;
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
 
     assert_eq!(
         project.definition,
@@ -61,7 +61,7 @@ async fn test_analyze_simple_project() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_imports() -> anyhow::Result<()> {
-    let (_brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -94,7 +94,7 @@ async fn test_analyze_imports() -> anyhow::Result<()> {
         .write_file("myproject/asdf.bri", "export const asdf = 'asdf';")
         .await;
 
-    let project = analyze_project(&project_dir)?;
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
 
     let root_module = &project.local_modules[&project.root_module];
     assert_matches!(
@@ -123,7 +123,7 @@ async fn test_analyze_imports() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_nested_imports() -> anyhow::Result<()> {
-    let (_brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -146,7 +146,7 @@ async fn test_analyze_nested_imports() -> anyhow::Result<()> {
         .write_file("myproject/baz/index.bri", "export const x = 'baz';")
         .await;
 
-    let project = analyze_project(&project_dir)?;
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
 
     let foo_module = get_local_module(&project, &project.root_module, "./foo");
     let bar_module = get_local_module(&project, &foo_module, "../bar");
@@ -159,7 +159,7 @@ async fn test_analyze_nested_imports() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_import_loop() -> anyhow::Result<()> {
-    let (_brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -190,7 +190,7 @@ async fn test_analyze_import_loop() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = analyze_project(&project_dir)?;
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
 
     let foo_module_from_root = get_local_module(&project, &project.root_module, "./foo.bri");
     let bar_module_from_root = get_local_module(&project, &project.root_module, "./bar.bri");
@@ -205,7 +205,7 @@ async fn test_analyze_import_loop() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_external_dep() -> anyhow::Result<()> {
-    let (_brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -223,7 +223,7 @@ async fn test_analyze_external_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = analyze_project(&project_dir)?;
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
 
     assert_eq!(
         project.definition,

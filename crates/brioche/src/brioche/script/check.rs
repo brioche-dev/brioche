@@ -2,18 +2,25 @@ use std::rc::Rc;
 
 use anyhow::Context as _;
 
-use crate::brioche::Brioche;
+use crate::brioche::{
+    project::{ProjectHash, Projects},
+    vfs::VfsSnapshot,
+    Brioche,
+};
 
-use super::{specifier::BriocheModuleSpecifier, Project};
+use super::specifier::BriocheModuleSpecifier;
 
-#[tracing::instrument(skip(brioche, project), err)]
-pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<CheckResult> {
-    let specifier = BriocheModuleSpecifier::File {
-        path: project.local_path.join("project.bri"),
-    };
+#[tracing::instrument(skip(brioche, projects), err)]
+pub async fn check(
+    brioche: &Brioche,
+    projects: &Projects,
+    project_hash: ProjectHash,
+) -> anyhow::Result<CheckResult> {
+    let specifier = projects.project_root_module_specifier(project_hash)?;
 
-    let module_loader = super::BriocheModuleLoader::new(brioche);
-    let compiler_host = super::compiler_host::BriocheCompilerHost::new(brioche.clone());
+    let module_loader = super::BriocheModuleLoader::new(brioche, projects);
+    let compiler_host =
+        super::compiler_host::BriocheCompilerHost::new(brioche.clone(), projects.clone()).await;
     compiler_host.load_document(&specifier).await?;
 
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
@@ -28,7 +35,7 @@ pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<Check
 
     let main_module: deno_core::ModuleSpecifier = "briocheruntime:///dist/index.js".parse()?;
 
-    tracing::info!(path = %project.local_path.display(), %main_module, "evaluating module");
+    tracing::info!(%specifier, %main_module, "evaluating module");
 
     let module_id = js_runtime.load_main_module(&main_module, None).await?;
     let result = js_runtime.mod_evaluate(module_id);
@@ -50,9 +57,9 @@ pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<Check
         .try_into()
         .with_context(|| format!("expected export {export_key_name:?} to be a function"))?;
 
-    tracing::info!(path = %project.local_path.display(), %main_module, ?export_key_name, "running function");
+    tracing::info!(%specifier, %main_module, ?export_key_name, "running function");
 
-    let files = project.local_modules().collect::<Vec<_>>();
+    let files = projects.project_module_specifiers(project_hash)?;
     let files = serde_v8::to_v8(&mut js_scope, &files)?;
 
     let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
@@ -77,7 +84,7 @@ pub async fn check(brioche: &Brioche, project: &Project) -> anyhow::Result<Check
 
     let diagnostics: Vec<Diagnostic> = serde_v8::from_v8(&mut js_scope, result)?;
 
-    tracing::debug!(path = %project.local_path.display(), %main_module, "finished evaluating module");
+    tracing::debug!(%specifier, %main_module, "finished evaluating module");
 
     Ok(CheckResult { diagnostics })
 }
@@ -137,7 +144,7 @@ pub struct DiagnosticError {
 }
 
 impl DiagnosticError {
-    pub fn write(&self, out: &mut impl std::io::Write) -> anyhow::Result<()> {
+    pub fn write(&self, vfs: &VfsSnapshot, out: &mut impl std::io::Write) -> anyhow::Result<()> {
         for (n, diagnostic) in self.diagnostics.iter().enumerate() {
             if n != 0 {
                 writeln!(out)?;
@@ -147,10 +154,8 @@ impl DiagnosticError {
 
             let location = diagnostic.specifier.as_ref().zip(diagnostic.start.as_ref());
             if let Some((specifier, index)) = location {
-                let contents = super::specifier::read_specifier_contents_sync(specifier)?
-                    .with_context(|| format!("specifier {specifier} not found"))?;
-                let mut contents = std::io::BufReader::new(contents);
-                let (line, col) = index_to_line_col(&mut contents, *index)?;
+                let contents = super::specifier::read_specifier_contents(vfs, specifier)?;
+                let (line, col) = index_to_line_col(&contents, *index)?;
                 writeln!(out, "[{level:?}] {specifier}:{line}:{col}")?;
             } else {
                 writeln!(out, "[{level:?}]")?;
@@ -176,17 +181,21 @@ fn write_diagnostic(
     Ok(())
 }
 
-fn index_to_line_col(mut reader: impl std::io::BufRead, index: u64) -> anyhow::Result<(u64, u64)> {
+fn index_to_line_col(code: &[u8], index: u64) -> anyhow::Result<(u64, u64)> {
+    let index: usize = index
+        .try_into()
+        .with_context(|| format!("index {index} too large"))?;
+
     let mut line = 1;
     let mut col = 1;
     let mut current_index = 0;
-    let mut buf = [0];
+    let mut bytes = code.iter();
     while current_index < index {
-        let bytes_read = reader.read(&mut buf)?;
-        if bytes_read == 0 {
+        let Some(&byte) = bytes.next() else {
             anyhow::bail!("index {index} out of bounds");
-        }
-        if buf[0] == b'\n' {
+        };
+
+        if byte == b'\n' {
             line += 1;
             col = 1;
         } else {
@@ -205,12 +214,12 @@ mod tests {
 
     #[test]
     fn test_index_to_line_col() {
-        let input = || std::io::Cursor::new(b"Hello\nworld");
-        assert_eq!(index_to_line_col(input(), 0).unwrap(), (1, 1));
-        assert_eq!(index_to_line_col(input(), 1).unwrap(), (1, 2));
-        assert_eq!(index_to_line_col(input(), 5).unwrap(), (1, 6));
-        assert_eq!(index_to_line_col(input(), 6).unwrap(), (2, 1));
-        assert_eq!(index_to_line_col(input(), 7).unwrap(), (2, 2));
-        assert_matches!(index_to_line_col(input(), 12), Err(_));
+        let input = b"Hello\nworld";
+        assert_eq!(index_to_line_col(input, 0).unwrap(), (1, 1));
+        assert_eq!(index_to_line_col(input, 1).unwrap(), (1, 2));
+        assert_eq!(index_to_line_col(input, 5).unwrap(), (1, 6));
+        assert_eq!(index_to_line_col(input, 6).unwrap(), (2, 1));
+        assert_eq!(index_to_line_col(input, 7).unwrap(), (2, 2));
+        assert_matches!(index_to_line_col(input, 12), Err(_));
     }
 }

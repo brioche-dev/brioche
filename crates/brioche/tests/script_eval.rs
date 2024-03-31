@@ -1,4 +1,4 @@
-use brioche::brioche::{project::resolve_project, script::evaluate::evaluate};
+use brioche::brioche::script::evaluate::evaluate;
 
 mod brioche_test;
 
@@ -27,9 +27,11 @@ async fn test_eval_basic() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
 
-    let resolved = evaluate(&brioche, &project, "default").await?.value;
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
 
     assert_eq!(resolved, brioche_test::dir_empty().into());
 
@@ -61,9 +63,11 @@ async fn test_eval_custom_export() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
 
-    let resolved = evaluate(&brioche, &project, "custom").await?.value;
+    let resolved = evaluate(&brioche, &projects, project_hash, "custom")
+        .await?
+        .value;
 
     assert_eq!(resolved, brioche_test::dir_empty().into());
 
@@ -95,9 +99,11 @@ async fn test_eval_async() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
 
-    let resolved = evaluate(&brioche, &project, "default").await?.value;
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
 
     assert_eq!(resolved, brioche_test::dir_empty().into());
 
@@ -129,9 +135,11 @@ async fn test_eval_serialize_async() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
 
-    let resolved = evaluate(&brioche, &project, "default").await?.value;
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
 
     assert_eq!(resolved, brioche_test::dir_empty().into());
 
@@ -175,9 +183,11 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
 
-    let resolved = evaluate(&brioche, &project, "default").await?.value;
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
 
     assert_eq!(resolved, brioche_test::dir_empty().into());
 
@@ -226,9 +236,11 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
 
-    let resolved = evaluate(&brioche, &project, "default").await?.value;
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
 
     assert_eq!(resolved, brioche_test::dir_empty().into());
 
