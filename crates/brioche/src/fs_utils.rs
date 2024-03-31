@@ -1,6 +1,23 @@
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::Context as _;
+
+pub fn logical_path(path: &Path) -> PathBuf {
+    let mut components = vec![];
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                components.push(component);
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                components.pop();
+            }
+        }
+    }
+
+    PathBuf::from_iter(components)
+}
 
 pub async fn is_file(path: &Path) -> bool {
     let Ok(metadata) = tokio::fs::metadata(path).await else {

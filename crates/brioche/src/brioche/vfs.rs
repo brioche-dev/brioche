@@ -14,15 +14,17 @@ pub struct Vfs {
 
 impl Vfs {
     pub async fn load(&self, path: &Path) -> anyhow::Result<(FileId, Arc<Vec<u8>>)> {
+        let path = crate::fs_utils::logical_path(path);
+
         {
             let vfs = self.inner.read().await;
-            if let Some(file_id) = vfs.locations_to_ids.get(path) {
+            if let Some(file_id) = vfs.locations_to_ids.get(&path) {
                 let contents = vfs.contents[file_id].clone();
                 return Ok((*file_id, contents));
             }
         }
 
-        let contents = tokio::fs::read(path)
+        let contents = tokio::fs::read(&path)
             .await
             .with_context(|| format!("failed to read file {}", path.display()))?;
         let contents = Arc::new(contents);
@@ -33,11 +35,13 @@ impl Vfs {
         let mut vfs = self.inner.write().await;
         let vfs = Arc::make_mut(&mut vfs);
         vfs.contents.insert(file_id, contents.clone());
-        vfs.locations_to_ids.insert(path.to_owned(), file_id);
+        vfs.locations_to_ids.insert(path.clone(), file_id);
         vfs.ids_to_locations
             .entry(file_id)
             .or_default()
-            .push(path.to_owned());
+            .push(path.clone());
+
+        tracing::debug!(path = %path.display(), %file_id, "loaded file into VFS");
 
         Ok((file_id, contents))
     }
@@ -59,7 +63,8 @@ pub struct VfsSnapshot {
 
 impl VfsSnapshot {
     pub fn load_cached(&self, path: &Path) -> Option<(FileId, Arc<Vec<u8>>)> {
-        let file_id = self.inner.locations_to_ids.get(path)?;
+        let path = crate::fs_utils::logical_path(path);
+        let file_id = self.inner.locations_to_ids.get(&path)?;
         let contents = self.inner.contents.get(file_id)?.clone();
         Some((*file_id, contents))
     }
