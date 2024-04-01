@@ -46,7 +46,7 @@ impl Projects {
             }
         }
 
-        for ancestor in path.ancestors() {
+        for ancestor in path.ancestors().skip(1) {
             if tokio::fs::try_exists(ancestor.join("project.bri")).await? {
                 return self.load(brioche, ancestor).await;
             }
