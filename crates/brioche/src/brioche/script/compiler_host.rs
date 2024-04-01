@@ -44,9 +44,6 @@ impl BriocheCompilerHost {
         }
     }
 
-    // FIXME: Ensure that loading/updating a document can reload a project
-    // FIXME: Update project snapshots when loading/updating a document
-
     pub async fn load_document(&self, specifier: &BriocheModuleSpecifier) -> anyhow::Result<()> {
         let mut already_visited = HashSet::new();
         let mut specifiers_to_load = vec![specifier.clone()];
@@ -175,6 +172,17 @@ impl BriocheCompilerHost {
                         version: 0,
                     }
                 });
+        }
+
+        match &specifier {
+            BriocheModuleSpecifier::Runtime { .. } => {}
+            BriocheModuleSpecifier::File { path } => {
+                if let Some((file_id, _)) = self.brioche.vfs.load_cached(path)? {
+                    self.brioche
+                        .vfs
+                        .update(file_id, Arc::new(contents.as_bytes().to_vec()))?;
+                };
+            }
         }
 
         self.load_document(&specifier).await?;

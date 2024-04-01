@@ -303,6 +303,7 @@ async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
         futures::executor::block_on(async move {
             let (reporter, _guard) = brioche::reporter::start_lsp_reporter(client.clone());
             let brioche = brioche::brioche::BriocheBuilder::new(reporter)
+                .vfs(brioche::brioche::vfs::Vfs::mutable())
                 .build()
                 .await?;
             let projects = brioche::brioche::project::Projects::default();
