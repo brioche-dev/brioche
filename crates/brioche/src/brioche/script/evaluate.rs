@@ -4,19 +4,20 @@ use anyhow::Context as _;
 
 use crate::brioche::{
     artifact::{LazyArtifact, WithMeta},
-    script::specifier::BriocheModuleSpecifier,
+    project::{ProjectHash, Projects},
     Brioche,
 };
 
-use super::{BriocheModuleLoader, Project};
+use super::BriocheModuleLoader;
 
-#[tracing::instrument(skip(brioche, project), err)]
+#[tracing::instrument(skip(brioche, projects), err)]
 pub async fn evaluate(
     brioche: &Brioche,
-    project: &Project,
+    projects: &Projects,
+    project_hash: ProjectHash,
     export: &str,
 ) -> anyhow::Result<WithMeta<LazyArtifact>> {
-    let module_loader = BriocheModuleLoader::new(brioche);
+    let module_loader = BriocheModuleLoader::new(brioche, projects);
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(module_loader.clone())),
         source_map_getter: Some(Box::new(module_loader.clone())),
@@ -35,12 +36,10 @@ pub async fn evaluate(
         "#,
     )?;
 
-    let main_module = BriocheModuleSpecifier::File {
-        path: project.local_path.join("project.bri"),
-    };
+    let main_module = projects.project_root_module_specifier(project_hash)?;
     let main_module: deno_core::ModuleSpecifier = main_module.into();
 
-    tracing::info!(path = %project.local_path.display(), %main_module, "evaluating module");
+    tracing::info!(%main_module, "evaluating module");
 
     let module_id = js_runtime.load_main_module(&main_module, None).await?;
     let result = js_runtime.mod_evaluate(module_id);
@@ -65,7 +64,7 @@ pub async fn evaluate(
                 .try_into()
                 .with_context(|| format!("expected export named {export} to be a function"))?;
 
-        tracing::info!(path = %project.local_path.display(), %main_module, %export, "running exported function");
+        tracing::info!(%main_module, %export, "running exported function");
 
         let result = export_value.call(&mut js_scope, module_namespace.into(), &[]);
         let result = match result {
@@ -133,7 +132,7 @@ pub async fn evaluate(
             format!("invalid artifact returned when serializing result from {export}")
         })?;
 
-    tracing::debug!(path = %project.local_path.display(), %main_module, artifact_hash = %artifact.hash(), "finished evaluating module");
+    tracing::debug!(%main_module, artifact_hash = %artifact.hash(), "finished evaluating module");
 
     Ok(artifact)
 }

@@ -1,5 +1,4 @@
 use assert_matches::assert_matches;
-use brioche::brioche::project::resolve_project;
 
 mod brioche_test;
 
@@ -17,9 +16,13 @@ async fn test_resolve_simple_project() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
 
-    assert_eq!(project.local_path, project_dir);
+    let project = projects.project(project_hash).unwrap();
+    assert!(projects
+        .local_paths(project_hash)
+        .unwrap()
+        .contains(&project_dir));
     assert!(project.dependencies.is_empty());
 
     Ok(())
@@ -52,11 +55,19 @@ async fn test_resolve_project_with_repo_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let project = projects.project(project_hash).unwrap();
+    assert!(projects
+        .local_paths(project_hash)
+        .unwrap()
+        .contains(&project_dir));
 
-    assert_eq!(project.local_path, project_dir);
-    let foo_dep = &project.dependencies["foo"];
-    assert_eq!(foo_dep.local_path, brioche.repo_dir.join("foo"));
+    let foo_dep_hash = project.dependencies["foo"];
+    let foo_dep = projects.project(foo_dep_hash).unwrap();
+    assert!(projects
+        .local_paths(foo_dep_hash)
+        .unwrap()
+        .contains(&brioche.repo_dir.join("foo")));
     assert!(foo_dep.dependencies.is_empty());
 
     Ok(())
@@ -92,11 +103,19 @@ async fn test_resolve_project_with_path_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &main_project_dir).await?;
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &main_project_dir).await?;
+    let project = projects.project(project_hash).unwrap();
+    assert!(projects
+        .local_paths(project_hash)
+        .unwrap()
+        .contains(&main_project_dir));
 
-    assert_eq!(project.local_path, main_project_dir);
-    let dep_project = &project.dependencies["depproject"];
-    assert_eq!(dep_project.local_path, dep_project_dir);
+    let dep_project_hash = project.dependencies["depproject"];
+    let dep_project = projects.project(dep_project_hash).unwrap();
+    assert!(projects
+        .local_paths(dep_project_hash)
+        .unwrap()
+        .contains(&dep_project_dir));
     assert!(dep_project.dependencies.is_empty());
 
     Ok(())
@@ -159,28 +178,45 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
         )
         .await;
 
-    let project = resolve_project(&brioche, &main_project_dir).await?;
-    let main_dep_project = &project.dependencies["depproject"];
-    let main_foo_project = &project.dependencies["foo"];
-    let main_dep_foo_project = &project.dependencies["depproject"].dependencies["foo"];
-    let main_foo_bar_project = &project.dependencies["foo"].dependencies["bar"];
-    let main_dep_foo_bar_project =
-        &project.dependencies["depproject"].dependencies["foo"].dependencies["bar"];
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &main_project_dir).await?;
+    let project = projects.project(project_hash).unwrap();
 
-    assert_eq!(main_dep_project.local_path, dep_project_dir);
-    assert_eq!(main_foo_project.local_path, brioche.repo_dir.join("foo"));
-    assert_eq!(
-        main_dep_foo_project.local_path,
-        brioche.repo_dir.join("foo")
-    );
-    assert_eq!(
-        main_foo_bar_project.local_path,
-        brioche.repo_dir.join("bar")
-    );
-    assert_eq!(
-        main_dep_foo_bar_project.local_path,
-        brioche.repo_dir.join("bar"),
-    );
+    let main_dep_project_hash = project.dependencies["depproject"];
+    let main_dep_project = projects.project(main_dep_project_hash).unwrap();
+
+    let main_foo_project_hash = project.dependencies["foo"];
+    let main_foo_project = projects.project(main_foo_project_hash).unwrap();
+
+    let main_dep_foo_project_hash = main_dep_project.dependencies["foo"];
+    let main_dep_foo_project = projects.project(main_dep_foo_project_hash).unwrap();
+
+    let main_foo_bar_project_hash = main_foo_project.dependencies["bar"];
+
+    let main_dep_foo_bar_project_hash = main_dep_foo_project.dependencies["bar"];
+
+    assert!(projects
+        .local_paths(main_dep_project_hash)
+        .unwrap()
+        .contains(&dep_project_dir));
+    assert!(projects
+        .local_paths(main_foo_project_hash)
+        .unwrap()
+        .contains(&brioche.repo_dir.join("foo")));
+    assert!(projects
+        .local_paths(main_dep_foo_project_hash)
+        .unwrap()
+        .contains(&brioche.repo_dir.join("foo")));
+    assert!(projects
+        .local_paths(main_foo_bar_project_hash)
+        .unwrap()
+        .contains(&brioche.repo_dir.join("bar")));
+    assert!(projects
+        .local_paths(main_dep_foo_bar_project_hash)
+        .unwrap()
+        .contains(&brioche.repo_dir.join("bar")));
+
+    assert_eq!(main_foo_project_hash, main_dep_foo_project_hash);
+    assert_eq!(main_foo_bar_project_hash, main_dep_foo_bar_project_hash);
 
     Ok(())
 }
@@ -192,9 +228,11 @@ async fn test_resolve_not_found() -> anyhow::Result<()> {
     // project.bri does not exist
     let project_dir = context.mkdir("myproject").await;
 
-    let project = resolve_project(&brioche, &project_dir).await;
+    let result = brioche_test::load_project(&brioche, &project_dir)
+        .await
+        .map(|_| ());
 
-    assert_matches!(project, Err(_));
+    assert_matches!(result, Err(_));
 
     Ok(())
 }
@@ -222,9 +260,11 @@ async fn test_resolve_path_dep_not_found() -> anyhow::Result<()> {
     // project.bri does not exist
     let _dep_dir = context.mkdir("mydep").await;
 
-    let project = resolve_project(&brioche, &project_dir).await;
+    let result = brioche_test::load_project(&brioche, &project_dir)
+        .await
+        .map(|_| ());
 
-    assert_matches!(project, Err(_));
+    assert_matches!(result, Err(_));
 
     Ok(())
 }
@@ -250,9 +290,11 @@ async fn test_resolve_repo_dep_not_found() -> anyhow::Result<()> {
     // project.bri does not exist
     let _repo_foo_dir = context.mkdir("brioche-repo/foo").await;
 
-    let project = resolve_project(&brioche, &project_dir).await;
+    let result = brioche_test::load_project(&brioche, &project_dir)
+        .await
+        .map(|_| ());
 
-    assert_matches!(project, Err(_));
+    assert_matches!(result, Err(_));
 
     Ok(())
 }

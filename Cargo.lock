@@ -3687,6 +3687,9 @@ name = "relative-path"
 version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c707298afce11da2efef2f600116fa93ffa7a032b5d7b628aa17711ec81383ca"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "remove_dir_all"

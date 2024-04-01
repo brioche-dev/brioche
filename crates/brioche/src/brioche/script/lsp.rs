@@ -6,6 +6,7 @@ use tower_lsp::lsp_types::request::GotoTypeDefinitionResponse;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use crate::brioche::project::Projects;
 use crate::brioche::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
 use crate::brioche::script::format::format_code;
 use crate::brioche::Brioche;
@@ -22,9 +23,10 @@ impl BriocheLspServer {
     pub async fn new(
         local_pool: &tokio_util::task::LocalPoolHandle,
         brioche: Brioche,
+        projects: Projects,
         client: Client,
     ) -> anyhow::Result<Self> {
-        let compiler_host = BriocheCompilerHost::new(brioche.clone());
+        let compiler_host = BriocheCompilerHost::new(brioche.clone(), projects.clone()).await;
         let js_lsp = js_lsp_task(local_pool, compiler_host.clone());
 
         Ok(Self {
@@ -155,8 +157,8 @@ impl LanguageServer for BriocheLspServer {
                 .compiler_host
                 .update_document(&params.text_document.uri, &change.text)
                 .await;
-            if result.is_err() {
-                tracing::error!("failed to update document");
+            if let Err(error) = result {
+                tracing::error!("failed to update document: {error:#}");
                 return;
             }
         }
@@ -448,7 +450,8 @@ fn js_lsp_task(
     )>(1);
 
     let js_lsp_task = local_pool.spawn_pinned(|| async move {
-        let module_loader = super::BriocheModuleLoader::new(&compiler_host.brioche);
+        let module_loader =
+            super::BriocheModuleLoader::new(&compiler_host.brioche, &compiler_host.projects);
 
         tracing::info!("building JS LSP");
 
