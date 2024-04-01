@@ -64,6 +64,26 @@ impl Vfs {
         Ok((file_id, contents))
     }
 
+    pub fn update(&self, file_id: FileId, contents: Arc<Vec<u8>>) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            matches!(file_id, FileId::Mutable(_)),
+            "file must be mutable"
+        );
+
+        let mut vfs = self
+            .inner
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire VFS lock"))?;
+        vfs.contents.insert(file_id, contents.clone());
+
+        let locations = vfs.ids_to_locations.get_mut(&file_id).unwrap();
+        for location in locations.iter() {
+            tracing::debug!(path = %location.display(), %file_id, "edited file in VFS");
+        }
+
+        Ok(())
+    }
+
     pub fn load_cached(&self, path: &Path) -> anyhow::Result<Option<(FileId, Arc<Vec<u8>>)>> {
         let path = crate::fs_utils::logical_path(path);
 
