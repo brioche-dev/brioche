@@ -3,7 +3,7 @@ use assert_matches::assert_matches;
 mod brioche_test;
 
 #[tokio::test]
-async fn test_resolve_simple_project() -> anyhow::Result<()> {
+async fn test_project_load_simple() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -29,7 +29,7 @@ async fn test_resolve_simple_project() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_project_with_repo_dep() -> anyhow::Result<()> {
+async fn test_project_load_with_repo_dep() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -74,7 +74,7 @@ async fn test_resolve_project_with_repo_dep() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_project_with_path_dep() -> anyhow::Result<()> {
+async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
@@ -122,7 +122,7 @@ async fn test_resolve_project_with_path_dep() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_complex_project() -> anyhow::Result<()> {
+async fn test_project_load_complex() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
@@ -222,7 +222,7 @@ async fn test_resolve_complex_project() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_not_found() -> anyhow::Result<()> {
+async fn test_project_load_not_found() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     // project.bri does not exist
@@ -238,7 +238,7 @@ async fn test_resolve_not_found() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_path_dep_not_found() -> anyhow::Result<()> {
+async fn test_project_load_path_dep_not_found() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -270,7 +270,7 @@ async fn test_resolve_path_dep_not_found() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_repo_dep_not_found() -> anyhow::Result<()> {
+async fn test_project_load_repo_dep_not_found() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
