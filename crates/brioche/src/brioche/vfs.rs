@@ -6,12 +6,27 @@ use std::{
 
 use anyhow::Context as _;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Vfs {
+    mutable: bool,
     inner: Arc<RwLock<VfsInner>>,
 }
 
 impl Vfs {
+    pub fn immutable() -> Self {
+        Self {
+            mutable: false,
+            inner: Default::default(),
+        }
+    }
+
+    pub fn mutable() -> Self {
+        Self {
+            mutable: true,
+            inner: Default::default(),
+        }
+    }
+
     pub async fn load(&self, path: &Path) -> anyhow::Result<(FileId, Arc<Vec<u8>>)> {
         let path = crate::fs_utils::logical_path(path);
 
@@ -26,8 +41,12 @@ impl Vfs {
             .with_context(|| format!("failed to read file {}", path.display()))?;
         let contents = Arc::new(contents);
 
-        let hash = blake3::hash(&contents);
-        let file_id = FileId(hash);
+        let file_id = if self.mutable {
+            FileId::Mutable(ulid::Ulid::new())
+        } else {
+            let hash = blake3::hash(&contents);
+            FileId::Hash(hash)
+        };
 
         let mut vfs = self
             .inner
@@ -86,11 +105,17 @@ struct VfsInner {
     serde_with::SerializeDisplay,
     serde_with::DeserializeFromStr,
 )]
-pub struct FileId(blake3::Hash);
+pub enum FileId {
+    Hash(blake3::Hash),
+    Mutable(ulid::Ulid),
+}
 
 impl std::fmt::Display for FileId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.to_hex())
+        match self {
+            Self::Hash(hash) => write!(f, "{}", hash.to_hex()),
+            Self::Mutable(ulid) => write!(f, "{}", ulid),
+        }
     }
 }
 
@@ -98,7 +123,16 @@ impl std::str::FromStr for FileId {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let hash = blake3::Hash::from_hex(s)?;
-        Ok(Self(hash))
+        match s.len() {
+            26 => {
+                let ulid = ulid::Ulid::from_str(s)?;
+                Ok(Self::Mutable(ulid))
+            }
+            64 => {
+                let hash = blake3::Hash::from_hex(s)?;
+                Ok(Self::Hash(hash))
+            }
+            _ => anyhow::bail!("invalid file ID: {}", s),
+        }
     }
 }

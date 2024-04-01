@@ -49,6 +49,7 @@ pub struct Brioche {
 
 pub struct BriocheBuilder {
     reporter: Reporter,
+    vfs: vfs::Vfs,
     home: Option<PathBuf>,
     repo_dir: Option<PathBuf>,
     self_exec_processes: bool,
@@ -59,6 +60,7 @@ impl BriocheBuilder {
     pub fn new(reporter: Reporter) -> Self {
         Self {
             reporter,
+            vfs: vfs::Vfs::immutable(),
             home: None,
             repo_dir: None,
             self_exec_processes: true,
@@ -83,6 +85,11 @@ impl BriocheBuilder {
 
     pub fn keep_temps(mut self, keep_temps: bool) -> Self {
         self.keep_temps = keep_temps;
+        self
+    }
+
+    pub fn vfs(mut self, vfs: vfs::Vfs) -> Self {
+        self.vfs = vfs;
         self
     }
 
@@ -148,7 +155,7 @@ impl BriocheBuilder {
 
         Ok(Brioche {
             reporter: self.reporter,
-            vfs: vfs::Vfs::default(),
+            vfs: self.vfs,
             db_conn: Arc::new(Mutex::new(db_conn)),
             home: brioche_home,
             repo_dir,

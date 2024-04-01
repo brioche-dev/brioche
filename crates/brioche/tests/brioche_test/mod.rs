@@ -13,6 +13,12 @@ use brioche::brioche::{
 };
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
+    brioche_test_with(|builder| builder).await
+}
+
+pub async fn brioche_test_with(
+    f: impl FnOnce(BriocheBuilder) -> BriocheBuilder,
+) -> (Brioche, TestContext) {
     let temp = tempdir::TempDir::new("brioche-test").unwrap();
 
     let brioche_home = temp.path().join("brioche-home");
@@ -25,13 +31,12 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
         .expect("failed to create brioche repo");
 
     let (reporter, reporter_guard) = brioche::reporter::start_test_reporter();
-    let brioche = BriocheBuilder::new(reporter)
+    let builder = BriocheBuilder::new(reporter)
         .home(brioche_home)
         .repo_dir(brioche_repo)
-        .self_exec_processes(false)
-        .build()
-        .await
-        .unwrap();
+        .self_exec_processes(false);
+    let builder = f(builder);
+    let brioche = builder.build().await.unwrap();
     let context = TestContext {
         temp,
         _reporter_guard: reporter_guard,

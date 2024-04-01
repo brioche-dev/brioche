@@ -330,7 +330,7 @@ struct AnalyzeArgs {
 }
 
 async fn analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
-    let vfs = brioche::brioche::vfs::Vfs::default();
+    let vfs = brioche::brioche::vfs::Vfs::immutable();
     let project = brioche::brioche::project::analyze::analyze_project(&vfs, &args.project).await?;
     println!("{project:#?}");
     Ok(())
