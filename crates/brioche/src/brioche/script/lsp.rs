@@ -157,8 +157,8 @@ impl LanguageServer for BriocheLspServer {
                 .compiler_host
                 .update_document(&params.text_document.uri, &change.text)
                 .await;
-            if result.is_err() {
-                tracing::error!("failed to update document");
+            if let Err(error) = result {
+                tracing::error!("failed to update document: {error:#}");
                 return;
             }
         }
