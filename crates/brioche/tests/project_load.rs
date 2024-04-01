@@ -74,6 +74,78 @@ async fn test_project_load_with_repo_dep() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    context
+        .write_toml(
+            "myworkspace/brioche_workspace.toml",
+            &brioche::brioche::project::WorkspaceDefinition {
+                members: vec!["./foo".parse()?],
+            },
+        )
+        .await;
+
+    let workspace_foo_dir = context.mkdir("myworkspace/foo").await;
+    context
+        .write_file(
+            "myworkspace/foo/project.bri",
+            r#"
+                export const project = {};
+            "#,
+        )
+        .await;
+
+    let repo_foo_dir = context.mkdir("brioche-repo/foo").await;
+    context
+        .write_file(
+            "brioche-repo/foo/project.bri",
+            r#"
+                // repo foo
+                export const project = {};
+            "#,
+        )
+        .await;
+
+    let project_dir = context.mkdir("myworkspace/myproject").await;
+    context
+        .write_file(
+            "myworkspace/myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let project = projects.project(project_hash).unwrap();
+    assert!(projects
+        .local_paths(project_hash)
+        .unwrap()
+        .contains(&project_dir));
+
+    // "foo" from the workspace should take precedence over the repo dep
+    let foo_dep_hash = project.dependencies["foo"];
+    let foo_dep = projects.project(foo_dep_hash).unwrap();
+    eprintln!("{:?}", projects.local_paths(foo_dep_hash));
+    assert!(projects
+        .local_paths(foo_dep_hash)
+        .unwrap()
+        .contains(&workspace_foo_dir));
+    assert!(!projects
+        .local_paths(foo_dep_hash)
+        .unwrap()
+        .contains(&repo_foo_dir));
+    assert!(foo_dep.dependencies.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 

@@ -309,7 +309,7 @@ async fn load_project_inner(
     let path = tokio::fs::canonicalize(path)
         .await
         .with_context(|| format!("failed to canonicalize path {}", path.display()))?;
-    let repo = &brioche.repo_dir;
+    let workspace = find_workspace(&path).await?;
 
     let project_analysis = analyze::analyze_project(&brioche.vfs, &path).await?;
 
@@ -335,8 +335,11 @@ async fn load_project_inner(
                         )
                     })?
             }
-            DependencyDefinition::Version(Version::Any) => {
-                let local_path = repo.join(name);
+            DependencyDefinition::Version(version) => {
+                let local_path =
+                    resolve_dependency_to_local_path(brioche, workspace.as_ref(), name, version)
+                        .await?;
+
                 load_project_inner(projects, brioche, &local_path, dep_depth)
                     .await
                     .with_context(|| {
@@ -383,6 +386,92 @@ async fn load_project_inner(
     }
 
     Ok((project_hash, project))
+}
+
+async fn resolve_dependency_to_local_path(
+    brioche: &Brioche,
+    workspace: Option<&Workspace>,
+    dependency_name: &str,
+    dependency_version: &Version,
+) -> anyhow::Result<PathBuf> {
+    if let Some(workspace) = workspace {
+        if let Some(dep_path) = resolve_workspace_project_path(workspace, dependency_name).await? {
+            // Eventually, we'll validate that the version of the project
+            // from the workspace matches the requested dependency version
+            match dependency_version {
+                Version::Any => {}
+            }
+
+            return Ok(dep_path);
+        }
+    }
+
+    let repo = &brioche.repo_dir;
+    let dep_path = repo.join(dependency_name);
+    anyhow::ensure!(
+        tokio::fs::try_exists(&dep_path).await?,
+        "dependency not found: {}",
+        dep_path.display()
+    );
+
+    Ok(dep_path)
+}
+
+async fn resolve_workspace_project_path(
+    workspace: &Workspace,
+    project_name: &str,
+) -> anyhow::Result<Option<PathBuf>> {
+    for member in &workspace.definition.members {
+        match member {
+            WorkspaceMember::Path(path, name) => {
+                if name == project_name {
+                    let dep_path = path.join(name).to_logical_path(&workspace.path);
+                    anyhow::ensure!(
+                        tokio::fs::try_exists(&dep_path).await?,
+                        "workspace member does not exist: {}",
+                        dep_path.display()
+                    );
+                    return Ok(Some(dep_path));
+                }
+            }
+            WorkspaceMember::WildcardPath(path) => {
+                let dep_path = path.join(project_name).to_logical_path(&workspace.path);
+                if tokio::fs::try_exists(&dep_path).await? {
+                    return Ok(Some(dep_path));
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+async fn find_workspace(project_path: &Path) -> anyhow::Result<Option<Workspace>> {
+    for workspace_path in project_path.ancestors().skip(1) {
+        let workspace_def_path = workspace_path.join("brioche_workspace.toml");
+        if tokio::fs::try_exists(&workspace_def_path).await? {
+            let workspace_def = tokio::fs::read_to_string(&workspace_def_path)
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to read workspace file {}",
+                        workspace_def_path.display()
+                    )
+                })?;
+            let workspace_def = toml::from_str(&workspace_def).with_context(|| {
+                format!(
+                    "failed to parse workspace file {}",
+                    workspace_def_path.display()
+                )
+            })?;
+            return Ok(Some(Workspace {
+                definition: workspace_def,
+                path: workspace_path.to_owned(),
+            }));
+        }
+    }
+
+    Ok(None)
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -469,5 +558,75 @@ impl std::str::FromStr for ProjectHash {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let hash = blake3::Hash::from_hex(s)?;
         Ok(Self(hash))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Workspace {
+    pub definition: WorkspaceDefinition,
+    pub path: PathBuf,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceDefinition {
+    pub members: Vec<WorkspaceMember>,
+}
+
+#[derive(Debug, Clone, serde_with::SerializeDisplay, serde_with::DeserializeFromStr)]
+pub enum WorkspaceMember {
+    Path(RelativePathBuf, String),
+    WildcardPath(RelativePathBuf),
+}
+
+impl std::str::FromStr for WorkspaceMember {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let path = RelativePath::new(s);
+        let Some(last_component) = path.components().next_back() else {
+            anyhow::bail!("invalid workspace member path: {s}");
+        };
+
+        let last_component = match last_component {
+            relative_path::Component::CurDir | relative_path::Component::ParentDir => {
+                anyhow::bail!("invalid workspace member path: {s}");
+            }
+            relative_path::Component::Normal(component) => component,
+        };
+
+        // Shouldn't fail since we already validated the last component exists
+        let path = path.parent().expect("parent path not found").to_owned();
+
+        for component in path.components() {
+            match component {
+                relative_path::Component::ParentDir => {
+                    anyhow::bail!("invalid workspace member path: {s}");
+                }
+                relative_path::Component::CurDir => {}
+                relative_path::Component::Normal(component) => {
+                    anyhow::ensure!(
+                        !component.contains('*'),
+                        "invalid wildcard in workspace member path: {s}"
+                    );
+                }
+            }
+        }
+
+        match last_component {
+            "*" => Ok(Self::WildcardPath(path)),
+            invalid if invalid.contains('*') => {
+                anyhow::bail!("invalid wildcard in workspace member path: {s}");
+            }
+            name => Ok(Self::Path(path, name.to_string())),
+        }
+    }
+}
+
+impl std::fmt::Display for WorkspaceMember {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Path(path, name) => write!(f, "{path}/{name}"),
+            Self::WildcardPath(path) => write!(f, "{path}/*"),
+        }
     }
 }
