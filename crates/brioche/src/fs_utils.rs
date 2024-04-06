@@ -1,6 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::Context as _;
+use relative_path::RelativePath;
 
 pub fn logical_path(path: &Path) -> PathBuf {
     let mut components = vec![];
@@ -17,6 +18,27 @@ pub fn logical_path(path: &Path) -> PathBuf {
     }
 
     PathBuf::from_iter(components)
+}
+
+pub fn is_subpath(path: &RelativePath) -> bool {
+    let mut depth: i32 = 0;
+    for component in path.components() {
+        match component {
+            relative_path::Component::CurDir => {}
+            relative_path::Component::ParentDir => {
+                depth = depth.checked_sub(1).unwrap();
+            }
+            relative_path::Component::Normal(_) => {
+                depth = depth.checked_add(1).unwrap();
+            }
+        }
+
+        if depth < 0 {
+            return false;
+        }
+    }
+
+    true
 }
 
 pub async fn is_file(path: &Path) -> bool {
@@ -193,4 +215,22 @@ cfg_if::cfg_if! {
 pub enum MoveType {
     Rename,
     Copy,
+}
+
+#[test]
+fn test_is_subpath() {
+    assert!(is_subpath(RelativePath::new("")));
+    assert!(is_subpath(RelativePath::new(".")));
+    assert!(is_subpath(RelativePath::new("foo")));
+    assert!(is_subpath(RelativePath::new("./foo/bar/baz.txt")));
+    assert!(is_subpath(RelativePath::new("./foo/..")));
+    assert!(is_subpath(RelativePath::new("foo/../baz.txt")));
+
+    assert!(!is_subpath(RelativePath::new("..")));
+    assert!(!is_subpath(RelativePath::new("./..")));
+    assert!(!is_subpath(RelativePath::new("../foo")));
+    assert!(!is_subpath(RelativePath::new("../foo/bar")));
+    assert!(!is_subpath(RelativePath::new("../foo/bar/baz")));
+    assert!(!is_subpath(RelativePath::new("foo/../..")));
+    assert!(!is_subpath(RelativePath::new("foo/../../bar")));
 }

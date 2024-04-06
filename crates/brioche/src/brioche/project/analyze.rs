@@ -145,6 +145,12 @@ pub async fn analyze_module(
                     project_path.display()
                 )
             })?;
+            let project_subpath = project_subpath.normalize();
+            anyhow::ensure!(
+                crate::fs_utils::is_subpath(&project_subpath),
+                "{display_path}: module escapes project root"
+            );
+
             let (file_id, contents) = vfs
                 .load(&module_path)
                 .await
