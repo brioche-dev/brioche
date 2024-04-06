@@ -1,7 +1,7 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Context as _;
-use brioche::{fs_utils, sandbox::SandboxExecutionConfig};
+use brioche::{fs_utils, reporter::ConsoleReporterKind, sandbox::SandboxExecutionConfig};
 use clap::Parser;
 use human_repr::HumanDuration;
 use tracing::Instrument;
@@ -109,7 +109,8 @@ struct BuildArgs {
 }
 
 async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
-    let (reporter, mut guard) = brioche::reporter::start_console_reporter()?;
+    let (reporter, mut guard) =
+        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
     reporter.set_is_evaluating(true);
 
     let brioche = brioche::brioche::BriocheBuilder::new(reporter.clone())
@@ -209,7 +210,8 @@ struct CheckArgs {
 }
 
 async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
-    let (reporter, mut guard) = brioche::reporter::start_console_reporter()?;
+    let (reporter, mut guard) =
+        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
     let brioche = brioche::brioche::BriocheBuilder::new(reporter)
         .build()
@@ -252,7 +254,8 @@ struct FormatArgs {
 }
 
 async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
-    let (reporter, mut guard) = brioche::reporter::start_console_reporter()?;
+    let (reporter, mut guard) =
+        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
     let brioche = brioche::brioche::BriocheBuilder::new(reporter)
         .build()
@@ -355,7 +358,8 @@ struct ExportProjectArgs {
 }
 
 async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
-    let (reporter, _guard) = brioche::reporter::start_console_reporter()?;
+    let (reporter, mut guard) =
+        brioche::reporter::start_console_reporter(ConsoleReporterKind::Plain)?;
 
     let brioche = brioche::brioche::BriocheBuilder::new(reporter)
         .build()
@@ -365,6 +369,8 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
     let project_listing = projects
         .export_listing(&brioche, project_hash)
         .context("failed to export listing")?;
+
+    guard.shutdown_console().await;
 
     let serialized = serde_json::to_string_pretty(&project_listing)?;
     println!("{}", serialized);

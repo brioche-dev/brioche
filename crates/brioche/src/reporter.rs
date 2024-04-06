@@ -14,7 +14,16 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _
 const DEFAULT_TRACING_LEVEL: &str = "brioche=info";
 const DEFAULT_DEBUG_TRACING_LEVEL: &str = "brioche=debug";
 
-pub fn start_console_reporter() -> anyhow::Result<(Reporter, ReporterGuard)> {
+#[derive(Debug, Clone, Copy)]
+pub enum ConsoleReporterKind {
+    Auto,
+    SuperConsole,
+    Plain,
+}
+
+pub fn start_console_reporter(
+    kind: ConsoleReporterKind,
+) -> anyhow::Result<(Reporter, ReporterGuard)> {
     let jobs = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let queued_lines = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -41,7 +50,16 @@ pub fn start_console_reporter() -> anyhow::Result<(Reporter, ReporterGuard)> {
         let queued_lines = queued_lines.clone();
         let jobs = jobs.clone();
         move || {
-            let superconsole = superconsole::SuperConsole::new();
+            let superconsole = match kind {
+                ConsoleReporterKind::Auto => superconsole::SuperConsole::new(),
+                ConsoleReporterKind::SuperConsole => Some(superconsole::SuperConsole::forced_new(
+                    superconsole::Dimensions {
+                        width: 80,
+                        height: 24,
+                    },
+                )),
+                ConsoleReporterKind::Plain => None,
+            };
             let mut console = match superconsole {
                 Some(console) => {
                     let root = JobsComponent {
