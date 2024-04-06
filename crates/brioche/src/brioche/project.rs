@@ -589,6 +589,15 @@ impl ProjectHash {
         let hash = hasher.finalize();
         Ok(Self(hash))
     }
+
+    pub fn validate_matches(&self, project: &Project) -> anyhow::Result<()> {
+        let actual_hash = ProjectHash::from_serializable(project)?;
+        anyhow::ensure!(
+            self == &actual_hash,
+            "project hash does not match expected hash"
+        );
+        Ok(())
+    }
 }
 
 impl std::fmt::Display for ProjectHash {
@@ -676,12 +685,77 @@ impl std::fmt::Display for WorkspaceMember {
     }
 }
 
-#[serde_with::serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[non_exhaustive]
+#[derive(Debug, Clone)]
 pub struct ProjectListing {
     pub root_project: ProjectHash,
     pub projects: HashMap<ProjectHash, Project>,
-    #[serde_as(as = "HashMap<_, TickEncoded>")]
     pub files: HashMap<FileId, Vec<u8>>,
+}
+
+impl serde::Serialize for ProjectListing {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let unvalidated = ProjectListingUnvalidated::from(self.clone());
+        serde::Serialize::serialize(&unvalidated, serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ProjectListing {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let unvalidated: ProjectListingUnvalidated = serde::Deserialize::deserialize(deserializer)?;
+        let validated = ProjectListing::try_from(unvalidated).map_err(serde::de::Error::custom)?;
+        Ok(validated)
+    }
+}
+
+#[serde_with::serde_as]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectListingUnvalidated {
+    root_project: ProjectHash,
+    projects: HashMap<ProjectHash, Project>,
+    #[serde_as(as = "HashMap<_, TickEncoded>")]
+    files: HashMap<FileId, Vec<u8>>,
+}
+
+impl From<ProjectListing> for ProjectListingUnvalidated {
+    fn from(value: ProjectListing) -> Self {
+        Self {
+            files: value.files,
+            projects: value.projects,
+            root_project: value.root_project,
+        }
+    }
+}
+
+impl TryFrom<ProjectListingUnvalidated> for ProjectListing {
+    type Error = anyhow::Error;
+
+    fn try_from(value: ProjectListingUnvalidated) -> Result<Self, Self::Error> {
+        for (project_hash, project) in &value.projects {
+            project_hash.validate_matches(project)?;
+
+            for file_id in project.modules.values() {
+                anyhow::ensure!(value.files.contains_key(file_id));
+            }
+            for dep_hash in project.dependencies.values() {
+                anyhow::ensure!(value.projects.contains_key(dep_hash));
+            }
+        }
+        for (file_id, content) in &value.files {
+            file_id.validate_matches(content)?;
+        }
+
+        Ok(Self {
+            root_project: value.root_project,
+            projects: value.projects,
+            files: value.files,
+        })
+    }
 }

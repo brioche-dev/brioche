@@ -130,6 +130,23 @@ pub enum FileId {
     Mutable(ulid::Ulid),
 }
 
+impl FileId {
+    pub fn validate_matches(&self, content: &[u8]) -> anyhow::Result<()> {
+        let expected_hash = match self {
+            FileId::Hash(hash) => hash,
+            FileId::Mutable(_) => {
+                anyhow::bail!("tried to validate file ID match for mutable file");
+            }
+        };
+        let actual_hash = blake3::hash(content);
+        anyhow::ensure!(
+            expected_hash == &actual_hash,
+            "file content does not match expected hash"
+        );
+        Ok(())
+    }
+}
+
 impl std::fmt::Display for FileId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
