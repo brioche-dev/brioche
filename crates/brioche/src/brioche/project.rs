@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -754,6 +754,36 @@ impl TryFrom<ProjectListingUnvalidated> for ProjectListing {
         }
         for (file_id, content) in &value.files {
             file_id.validate_matches(content)?;
+        }
+
+        let mut orphan_files = value.files.keys().copied().collect::<HashSet<_>>();
+        let mut orphan_projects = value.projects.keys().copied().collect::<HashSet<_>>();
+        let mut subproject_hashes = vec![value.root_project];
+        while let Some(subproject_hash) = subproject_hashes.pop() {
+            orphan_projects.remove(&subproject_hash);
+
+            let subproject = value
+                .projects
+                .get(&subproject_hash)
+                .context("subproject not found")?;
+
+            for file_id in subproject.modules.values() {
+                orphan_files.remove(file_id);
+            }
+
+            for dep_hash in subproject.dependencies.values() {
+                subproject_hashes.push(*dep_hash);
+            }
+        }
+
+        if !orphan_files.is_empty() {
+            anyhow::bail!("project listing had orphan files ({})", orphan_files.len());
+        }
+        if !orphan_projects.is_empty() {
+            anyhow::bail!(
+                "project listing had orphan projects ({})",
+                orphan_projects.len()
+            );
         }
 
         Ok(Self {
