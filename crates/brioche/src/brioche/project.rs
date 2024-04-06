@@ -598,6 +598,10 @@ impl ProjectHash {
         );
         Ok(())
     }
+
+    pub fn blake3(&self) -> &blake3::Hash {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for ProjectHash {
