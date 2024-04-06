@@ -2,6 +2,7 @@
 name = "brioche"
 version = "0.0.1"
 edition = "2021"
+default-run = "brioche"
 
 [dependencies]
 anyhow = { version = "1.0.75", features = ["backtrace"] }
