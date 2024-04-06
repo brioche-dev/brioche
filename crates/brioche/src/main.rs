@@ -19,6 +19,8 @@ enum Args {
 
     Analyze(AnalyzeArgs),
 
+    ExportProject(ExportProjectArgs),
+
     RunSandbox(RunSandboxArgs),
 }
 
@@ -70,6 +72,15 @@ fn main() -> anyhow::Result<ExitCode> {
                 .build()?;
 
             rt.block_on(analyze(args))?;
+
+            Ok(ExitCode::SUCCESS)
+        }
+        Args::ExportProject(args) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            rt.block_on(export_project(args))?;
 
             Ok(ExitCode::SUCCESS)
         }
@@ -334,6 +345,29 @@ async fn analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     let vfs = brioche::brioche::vfs::Vfs::immutable();
     let project = brioche::brioche::project::analyze::analyze_project(&vfs, &args.project).await?;
     println!("{project:#?}");
+    Ok(())
+}
+
+#[derive(Debug, Parser)]
+struct ExportProjectArgs {
+    #[clap(short, long)]
+    project: PathBuf,
+}
+
+async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
+    let (reporter, _guard) = brioche::reporter::start_console_reporter()?;
+
+    let brioche = brioche::brioche::BriocheBuilder::new(reporter)
+        .build()
+        .await?;
+    let projects = brioche::brioche::project::Projects::default();
+    let project_hash = projects.load(&brioche, &args.project).await?;
+    let project_listing = projects
+        .export_listing(&brioche, project_hash)
+        .context("failed to export listing")?;
+
+    let serialized = serde_json::to_string_pretty(&project_listing)?;
+    println!("{}", serialized);
     Ok(())
 }
 

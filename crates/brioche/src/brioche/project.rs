@@ -7,6 +7,8 @@ use std::{
 use anyhow::Context as _;
 use relative_path::{RelativePath, RelativePathBuf};
 
+use crate::encoding::TickEncoded;
+
 use super::{vfs::FileId, Brioche};
 
 pub mod analyze;
@@ -146,6 +148,47 @@ impl Projects {
             .local_paths(project_hash)
             .with_context(|| format!("project not found for hash {project_hash}"))?;
         Ok(local_paths.map(|path| path.to_owned()).collect())
+    }
+
+    pub fn export_listing(
+        &self,
+        brioche: &Brioche,
+        project_hash: ProjectHash,
+    ) -> anyhow::Result<ProjectListing> {
+        let mut projects = HashMap::new();
+        let mut files = HashMap::new();
+        let mut subproject_hashes = vec![project_hash];
+
+        while let Some(subproject_hash) = subproject_hashes.pop() {
+            let subproject = self.project(subproject_hash)?;
+
+            match projects.entry(subproject_hash) {
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert((*subproject).clone());
+
+                    for (path, file_id) in &subproject.modules {
+                        let file_contents = brioche.vfs.read(*file_id)?.with_context(|| {
+                            format!("file '{path}' not found for project {subproject_hash}")
+                        })?;
+                        files.insert(*file_id, (*file_contents).clone());
+                    }
+
+                    for dep_hash in subproject.dependencies.values() {
+                        subproject_hashes.push(*dep_hash);
+                    }
+                }
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    // Entry exists, which means we've already added it plus
+                    // its dependencies
+                }
+            }
+        }
+
+        Ok(ProjectListing {
+            root_project: project_hash,
+            projects,
+            files,
+        })
     }
 }
 
@@ -474,7 +517,8 @@ async fn find_workspace(project_path: &Path) -> anyhow::Result<Option<Workspace>
     Ok(None)
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Project {
     pub definition: ProjectDefinition,
     pub dependencies: HashMap<String, ProjectHash>,
@@ -482,6 +526,7 @@ pub struct Project {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectDefinition {
     #[serde(default)]
     pub dependencies: HashMap<String, DependencyDefinition>,
@@ -629,4 +674,14 @@ impl std::fmt::Display for WorkspaceMember {
             Self::WildcardPath(path) => write!(f, "{path}/*"),
         }
     }
+}
+
+#[serde_with::serde_as]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectListing {
+    pub root_project: ProjectHash,
+    pub projects: HashMap<ProjectHash, Project>,
+    #[serde_as(as = "HashMap<_, TickEncoded>")]
+    pub files: HashMap<FileId, Vec<u8>>,
 }
