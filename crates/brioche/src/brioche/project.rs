@@ -601,6 +601,23 @@ impl ProjectHash {
         Ok(())
     }
 
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(blake3::Hash::from_bytes(bytes))
+    }
+
+    pub fn try_from_slice(bytes: &[u8]) -> anyhow::Result<Self> {
+        let bytes = bytes.try_into()?;
+        Ok(Self::from_bytes(bytes))
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        self.as_bytes().as_slice()
+    }
+
     pub fn blake3(&self) -> &blake3::Hash {
         &self.0
     }
