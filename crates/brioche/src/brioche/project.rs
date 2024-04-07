@@ -528,6 +528,8 @@ pub struct Project {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDefinition {
+    pub name: Option<String>,
+    pub version: Option<String>,
     #[serde(default)]
     pub dependencies: HashMap<String, DependencyDefinition>,
 }

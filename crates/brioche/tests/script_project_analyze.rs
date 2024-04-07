@@ -49,6 +49,42 @@ async fn test_analyze_simple_project() -> anyhow::Result<()> {
     assert_eq!(
         project.definition,
         ProjectDefinition {
+            name: None,
+            version: None,
+            dependencies: HashMap::new(),
+        },
+    );
+
+    let root_module = &project.local_modules[&project.root_module];
+    assert!(root_module.imports.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_project_metadata() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    name: "myproject",
+                    version: "0.1.0",
+                };
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    assert_eq!(
+        project.definition,
+        ProjectDefinition {
+            name: Some("myproject".to_string()),
+            version: Some("0.1.0".to_string()),
             dependencies: HashMap::new(),
         },
     );
@@ -228,6 +264,8 @@ async fn test_analyze_external_dep() -> anyhow::Result<()> {
     assert_eq!(
         project.definition,
         ProjectDefinition {
+            name: None,
+            version: None,
             dependencies: HashMap::from_iter([(
                 "foo".to_string(),
                 DependencyDefinition::Version(Version::Any),
