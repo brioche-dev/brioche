@@ -1,4 +1,4 @@
-use brioche::brioche::{artifact::LazyArtifact, Brioche};
+use brioche::{artifact::LazyArtifact, Brioche};
 
 mod brioche_test;
 

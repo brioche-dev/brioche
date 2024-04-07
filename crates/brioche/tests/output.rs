@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt, path::Path};
 
 use assert_matches::assert_matches;
-use brioche::brioche::{artifact::CompleteArtifact, output::create_local_output, Brioche};
+use brioche::{artifact::CompleteArtifact, output::create_local_output, Brioche};
 use pretty_assertions::assert_eq;
 
 mod brioche_test;
@@ -18,10 +18,10 @@ async fn create_output(
     artifact: &CompleteArtifact,
     merge: bool,
 ) -> anyhow::Result<()> {
-    brioche::brioche::output::create_output(
+    brioche::output::create_output(
         brioche,
         artifact,
-        brioche::brioche::output::OutputOptions {
+        brioche::output::OutputOptions {
             output_path,
             merge,
             resources_dir: None,
@@ -39,10 +39,10 @@ async fn create_output_with_resources(
     artifact: &CompleteArtifact,
     merge: bool,
 ) -> anyhow::Result<()> {
-    brioche::brioche::output::create_output(
+    brioche::output::create_output(
         brioche,
         artifact,
-        brioche::brioche::output::OutputOptions {
+        brioche::output::OutputOptions {
             output_path,
             merge,
             resources_dir: Some(resources_dir),
@@ -59,10 +59,10 @@ async fn create_output_with_links(
     artifact: &CompleteArtifact,
     merge: bool,
 ) -> anyhow::Result<()> {
-    brioche::brioche::output::create_output(
+    brioche::output::create_output(
         brioche,
         artifact,
-        brioche::brioche::output::OutputOptions {
+        brioche::output::OutputOptions {
             output_path,
             merge,
             resources_dir: None,
@@ -736,7 +736,7 @@ async fn test_output_with_links() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let hello_blob = brioche_test::blob(&brioche, b"hello").await;
-    let hello_blob_path = brioche::brioche::blob::blob_path(&brioche, hello_blob);
+    let hello_blob_path = brioche::blob::blob_path(&brioche, hello_blob);
 
     let hello = brioche_test::file(hello_blob, false);
     let hello_exe = brioche_test::file(hello_blob, true);

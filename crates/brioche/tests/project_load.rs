@@ -80,7 +80,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
     context
         .write_toml(
             "myworkspace/brioche_workspace.toml",
-            &brioche::brioche::project::WorkspaceDefinition {
+            &brioche::project::WorkspaceDefinition {
                 members: vec!["./foo".parse()?],
             },
         )

@@ -11,19 +11,16 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tracing::Instrument as _;
 
 use crate::{
-    brioche::{
-        artifact::{
-            ArchiveFormat, CompleteArtifact, CompleteProcessArtifact, CompleteProcessTemplate,
-            CompleteProcessTemplateComponent, CompressionFormat, DownloadArtifact, LazyArtifact,
-            Meta, ProcessArtifact, ProcessTemplate, ProcessTemplateComponent, UnpackArtifact,
-            WithMeta,
-        },
-        Brioche,
+    artifact::{
+        ArchiveFormat, CompleteArtifact, CompleteProcessArtifact, CompleteProcessTemplate,
+        CompleteProcessTemplateComponent, CompressionFormat, DownloadArtifact, LazyArtifact, Meta,
+        ProcessArtifact, ProcessTemplate, ProcessTemplateComponent, UnpackArtifact, WithMeta,
     },
     sandbox::{
         HostPathMode, SandboxExecutionConfig, SandboxPath, SandboxPathOptions, SandboxTemplate,
         SandboxTemplateComponent,
     },
+    Brioche,
 };
 
 const GUEST_UID_HINT: u32 = 1099;
@@ -50,7 +47,7 @@ pub async fn resolve_lazy_process_to_process(
         .await?;
 
     let work_dir = super::resolve(brioche, *process.work_dir).await?;
-    let crate::brioche::artifact::CompleteArtifact::Directory(work_dir) = work_dir.value else {
+    let crate::artifact::CompleteArtifact::Directory(work_dir) = work_dir.value else {
         anyhow::bail!("expected process workdir to be a directory artifact");
     };
 
@@ -182,10 +179,10 @@ pub async fn resolve_process(
     tokio::fs::create_dir_all(&host_pack_dir).await?;
 
     let create_work_dir_fut = async {
-        crate::brioche::output::create_output(
+        crate::output::create_output(
             brioche,
-            &crate::brioche::artifact::CompleteArtifact::Directory(process.work_dir),
-            crate::brioche::output::OutputOptions {
+            &crate::artifact::CompleteArtifact::Directory(process.work_dir),
+            crate::output::OutputOptions {
                 output_path: &host_work_dir,
                 merge: true,
                 resources_dir: Some(&host_pack_dir),
@@ -197,10 +194,10 @@ pub async fn resolve_process(
     };
     let create_output_scaffold_fut = async {
         if let Some(output_scaffold) = &process.output_scaffold {
-            crate::brioche::output::create_output(
+            crate::output::create_output(
                 brioche,
                 output_scaffold,
-                crate::brioche::output::OutputOptions {
+                crate::output::OutputOptions {
                     output_path: &output_path,
                     merge: false,
                     resources_dir: Some(&host_pack_dir),
@@ -303,9 +300,9 @@ pub async fn resolve_process(
         }
     }
 
-    let result = crate::brioche::input::create_input(
+    let result = crate::input::create_input(
         brioche,
-        crate::brioche::input::InputOptions {
+        crate::input::InputOptions {
             input_path: &output_path,
             remove_input: true,
             resources_dir: Some(&host_pack_dir),
@@ -462,7 +459,7 @@ async fn build_process_template(
             }
             CompleteProcessTemplateComponent::Input { artifact } => {
                 let local_output =
-                    crate::brioche::output::create_local_output(brioche, &artifact.value).await?;
+                    crate::output::create_local_output(brioche, &artifact.value).await?;
 
                 if let Some(input_resources_dir) = &local_output.resources_dir {
                     tokio::task::spawn_blocking({
@@ -588,7 +585,7 @@ async fn set_up_rootfs(
     guest_username: &str,
     guest_home_dir: &str,
 ) -> anyhow::Result<()> {
-    let output_rootfs_options = crate::brioche::output::OutputOptions {
+    let output_rootfs_options = crate::output::OutputOptions {
         output_path: rootfs_dir,
         merge: true,
         resources_dir: None,
@@ -601,7 +598,7 @@ async fn set_up_rootfs(
         compression: CompressionFormat::Zstd,
         file: Box::new(WithMeta::without_meta(LazyArtifact::Download(DownloadArtifact {
             url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/dash_amd64_linux.tar.zstd".parse()?,
-            hash: crate::brioche::Hash::Sha256 { value: hex::decode("ff52ae7e883ee4cbb0878f0e17decc18cd80b364147881fb576440e72e0129b2")? }
+            hash: crate::Hash::Sha256 { value: hex::decode("ff52ae7e883ee4cbb0878f0e17decc18cd80b364147881fb576440e72e0129b2")? }
         }))),
     });
     let env = LazyArtifact::Unpack(UnpackArtifact {
@@ -609,7 +606,7 @@ async fn set_up_rootfs(
         compression: CompressionFormat::Zstd,
         file: Box::new(WithMeta::without_meta(LazyArtifact::Download(DownloadArtifact {
             url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/env_amd64_linux.tar.zstd".parse()?,
-            hash: crate::brioche::Hash::Sha256 { value: hex::decode("8f5b15a9b5c695663ca2caefa0077c3889fcf65793c9a20ceca4ab12c7007453")? }
+            hash: crate::Hash::Sha256 { value: hex::decode("8f5b15a9b5c695663ca2caefa0077c3889fcf65793c9a20ceca4ab12c7007453")? }
         }))),
     });
 
@@ -621,8 +618,7 @@ async fn set_up_rootfs(
         }),
     )
     .await?;
-    crate::brioche::output::create_output(brioche, &dash_and_env.value, output_rootfs_options)
-        .await?;
+    crate::output::create_output(brioche, &dash_and_env.value, output_rootfs_options).await?;
 
     tracing::trace!("building rootfs");
 

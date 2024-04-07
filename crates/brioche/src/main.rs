@@ -113,20 +113,19 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
     reporter.set_is_evaluating(true);
 
-    let brioche = brioche::brioche::BriocheBuilder::new(reporter.clone())
+    let brioche = brioche::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep)
         .build()
         .await?;
-    let projects = brioche::brioche::project::Projects::default();
+    let projects = brioche::project::Projects::default();
 
     let build_future = async {
         let project_hash = projects.load(&brioche, &args.project).await?;
 
         if args.check {
-            let checked =
-                brioche::brioche::script::check::check(&brioche, &projects, project_hash).await?;
+            let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
 
-            let result = checked.ensure_ok(brioche::brioche::script::check::DiagnosticLevel::Error);
+            let result = checked.ensure_ok(brioche::script::check::DiagnosticLevel::Error);
 
             match result {
                 Ok(()) => reporter.emit(superconsole::Lines::from_multiline_string(
@@ -145,16 +144,12 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             }
         }
 
-        let artifact = brioche::brioche::script::evaluate::evaluate(
-            &brioche,
-            &projects,
-            project_hash,
-            &args.export,
-        )
-        .await?;
+        let artifact =
+            brioche::script::evaluate::evaluate(&brioche, &projects, project_hash, &args.export)
+                .await?;
 
         reporter.set_is_evaluating(false);
-        let result = brioche::brioche::resolve::resolve(&brioche, artifact).await?;
+        let result = brioche::resolve::resolve(&brioche, artifact).await?;
 
         guard.shutdown_console().await;
 
@@ -178,10 +173,10 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             }
 
             println!("Writing output");
-            brioche::brioche::output::create_output(
+            brioche::output::create_output(
                 &brioche,
                 &result.value,
-                brioche::brioche::output::OutputOptions {
+                brioche::output::OutputOptions {
                     output_path: output,
                     merge: false,
                     resources_dir: None,
@@ -213,19 +208,16 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
         brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
-    let brioche = brioche::brioche::BriocheBuilder::new(reporter)
-        .build()
-        .await?;
-    let projects = brioche::brioche::project::Projects::default();
+    let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
+    let projects = brioche::project::Projects::default();
 
     let check_future = async {
         let project_hash = projects.load(&brioche, &args.project).await?;
-        let checked =
-            brioche::brioche::script::check::check(&brioche, &projects, project_hash).await?;
+        let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
 
         guard.shutdown_console().await;
 
-        let result = checked.ensure_ok(brioche::brioche::script::check::DiagnosticLevel::Message);
+        let result = checked.ensure_ok(brioche::script::check::DiagnosticLevel::Message);
 
         match result {
             Ok(()) => {
@@ -257,17 +249,15 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
         brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
-    let brioche = brioche::brioche::BriocheBuilder::new(reporter)
-        .build()
-        .await?;
-    let projects = brioche::brioche::project::Projects::default();
+    let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
+    let projects = brioche::project::Projects::default();
 
     let format_future = async {
         let project_hash = projects.load(&brioche, &args.project).await?;
 
         if args.check {
             let mut unformatted_files =
-                brioche::brioche::script::format::check_format(&projects, project_hash).await?;
+                brioche::script::format::check_format(&projects, project_hash).await?;
             unformatted_files.sort();
 
             guard.shutdown_console().await;
@@ -284,7 +274,7 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
                 Ok(ExitCode::FAILURE)
             }
         } else {
-            brioche::brioche::script::format::format(&projects, project_hash).await?;
+            brioche::script::format::format(&projects, project_hash).await?;
 
             guard.shutdown_console().await;
 
@@ -316,15 +306,14 @@ async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
         let local_pool = &local_pool;
         futures::executor::block_on(async move {
             let (reporter, _guard) = brioche::reporter::start_lsp_reporter(client.clone());
-            let brioche = brioche::brioche::BriocheBuilder::new(reporter)
-                .vfs(brioche::brioche::vfs::Vfs::mutable())
+            let brioche = brioche::BriocheBuilder::new(reporter)
+                .vfs(brioche::vfs::Vfs::mutable())
                 .build()
                 .await?;
-            let projects = brioche::brioche::project::Projects::default();
-            let lsp_server = brioche::brioche::script::lsp::BriocheLspServer::new(
-                local_pool, brioche, projects, client,
-            )
-            .await?;
+            let projects = brioche::project::Projects::default();
+            let lsp_server =
+                brioche::script::lsp::BriocheLspServer::new(local_pool, brioche, projects, client)
+                    .await?;
             anyhow::Ok(lsp_server)
         })
         .expect("failed to build LSP")
@@ -345,8 +334,8 @@ struct AnalyzeArgs {
 }
 
 async fn analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
-    let vfs = brioche::brioche::vfs::Vfs::immutable();
-    let project = brioche::brioche::project::analyze::analyze_project(&vfs, &args.project).await?;
+    let vfs = brioche::vfs::Vfs::immutable();
+    let project = brioche::project::analyze::analyze_project(&vfs, &args.project).await?;
     println!("{project:#?}");
     Ok(())
 }
@@ -361,10 +350,8 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
     let (reporter, mut guard) =
         brioche::reporter::start_console_reporter(ConsoleReporterKind::Plain)?;
 
-    let brioche = brioche::brioche::BriocheBuilder::new(reporter)
-        .build()
-        .await?;
-    let projects = brioche::brioche::project::Projects::default();
+    let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
+    let projects = brioche::project::Projects::default();
     let project_hash = projects.load(&brioche, &args.project).await?;
     let project_listing = projects
         .export_listing(&brioche, project_hash)

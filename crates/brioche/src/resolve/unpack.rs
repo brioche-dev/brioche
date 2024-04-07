@@ -4,7 +4,7 @@ use anyhow::Context as _;
 use futures::TryStreamExt as _;
 use tracing::Instrument;
 
-use crate::brioche::{
+use crate::{
     artifact::{
         CompleteArtifact, Directory, DirectoryError, DirectoryListing, File, Meta, UnpackArtifact,
         WithMeta,
@@ -31,7 +31,7 @@ pub async fn resolve_unpack(
 
     let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Unpack);
 
-    let archive_path = crate::brioche::blob::blob_path(brioche, blob_id);
+    let archive_path = crate::blob::blob_path(brioche, blob_id);
     let archive_file = tokio::fs::File::open(&archive_path).await?;
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);
@@ -57,10 +57,10 @@ pub async fn resolve_unpack(
 
             let entry_artifact = match archive_entry.header().entry_type() {
                 tokio_tar::EntryType::Regular => {
-                    let entry_blob_id = crate::brioche::blob::save_blob_from_reader(
+                    let entry_blob_id = crate::blob::save_blob_from_reader(
                         brioche,
                         archive_entry,
-                        crate::brioche::blob::SaveBlobOptions::new(),
+                        crate::blob::SaveBlobOptions::new(),
                     )
                     .await?;
                     let executable = entry_mode & 0o100 != 0;

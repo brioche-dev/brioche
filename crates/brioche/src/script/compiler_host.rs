@@ -8,7 +8,7 @@ use std::{
 use anyhow::Context as _;
 use deno_core::OpState;
 
-use crate::brioche::{
+use crate::{
     project::{analyze::find_imports, Projects},
     Brioche,
 };

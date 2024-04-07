@@ -4,7 +4,7 @@ use anyhow::Context;
 use assert_matches::assert_matches;
 use pretty_assertions::assert_eq;
 
-use brioche::brioche::{
+use brioche::{
     artifact::{
         ArchiveFormat, CompleteArtifact, CompressionFormat, Directory, DownloadArtifact, File,
         LazyArtifact, ProcessArtifact, ProcessTemplate, ProcessTemplateComponent, UnpackArtifact,
@@ -92,7 +92,7 @@ fn utils() -> LazyArtifact {
 }
 
 async fn try_get(
-    brioche: &brioche::brioche::Brioche,
+    brioche: &brioche::Brioche,
     dir: &Directory,
     path: impl AsRef<[u8]>,
 ) -> anyhow::Result<Option<WithMeta<CompleteArtifact>>> {
@@ -102,7 +102,7 @@ async fn try_get(
 }
 
 async fn get(
-    brioche: &brioche::brioche::Brioche,
+    brioche: &brioche::Brioche,
     dir: &Directory,
     path: impl AsRef<[u8]>,
 ) -> WithMeta<CompleteArtifact> {
@@ -538,9 +538,9 @@ async fn test_resolve_process_cached_equivalent_inputs_parallel() -> anyhow::Res
     });
 
     let process_random_1_proxy =
-        brioche::brioche::resolve::create_proxy(&brioche, process_random_1.clone()).await?;
+        brioche::resolve::create_proxy(&brioche, process_random_1.clone()).await?;
     let process_random_2_proxy =
-        brioche::brioche::resolve::create_proxy(&brioche, process_random_2.clone()).await?;
+        brioche::resolve::create_proxy(&brioche, process_random_2.clone()).await?;
     let processes_dir = brioche_test::lazy_dir([
         ("process1.txt", process_random_1.clone()),
         ("process2.txt", process_random_2.clone()),

@@ -7,15 +7,13 @@ use std::{
 
 use anyhow::Context as _;
 use deno_core::OpState;
-
-use crate::brioche::script::specifier::BriocheImportSpecifier;
-
-use self::specifier::BriocheModuleSpecifier;
+use specifier::BriocheModuleSpecifier;
 
 use super::{
     artifact::{CompleteArtifact, LazyArtifact, WithMeta},
     blob::BlobId,
     project::Projects,
+    script::specifier::BriocheImportSpecifier,
     Brioche,
 };
 
@@ -211,7 +209,7 @@ pub async fn op_brioche_read_blob(
             .clone()
     };
 
-    let path = crate::brioche::blob::blob_path(&brioche, blob_id);
+    let path = crate::blob::blob_path(&brioche, blob_id);
     let bytes = tokio::fs::read(path)
         .await
         .with_context(|| format!("failed to read blob {blob_id}"))?;

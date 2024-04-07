@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context as _;
 use relative_path::{PathExt, RelativePathBuf};
 
-use crate::brioche::{project::Projects, vfs::Vfs};
+use crate::{project::Projects, vfs::Vfs};
 
 /// A specifier from an `import` statement in a JavaScript module. Can
 /// be resolved to a module specifier using the `resolve` function.
@@ -172,8 +172,8 @@ impl std::fmt::Display for BriocheModuleSpecifier {
 
 pub fn runtime_specifiers_with_contents(
 ) -> impl Iterator<Item = (BriocheModuleSpecifier, Cow<'static, [u8]>)> {
-    crate::brioche::RuntimeFiles::iter().flat_map(|path| {
-        let file = crate::brioche::RuntimeFiles::get(&path)?;
+    crate::RuntimeFiles::iter().flat_map(|path| {
+        let file = crate::RuntimeFiles::get(&path)?;
         let specifier = BriocheModuleSpecifier::Runtime {
             subpath: RelativePathBuf::from(&*path),
         };
@@ -187,7 +187,7 @@ pub fn read_specifier_contents(
 ) -> anyhow::Result<Arc<Vec<u8>>> {
     match specifier {
         BriocheModuleSpecifier::Runtime { subpath } => {
-            let file = crate::brioche::RuntimeFiles::get(subpath.as_str())
+            let file = crate::RuntimeFiles::get(subpath.as_str())
                 .with_context(|| format!("internal module '{specifier}' not found"))?;
             Ok(Arc::new(file.data.to_vec()))
         }
@@ -247,7 +247,7 @@ pub fn resolve(
             ];
 
             for candidate in candidates {
-                let file = crate::brioche::RuntimeFiles::get(candidate.as_str());
+                let file = crate::RuntimeFiles::get(candidate.as_str());
                 if file.is_some() {
                     return Ok(BriocheModuleSpecifier::Runtime { subpath: candidate });
                 }

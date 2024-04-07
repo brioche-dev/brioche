@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use futures::TryStreamExt as _;
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
-use crate::brioche::{
+use crate::{
     artifact::{Directory, DownloadArtifact, File},
     Brioche,
 };
@@ -42,7 +42,7 @@ pub async fn resolve_download(
         .compat();
     let download_stream = std::pin::pin!(download_stream);
 
-    let save_blob_options = crate::brioche::blob::SaveBlobOptions::new()
+    let save_blob_options = crate::blob::SaveBlobOptions::new()
         .expected_hash(Some(download.hash))
         .on_progress(|bytes_read| {
             if let Some(content_length) = content_length {
@@ -59,10 +59,9 @@ pub async fn resolve_download(
             Ok(())
         });
 
-    let blob_id =
-        crate::brioche::blob::save_blob_from_reader(brioche, download_stream, save_blob_options)
-            .await
-            .context("failed to save blob")?;
+    let blob_id = crate::blob::save_blob_from_reader(brioche, download_stream, save_blob_options)
+        .await
+        .context("failed to save blob")?;
 
     brioche.reporter.update_job(
         job_id,

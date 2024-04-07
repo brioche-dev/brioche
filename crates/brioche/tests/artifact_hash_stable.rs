@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use brioche::brioche::{
+use brioche::{
     artifact::{
         DownloadArtifact, LazyArtifact, ProcessArtifact, ProcessTemplate, ProcessTemplateComponent,
     },

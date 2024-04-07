@@ -1,4 +1,4 @@
-use brioche::brioche::vfs::Vfs;
+use brioche::vfs::Vfs;
 
 mod brioche_test;
 

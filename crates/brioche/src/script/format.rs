@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::brioche::project::{ProjectHash, Projects};
+use crate::project::{ProjectHash, Projects};
 
 #[tracing::instrument(skip(projects), err)]
 pub async fn format(projects: &Projects, project_hash: ProjectHash) -> anyhow::Result<()> {

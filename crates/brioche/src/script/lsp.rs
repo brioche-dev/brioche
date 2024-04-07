@@ -6,10 +6,10 @@ use tower_lsp::lsp_types::request::GotoTypeDefinitionResponse;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use crate::brioche::project::Projects;
-use crate::brioche::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
-use crate::brioche::script::format::format_code;
-use crate::brioche::Brioche;
+use crate::project::Projects;
+use crate::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
+use crate::script::format::format_code;
+use crate::Brioche;
 
 use super::specifier::BriocheModuleSpecifier;
 

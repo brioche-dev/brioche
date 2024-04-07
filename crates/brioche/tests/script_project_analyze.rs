@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use assert_matches::assert_matches;
-use brioche::brioche::{
+use brioche::{
     project::{
         analyze::{analyze_project, ImportAnalysis, ProjectAnalysis},
         DependencyDefinition, ProjectDefinition, Version,

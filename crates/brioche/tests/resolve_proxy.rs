@@ -1,4 +1,4 @@
-use brioche::brioche::{artifact::LazyArtifact, resolve::create_proxy};
+use brioche::{artifact::LazyArtifact, resolve::create_proxy};
 use brioche_test::resolve_without_meta;
 
 mod brioche_test;

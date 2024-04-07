@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use brioche::brioche::artifact::{DownloadArtifact, LazyArtifact};
+use brioche::artifact::{DownloadArtifact, LazyArtifact};
 use brioche_test::resolve_without_meta;
 
 mod brioche_test;

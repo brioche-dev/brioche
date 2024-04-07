@@ -1,4 +1,4 @@
-use brioche::brioche::{
+use brioche::{
     artifact::{Directory, DirectoryListing, LazyArtifact, WithMeta},
     Brioche,
 };
@@ -80,7 +80,7 @@ fn run_resolve_benchmark(c: &mut Criterion) {
         let (brioche, context) = brioche_bench::brioche_test().await;
 
         let deep_dir = make_deep_dir(&brioche, "").await;
-        let _deep_dir_result = brioche::brioche::resolve::resolve(
+        let _deep_dir_result = brioche::resolve::resolve(
             &brioche,
             WithMeta::without_meta(LazyArtifact::from(deep_dir.clone())),
         )
@@ -88,7 +88,7 @@ fn run_resolve_benchmark(c: &mut Criterion) {
         .unwrap();
 
         let wide_dir = make_wide_dir(&brioche, "").await;
-        let _wide_dir_result = brioche::brioche::resolve::resolve(
+        let _wide_dir_result = brioche::resolve::resolve(
             &brioche,
             WithMeta::without_meta(LazyArtifact::from(wide_dir.clone())),
         )
@@ -138,25 +138,21 @@ fn run_resolve_benchmark(c: &mut Criterion) {
     c.bench_function("cached resolve deep dir", |b| {
         b.to_async(&runtime).iter(|| async {
             let deep_dir = WithMeta::without_meta(LazyArtifact::from(artifacts.deep_dir.clone()));
-            let _ = brioche::brioche::resolve::resolve(&brioche, deep_dir)
-                .await
-                .unwrap();
+            let _ = brioche::resolve::resolve(&brioche, deep_dir).await.unwrap();
         })
     });
 
     c.bench_function("cached resolve wide dir", |b| {
         b.to_async(&runtime).iter(|| async {
             let wide_dir = WithMeta::without_meta(LazyArtifact::from(artifacts.wide_dir.clone()));
-            let _ = brioche::brioche::resolve::resolve(&brioche, wide_dir)
-                .await
-                .unwrap();
+            let _ = brioche::resolve::resolve(&brioche, wide_dir).await.unwrap();
         })
     });
 
     c.bench_function("cached resolve deep merge", |b| {
         b.to_async(&runtime).iter(|| async {
             let merge_deep_dir = WithMeta::without_meta(artifacts.merge_deep_dir.clone());
-            let _ = brioche::brioche::resolve::resolve(&brioche, merge_deep_dir)
+            let _ = brioche::resolve::resolve(&brioche, merge_deep_dir)
                 .await
                 .unwrap();
         })
@@ -165,7 +161,7 @@ fn run_resolve_benchmark(c: &mut Criterion) {
     c.bench_function("cached resolve wide merge", |b| {
         b.to_async(&runtime).iter(|| async {
             let merge_wide_dir = WithMeta::without_meta(artifacts.merge_wide_dir.clone());
-            let _ = brioche::brioche::resolve::resolve(&brioche, merge_wide_dir)
+            let _ = brioche::resolve::resolve(&brioche, merge_wide_dir)
                 .await
                 .unwrap();
         })

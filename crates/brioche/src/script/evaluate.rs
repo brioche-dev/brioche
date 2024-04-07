@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use anyhow::Context as _;
 
-use crate::brioche::{
+use crate::{
     artifact::{LazyArtifact, WithMeta},
     project::{ProjectHash, Projects},
     Brioche,

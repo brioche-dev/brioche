@@ -4,7 +4,7 @@ use anyhow::Context as _;
 use biome_rowan::{AstNode as _, AstNodeList as _, AstSeparatedList as _};
 use relative_path::{PathExt as _, RelativePathBuf};
 
-use crate::brioche::{
+use crate::{
     script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier},
     vfs::{FileId, Vfs},
 };
@@ -205,15 +205,15 @@ pub async fn analyze_module(
         let import_analysis = match &import_specifier {
             BriocheImportSpecifier::Local(local_import) => {
                 let import_module_path = match local_import {
-                    crate::brioche::script::specifier::BriocheLocalImportSpecifier::Relative(
-                        subpath,
-                    ) => module_path
-                        .parent()
-                        .context("invalid module path")?
-                        .join(subpath),
-                    crate::brioche::script::specifier::BriocheLocalImportSpecifier::ProjectRoot(
-                        subpath,
-                    ) => project_path.join(subpath),
+                    crate::script::specifier::BriocheLocalImportSpecifier::Relative(subpath) => {
+                        module_path
+                            .parent()
+                            .context("invalid module path")?
+                            .join(subpath)
+                    }
+                    crate::script::specifier::BriocheLocalImportSpecifier::ProjectRoot(subpath) => {
+                        project_path.join(subpath)
+                    }
                 };
                 anyhow::ensure!(
                     import_module_path.starts_with(project_path),
