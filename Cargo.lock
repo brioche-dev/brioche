@@ -796,6 +796,7 @@ dependencies = [
  "ulid",
  "unshare",
  "url",
+ "urlencoding",
 ]
 
 [[package]]
