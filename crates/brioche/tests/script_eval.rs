@@ -196,7 +196,7 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_eval_import_dep() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -217,23 +217,31 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    context
-        .write_file(
-            "brioche-repo/foo/project.bri",
-            r#"
-                export const project = {};
-                export const build = async () => {
-                    return {
-                        briocheSerialize: () => {
-                            return {
-                                type: "directory",
-                                listingBlob: null,
-                            }
-                        },
+    let (foo_hash, _) = context
+        .local_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const project = {};
+                    export const build = async () => {
+                        return {
+                            briocheSerialize: () => {
+                                return {
+                                    type: "directory",
+                                    listingBlob: null,
+                                }
+                            },
+                        };
                     };
-                };
-            "#,
-        )
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
         .await;
 
     let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
