@@ -122,6 +122,11 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let build_future = async {
         let project_hash = projects.load(&brioche, &args.project).await?;
 
+        let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
+        if num_lockfiles_updated > 0 {
+            tracing::info!(num_lockfiles_updated, "updated lockfiles");
+        }
+
         if args.check {
             let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
 
@@ -213,6 +218,12 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
 
     let check_future = async {
         let project_hash = projects.load(&brioche, &args.project).await?;
+
+        let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
+        if num_lockfiles_updated > 0 {
+            tracing::info!(num_lockfiles_updated, "updated lockfiles");
+        }
+
         let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
 
         guard.shutdown_console().await;

@@ -164,7 +164,7 @@ impl Projects {
         Ok(())
     }
 
-    pub async fn commit_dirty_lockfiles(&self) -> anyhow::Result<()> {
+    pub async fn commit_dirty_lockfiles(&self) -> anyhow::Result<usize> {
         let dirty_lockfiles = {
             let projects = self
                 .inner
@@ -185,9 +185,10 @@ impl Projects {
             .inner
             .write()
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        let num_lockfiles = projects.dirty_lockfiles.len();
         projects.dirty_lockfiles.clear();
 
-        Ok(())
+        Ok(num_lockfiles)
     }
 
     pub async fn commit_dirty_lockfile_for_project_path(
