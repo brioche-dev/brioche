@@ -613,6 +613,10 @@ async fn load_project_inner(
     let project = Arc::new(project);
     let project_hash = ProjectHash::from_serializable(&project)?;
 
+    if !errors.is_empty() {
+        tracing::debug!(?path, ?errors, "project loaded with errors");
+    }
+
     {
         let mut projects = projects
             .inner
