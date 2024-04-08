@@ -64,7 +64,7 @@ impl BriocheCompilerHost {
             match &specifier {
                 BriocheModuleSpecifier::File { path } => {
                     self.projects
-                        .load_from_module_path(&self.brioche, path)
+                        .load_from_module_path(&self.brioche, path, false)
                         .await
                         .inspect_err(|err| {
                             tracing::warn!("failed to load project from module path: {err:#}");

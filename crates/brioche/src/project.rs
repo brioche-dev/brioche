@@ -20,24 +20,51 @@ pub struct Projects {
 }
 
 impl Projects {
-    pub async fn load(&self, brioche: &Brioche, path: &Path) -> anyhow::Result<ProjectHash> {
+    pub async fn load(
+        &self,
+        brioche: &Brioche,
+        path: &Path,
+        validate: bool,
+    ) -> anyhow::Result<ProjectHash> {
         {
             let projects = self
                 .inner
                 .read()
                 .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
             if let Some(project_hash) = projects.paths_to_projects.get(path) {
+                if validate {
+                    let errors = &projects.project_load_errors[project_hash];
+                    if !errors.is_empty() {
+                        anyhow::bail!("project load errors: {errors:?}");
+                    }
+                }
+
                 return Ok(*project_hash);
             }
         }
 
-        load_project(self.clone(), brioche.clone(), path.to_owned(), 100).await
+        let project_hash =
+            load_project(self.clone(), brioche.clone(), path.to_owned(), 100).await?;
+
+        if validate {
+            let projects = self
+                .inner
+                .read()
+                .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+            let errors = &projects.project_load_errors[&project_hash];
+            if !errors.is_empty() {
+                anyhow::bail!("project load errors: {errors:?}");
+            }
+        }
+
+        Ok(project_hash)
     }
 
     pub async fn load_from_module_path(
         &self,
         brioche: &Brioche,
         path: &Path,
+        validate: bool,
     ) -> anyhow::Result<ProjectHash> {
         {
             let projects = self
@@ -51,7 +78,7 @@ impl Projects {
 
         for ancestor in path.ancestors().skip(1) {
             if tokio::fs::try_exists(ancestor.join("project.bri")).await? {
-                return self.load(brioche, ancestor).await;
+                return self.load(brioche, ancestor, validate).await;
             }
         }
 
@@ -281,6 +308,7 @@ struct ProjectsInner {
     paths_to_projects: HashMap<PathBuf, ProjectHash>,
     projects_to_paths: HashMap<ProjectHash, BTreeSet<PathBuf>>,
     dirty_lockfiles: HashMap<PathBuf, Lockfile>,
+    project_load_errors: HashMap<ProjectHash, Vec<LoadProjectError>>,
 }
 
 impl ProjectsInner {
@@ -420,7 +448,7 @@ async fn load_project(
         rt.block_on(local_set);
     });
 
-    let (project_hash, _) = rx.await.context("failed to get project load result")??;
+    let (project_hash, _, _) = rx.await.context("failed to get project load result")??;
     Ok(project_hash)
 }
 
@@ -431,7 +459,7 @@ async fn load_project_inner(
     path: &Path,
     lockfile_required: bool,
     depth: usize,
-) -> anyhow::Result<(ProjectHash, Arc<Project>)> {
+) -> anyhow::Result<(ProjectHash, Arc<Project>, Vec<LoadProjectError>)> {
     tracing::debug!(path = %path.display(), "resolving project");
 
     let path = tokio::fs::canonicalize(path)
@@ -473,6 +501,8 @@ async fn load_project_inner(
     };
     let mut new_lockfile = lockfile.clone().unwrap_or_default();
 
+    let mut errors = vec![];
+
     let mut dependencies = HashMap::new();
     for (name, dependency_def) in &project_analysis.definition.dependencies {
         static NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
@@ -483,20 +513,26 @@ async fn load_project_inner(
         let dep_depth = depth
             .checked_sub(1)
             .context("project dependency depth exceeded")?;
-        let (dependency_hash, _) = match dependency_def {
+        let (dependency_hash, _, dep_errors) = match dependency_def {
             DependencyDefinition::Path { path: subpath } => {
                 let dep_path = path.join(subpath);
-                load_project_inner(projects, brioche, &dep_path, lockfile_required, dep_depth)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "failed to resolve path dependency {name:?} in {}",
-                            path.display()
-                        )
-                    })?
+                let result =
+                    load_project_inner(projects, brioche, &dep_path, lockfile_required, dep_depth)
+                        .await;
+
+                match result {
+                    Ok(dep) => dep,
+                    Err(err) => {
+                        errors.push(LoadProjectError::FailedToLoadDependency {
+                            name: name.to_owned(),
+                            cause: err.to_string(),
+                        });
+                        continue;
+                    }
+                }
             }
             DependencyDefinition::Version(version) => {
-                let resolved_dep = resolve_dependency_to_local_path(
+                let resolved_dep_path = resolve_dependency_to_local_path(
                     brioche,
                     workspace.as_ref(),
                     name,
@@ -504,35 +540,62 @@ async fn load_project_inner(
                     lockfile_required,
                     &mut new_lockfile,
                 )
-                .await?;
+                .await;
+                let resolved_dep = match resolved_dep_path {
+                    Ok(resolved_dep_path) => resolved_dep_path,
+                    Err(err) => {
+                        errors.push(LoadProjectError::FailedToLoadDependency {
+                            name: name.to_owned(),
+                            cause: err.to_string(),
+                        });
+                        continue;
+                    }
+                };
 
-                let (actual_hash, project) = load_project_inner(
+                let result = load_project_inner(
                     projects,
                     brioche,
                     &resolved_dep.local_path,
                     resolved_dep.lockfile_required,
                     dep_depth,
                 )
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to resolve repo dependency {name:?} in {}",
-                        path.display()
-                    )
-                })?;
+                .await;
+                let (actual_hash, project, dep_errors) = match result {
+                    Ok(dep) => dep,
+                    Err(err) => {
+                        errors.push(LoadProjectError::FailedToLoadDependency {
+                            name: name.to_owned(),
+                            cause: err.to_string(),
+                        });
+                        continue;
+                    }
+                };
 
-                if let Some(expected_hash) = &resolved_dep.expected_hash {
-                    anyhow::ensure!(
-                        expected_hash == &actual_hash,
-                        "resolved dependency at '{}' did not match expected hash",
-                        resolved_dep.local_path.display()
-                    );
+                if let Some(expected_hash) = resolved_dep.expected_hash {
+                    if expected_hash != actual_hash {
+                        errors.push(LoadProjectError::FailedToLoadDependency {
+                            name: name.to_owned(),
+                            cause: format!(
+                                "resolved dependency at '{}' did not match expected hash",
+                                resolved_dep.local_path.display()
+                            ),
+                        });
+                        continue;
+                    }
                 }
 
-                (actual_hash, project)
+                (actual_hash, project, dep_errors)
             }
         };
 
+        errors.extend(
+            dep_errors
+                .into_iter()
+                .map(|error| LoadProjectError::DependencyError {
+                    name: name.to_owned(),
+                    error: Box::new(error),
+                }),
+        );
         dependencies.insert(name.to_owned(), dependency_hash);
     }
 
@@ -574,9 +637,12 @@ async fn load_project_inner(
             .entry(project_hash)
             .or_default()
             .insert(path);
+        projects
+            .project_load_errors
+            .insert(project_hash, errors.clone());
     }
 
-    Ok((project_hash, project))
+    Ok((project_hash, project, errors))
 }
 
 async fn resolve_dependency_to_local_path(
@@ -800,6 +866,18 @@ pub struct Project {
     pub dependencies: HashMap<String, ProjectHash>,
     pub modules: HashMap<RelativePathBuf, FileId>,
     pub lockfile: Lockfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum LoadProjectError {
+    FailedToLoadDependency {
+        name: String,
+        cause: String,
+    },
+    DependencyError {
+        name: String,
+        error: Box<LoadProjectError>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

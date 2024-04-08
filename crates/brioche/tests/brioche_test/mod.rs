@@ -54,7 +54,7 @@ pub async fn load_project(
     path: &Path,
 ) -> anyhow::Result<(Projects, ProjectHash)> {
     let projects = Projects::default();
-    let project_hash = projects.load(brioche, path).await?;
+    let project_hash = projects.load(brioche, path, true).await?;
 
     Ok((projects, project_hash))
 }
@@ -258,7 +258,7 @@ impl TestContext {
 
         let projects = Projects::default();
         let project_hash = projects
-            .load(&self.brioche, &temp_project_path)
+            .load(&self.brioche, &temp_project_path, true)
             .await
             .expect("failed to load temp project");
         projects.commit_dirty_lockfiles().await.unwrap();

@@ -120,7 +120,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche::project::Projects::default();
 
     let build_future = async {
-        let project_hash = projects.load(&brioche, &args.project).await?;
+        let project_hash = projects.load(&brioche, &args.project, true).await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {
@@ -217,7 +217,7 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche::project::Projects::default();
 
     let check_future = async {
-        let project_hash = projects.load(&brioche, &args.project).await?;
+        let project_hash = projects.load(&brioche, &args.project, true).await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {
@@ -264,7 +264,7 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche::project::Projects::default();
 
     let format_future = async {
-        let project_hash = projects.load(&brioche, &args.project).await?;
+        let project_hash = projects.load(&brioche, &args.project, true).await?;
 
         if args.check {
             let mut unformatted_files =
@@ -364,7 +364,7 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
 
     let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
     let projects = brioche::project::Projects::default();
-    let project_hash = projects.load(&brioche, &args.project).await?;
+    let project_hash = projects.load(&brioche, &args.project, true).await?;
     let project_listing = projects
         .export_listing(&brioche, project_hash)
         .context("failed to export listing")?;
