@@ -104,6 +104,9 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
         .contains(&registry_foo_dir));
     assert!(foo_dep.dependencies.is_empty());
 
+    // The workspace dependency should not be in the lockfile
+    assert!(project.lockfile.dependencies.is_empty());
+
     Ok(())
 }
 
@@ -260,6 +263,85 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
         .unwrap()
         .contains(&foo_path));
     assert!(foo_dep.dependencies.is_empty());
+
+    mock_foo_latest.assert_async().await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
+    let (brioche, mut context) = brioche_test::brioche_test().await;
+
+    let bar_hash = context
+        .remote_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const project = {};
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    let mock_bar_latest = context
+        .mock_registry_publish_tag("bar", "latest", bar_hash)
+        .create_async()
+        .await;
+
+    let foo_hash = context
+        .remote_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const project = {
+                        dependencies: {
+                            bar: "*",
+                        },
+                    };
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+
+    mock_bar_latest.assert_async().await;
+    mock_bar_latest.remove_async().await;
+    let mock_foo_latest = context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
+        .await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let project = projects.project(project_hash).unwrap();
+    projects.commit_dirty_lockfiles().await?;
+    assert!(projects
+        .local_paths(project_hash)
+        .unwrap()
+        .contains(&project_dir));
+    assert!(tokio::fs::try_exists(project_dir.join("brioche.lock")).await?);
+
+    let foo_dep_hash = project.dependencies["foo"];
+    assert_eq!(foo_dep_hash, foo_hash);
+
+    let foo_lockfile_dep_hash = project.lockfile.dependencies["foo"];
+    assert_eq!(foo_lockfile_dep_hash, foo_hash);
 
     mock_foo_latest.assert_async().await;
 

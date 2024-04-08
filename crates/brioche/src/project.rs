@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Context as _;
 use relative_path::{RelativePath, RelativePathBuf};
+use tokio::io::AsyncWriteExt as _;
 
 use crate::encoding::TickEncoded;
 
@@ -150,6 +151,83 @@ impl Projects {
         Ok(local_paths.map(|path| path.to_owned()).collect())
     }
 
+    pub fn validate_no_dirty_lockfiles(&self) -> anyhow::Result<()> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        let dirty_lockfile_paths = projects.dirty_lockfiles.keys().cloned().collect::<Vec<_>>();
+        anyhow::ensure!(
+            dirty_lockfile_paths.is_empty(),
+            "dirty lockfiles found: {dirty_lockfile_paths:?}"
+        );
+        Ok(())
+    }
+
+    pub async fn commit_dirty_lockfiles(&self) -> anyhow::Result<()> {
+        let dirty_lockfiles = {
+            let projects = self
+                .inner
+                .read()
+                .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+            projects.dirty_lockfiles.clone()
+        };
+
+        for (path, lockfile) in dirty_lockfiles {
+            let lockfile_contents = serde_json::to_string_pretty(&lockfile)
+                .with_context(|| format!("failed to serialize lockfile at {}", path.display()))?;
+            tokio::fs::write(&path, lockfile_contents)
+                .await
+                .context("failed to write lockfile")?;
+        }
+
+        let mut projects = self
+            .inner
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        projects.dirty_lockfiles.clear();
+
+        Ok(())
+    }
+
+    pub async fn commit_dirty_lockfile_for_project_path(
+        &self,
+        project_path: &Path,
+    ) -> anyhow::Result<bool> {
+        let lockfile_path = project_path.join("brioche.lock");
+
+        let dirty_lockfile = {
+            let projects = self
+                .inner
+                .read()
+                .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+            projects.dirty_lockfiles.get(&lockfile_path).cloned()
+        };
+
+        let Some(dirty_lockfile) = dirty_lockfile else {
+            return Ok(false);
+        };
+
+        let lockfile_contents =
+            serde_json::to_string_pretty(&dirty_lockfile).with_context(|| {
+                format!(
+                    "failed to serialize lockfile at {}",
+                    lockfile_path.display()
+                )
+            })?;
+        tokio::fs::write(&lockfile_path, lockfile_contents)
+            .await
+            .context("failed to write lockfile")?;
+
+        let mut projects = self
+            .inner
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        projects.dirty_lockfiles.remove(&lockfile_path);
+
+        Ok(true)
+    }
+
     pub fn export_listing(
         &self,
         brioche: &Brioche,
@@ -197,6 +275,7 @@ struct ProjectsInner {
     projects: HashMap<ProjectHash, Arc<Project>>,
     paths_to_projects: HashMap<PathBuf, ProjectHash>,
     projects_to_paths: HashMap<ProjectHash, BTreeSet<PathBuf>>,
+    dirty_lockfiles: HashMap<PathBuf, Lockfile>,
 }
 
 impl ProjectsInner {
@@ -327,7 +406,7 @@ async fn load_project(
         let local_set = tokio::task::LocalSet::new();
 
         local_set.spawn_local(async move {
-            let result = load_project_inner(&projects, &brioche, &path, depth).await;
+            let result = load_project_inner(&projects, &brioche, &path, false, depth).await;
             let _ = tx.send(result).inspect_err(|err| {
                 tracing::warn!("failed to send project load result: {err:?}");
             });
@@ -345,6 +424,7 @@ async fn load_project_inner(
     projects: &Projects,
     brioche: &Brioche,
     path: &Path,
+    lockfile_required: bool,
     depth: usize,
 ) -> anyhow::Result<(ProjectHash, Arc<Project>)> {
     tracing::debug!(path = %path.display(), "resolving project");
@@ -355,6 +435,38 @@ async fn load_project_inner(
     let workspace = find_workspace(&path).await?;
 
     let project_analysis = analyze::analyze_project(&brioche.vfs, &path).await?;
+
+    let lockfile_path = path.join("brioche.lock");
+    let lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await;
+    let lockfile: Option<Lockfile> = match lockfile_contents {
+        Ok(contents) => match serde_json::from_str(&contents) {
+            Ok(lockfile) => Some(lockfile),
+            Err(error) => {
+                if lockfile_required {
+                    return Err(error).context(format!(
+                        "failed to parse lockfile at {}",
+                        lockfile_path.display()
+                    ));
+                } else {
+                    None
+                }
+            }
+        },
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            if lockfile_required {
+                anyhow::bail!("lockfile not found: {}", lockfile_path.display());
+            } else {
+                None
+            }
+        }
+        Err(error) => {
+            return Err(error).context(format!(
+                "failed to read lockfile at {}",
+                lockfile_path.display()
+            ));
+        }
+    };
+    let mut new_lockfile = lockfile.clone().unwrap_or_default();
 
     let mut dependencies = HashMap::new();
     for (name, dependency_def) in &project_analysis.definition.dependencies {
@@ -369,7 +481,7 @@ async fn load_project_inner(
         let (dependency_hash, _) = match dependency_def {
             DependencyDefinition::Path { path: subpath } => {
                 let dep_path = path.join(subpath);
-                load_project_inner(projects, brioche, &dep_path, dep_depth)
+                load_project_inner(projects, brioche, &dep_path, lockfile_required, dep_depth)
                     .await
                     .with_context(|| {
                         format!(
@@ -379,19 +491,30 @@ async fn load_project_inner(
                     })?
             }
             DependencyDefinition::Version(version) => {
-                let resolved_dep =
-                    resolve_dependency_to_local_path(brioche, workspace.as_ref(), name, version)
-                        .await?;
+                let resolved_dep = resolve_dependency_to_local_path(
+                    brioche,
+                    workspace.as_ref(),
+                    name,
+                    version,
+                    lockfile_required,
+                    &mut new_lockfile,
+                )
+                .await?;
 
-                let (actual_hash, project) =
-                    load_project_inner(projects, brioche, &resolved_dep.local_path, dep_depth)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "failed to resolve repo dependency {name:?} in {}",
-                                path.display()
-                            )
-                        })?;
+                let (actual_hash, project) = load_project_inner(
+                    projects,
+                    brioche,
+                    &resolved_dep.local_path,
+                    resolved_dep.lockfile_required,
+                    dep_depth,
+                )
+                .await
+                .with_context(|| {
+                    format!(
+                        "failed to resolve repo dependency {name:?} in {}",
+                        path.display()
+                    )
+                })?;
 
                 if let Some(expected_hash) = &resolved_dep.expected_hash {
                     anyhow::ensure!(
@@ -418,6 +541,7 @@ async fn load_project_inner(
         definition: project_analysis.definition,
         dependencies,
         modules,
+        lockfile: new_lockfile.clone(),
     };
     let project = Arc::new(project);
     let project_hash = ProjectHash::from_serializable(&project)?;
@@ -427,6 +551,14 @@ async fn load_project_inner(
             .inner
             .write()
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+
+        if lockfile.as_ref() != Some(&new_lockfile) {
+            if lockfile_required {
+                anyhow::bail!("lockfile at {} is out of date", lockfile_path.display());
+            } else {
+                projects.dirty_lockfiles.insert(lockfile_path, new_lockfile);
+            }
+        }
 
         projects.projects.insert(project_hash, project.clone());
         projects
@@ -447,6 +579,8 @@ async fn resolve_dependency_to_local_path(
     workspace: Option<&Workspace>,
     dependency_name: &str,
     dependency_version: &Version,
+    lockfile_required: bool,
+    lockfile: &mut Lockfile,
 ) -> anyhow::Result<ResolvedDependency> {
     if let Some(workspace) = workspace {
         if let Some(workspace_path) =
@@ -461,25 +595,48 @@ async fn resolve_dependency_to_local_path(
             return Ok(ResolvedDependency {
                 local_path: workspace_path,
                 expected_hash: None,
+                lockfile_required,
             });
         }
     }
 
-    let dep_hash = resolve_project_from_registry(brioche, dependency_name, dependency_version)
-        .await
-        .with_context(|| format!("failed to resolve '{dependency_name}' from registry"))?;
+    // TODO: Validate that the requested dependency version matches the
+    // version in the lockfile
+    let lockfile_dep_hash = lockfile.dependencies.get(dependency_name);
+    let dep_hash = match lockfile_dep_hash {
+        Some(dep_hash) => *dep_hash,
+        None => {
+            if lockfile_required {
+                anyhow::bail!("dependency '{}' not found in lockfile", dependency_name);
+            } else {
+                resolve_project_from_registry(brioche, dependency_name, dependency_version)
+                    .await
+                    .with_context(|| {
+                        format!("failed to resolve '{dependency_name}' from registry")
+                    })?
+            }
+        }
+    };
+
+    lockfile
+        .dependencies
+        .insert(dependency_name.to_owned(), dep_hash);
+
     let local_path = fetch_project_from_registry(brioche, dep_hash)
         .await
         .with_context(|| format!("failed to fetch '{dependency_name}' from registry"))?;
+
     Ok(ResolvedDependency {
         local_path,
         expected_hash: Some(dep_hash),
+        lockfile_required: true,
     })
 }
 
 struct ResolvedDependency {
     local_path: PathBuf,
     expected_hash: Option<ProjectHash>,
+    lockfile_required: bool,
 }
 
 async fn resolve_project_from_registry(
@@ -522,6 +679,11 @@ async fn fetch_project_from_registry(
     }
 
     for (module_path, file_id) in &project.modules {
+        anyhow::ensure!(
+            module_path != "brioche.lock",
+            "lockfile included as a project module"
+        );
+
         let temp_module_path = module_path.to_logical_path(&temp_project_path);
         anyhow::ensure!(
             temp_module_path.starts_with(&temp_project_path),
@@ -542,6 +704,20 @@ async fn fetch_project_from_registry(
             .await
             .context("failed to write blob")?;
     }
+
+    let lockfile_path = temp_project_path.join("brioche.lock");
+    let lockfile_contents =
+        serde_json::to_string_pretty(&project.lockfile).context("failed to serialize lockfile")?;
+    let mut lockfile_file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&lockfile_path)
+        .await
+        .context("failed to create lockfile")?;
+    lockfile_file
+        .write_all(lockfile_contents.as_bytes())
+        .await
+        .context("failed to write lockfile")?;
 
     if let Some(local_dir) = local_path.parent() {
         tokio::fs::create_dir_all(local_dir)
@@ -618,6 +794,7 @@ pub struct Project {
     pub definition: ProjectDefinition,
     pub dependencies: HashMap<String, ProjectHash>,
     pub modules: HashMap<RelativePathBuf, FileId>,
+    pub lockfile: Lockfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -830,6 +1007,11 @@ impl<'de> serde::Deserialize<'de> for ProjectListing {
         let validated = ProjectListing::try_from(unvalidated).map_err(serde::de::Error::custom)?;
         Ok(validated)
     }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Lockfile {
+    pub dependencies: HashMap<String, ProjectHash>,
 }
 
 #[serde_with::serde_as]

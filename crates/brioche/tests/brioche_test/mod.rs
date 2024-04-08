@@ -261,6 +261,7 @@ impl TestContext {
             .load(&self.brioche, &temp_project_path)
             .await
             .expect("failed to load temp project");
+        projects.commit_dirty_lockfiles().await.unwrap();
 
         (projects, project_hash, temp_project_path)
     }
