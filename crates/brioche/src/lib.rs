@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context as _;
 use futures::TryFutureExt as _;
+use registry::RegistryClient;
 use reporter::Reporter;
 use sha2::Digest as _;
 use sqlx::Connection as _;
@@ -34,7 +35,7 @@ pub struct Brioche {
     /// The directory where all of Brioche's data is stored. Usually configured
     /// to follow the platform's conventions for storing application data, such
     /// as `~/.local/share/brioche` on Linux.
-    home: PathBuf,
+    pub home: PathBuf,
     /// Causes Brioche to call itself to execute processes in a sandbox, rather
     /// than using a `tokio::spawn_blocking` thread. This could allow for
     /// running more processes at a time. This option mainly exists because
@@ -82,6 +83,11 @@ impl BriocheBuilder {
 
     pub fn repo_dir(mut self, repo_dir: PathBuf) -> Self {
         self.repo_dir = Some(repo_dir);
+        self
+    }
+
+    pub fn registry_client(mut self, registry_client: RegistryClient) -> Self {
+        self.registry_client = Some(registry_client);
         self
     }
 

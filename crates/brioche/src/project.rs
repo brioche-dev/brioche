@@ -621,7 +621,7 @@ async fn find_workspace(project_path: &Path) -> anyhow::Result<Option<Workspace>
     Ok(None)
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub definition: ProjectDefinition,

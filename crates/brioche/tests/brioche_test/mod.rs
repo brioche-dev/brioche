@@ -3,12 +3,13 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    process::Output,
 };
 
 use brioche::{
     artifact::{CreateDirectory, Directory, DirectoryListing, File, WithMeta},
     blob::{BlobId, SaveBlobOptions},
-    project::{ProjectHash, Projects},
+    project::{self, ProjectHash, Projects},
     Brioche, BriocheBuilder,
 };
 
@@ -20,6 +21,7 @@ pub async fn brioche_test_with(
     f: impl FnOnce(BriocheBuilder) -> BriocheBuilder,
 ) -> (Brioche, TestContext) {
     let temp = tempdir::TempDir::new("brioche-test").unwrap();
+    let registry_server = mockito::Server::new();
 
     let brioche_home = temp.path().join("brioche-home");
     let brioche_repo = temp.path().join("brioche-repo");
@@ -34,11 +36,19 @@ pub async fn brioche_test_with(
     let builder = BriocheBuilder::new(reporter)
         .home(brioche_home)
         .repo_dir(brioche_repo)
+        .registry_client(brioche::registry::RegistryClient::new(
+            registry_server.url().parse().unwrap(),
+            brioche::registry::RegistryAuthentication::Admin {
+                password: "admin".to_string(),
+            },
+        ))
         .self_exec_processes(false);
     let builder = f(builder);
     let brioche = builder.build().await.unwrap();
     let context = TestContext {
+        brioche: brioche.clone(),
         temp,
+        registry_server,
         _reporter_guard: reporter_guard,
     };
     (brioche, context)
@@ -191,7 +201,9 @@ pub fn sha256(value: impl AsRef<[u8]>) -> brioche::Hash {
 }
 
 pub struct TestContext {
+    brioche: Brioche,
     temp: tempdir::TempDir,
+    pub registry_server: mockito::ServerGuard,
     _reporter_guard: brioche::reporter::ReporterGuard,
 }
 
@@ -236,5 +248,86 @@ impl TestContext {
     {
         self.write_file(path, toml::to_string_pretty(&contents).unwrap())
             .await
+    }
+
+    pub async fn temp_project<F, Fut>(&self, f: F) -> (Projects, ProjectHash, PathBuf)
+    where
+        F: FnOnce(PathBuf) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let temp_project_path = self
+            .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
+            .await;
+
+        f(temp_project_path.clone()).await;
+
+        let projects = Projects::default();
+        let project_hash = projects
+            .load(&self.brioche, &temp_project_path)
+            .await
+            .expect("failed to load temp project");
+
+        (projects, project_hash, temp_project_path)
+    }
+
+    pub async fn local_registry_project<F, Fut>(&self, f: F) -> (ProjectHash, PathBuf)
+    where
+        F: FnOnce(PathBuf) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let (_, project_hash, temp_project_path) = self.temp_project(f).await;
+
+        let project_path = self
+            .mkdir(format!("brioche-home/projects/{project_hash}"))
+            .await;
+        tokio::fs::rename(&temp_project_path, &project_path)
+            .await
+            .expect("failed to rename temp project to final location");
+
+        (project_hash, project_path)
+    }
+
+    pub async fn remote_registry_project<F, Fut>(&mut self, f: F) -> ProjectHash
+    where
+        F: FnOnce(PathBuf) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let (projects, project_hash, _) = self.temp_project(f).await;
+        let project_listing = projects
+            .export_listing(&self.brioche, project_hash)
+            .expect("failed to export project listing");
+
+        for (subproject_hash, subproject) in &project_listing.projects {
+            self.registry_server
+                .mock("GET", &*format!("/projects/{subproject_hash}"))
+                .with_header("Content-Type", "application/json")
+                .with_body(serde_json::to_string(subproject).unwrap())
+                .create();
+        }
+        for (file_id, file_contents) in &project_listing.files {
+            self.registry_server
+                .mock("GET", &*format!("/blobs/{file_id}"))
+                .with_header("Content-Type", "application/octet-stream")
+                .with_body(file_contents)
+                .create();
+        }
+
+        project_hash
+    }
+
+    #[must_use]
+    pub fn mock_registry_publish_tag(
+        &mut self,
+        project_name: &str,
+        tag: &str,
+        project_hash: ProjectHash,
+    ) -> mockito::Mock {
+        self.registry_server
+            .mock("GET", &*format!("/project-tags/{project_name}/{tag}"))
+            .with_header("Content-Type", "application/json")
+            .with_body(
+                serde_json::to_string(&brioche::registry::GetProjectTagResponse { project_hash })
+                    .unwrap(),
+            )
     }
 }
