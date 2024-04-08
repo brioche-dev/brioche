@@ -49,10 +49,12 @@ pub struct Brioche {
     pub process_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_client: reqwest_middleware::ClientWithMiddleware,
+    pub registry_client: registry::RegistryClient,
 }
 
 pub struct BriocheBuilder {
     reporter: Reporter,
+    registry_client: Option<registry::RegistryClient>,
     vfs: vfs::Vfs,
     home: Option<PathBuf>,
     repo_dir: Option<PathBuf>,
@@ -64,6 +66,7 @@ impl BriocheBuilder {
     pub fn new(reporter: Reporter) -> Self {
         Self {
             reporter,
+            registry_client: None,
             vfs: vfs::Vfs::immutable(),
             home: None,
             repo_dir: None,
@@ -125,8 +128,12 @@ impl BriocheBuilder {
         } else if let Some(repo) = std::env::var_os("BRIOCHE_REPO") {
             PathBuf::from(repo)
         } else {
-            let config = config?;
-            config.repo_dir
+            match config {
+                Ok(ref config) => config.repo_dir.clone(),
+                Err(error) => {
+                    return Err(error);
+                }
+            }
         };
 
         tokio::fs::create_dir_all(&brioche_home).await?;
@@ -157,6 +164,24 @@ impl BriocheBuilder {
             .with(download_retry_middleware)
             .build();
 
+        let registry_client = self.registry_client.unwrap_or_else(|| {
+            let registry_password = std::env::var("BRIOCHE_REGISTRY_PASSWORD").ok();
+            let registry_auth = match registry_password {
+                Some(password) => registry::RegistryAuthentication::Admin { password },
+                None => registry::RegistryAuthentication::Anonymous,
+            };
+            let registry_url = config
+                .ok()
+                .map(|config| config.registry_url.clone())
+                .unwrap_or_else(|| {
+                    // TODO: Replace with actual registry URL
+                    "http://localhost:2000"
+                        .parse()
+                        .expect("failed to parse registry URL")
+                });
+            registry::RegistryClient::new(registry_url, registry_auth)
+        });
+
         Ok(Brioche {
             reporter: self.reporter,
             vfs: self.vfs,
@@ -170,6 +195,7 @@ impl BriocheBuilder {
             process_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROCESSES)),
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,
+            registry_client,
         })
     }
 }
@@ -177,6 +203,7 @@ impl BriocheBuilder {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct BriocheConfig {
     repo_dir: PathBuf,
+    registry_url: url::Url,
 }
 
 #[derive(rust_embed::RustEmbed)]

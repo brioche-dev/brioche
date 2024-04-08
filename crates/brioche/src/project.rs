@@ -379,18 +379,29 @@ async fn load_project_inner(
                     })?
             }
             DependencyDefinition::Version(version) => {
-                let local_path =
+                let resolved_dep =
                     resolve_dependency_to_local_path(brioche, workspace.as_ref(), name, version)
                         .await?;
 
-                load_project_inner(projects, brioche, &local_path, dep_depth)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "failed to resolve repo dependency {name:?} in {}",
-                            path.display()
-                        )
-                    })?
+                let (actual_hash, project) =
+                    load_project_inner(projects, brioche, &resolved_dep.local_path, dep_depth)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to resolve repo dependency {name:?} in {}",
+                                path.display()
+                            )
+                        })?;
+
+                if let Some(expected_hash) = &resolved_dep.expected_hash {
+                    anyhow::ensure!(
+                        expected_hash == &actual_hash,
+                        "resolved dependency at '{}' did not match expected hash",
+                        resolved_dep.local_path.display()
+                    );
+                }
+
+                (actual_hash, project)
             }
         };
 
@@ -436,28 +447,121 @@ async fn resolve_dependency_to_local_path(
     workspace: Option<&Workspace>,
     dependency_name: &str,
     dependency_version: &Version,
-) -> anyhow::Result<PathBuf> {
+) -> anyhow::Result<ResolvedDependency> {
     if let Some(workspace) = workspace {
-        if let Some(dep_path) = resolve_workspace_project_path(workspace, dependency_name).await? {
+        if let Some(workspace_path) =
+            resolve_workspace_project_path(workspace, dependency_name).await?
+        {
             // Eventually, we'll validate that the version of the project
             // from the workspace matches the requested dependency version
             match dependency_version {
                 Version::Any => {}
             }
 
-            return Ok(dep_path);
+            return Ok(ResolvedDependency {
+                local_path: workspace_path,
+                expected_hash: None,
+            });
         }
     }
 
     let repo = &brioche.repo_dir;
-    let dep_path = repo.join(dependency_name);
-    anyhow::ensure!(
-        tokio::fs::try_exists(&dep_path).await?,
-        "dependency not found: {}",
-        dep_path.display()
-    );
+    let repo_path = repo.join(dependency_name);
+    if tokio::fs::try_exists(&repo_path).await? {
+        return Ok(ResolvedDependency {
+            local_path: repo_path,
+            expected_hash: None,
+        });
+    }
 
-    Ok(dep_path)
+    let dep_hash = resolve_project_from_registry(brioche, dependency_name, dependency_version)
+        .await
+        .with_context(|| format!("failed to resolve '{dependency_name}' from registry"))?;
+    let local_path = fetch_project_from_registry(brioche, dep_hash)
+        .await
+        .with_context(|| format!("failed to fetch '{dependency_name}' from registry"))?;
+    Ok(ResolvedDependency {
+        local_path,
+        expected_hash: Some(dep_hash),
+    })
+}
+
+struct ResolvedDependency {
+    local_path: PathBuf,
+    expected_hash: Option<ProjectHash>,
+}
+
+async fn resolve_project_from_registry(
+    brioche: &Brioche,
+    dependency_name: &str,
+    dependency_version: &Version,
+) -> anyhow::Result<ProjectHash> {
+    let tag = match dependency_version {
+        Version::Any => "latest",
+    };
+    let response = brioche
+        .registry_client
+        .get_project_tag(dependency_name, tag)
+        .await?;
+    Ok(response.project_hash)
+}
+
+async fn fetch_project_from_registry(
+    brioche: &Brioche,
+    project_hash: ProjectHash,
+) -> anyhow::Result<PathBuf> {
+    let local_path = brioche.home.join("projects").join(project_hash.to_string());
+
+    if tokio::fs::try_exists(&local_path).await? {
+        return Ok(local_path);
+    }
+
+    let temp_id = ulid::Ulid::new();
+    let temp_project_path = brioche.home.join("projects-temp").join(temp_id.to_string());
+    tokio::fs::create_dir_all(&temp_project_path).await?;
+
+    let project = brioche
+        .registry_client
+        .get_project(project_hash)
+        .await
+        .context("failed to get project metadata from registry")?;
+
+    for dep_hash in project.dependencies.values() {
+        Box::pin(fetch_project_from_registry(brioche, *dep_hash)).await?;
+    }
+
+    for (module_path, file_id) in &project.modules {
+        let temp_module_path = module_path.to_logical_path(&temp_project_path);
+        anyhow::ensure!(
+            temp_module_path.starts_with(&temp_project_path),
+            "module path escapes project root",
+        );
+
+        let module_content = brioche
+            .registry_client
+            .get_blob(*file_id)
+            .await
+            .context("failed to get blob from registry")?;
+        if let Some(temp_module_dir) = temp_module_path.parent() {
+            tokio::fs::create_dir_all(temp_module_dir)
+                .await
+                .context("failed to create temporary module directory")?;
+        }
+        tokio::fs::write(&temp_module_path, &module_content)
+            .await
+            .context("failed to write blob")?;
+    }
+
+    if let Some(local_dir) = local_path.parent() {
+        tokio::fs::create_dir_all(local_dir)
+            .await
+            .context("failed to create project directory")?;
+    }
+
+    tokio::fs::rename(&temp_project_path, &local_path)
+        .await
+        .context("failed to move temporary project from registry")?;
+    Ok(local_path)
 }
 
 async fn resolve_workspace_project_path(
