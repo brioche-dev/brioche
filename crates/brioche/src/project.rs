@@ -174,8 +174,10 @@ impl Projects {
         };
 
         for (path, lockfile) in dirty_lockfiles {
-            let lockfile_contents = serde_json::to_string_pretty(&lockfile)
+            let mut lockfile_contents = serde_json::to_string_pretty(&lockfile)
                 .with_context(|| format!("failed to serialize lockfile at {}", path.display()))?;
+            lockfile_contents.push('\n');
+
             tokio::fs::write(&path, lockfile_contents)
                 .await
                 .context("failed to write lockfile")?;
@@ -209,13 +211,15 @@ impl Projects {
             return Ok(false);
         };
 
-        let lockfile_contents =
+        let mut lockfile_contents =
             serde_json::to_string_pretty(&dirty_lockfile).with_context(|| {
                 format!(
                     "failed to serialize lockfile at {}",
                     lockfile_path.display()
                 )
             })?;
+        lockfile_contents.push('\n');
+
         tokio::fs::write(&lockfile_path, lockfile_contents)
             .await
             .context("failed to write lockfile")?;
