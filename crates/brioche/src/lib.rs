@@ -1,12 +1,14 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context as _;
-use futures::TryFutureExt as _;
 use registry::RegistryClient;
 use reporter::Reporter;
 use sha2::Digest as _;
 use sqlx::Connection as _;
-use tokio::sync::{Mutex, RwLock};
+use tokio::{
+    io::AsyncReadExt as _,
+    sync::{Mutex, RwLock},
+};
 
 pub mod artifact;
 pub mod blob;
@@ -25,6 +27,9 @@ pub mod vfs;
 
 const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
+
+// TODO: Replace with actual registry URL
+const DEFAULT_REGISTRY_URL: &str = "http://localhost:2000";
 
 #[derive(Clone)]
 pub struct Brioche {
@@ -102,19 +107,42 @@ impl BriocheBuilder {
         let dirs = directories::ProjectDirs::from("dev", "brioche", "brioche")
             .context("failed to get Brioche directories (is $HOME set?)")?;
         let config_path = dirs.config_dir().join("config.toml");
-        let config = tokio::fs::read_to_string(&config_path)
-            .map_err(anyhow::Error::from)
-            .and_then(|config| async move {
-                let config = toml::from_str::<BriocheConfig>(&config)?;
-                anyhow::Ok(config)
-            })
-            .map_err(|error| {
-                error.context(format!(
-                    "failed to read brioche config from {}",
+        let config_file = match tokio::fs::File::open(&config_path).await {
+            Ok(file) => Some(file),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(
+                    "config file not found at {}, using default configuration",
                     config_path.display()
-                ))
-            })
-            .await;
+                );
+                None
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to open brioche config file at {}",
+                        config_path.display()
+                    )
+                });
+            }
+        };
+        let config = match config_file {
+            Some(mut file) => {
+                let mut config = String::new();
+                file.read_to_string(&mut config).await.with_context(|| {
+                    format!(
+                        "failed to read brioche config from {}",
+                        config_path.display()
+                    )
+                })?;
+                toml::from_str::<BriocheConfig>(&config).with_context(|| {
+                    format!(
+                        "failed to parse brioche config from {}",
+                        config_path.display()
+                    )
+                })?
+            }
+            None => BriocheConfig::default(),
+        };
 
         let brioche_home = match self.home {
             Some(home) => home,
@@ -155,15 +183,11 @@ impl BriocheBuilder {
                 Some(password) => registry::RegistryAuthentication::Admin { password },
                 None => registry::RegistryAuthentication::Anonymous,
             };
-            let registry_url = config
-                .ok()
-                .map(|config| config.registry_url.clone())
-                .unwrap_or_else(|| {
-                    // TODO: Replace with actual registry URL
-                    "http://localhost:2000"
-                        .parse()
-                        .expect("failed to parse registry URL")
-                });
+            let registry_url = config.registry_url.clone().unwrap_or_else(|| {
+                DEFAULT_REGISTRY_URL
+                    .parse()
+                    .expect("failed to parse default registry URL")
+            });
             registry::RegistryClient::new(registry_url, registry_auth)
         });
 
@@ -184,9 +208,9 @@ impl BriocheBuilder {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 struct BriocheConfig {
-    registry_url: url::Url,
+    registry_url: Option<url::Url>,
 }
 
 #[derive(rust_embed::RustEmbed)]
