@@ -580,7 +580,6 @@ async fn load_project_inner(
                                 resolved_dep.local_path.display()
                             ),
                         });
-                        continue;
                     }
                 }
 
