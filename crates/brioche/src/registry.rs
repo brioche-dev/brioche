@@ -6,41 +6,53 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct RegistryClient {
-    client: reqwest::Client,
-    url: url::Url,
-    auth: RegistryAuthentication,
+pub enum RegistryClient {
+    Enabled {
+        client: reqwest::Client,
+        url: url::Url,
+        auth: RegistryAuthentication,
+    },
+    Disabled,
 }
 
 impl RegistryClient {
     pub fn new(url: url::Url, auth: RegistryAuthentication) -> Self {
-        Self {
+        Self::Enabled {
             client: reqwest::Client::new(),
             url,
             auth,
         }
     }
 
+    pub fn disabled() -> Self {
+        Self::Disabled
+    }
+
     fn request(
         &self,
         method: reqwest::Method,
-        url: impl reqwest::IntoUrl,
-    ) -> reqwest::RequestBuilder {
-        let request = self.client.request(method, url);
-        match &self.auth {
+        path: &str,
+    ) -> anyhow::Result<reqwest::RequestBuilder> {
+        let Self::Enabled { client, url, auth } = self else {
+            return Err(anyhow::anyhow!("registry client is disabled"));
+        };
+        let endpoint_url = url.join(path).context("failed to construct registry URL")?;
+        let request = client.request(method, endpoint_url);
+        let request = match auth {
             RegistryAuthentication::Anonymous => request,
             RegistryAuthentication::Admin { password } => {
                 request.basic_auth("admin", Some(password))
             }
-        }
+        };
+        Ok(request)
     }
 
     pub async fn get_blob(&self, file_id: FileId) -> anyhow::Result<Vec<u8>> {
-        let url = self
-            .url
-            .join("blobs/")?
-            .join(&urlencoding::encode(&file_id.to_string()))?;
-        let response = self.request(reqwest::Method::GET, url).send().await?;
+        let file_id_component = urlencoding::Encoded::new(file_id.to_string());
+        let response = self
+            .request(reqwest::Method::GET, &format!("blobs/{file_id_component}"))?
+            .send()
+            .await?;
         let response_body = response.error_for_status()?.bytes().await?;
         let response_body = response_body.to_vec();
 
@@ -56,22 +68,28 @@ impl RegistryClient {
         project_name: &str,
         tag: &str,
     ) -> anyhow::Result<GetProjectTagResponse> {
-        let url = self
-            .url
-            .join("project-tags/")?
-            .join(&format!("{}/", urlencoding::encode(project_name)))?
-            .join(&urlencoding::encode(tag))?;
-        let response = self.request(reqwest::Method::GET, url).send().await?;
+        let project_name_component = urlencoding::Encoded::new(project_name);
+        let tag_component = urlencoding::Encoded::new(tag);
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("project-tags/{project_name_component}/{tag_component}"),
+            )?
+            .send()
+            .await?;
         let response_body = response.error_for_status()?.json().await?;
         Ok(response_body)
     }
 
     pub async fn get_project(&self, project_hash: ProjectHash) -> anyhow::Result<Project> {
-        let url = self
-            .url
-            .join("projects/")?
-            .join(&urlencoding::encode(&project_hash.to_string()))?;
-        let response = self.request(reqwest::Method::GET, url).send().await?;
+        let project_hash_component = urlencoding::Encoded::new(project_hash.to_string());
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("projects/{project_hash_component}"),
+            )?
+            .send()
+            .await?;
         let project = response.error_for_status()?.json().await?;
 
         project_hash.validate_matches(&project)?;
@@ -83,9 +101,8 @@ impl RegistryClient {
         &self,
         project: &ProjectListing,
     ) -> anyhow::Result<PublishProjectResponse> {
-        let url = self.url.join("projects")?;
         let response = self
-            .request(reqwest::Method::POST, url)
+            .request(reqwest::Method::POST, "projects")?
             .json(project)
             .send()
             .await?;
