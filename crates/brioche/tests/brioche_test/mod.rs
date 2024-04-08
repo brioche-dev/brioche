@@ -24,18 +24,13 @@ pub async fn brioche_test_with(
     let registry_server = mockito::Server::new();
 
     let brioche_home = temp.path().join("brioche-home");
-    let brioche_repo = temp.path().join("brioche-repo");
     tokio::fs::create_dir_all(&brioche_home)
         .await
         .expect("failed to create brioche home");
-    tokio::fs::create_dir_all(&brioche_repo)
-        .await
-        .expect("failed to create brioche repo");
 
     let (reporter, reporter_guard) = brioche::reporter::start_test_reporter();
     let builder = BriocheBuilder::new(reporter)
         .home(brioche_home)
-        .repo_dir(brioche_repo)
         .registry_client(brioche::registry::RegistryClient::new(
             registry_server.url().parse().unwrap(),
             brioche::registry::RegistryAuthentication::Admin {

@@ -31,7 +31,6 @@ pub struct Brioche {
     reporter: Reporter,
     pub vfs: vfs::Vfs,
     db_conn: Arc<Mutex<sqlx::SqliteConnection>>,
-    pub repo_dir: PathBuf,
     /// The directory where all of Brioche's data is stored. Usually configured
     /// to follow the platform's conventions for storing application data, such
     /// as `~/.local/share/brioche` on Linux.
@@ -58,7 +57,6 @@ pub struct BriocheBuilder {
     registry_client: Option<registry::RegistryClient>,
     vfs: vfs::Vfs,
     home: Option<PathBuf>,
-    repo_dir: Option<PathBuf>,
     self_exec_processes: bool,
     keep_temps: bool,
 }
@@ -70,7 +68,6 @@ impl BriocheBuilder {
             registry_client: None,
             vfs: vfs::Vfs::immutable(),
             home: None,
-            repo_dir: None,
             self_exec_processes: true,
             keep_temps: false,
         }
@@ -78,11 +75,6 @@ impl BriocheBuilder {
 
     pub fn home(mut self, brioche_home: PathBuf) -> Self {
         self.home = Some(brioche_home);
-        self
-    }
-
-    pub fn repo_dir(mut self, repo_dir: PathBuf) -> Self {
-        self.repo_dir = Some(repo_dir);
         self
     }
 
@@ -127,19 +119,6 @@ impl BriocheBuilder {
         let brioche_home = match self.home {
             Some(home) => home,
             None => dirs.data_local_dir().to_owned(),
-        };
-
-        let repo_dir = if let Some(repo) = self.repo_dir {
-            repo
-        } else if let Some(repo) = std::env::var_os("BRIOCHE_REPO") {
-            PathBuf::from(repo)
-        } else {
-            match config {
-                Ok(ref config) => config.repo_dir.clone(),
-                Err(error) => {
-                    return Err(error);
-                }
-            }
         };
 
         tokio::fs::create_dir_all(&brioche_home).await?;
@@ -193,7 +172,6 @@ impl BriocheBuilder {
             vfs: self.vfs,
             db_conn: Arc::new(Mutex::new(db_conn)),
             home: brioche_home,
-            repo_dir,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
             proxies: Arc::new(RwLock::new(resolve::Proxies::default())),
@@ -208,7 +186,6 @@ impl BriocheBuilder {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct BriocheConfig {
-    repo_dir: PathBuf,
     registry_url: url::Url,
 }
 

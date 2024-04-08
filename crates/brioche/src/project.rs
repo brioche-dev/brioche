@@ -465,15 +465,6 @@ async fn resolve_dependency_to_local_path(
         }
     }
 
-    let repo = &brioche.repo_dir;
-    let repo_path = repo.join(dependency_name);
-    if tokio::fs::try_exists(&repo_path).await? {
-        return Ok(ResolvedDependency {
-            local_path: repo_path,
-            expected_hash: None,
-        });
-    }
-
     let dep_hash = resolve_project_from_registry(brioche, dependency_name, dependency_version)
         .await
         .with_context(|| format!("failed to resolve '{dependency_name}' from registry"))?;
