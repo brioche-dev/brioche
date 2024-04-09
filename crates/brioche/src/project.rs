@@ -301,8 +301,8 @@ impl Projects {
                         files.insert(*file_id, (*file_contents).clone());
                     }
 
-                    for dep_hash in subproject.dependencies.values() {
-                        subproject_hashes.push(*dep_hash);
+                    for dep_hash in subproject.dependency_hashes() {
+                        subproject_hashes.push(dep_hash);
                     }
                 }
                 std::collections::hash_map::Entry::Occupied(_) => {
@@ -521,7 +521,7 @@ async fn load_project_inner(
     let mut new_lockfile = Lockfile::default();
     let mut errors = vec![];
 
-    let mut dependencies = HashMap::new();
+    let mut internal_dependencies = HashMap::new();
     for (name, dependency_def) in &project_analysis.definition.dependencies {
         static NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         let name_regex = NAME_REGEX
@@ -531,7 +531,7 @@ async fn load_project_inner(
         let dep_depth = depth
             .checked_sub(1)
             .context("project dependency depth exceeded")?;
-        let (dependency_hash, _, dep_errors) = match dependency_def {
+        let (dependency_hash, dep_errors, is_internal) = match dependency_def {
             DependencyDefinition::Path { path: subpath } => {
                 let dep_path = path.join(subpath);
                 let result =
@@ -539,7 +539,7 @@ async fn load_project_inner(
                         .await;
 
                 match result {
-                    Ok(dep) => dep,
+                    Ok((dep_hash, _, dep_errors)) => (dep_hash, dep_errors, true),
                     Err(err) => {
                         errors.push(LoadProjectError::FailedToLoadDependency {
                             name: name.to_owned(),
@@ -578,7 +578,7 @@ async fn load_project_inner(
                     dep_depth,
                 )
                 .await;
-                let (actual_hash, project, dep_errors) = match result {
+                let (actual_hash, _, dep_errors) = match result {
                     Ok(dep) => dep,
                     Err(err) => {
                         errors.push(LoadProjectError::FailedToLoadDependency {
@@ -607,7 +607,7 @@ async fn load_project_inner(
                         .insert(name.to_owned(), should_lock);
                 }
 
-                (actual_hash, project, dep_errors)
+                (actual_hash, dep_errors, resolved_dep.should_lock.is_none())
             }
         };
 
@@ -619,7 +619,10 @@ async fn load_project_inner(
                     error: Box::new(error),
                 }),
         );
-        dependencies.insert(name.to_owned(), dependency_hash);
+
+        if is_internal {
+            internal_dependencies.insert(name.to_owned(), dependency_hash);
+        }
     }
 
     let modules = project_analysis
@@ -630,7 +633,7 @@ async fn load_project_inner(
 
     let project = Project {
         definition: project_analysis.definition,
-        dependencies,
+        internal_dependencies,
         modules,
         lockfile: new_lockfile.clone(),
     };
@@ -772,8 +775,8 @@ async fn fetch_project_from_registry(
         .await
         .context("failed to get project metadata from registry")?;
 
-    for dep_hash in project.dependencies.values() {
-        Box::pin(fetch_project_from_registry(brioche, *dep_hash)).await?;
+    for dep_hash in project.dependency_hashes() {
+        Box::pin(fetch_project_from_registry(brioche, dep_hash)).await?;
     }
 
     for (module_path, file_id) in &project.modules {
@@ -890,9 +893,34 @@ async fn find_workspace(project_path: &Path) -> anyhow::Result<Option<Workspace>
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub definition: ProjectDefinition,
-    pub dependencies: HashMap<String, ProjectHash>,
+    pub internal_dependencies: HashMap<String, ProjectHash>,
     pub modules: HashMap<RelativePathBuf, FileId>,
     pub lockfile: Lockfile,
+}
+
+impl Project {
+    pub fn dependencies(&self) -> impl Iterator<Item = (&str, ProjectHash)> {
+        self.internal_dependencies
+            .iter()
+            .map(|(name, hash)| (name.as_str(), *hash))
+            .chain(
+                self.lockfile
+                    .dependencies
+                    .iter()
+                    .map(|(name, hash)| (name.as_str(), *hash)),
+            )
+    }
+
+    pub fn dependency_hashes(&self) -> impl Iterator<Item = ProjectHash> + '_ {
+        self.dependencies().map(|(_, hash)| hash)
+    }
+
+    pub fn dependency_hash(&self, name: &str) -> Option<ProjectHash> {
+        self.internal_dependencies
+            .get(name)
+            .copied()
+            .or_else(|| self.lockfile.dependencies.get(name).copied())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -1154,8 +1182,8 @@ impl TryFrom<ProjectListingUnvalidated> for ProjectListing {
             for file_id in project.modules.values() {
                 anyhow::ensure!(value.files.contains_key(file_id));
             }
-            for dep_hash in project.dependencies.values() {
-                anyhow::ensure!(value.projects.contains_key(dep_hash));
+            for dep_hash in project.dependency_hashes() {
+                anyhow::ensure!(value.projects.contains_key(&dep_hash));
             }
         }
         for (file_id, content) in &value.files {
@@ -1177,9 +1205,7 @@ impl TryFrom<ProjectListingUnvalidated> for ProjectListing {
                 orphan_files.remove(file_id);
             }
 
-            for dep_hash in subproject.dependencies.values() {
-                subproject_hashes.push(*dep_hash);
-            }
+            subproject_hashes.extend(subproject.dependency_hashes());
         }
 
         if !orphan_files.is_empty() {

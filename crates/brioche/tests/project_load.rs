@@ -23,7 +23,7 @@ async fn test_project_load_simple() -> anyhow::Result<()> {
         .local_paths(project_hash)
         .unwrap()
         .contains(&project_dir));
-    assert!(project.dependencies.is_empty());
+    assert_eq!(project.dependencies().count(), 0);
 
     Ok(())
 }
@@ -91,7 +91,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
         .contains(&project_dir));
 
     // "foo" from the workspace should take precedence over the repo dep
-    let foo_dep_hash = project.dependencies["foo"];
+    let foo_dep_hash = project.dependency_hash("foo").unwrap();
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     eprintln!("{:?}", projects.local_paths(foo_dep_hash));
     assert!(projects
@@ -102,7 +102,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
         .local_paths(foo_dep_hash)
         .unwrap()
         .contains(&registry_foo_dir));
-    assert!(foo_dep.dependencies.is_empty());
+    assert_eq!(foo_dep.dependencies().count(), 0);
 
     // The workspace dependency should not be in the lockfile
     assert!(project.lockfile.dependencies.is_empty());
@@ -147,13 +147,13 @@ async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
         .unwrap()
         .contains(&main_project_dir));
 
-    let dep_project_hash = project.dependencies["depproject"];
+    let dep_project_hash = project.dependency_hash("depproject").unwrap();
     let dep_project = projects.project(dep_project_hash).unwrap();
     assert!(projects
         .local_paths(dep_project_hash)
         .unwrap()
         .contains(&dep_project_dir));
-    assert!(dep_project.dependencies.is_empty());
+    assert_eq!(dep_project.dependencies().count(), 0);
 
     Ok(())
 }
@@ -200,13 +200,13 @@ async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
         .unwrap()
         .contains(&project_dir));
 
-    let foo_dep_hash = project.dependencies["foo"];
+    let foo_dep_hash = project.dependency_hash("foo").unwrap();
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
         .contains(&foo_path));
-    assert!(foo_dep.dependencies.is_empty());
+    assert_eq!(foo_dep.dependencies().count(), 0);
 
     mock_foo_latest.assert_async().await;
 
@@ -255,14 +255,14 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
         .unwrap()
         .contains(&project_dir));
 
-    let foo_dep_hash = project.dependencies["foo"];
+    let foo_dep_hash = project.dependency_hash("foo").unwrap();
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     let foo_path = brioche.home.join("projects").join(foo_dep_hash.to_string());
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
         .contains(&foo_path));
-    assert!(foo_dep.dependencies.is_empty());
+    assert_eq!(foo_dep.dependencies().count(), 0);
 
     mock_foo_latest.assert_async().await;
 
@@ -337,11 +337,11 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
         .contains(&project_dir));
     assert!(tokio::fs::try_exists(project_dir.join("brioche.lock")).await?);
 
-    let foo_dep_hash = project.dependencies["foo"];
-    assert_eq!(foo_dep_hash, foo_hash);
-
     let foo_lockfile_dep_hash = project.lockfile.dependencies["foo"];
     assert_eq!(foo_lockfile_dep_hash, foo_hash);
+
+    // "foo" should be in the lockfile
+    assert!(!project.internal_dependencies.contains_key("foo"));
 
     mock_foo_latest.assert_async().await;
 
@@ -424,18 +424,18 @@ async fn test_project_load_complex() -> anyhow::Result<()> {
     let (projects, project_hash) = brioche_test::load_project(&brioche, &main_project_dir).await?;
     let project = projects.project(project_hash).unwrap();
 
-    let main_dep_project_hash = project.dependencies["depproject"];
+    let main_dep_project_hash = project.dependency_hash("depproject").unwrap();
     let main_dep_project = projects.project(main_dep_project_hash).unwrap();
 
-    let main_foo_project_hash = project.dependencies["foo"];
+    let main_foo_project_hash = project.dependency_hash("foo").unwrap();
     let main_foo_project = projects.project(main_foo_project_hash).unwrap();
 
-    let main_dep_foo_project_hash = main_dep_project.dependencies["foo"];
+    let main_dep_foo_project_hash = main_dep_project.dependency_hash("foo").unwrap();
     let main_dep_foo_project = projects.project(main_dep_foo_project_hash).unwrap();
 
-    let main_foo_bar_project_hash = main_foo_project.dependencies["bar"];
+    let main_foo_bar_project_hash = main_foo_project.dependency_hash("bar").unwrap();
 
-    let main_dep_foo_bar_project_hash = main_dep_foo_project.dependencies["bar"];
+    let main_dep_foo_bar_project_hash = main_dep_foo_project.dependency_hash("bar").unwrap();
 
     assert!(projects
         .local_paths(main_dep_project_hash)

@@ -342,12 +342,12 @@ pub fn resolve(
                 BriocheImportSpecifier::External(dep) => {
                     let project = projects.project(project_hash)?;
                     let dependency_project_hash =
-                        project.dependencies.get(dep).with_context(|| {
+                        project.dependency_hash(dep).with_context(|| {
                             format!("dependency '{specifier}' not found (imported from {referrer})")
                         })?;
 
                     let dependency_root_module_specifier =
-                        projects.project_root_module_specifier(*dependency_project_hash)?;
+                        projects.project_root_module_specifier(dependency_project_hash)?;
                     Ok(dependency_root_module_specifier)
                 }
             }
