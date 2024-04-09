@@ -133,6 +133,20 @@ impl LanguageServer for BriocheLspServer {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         tracing::info!(uri = %params.text_document.uri, "did open");
+
+        // Try to reload the project for the current document so we can
+        // resolve new dependencies
+        let reload_result = self
+            .compiler_host
+            .reload_module_project(&params.text_document.uri)
+            .await;
+        match reload_result {
+            Ok(()) => {}
+            Err(error) => {
+                tracing::warn!("failed to reload module project: {error:#}");
+            }
+        }
+
         let diagnostics = self
             .diagnostics(TextDocumentIdentifier {
                 uri: params.text_document.uri.clone(),

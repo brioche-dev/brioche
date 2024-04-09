@@ -85,6 +85,24 @@ impl Projects {
         anyhow::bail!("could not find project root for path {}", path.display());
     }
 
+    pub async fn clear(&self, project_hash: ProjectHash) -> anyhow::Result<bool> {
+        let mut projects = self
+            .inner
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+
+        let project = projects.projects.remove(&project_hash);
+        let paths = projects
+            .projects_to_paths
+            .remove(&project_hash)
+            .unwrap_or_default();
+        for path in &paths {
+            projects.paths_to_projects.remove(path);
+        }
+
+        Ok(project.is_some())
+    }
+
     pub fn project_root(&self, project_hash: ProjectHash) -> anyhow::Result<PathBuf> {
         let projects = self
             .inner
