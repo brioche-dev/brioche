@@ -1,11 +1,14 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context as _;
-use futures::TryFutureExt as _;
+use registry::RegistryClient;
 use reporter::Reporter;
 use sha2::Digest as _;
 use sqlx::Connection as _;
-use tokio::sync::{Mutex, RwLock};
+use tokio::{
+    io::AsyncReadExt as _,
+    sync::{Mutex, RwLock},
+};
 
 pub mod artifact;
 pub mod blob;
@@ -15,6 +18,7 @@ pub mod input;
 pub mod output;
 pub mod platform;
 pub mod project;
+pub mod registry;
 pub mod reporter;
 pub mod resolve;
 pub mod sandbox;
@@ -24,16 +28,18 @@ pub mod vfs;
 const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
+// TODO: Replace with actual registry URL
+const DEFAULT_REGISTRY_URL: &str = "http://localhost:2000";
+
 #[derive(Clone)]
 pub struct Brioche {
     reporter: Reporter,
     pub vfs: vfs::Vfs,
     db_conn: Arc<Mutex<sqlx::SqliteConnection>>,
-    pub repo_dir: PathBuf,
     /// The directory where all of Brioche's data is stored. Usually configured
     /// to follow the platform's conventions for storing application data, such
     /// as `~/.local/share/brioche` on Linux.
-    home: PathBuf,
+    pub home: PathBuf,
     /// Causes Brioche to call itself to execute processes in a sandbox, rather
     /// than using a `tokio::spawn_blocking` thread. This could allow for
     /// running more processes at a time. This option mainly exists because
@@ -48,13 +54,14 @@ pub struct Brioche {
     pub process_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_client: reqwest_middleware::ClientWithMiddleware,
+    pub registry_client: registry::RegistryClient,
 }
 
 pub struct BriocheBuilder {
     reporter: Reporter,
+    registry_client: Option<registry::RegistryClient>,
     vfs: vfs::Vfs,
     home: Option<PathBuf>,
-    repo_dir: Option<PathBuf>,
     self_exec_processes: bool,
     keep_temps: bool,
 }
@@ -63,9 +70,9 @@ impl BriocheBuilder {
     pub fn new(reporter: Reporter) -> Self {
         Self {
             reporter,
+            registry_client: None,
             vfs: vfs::Vfs::immutable(),
             home: None,
-            repo_dir: None,
             self_exec_processes: true,
             keep_temps: false,
         }
@@ -76,8 +83,8 @@ impl BriocheBuilder {
         self
     }
 
-    pub fn repo_dir(mut self, repo_dir: PathBuf) -> Self {
-        self.repo_dir = Some(repo_dir);
+    pub fn registry_client(mut self, registry_client: RegistryClient) -> Self {
+        self.registry_client = Some(registry_client);
         self
     }
 
@@ -100,32 +107,46 @@ impl BriocheBuilder {
         let dirs = directories::ProjectDirs::from("dev", "brioche", "brioche")
             .context("failed to get Brioche directories (is $HOME set?)")?;
         let config_path = dirs.config_dir().join("config.toml");
-        let config = tokio::fs::read_to_string(&config_path)
-            .map_err(anyhow::Error::from)
-            .and_then(|config| async move {
-                let config = toml::from_str::<BriocheConfig>(&config)?;
-                anyhow::Ok(config)
-            })
-            .map_err(|error| {
-                error.context(format!(
-                    "failed to read brioche config from {}",
+        let config_file = match tokio::fs::File::open(&config_path).await {
+            Ok(file) => Some(file),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(
+                    "config file not found at {}, using default configuration",
                     config_path.display()
-                ))
-            })
-            .await;
+                );
+                None
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to open brioche config file at {}",
+                        config_path.display()
+                    )
+                });
+            }
+        };
+        let config = match config_file {
+            Some(mut file) => {
+                let mut config = String::new();
+                file.read_to_string(&mut config).await.with_context(|| {
+                    format!(
+                        "failed to read brioche config from {}",
+                        config_path.display()
+                    )
+                })?;
+                toml::from_str::<BriocheConfig>(&config).with_context(|| {
+                    format!(
+                        "failed to parse brioche config from {}",
+                        config_path.display()
+                    )
+                })?
+            }
+            None => BriocheConfig::default(),
+        };
 
         let brioche_home = match self.home {
             Some(home) => home,
             None => dirs.data_local_dir().to_owned(),
-        };
-
-        let repo_dir = if let Some(repo) = self.repo_dir {
-            repo
-        } else if let Some(repo) = std::env::var_os("BRIOCHE_REPO") {
-            PathBuf::from(repo)
-        } else {
-            let config = config?;
-            config.repo_dir
         };
 
         tokio::fs::create_dir_all(&brioche_home).await?;
@@ -156,12 +177,25 @@ impl BriocheBuilder {
             .with(download_retry_middleware)
             .build();
 
+        let registry_client = self.registry_client.unwrap_or_else(|| {
+            let registry_password = std::env::var("BRIOCHE_REGISTRY_PASSWORD").ok();
+            let registry_auth = match registry_password {
+                Some(password) => registry::RegistryAuthentication::Admin { password },
+                None => registry::RegistryAuthentication::Anonymous,
+            };
+            let registry_url = config.registry_url.clone().unwrap_or_else(|| {
+                DEFAULT_REGISTRY_URL
+                    .parse()
+                    .expect("failed to parse default registry URL")
+            });
+            registry::RegistryClient::new(registry_url, registry_auth)
+        });
+
         Ok(Brioche {
             reporter: self.reporter,
             vfs: self.vfs,
             db_conn: Arc::new(Mutex::new(db_conn)),
             home: brioche_home,
-            repo_dir,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
             proxies: Arc::new(RwLock::new(resolve::Proxies::default())),
@@ -169,13 +203,14 @@ impl BriocheBuilder {
             process_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROCESSES)),
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,
+            registry_client,
         })
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 struct BriocheConfig {
-    repo_dir: PathBuf,
+    registry_url: Option<url::Url>,
 }
 
 #[derive(rust_embed::RustEmbed)]

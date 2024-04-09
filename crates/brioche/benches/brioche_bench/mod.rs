@@ -15,18 +15,13 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
     let temp = tempdir::TempDir::new("brioche-test").unwrap();
 
     let brioche_home = temp.path().join("brioche-home");
-    let brioche_repo = temp.path().join("brioche-repo");
     tokio::fs::create_dir_all(&brioche_home)
         .await
         .expect("failed to create brioche home");
-    tokio::fs::create_dir_all(&brioche_repo)
-        .await
-        .expect("failed to create brioche repo");
 
     let (reporter, reporter_guard) = brioche::reporter::start_test_reporter();
     let brioche = BriocheBuilder::new(reporter)
         .home(brioche_home)
-        .repo_dir(brioche_repo)
         .self_exec_processes(false)
         .build()
         .await

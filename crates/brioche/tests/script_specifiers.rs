@@ -268,7 +268,7 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test::brioche_test().await;
 
     let root_project_dir = context.mkdir("root").await;
 
@@ -285,44 +285,71 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
         )
         .await;
 
+    let (baz_hash, baz_path) = context
+        .local_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                        export const project = {};
+                    "#,
+            )
+            .await
+            .unwrap();
+            tokio::fs::write(path.join("file.txt"), "").await.unwrap();
+            tokio::fs::create_dir_all(path.join("inner")).await.unwrap();
+            tokio::fs::write(path.join("inner").join("file.txt"), "")
+                .await
+                .unwrap();
+        })
+        .await;
     context
-        .write_file(
-            "brioche-repo/foo/project.bri",
-            r#"
-                export const project = {
-                    dependencies: {
-                        bar: "*",
-                    },
-                };
-            "#,
-        )
+        .mock_registry_publish_tag("baz", "latest", baz_hash)
+        .create_async()
         .await;
+    let baz_main_path = baz_path.join("project.bri");
 
+    let (bar_hash, bar_path) = context
+        .local_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const project = {
+                        dependencies: {
+                            baz: "*",
+                        },
+                    };
+                "#,
+            )
+            .await
+            .unwrap();
+            tokio::fs::write(path.join("file.txt"), "").await.unwrap();
+        })
+        .await;
     context
-        .write_file(
-            "brioche-repo/bar/project.bri",
-            r#"
-                export const project = {
-                    dependencies: {
-                        baz: "*",
-                    },
-                };
-            "#,
-        )
+        .mock_registry_publish_tag("bar", "latest", bar_hash)
+        .create_async()
         .await;
-    let bar_file_path = context.write_file("brioche-repo/bar/file.txt", "").await;
+    let bar_file_path = bar_path.join("file.txt");
 
-    let baz_main_path = context
-        .write_file(
-            "brioche-repo/baz/project.bri",
-            r#"
-                export const project = {};
-            "#,
-        )
+    let (foo_hash, _) = context
+        .local_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const project = {
+                        dependencies: {
+                            bar: "*",
+                        },
+                    };
+                "#,
+            )
+            .await
+            .unwrap();
+        })
         .await;
-    let _baz_file_path = context.write_file("brioche-repo/baz/file.txt", "").await;
-    let _baz_inner_file_path = context
-        .write_file("brioche-repo/baz/inner/file.txt", "")
+    context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
         .await;
 
     let (projects, _) = brioche_test::load_project(&brioche, &root_project_dir).await?;

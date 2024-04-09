@@ -87,7 +87,7 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_check_import_valid() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test::brioche_test().await;
 
     let project_dir = write_project(
         &context,
@@ -115,14 +115,22 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
     )
     .await;
 
+    let (foo_hash, _) = context
+        .local_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const project = {};
+                    export const foo: number = 123;
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
     context
-        .write_file(
-            "brioche-repo/foo/project.bri",
-            r#"
-                export const project = {};
-                export const foo: number = 123;
-            "#,
-        )
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
         .await;
 
     let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
@@ -136,7 +144,7 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_check_import_invalid() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test::brioche_test().await;
 
     let project_dir = write_project(
         &context,
@@ -158,14 +166,22 @@ async fn test_check_import_invalid() -> anyhow::Result<()> {
     )
     .await;
 
-    context
-        .write_file(
-            "brioche-repo/foo/project.bri",
-            r#"
+    let (foo_hash, _) = context
+        .local_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
                 export const project = {};
-                export const foo: string = 123;
+                export const foo: number = 123;
             "#,
-        )
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
         .await;
 
     let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
