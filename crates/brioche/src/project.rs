@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -1121,7 +1121,7 @@ impl<'de> serde::Deserialize<'de> for ProjectListing {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
-    pub dependencies: HashMap<String, ProjectHash>,
+    pub dependencies: BTreeMap<String, ProjectHash>,
 }
 
 #[serde_with::serde_as]
