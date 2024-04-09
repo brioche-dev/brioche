@@ -517,8 +517,8 @@ async fn load_project_inner(
             ));
         }
     };
-    let mut new_lockfile = lockfile.clone().unwrap_or_default();
 
+    let mut new_lockfile = Lockfile::default();
     let mut errors = vec![];
 
     let mut dependencies = HashMap::new();
@@ -550,17 +550,17 @@ async fn load_project_inner(
                 }
             }
             DependencyDefinition::Version(version) => {
-                let resolved_dep_path = resolve_dependency_to_local_path(
+                let resolved_dep_result = resolve_dependency_to_local_path(
                     brioche,
                     workspace.as_ref(),
                     name,
                     version,
                     lockfile_required,
-                    &mut new_lockfile,
+                    lockfile.as_ref(),
                 )
                 .await;
-                let resolved_dep = match resolved_dep_path {
-                    Ok(resolved_dep_path) => resolved_dep_path,
+                let resolved_dep = match resolved_dep_result {
+                    Ok(resolved_dep) => resolved_dep,
                     Err(err) => {
                         errors.push(LoadProjectError::FailedToLoadDependency {
                             name: name.to_owned(),
@@ -599,6 +599,12 @@ async fn load_project_inner(
                             ),
                         });
                     }
+                }
+
+                if let Some(should_lock) = resolved_dep.should_lock {
+                    new_lockfile
+                        .dependencies
+                        .insert(name.to_owned(), should_lock);
                 }
 
                 (actual_hash, project, dep_errors)
@@ -672,7 +678,7 @@ async fn resolve_dependency_to_local_path(
     dependency_name: &str,
     dependency_version: &Version,
     lockfile_required: bool,
-    lockfile: &mut Lockfile,
+    lockfile: Option<&Lockfile>,
 ) -> anyhow::Result<ResolvedDependency> {
     if let Some(workspace) = workspace {
         if let Some(workspace_path) =
@@ -688,13 +694,15 @@ async fn resolve_dependency_to_local_path(
                 local_path: workspace_path,
                 expected_hash: None,
                 lockfile_required,
+                should_lock: None,
             });
         }
     }
 
     // TODO: Validate that the requested dependency version matches the
     // version in the lockfile
-    let lockfile_dep_hash = lockfile.dependencies.get(dependency_name);
+    let lockfile_dep_hash =
+        lockfile.and_then(|lockfile| lockfile.dependencies.get(dependency_name));
     let dep_hash = match lockfile_dep_hash {
         Some(dep_hash) => *dep_hash,
         None => {
@@ -710,10 +718,6 @@ async fn resolve_dependency_to_local_path(
         }
     };
 
-    lockfile
-        .dependencies
-        .insert(dependency_name.to_owned(), dep_hash);
-
     let local_path = fetch_project_from_registry(brioche, dep_hash)
         .await
         .with_context(|| format!("failed to fetch '{dependency_name}' from registry"))?;
@@ -722,6 +726,7 @@ async fn resolve_dependency_to_local_path(
         local_path,
         expected_hash: Some(dep_hash),
         lockfile_required: true,
+        should_lock: Some(dep_hash),
     })
 }
 
@@ -729,6 +734,7 @@ struct ResolvedDependency {
     local_path: PathBuf,
     expected_hash: Option<ProjectHash>,
     lockfile_required: bool,
+    should_lock: Option<ProjectHash>,
 }
 
 async fn resolve_project_from_registry(
