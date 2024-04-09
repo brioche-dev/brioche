@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use anyhow::Context as _;
@@ -9,9 +10,13 @@ use tower_lsp::{Client, LanguageServer};
 use crate::project::Projects;
 use crate::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
 use crate::script::format::format_code;
-use crate::Brioche;
+use crate::{Brioche, BriocheBuilder};
 
 use super::specifier::BriocheModuleSpecifier;
+
+/// The maximum time we spend resolving projects when regenerating a
+/// lockfile in the Language Server
+const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub struct BriocheLspServer {
     compiler_host: BriocheCompilerHost,
@@ -133,6 +138,49 @@ impl LanguageServer for BriocheLspServer {
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         tracing::info!(uri = %params.text_document.uri, "did open");
+
+        if let Ok(BriocheModuleSpecifier::File { path: module_path }) =
+            (&params.text_document.uri).try_into()
+        {
+            let rt = tokio::runtime::Handle::current();
+            let (lockfile_tx, lockfile_rx) = tokio::sync::oneshot::channel();
+
+            std::thread::spawn({
+                let compiler_host = self.compiler_host.clone();
+                let module_path = module_path.clone();
+                move || {
+                    let local_set = tokio::task::LocalSet::new();
+
+                    local_set.spawn_local(async move {
+                        let result = try_update_lockfile_for_module(
+                            compiler_host.clone(),
+                            module_path,
+                            LOCKFILE_LOAD_TIMEOUT,
+                        )
+                        .await;
+                        let _ = lockfile_tx.send(result).inspect_err(|err| {
+                            tracing::warn!("failed to send lockfile update result: {err:?}");
+                        });
+                    });
+
+                    rt.block_on(local_set);
+                }
+            });
+
+            let result = lockfile_rx
+                .await
+                .map_err(anyhow::Error::from)
+                .and_then(|result| result);
+            match result {
+                Ok(true) => {
+                    tracing::info!("updated lockfile for {}", module_path.display());
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    tracing::warn!("failed to update lockfiles: {error:#}");
+                }
+            }
+        }
 
         // Try to reload the project for the current document so we can
         // resolve new dependencies
@@ -407,6 +455,42 @@ impl LanguageServer for BriocheLspServer {
     //         }),
     //     ))
     // }
+}
+
+async fn try_update_lockfile_for_module(
+    compiler_host: BriocheCompilerHost,
+    module_path: PathBuf,
+    load_timeout: std::time::Duration,
+) -> anyhow::Result<bool> {
+    let project_hash = compiler_host
+        .projects
+        .find_containing_project(&module_path)
+        .context("failed to get project path")?
+        .context("containing project not found")?;
+    let project_path = compiler_host.projects.project_root(project_hash)?.clone();
+
+    // The instances of `Brioche` and `Projects` used for the LSP aren't
+    // suitable for generating lockfiles (access to the registry is disabled,
+    // and files may be dirty in-memory copies). We create temporary instances
+    // so we can build the lockfile properly.
+    let (null_reporter, _null_reporter_guard) = crate::reporter::start_null_reporter();
+    let brioche = BriocheBuilder::new(null_reporter)
+        .build()
+        .await
+        .context("failed to build `Brioche` instance")?;
+    let projects = Projects::default();
+
+    tokio::time::timeout(load_timeout, projects.load(&brioche, &project_path, false))
+        .await
+        .context("timed out trying to load project")?
+        .context("failed to load project")?;
+
+    let updated = projects
+        .commit_dirty_lockfile_for_project_path(&project_path)
+        .await
+        .context("failed to commit updated lockfile")?;
+
+    Ok(updated)
 }
 
 fn lsp_uri_to_module_specifier(uri: &url::Url) -> anyhow::Result<BriocheModuleSpecifier> {

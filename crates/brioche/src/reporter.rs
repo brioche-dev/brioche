@@ -407,6 +407,25 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     (reporter, guard)
 }
 
+pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
+    let (tx, _) = tokio::sync::mpsc::unbounded_channel();
+    let (_, shutdown_rx) = tokio::sync::oneshot::channel();
+
+    let reporter = Reporter {
+        start: std::time::Instant::now(),
+        num_jobs: Arc::new(AtomicUsize::new(0)),
+        is_evaluating: Arc::new(AtomicBool::new(false)),
+        tx: tx.clone(),
+    };
+    let guard = ReporterGuard {
+        tx,
+        shutdown_rx: Some(shutdown_rx),
+        shutdown_opentelemetry: false,
+    };
+
+    (reporter, guard)
+}
+
 #[cfg_attr(not(test), allow(unused))]
 pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
