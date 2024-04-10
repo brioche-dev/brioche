@@ -50,7 +50,10 @@ impl RegistryClient {
     pub async fn get_blob(&self, file_id: FileId) -> anyhow::Result<Vec<u8>> {
         let file_id_component = urlencoding::Encoded::new(file_id.to_string());
         let response = self
-            .request(reqwest::Method::GET, &format!("blobs/{file_id_component}"))?
+            .request(
+                reqwest::Method::GET,
+                &format!("v0/blobs/{file_id_component}"),
+            )?
             .send()
             .await?;
         let response_body = response.error_for_status()?.bytes().await?;
@@ -73,7 +76,7 @@ impl RegistryClient {
         let response = self
             .request(
                 reqwest::Method::GET,
-                &format!("project-tags/{project_name_component}/{tag_component}"),
+                &format!("v0/project-tags/{project_name_component}/{tag_component}"),
             )?
             .send()
             .await?;
@@ -86,7 +89,7 @@ impl RegistryClient {
         let response = self
             .request(
                 reqwest::Method::GET,
-                &format!("projects/{project_hash_component}"),
+                &format!("v0/projects/{project_hash_component}"),
             )?
             .send()
             .await?;
@@ -102,7 +105,7 @@ impl RegistryClient {
         project: &ProjectListing,
     ) -> anyhow::Result<PublishProjectResponse> {
         let response = self
-            .request(reqwest::Method::POST, "projects")?
+            .request(reqwest::Method::POST, "v0/projects")?
             .json(project)
             .send()
             .await?;

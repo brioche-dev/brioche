@@ -295,14 +295,14 @@ impl TestContext {
 
         for (subproject_hash, subproject) in &project_listing.projects {
             self.registry_server
-                .mock("GET", &*format!("/projects/{subproject_hash}"))
+                .mock("GET", &*format!("/v0/projects/{subproject_hash}"))
                 .with_header("Content-Type", "application/json")
                 .with_body(serde_json::to_string(subproject).unwrap())
                 .create();
         }
         for (file_id, file_contents) in &project_listing.files {
             self.registry_server
-                .mock("GET", &*format!("/blobs/{file_id}"))
+                .mock("GET", &*format!("/v0/blobs/{file_id}"))
                 .with_header("Content-Type", "application/octet-stream")
                 .with_body(file_contents)
                 .create();
@@ -319,7 +319,7 @@ impl TestContext {
         project_hash: ProjectHash,
     ) -> mockito::Mock {
         self.registry_server
-            .mock("GET", &*format!("/project-tags/{project_name}/{tag}"))
+            .mock("GET", &*format!("/v0/project-tags/{project_name}/{tag}"))
             .with_header("Content-Type", "application/json")
             .with_body(
                 serde_json::to_string(&brioche::registry::GetProjectTagResponse { project_hash })

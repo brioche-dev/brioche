@@ -22,7 +22,7 @@ async fn test_registry_client_get_project() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/projects/{project_hash}"))
+        .mock("GET", &*format!("/v0/projects/{project_hash}"))
         .with_header("Content-Type", "application/json")
         .with_body(serde_json::to_string(&project).unwrap())
         .create();
@@ -58,7 +58,7 @@ async fn test_registry_client_get_project_invalid_hash() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/projects/{project_hash}"))
+        .mock("GET", &*format!("/v0/projects/{project_hash}"))
         .with_header("Content-Type", "application/json")
         .with_body(serde_json::to_string(&changed_project).unwrap())
         .create();
@@ -80,7 +80,7 @@ async fn test_registry_client_get_blob() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/blobs/{file_id}"))
+        .mock("GET", &*format!("/v0/blobs/{file_id}"))
         .with_header("Content-Type", "application/octet-stream")
         .with_body(&*contents)
         .create();
@@ -102,7 +102,7 @@ async fn test_registry_client_get_blob_invalid_hash() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/blobs/{file_id}"))
+        .mock("GET", &*format!("/v0/blobs/{file_id}"))
         .with_header("Content-Type", "application/octet-stream")
         .with_body("evil")
         .create();
