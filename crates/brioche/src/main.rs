@@ -4,6 +4,7 @@ use anyhow::Context as _;
 use brioche::{fs_utils, reporter::ConsoleReporterKind, sandbox::SandboxExecutionConfig};
 use clap::Parser;
 use human_repr::HumanDuration;
+use joinery::JoinableIterator as _;
 use tracing::Instrument;
 
 #[derive(Debug, Parser)]
@@ -14,6 +15,8 @@ enum Args {
 
     #[clap(name = "fmt")]
     Format(FormatArgs),
+
+    Publish(PublishArgs),
 
     Lsp(LspArgs),
 
@@ -54,6 +57,15 @@ fn main() -> anyhow::Result<ExitCode> {
                 .build()?;
 
             let exit_code = rt.block_on(format(args))?;
+
+            Ok(exit_code)
+        }
+        Args::Publish(args) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            let exit_code = rt.block_on(publish(args))?;
 
             Ok(exit_code)
         }
@@ -298,6 +310,76 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
         .await?;
 
     Ok(exit_code)
+}
+
+#[derive(Debug, Parser)]
+struct PublishArgs {
+    #[clap(short, long)]
+    project: PathBuf,
+}
+
+async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
+    let (reporter, mut guard) =
+        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+
+    let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
+    let projects = brioche::project::Projects::default();
+    let project_hash = projects.load(&brioche, &args.project, true).await?;
+
+    let project = projects.project(project_hash)?;
+    let name = project.definition.name.as_deref().unwrap_or("[unnamed]");
+    let version = project
+        .definition
+        .version
+        .as_deref()
+        .unwrap_or("[unversioned]");
+
+    let lockfile_result = projects.validate_no_dirty_lockfiles();
+    match lockfile_result {
+        Ok(()) => {}
+        Err(error) => {
+            eprintln!("{error:#}");
+            return Ok(ExitCode::FAILURE);
+        }
+    }
+
+    let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
+    let check_results = checked.ensure_ok(brioche::script::check::DiagnosticLevel::Warning);
+    match check_results {
+        Ok(()) => {
+            println!("No errors found 🎉");
+        }
+        Err(diagnostics) => {
+            diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
+            return Ok(ExitCode::FAILURE);
+        }
+    }
+
+    let project_listing = projects.export_listing(&brioche, project_hash)?;
+    let response = brioche
+        .registry_client
+        .publish_project(&project_listing)
+        .await?;
+
+    guard.shutdown_console().await;
+
+    if response.is_no_op() {
+        println!("Project already up to date: {} {}", name, version);
+    } else {
+        println!("🚀 Published project {} {}", name, version);
+        println!("Project hash: {}", project_hash);
+        println!("Uploaded files: {}", response.new_files);
+        println!("Uploaded projects: {}", response.new_projects);
+
+        if response.tags.is_empty() {
+            let tags = response.tags.iter().map(|tag| &tag.name);
+            println!("Updated tags: {}", tags.join_with(", "));
+        } else {
+            println!("No updated tags");
+        }
+    }
+
+    Ok(ExitCode::SUCCESS)
 }
 
 #[derive(Debug, Parser)]

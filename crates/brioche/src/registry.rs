@@ -135,6 +135,12 @@ pub struct PublishProjectResponse {
     pub tags: Vec<UpdatedTag>,
 }
 
+impl PublishProjectResponse {
+    pub fn is_no_op(&self) -> bool {
+        self.new_files == 0 && self.new_projects == 0 && self.tags.is_empty()
+    }
+}
+
 #[serde_with::serde_as]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
