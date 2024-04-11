@@ -521,7 +521,7 @@ async fn load_project_inner(
     let mut new_lockfile = Lockfile::default();
     let mut errors = vec![];
 
-    let mut internal_dependencies = HashMap::new();
+    let mut dependencies = HashMap::new();
     for (name, dependency_def) in &project_analysis.definition.dependencies {
         static NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         let name_regex = NAME_REGEX
@@ -531,7 +531,7 @@ async fn load_project_inner(
         let dep_depth = depth
             .checked_sub(1)
             .context("project dependency depth exceeded")?;
-        let (dependency_hash, dep_errors, is_internal) = match dependency_def {
+        let (dependency_hash, dep_errors) = match dependency_def {
             DependencyDefinition::Path { path: subpath } => {
                 let dep_path = path.join(subpath);
                 let result =
@@ -539,7 +539,7 @@ async fn load_project_inner(
                         .await;
 
                 match result {
-                    Ok((dep_hash, _, dep_errors)) => (dep_hash, dep_errors, true),
+                    Ok((dep_hash, _, dep_errors)) => (dep_hash, dep_errors),
                     Err(err) => {
                         errors.push(LoadProjectError::FailedToLoadDependency {
                             name: name.to_owned(),
@@ -607,7 +607,7 @@ async fn load_project_inner(
                         .insert(name.to_owned(), should_lock);
                 }
 
-                (actual_hash, dep_errors, resolved_dep.should_lock.is_none())
+                (actual_hash, dep_errors)
             }
         };
 
@@ -620,9 +620,7 @@ async fn load_project_inner(
                 }),
         );
 
-        if is_internal {
-            internal_dependencies.insert(name.to_owned(), dependency_hash);
-        }
+        dependencies.insert(name.to_owned(), dependency_hash);
     }
 
     let modules = project_analysis
@@ -633,9 +631,8 @@ async fn load_project_inner(
 
     let project = Project {
         definition: project_analysis.definition,
-        internal_dependencies,
+        dependencies,
         modules,
-        lockfile: new_lockfile.clone(),
     };
     let project = Arc::new(project);
     let project_hash = ProjectHash::from_serializable(&project)?;
@@ -806,9 +803,16 @@ async fn fetch_project_from_registry(
             .context("failed to write blob")?;
     }
 
+    let lockfile = Lockfile {
+        dependencies: project
+            .dependencies
+            .iter()
+            .map(|(name, hash)| (name.clone(), *hash))
+            .collect(),
+    };
     let lockfile_path = temp_project_path.join("brioche.lock");
     let lockfile_contents =
-        serde_json::to_string_pretty(&project.lockfile).context("failed to serialize lockfile")?;
+        serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
     let mut lockfile_file = tokio::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -893,22 +897,15 @@ async fn find_workspace(project_path: &Path) -> anyhow::Result<Option<Workspace>
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub definition: ProjectDefinition,
-    pub internal_dependencies: HashMap<String, ProjectHash>,
+    pub dependencies: HashMap<String, ProjectHash>,
     pub modules: HashMap<RelativePathBuf, FileId>,
-    pub lockfile: Lockfile,
 }
 
 impl Project {
     pub fn dependencies(&self) -> impl Iterator<Item = (&str, ProjectHash)> {
-        self.internal_dependencies
+        self.dependencies
             .iter()
             .map(|(name, hash)| (name.as_str(), *hash))
-            .chain(
-                self.lockfile
-                    .dependencies
-                    .iter()
-                    .map(|(name, hash)| (name.as_str(), *hash)),
-            )
     }
 
     pub fn dependency_hashes(&self) -> impl Iterator<Item = ProjectHash> + '_ {
@@ -916,10 +913,7 @@ impl Project {
     }
 
     pub fn dependency_hash(&self, name: &str) -> Option<ProjectHash> {
-        self.internal_dependencies
-            .get(name)
-            .copied()
-            .or_else(|| self.lockfile.dependencies.get(name).copied())
+        self.dependencies.get(name).copied()
     }
 }
 

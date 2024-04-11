@@ -9,7 +9,7 @@ use std::{
 use brioche::{
     artifact::{CreateDirectory, Directory, DirectoryListing, File, WithMeta},
     blob::{BlobId, SaveBlobOptions},
-    project::{self, ProjectHash, Projects},
+    project::{self, ProjectHash, ProjectListing, Projects},
     Brioche, BriocheBuilder,
 };
 
@@ -293,19 +293,9 @@ impl TestContext {
             .export_listing(&self.brioche, project_hash)
             .expect("failed to export project listing");
 
-        for (subproject_hash, subproject) in &project_listing.projects {
-            self.registry_server
-                .mock("GET", &*format!("/v0/projects/{subproject_hash}"))
-                .with_header("Content-Type", "application/json")
-                .with_body(serde_json::to_string(subproject).unwrap())
-                .create();
-        }
-        for (file_id, file_contents) in &project_listing.files {
-            self.registry_server
-                .mock("GET", &*format!("/v0/blobs/{file_id}"))
-                .with_header("Content-Type", "application/octet-stream")
-                .with_body(file_contents)
-                .create();
+        let mocks = self.mock_registry_listing(&project_listing);
+        for mock in mocks {
+            mock.create_async().await;
         }
 
         project_hash
@@ -325,5 +315,34 @@ impl TestContext {
                 serde_json::to_string(&brioche::registry::GetProjectTagResponse { project_hash })
                     .unwrap(),
             )
+    }
+
+    #[must_use]
+    pub fn mock_registry_listing(
+        &mut self,
+        project_listing: &ProjectListing,
+    ) -> Vec<mockito::Mock> {
+        let mut mocks = vec![];
+
+        for (subproject_hash, subproject) in &project_listing.projects {
+            let mock = self
+                .registry_server
+                .mock("GET", &*format!("/v0/projects/{subproject_hash}"))
+                .with_header("Content-Type", "application/json")
+                .with_body(serde_json::to_string(subproject).unwrap());
+
+            mocks.push(mock);
+        }
+        for (file_id, file_contents) in &project_listing.files {
+            let mock = self
+                .registry_server
+                .mock("GET", &*format!("/v0/blobs/{file_id}"))
+                .with_header("Content-Type", "application/octet-stream")
+                .with_body(file_contents);
+
+            mocks.push(mock);
+        }
+
+        mocks
     }
 }
