@@ -28,8 +28,7 @@ pub mod vfs;
 const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
-// TODO: Replace with actual registry URL
-const DEFAULT_REGISTRY_URL: &str = "http://localhost:2000";
+const DEFAULT_REGISTRY_URL: &str = "https://registry.brioche.dev/";
 
 #[derive(Clone)]
 pub struct Brioche {
