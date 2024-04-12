@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::Context as _;
+use sqlx::Acquire as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use super::{Brioche, Hash};
@@ -41,6 +42,7 @@ pub async fn save_blob<'a>(
         let blob_id_string = id.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
                 INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
@@ -50,8 +52,9 @@ pub async fn save_blob<'a>(
             blob_id_string,
             blob_id_string,
         )
-        .execute(&mut *db_conn)
+        .execute(&mut *db_transaction)
         .await?;
+        db_transaction.commit().await?;
         drop(db_conn);
     }
 
@@ -162,6 +165,7 @@ where
         let blob_id_string = id.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
                 INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
@@ -171,8 +175,9 @@ where
             blob_id_string,
             blob_id_string,
         )
-        .execute(&mut *db_conn)
+        .execute(&mut *db_transaction)
         .await?;
+        db_transaction.commit().await?;
         drop(db_conn);
     }
 
@@ -251,6 +256,7 @@ pub async fn save_blob_from_file<'a>(
         let blob_id_string = id.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
                 INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
@@ -260,8 +266,9 @@ pub async fn save_blob_from_file<'a>(
             blob_id_string,
             blob_id_string,
         )
-        .execute(&mut *db_conn)
+        .execute(&mut *db_transaction)
         .await?;
+        db_transaction.commit().await?;
         drop(db_conn);
     }
 
@@ -392,14 +399,16 @@ impl<'a> SaveBlobOptions<'a> {
 pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<BlobId>> {
     let hash_string = hash.to_string();
     let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
     let result = sqlx::query!(
         r#"
             SELECT blob_id FROM blob_aliases WHERE hash = ? LIMIT 1
         "#,
         hash_string,
     )
-    .fetch_optional(&mut *db_conn)
+    .fetch_optional(&mut *db_transaction)
     .await?;
+    db_transaction.commit().await?;
     drop(db_conn);
 
     match result {
