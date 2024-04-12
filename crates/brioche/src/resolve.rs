@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::Context as _;
 use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use sqlx::Acquire as _;
 use tracing::Instrument as _;
 
 use super::{
@@ -99,13 +100,15 @@ pub async fn resolve(
 
     // Check the database to see if we've cached this artifact before
     let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
     let input_hash = artifact_hash.to_string();
     let result = sqlx::query!(
         "SELECT output_json FROM resolves WHERE input_hash = ? LIMIT 1",
         input_hash,
     )
-    .fetch_optional(&mut *db_conn)
+    .fetch_optional(&mut *db_transaction)
     .await?;
+    db_transaction.commit().await?;
     drop(db_conn);
 
     if let Some(row) = result {
@@ -142,6 +145,7 @@ pub async fn resolve(
     // Write the resolved artifact to the database on success
     if let Ok(result_artifact) = &result_artifact {
         let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
         let resolve_id = ulid::Ulid::new().to_string();
         let resolve_series_id = ulid::Ulid::new().to_string();
         let input_hash = artifact_hash.to_string();
@@ -156,8 +160,9 @@ pub async fn resolve(
             output_json,
             output_hash,
         )
-        .execute(&mut *db_conn)
+        .execute(&mut *db_transaction)
         .await?;
+        db_transaction.commit().await?;
 
         tracing::trace!(%artifact_hash, result_hash = %output_hash, "saved resolve result to database");
     }
