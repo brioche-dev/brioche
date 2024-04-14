@@ -152,6 +152,8 @@ pub struct UpdatedTag {
     pub previous_hash: Option<ProjectHash>,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetResolveResponse {
     pub output_hash: ArtifactHash,
     pub output_artifact: CompleteArtifact,
