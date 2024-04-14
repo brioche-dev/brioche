@@ -166,7 +166,15 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                 .await?;
 
         reporter.set_is_evaluating(false);
-        let result = brioche::resolve::resolve(&brioche, artifact).await?;
+        let result = brioche::resolve::resolve(
+            &brioche,
+            artifact,
+            &brioche::resolve::ResolveScope::Project {
+                project_hash,
+                export: args.export.to_string(),
+            },
+        )
+        .await?;
 
         guard.shutdown_console().await;
 

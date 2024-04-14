@@ -18,7 +18,7 @@ pub async fn resolve_unpack(
     meta: &Arc<Meta>,
     unpack: UnpackArtifact,
 ) -> anyhow::Result<Directory> {
-    let file = super::resolve(brioche, *unpack.file).await?;
+    let file = super::resolve_inner(brioche, *unpack.file).await?;
     let CompleteArtifact::File(File {
         content_blob: blob_id,
         ..

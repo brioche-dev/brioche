@@ -9,6 +9,8 @@ use anyhow::Context as _;
 use deno_core::OpState;
 use specifier::BriocheModuleSpecifier;
 
+use crate::resolve::ResolveScope;
+
 use super::{
     artifact::{CompleteArtifact, LazyArtifact, WithMeta},
     blob::BlobId,
@@ -151,9 +153,11 @@ deno_core::extension!(brioche_rt,
     ],
     options = {
         brioche: Brioche,
+        resolve_scope: ResolveScope,
     },
     state = |state, options| {
         state.put(options.brioche);
+        state.put(options.resolve_scope);
     },
 );
 
@@ -169,10 +173,17 @@ pub async fn op_brioche_resolve_all(
             .context("failed to get brioche instance")?
             .clone()
     };
+    let resolve_scope = {
+        let state = state.try_borrow()?;
+        state
+            .try_borrow::<ResolveScope>()
+            .context("failed to get resolve scope")?
+            .clone()
+    };
 
     let mut results = vec![];
     for artifact in artifacts {
-        let result = super::resolve::resolve(&brioche, artifact).await?;
+        let result = super::resolve::resolve(&brioche, artifact, &resolve_scope).await?;
         results.push(result.value);
     }
     Ok(results)

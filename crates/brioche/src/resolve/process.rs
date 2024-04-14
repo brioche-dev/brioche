@@ -46,14 +46,14 @@ pub async fn resolve_lazy_process_to_process(
         .try_collect()
         .await?;
 
-    let work_dir = super::resolve(brioche, *process.work_dir).await?;
+    let work_dir = super::resolve_inner(brioche, *process.work_dir).await?;
     let crate::artifact::CompleteArtifact::Directory(work_dir) = work_dir.value else {
         anyhow::bail!("expected process workdir to be a directory artifact");
     };
 
     let output_scaffold = match process.output_scaffold {
         Some(output_scaffold) => {
-            let output_scaffold = super::resolve(brioche, *output_scaffold).await?;
+            let output_scaffold = super::resolve_inner(brioche, *output_scaffold).await?;
             Some(Box::new(output_scaffold.value))
         }
         None => None,
@@ -85,7 +85,7 @@ async fn resolve_lazy_process_template_to_process_template(
                     })
             }
             ProcessTemplateComponent::Input { artifact } => {
-                let resolved = super::resolve(brioche, artifact.clone()).await?;
+                let resolved = super::resolve_inner(brioche, artifact.clone()).await?;
 
                 result
                     .components
@@ -611,7 +611,7 @@ async fn set_up_rootfs(
     });
 
     tracing::debug!("resolving rootfs dash/env dependencies");
-    let dash_and_env = super::resolve(
+    let dash_and_env = super::resolve_inner(
         brioche,
         WithMeta::without_meta(LazyArtifact::Merge {
             directories: vec![WithMeta::without_meta(dash), WithMeta::without_meta(env)],
