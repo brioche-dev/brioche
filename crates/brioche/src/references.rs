@@ -43,7 +43,7 @@ pub async fn artifact_references(
                         }
                     }
                     LazyArtifact::Symlink { .. } => {}
-                    LazyArtifact::Download(_) => todo!(),
+                    LazyArtifact::Download(_) => {}
                     LazyArtifact::Unpack(unpack) => {
                         unvisited.push_back(unpack.file.value);
                     }
