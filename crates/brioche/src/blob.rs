@@ -449,6 +449,10 @@ fn is_file_exclusive(metadata: &std::fs::Metadata) -> bool {
 pub struct BlobId(blake3::Hash);
 
 impl BlobId {
+    pub fn from_blake3(hash: blake3::Hash) -> Self {
+        Self(hash)
+    }
+
     pub fn for_content(content: &[u8]) -> BlobId {
         let hash = blake3::hash(content);
         BlobId(hash)
