@@ -1,8 +1,8 @@
 use anyhow::Context as _;
 
 use crate::{
+    blob::BlobId,
     project::{Project, ProjectHash, ProjectListing},
-    vfs::FileId,
 };
 
 #[derive(Clone)]
@@ -47,8 +47,8 @@ impl RegistryClient {
         Ok(request)
     }
 
-    pub async fn get_blob(&self, file_id: FileId) -> anyhow::Result<Vec<u8>> {
-        let file_id_component = urlencoding::Encoded::new(file_id.to_string());
+    pub async fn get_blob(&self, blob_id: BlobId) -> anyhow::Result<Vec<u8>> {
+        let file_id_component = urlencoding::Encoded::new(blob_id.to_string());
         let response = self
             .request(
                 reqwest::Method::GET,
@@ -59,7 +59,7 @@ impl RegistryClient {
         let response_body = response.error_for_status()?.bytes().await?;
         let response_body = response_body.to_vec();
 
-        file_id
+        blob_id
             .validate_matches(&response_body)
             .context("blob hash did not match")?;
 

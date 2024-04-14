@@ -85,7 +85,8 @@ async fn test_registry_client_get_blob() -> anyhow::Result<()> {
         .with_body(&*contents)
         .create();
 
-    let registry_contents = brioche.registry_client.get_blob(file_id).await?;
+    let blob_id = file_id.as_blob_id()?;
+    let registry_contents = brioche.registry_client.get_blob(blob_id).await?;
     assert_eq!(registry_contents, *contents);
 
     mock.assert_async().await;
@@ -107,7 +108,8 @@ async fn test_registry_client_get_blob_invalid_hash() -> anyhow::Result<()> {
         .with_body("evil")
         .create();
 
-    let result = brioche.registry_client.get_blob(file_id).await;
+    let blob_id = file_id.as_blob_id()?;
+    let result = brioche.registry_client.get_blob(blob_id).await;
     assert_matches!(result, Err(_));
 
     mock.assert_async().await;

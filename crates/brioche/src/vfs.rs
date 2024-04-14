@@ -6,6 +6,8 @@ use std::{
 
 use anyhow::Context as _;
 
+use crate::blob::BlobId;
+
 #[derive(Debug, Clone)]
 pub struct Vfs {
     mutable: bool,
@@ -44,8 +46,7 @@ impl Vfs {
         let file_id = if self.mutable {
             FileId::Mutable(ulid::Ulid::new())
         } else {
-            let hash = blake3::hash(&contents);
-            FileId::Hash(hash)
+            FileId::Hash(BlobId::for_content(&contents))
         };
 
         let mut vfs = self
@@ -126,31 +127,23 @@ struct VfsInner {
     serde_with::DeserializeFromStr,
 )]
 pub enum FileId {
-    Hash(blake3::Hash),
+    Hash(BlobId),
     Mutable(ulid::Ulid),
 }
 
 impl FileId {
-    pub fn validate_matches(&self, content: &[u8]) -> anyhow::Result<()> {
-        let expected_hash = match self {
-            FileId::Hash(hash) => hash,
-            FileId::Mutable(_) => {
-                anyhow::bail!("tried to validate file ID match for mutable file");
-            }
-        };
-        let actual_hash = blake3::hash(content);
-        anyhow::ensure!(
-            expected_hash == &actual_hash,
-            "file content does not match expected hash"
-        );
-        Ok(())
+    pub fn as_blob_id(&self) -> anyhow::Result<BlobId> {
+        match self {
+            Self::Hash(hash) => Ok(*hash),
+            Self::Mutable(_) => anyhow::bail!("tried to get blob ID for mutable file"),
+        }
     }
 }
 
 impl std::fmt::Display for FileId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Hash(hash) => write!(f, "{}", hash.to_hex()),
+            Self::Hash(hash) => write!(f, "{hash}"),
             Self::Mutable(ulid) => write!(f, "{}", ulid),
         }
     }
@@ -166,7 +159,7 @@ impl std::str::FromStr for FileId {
                 Ok(Self::Mutable(ulid))
             }
             64 => {
-                let hash = blake3::Hash::from_hex(s)?;
+                let hash = s.parse()?;
                 Ok(Self::Hash(hash))
             }
             _ => anyhow::bail!("invalid file ID: {}", s),

@@ -448,6 +448,23 @@ fn is_file_exclusive(metadata: &std::fs::Metadata) -> bool {
 )]
 pub struct BlobId(blake3::Hash);
 
+impl BlobId {
+    pub fn for_content(content: &[u8]) -> BlobId {
+        let hash = blake3::hash(content);
+        BlobId(hash)
+    }
+
+    pub fn validate_matches(&self, content: &[u8]) -> anyhow::Result<()> {
+        let expected_hash = &self.0;
+        let actual_hash = blake3::hash(content);
+        anyhow::ensure!(
+            expected_hash == &actual_hash,
+            "blob does not match expected hash"
+        );
+        Ok(())
+    }
+}
+
 impl std::fmt::Display for BlobId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.to_hex())
