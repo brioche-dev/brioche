@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
     artifact::{ArtifactHash, CompleteProcessArtifact, LazyArtifact, ProcessArtifact},
@@ -8,7 +8,7 @@ use crate::{
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ArtifactReferences {
-    pub blobs: Vec<BlobId>,
+    pub blobs: HashSet<BlobId>,
     pub artifacts: HashMap<ArtifactHash, LazyArtifact>,
 }
 
@@ -33,7 +33,7 @@ pub async fn artifact_references(
                         executable: _,
                         resources,
                     } => {
-                        references.blobs.push(content_blob);
+                        references.blobs.insert(content_blob);
                         unvisited.push_back(resources.value);
                     }
                     LazyArtifact::Directory(directory) => {
@@ -167,7 +167,7 @@ pub async fn artifact_references(
                         unvisited.push_back(file.value);
                     }
                     LazyArtifact::Proxy(proxy) => {
-                        references.blobs.push(proxy.blob);
+                        references.blobs.insert(proxy.blob);
 
                         let inner = proxy.inner(brioche).await?;
                         unvisited.push_back(inner);
