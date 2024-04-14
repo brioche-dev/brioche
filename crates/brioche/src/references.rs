@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::collections::{HashMap, VecDeque};
 
 use crate::{
     artifact::{ArtifactHash, CompleteProcessArtifact, LazyArtifact, ProcessArtifact},
@@ -12,7 +9,7 @@ use crate::{
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ArtifactReferences {
     pub blobs: Vec<BlobId>,
-    pub artifacts: HashMap<ArtifactHash, Arc<LazyArtifact>>,
+    pub artifacts: HashMap<ArtifactHash, LazyArtifact>,
 }
 
 pub async fn artifact_references(
@@ -28,7 +25,7 @@ pub async fn artifact_references(
                 // Already visited
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(Arc::new(artifact.clone()));
+                entry.insert(artifact.clone());
 
                 match artifact {
                     LazyArtifact::File {
