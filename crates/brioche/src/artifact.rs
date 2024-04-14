@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, OnceLock, RwLock},
 };
 
+use anyhow::Context as _;
 use bstr::{BStr, BString};
 
 use crate::encoding::TickEncoded;
@@ -91,9 +92,7 @@ pub enum LazyArtifact {
         executable: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
-    Proxy {
-        blob: BlobId,
-    },
+    Proxy(ProxyArtifact),
 }
 
 impl LazyArtifact {
@@ -645,6 +644,24 @@ impl TryFrom<LazyArtifact> for Directory {
                 anyhow::bail!("expected directory artifact");
             }
         }
+    }
+}
+
+#[serde_with::serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyArtifact {
+    pub blob: BlobId,
+}
+
+impl ProxyArtifact {
+    pub async fn inner(&self, brioche: &Brioche) -> anyhow::Result<LazyArtifact> {
+        let blob_path = super::blob::blob_path(brioche, self.blob);
+        let blob_contents = tokio::fs::read(blob_path)
+            .await
+            .with_context(|| format!("failed to read blob for proxy: {:?}", self.blob))?;
+        let inner = serde_json::from_slice(&blob_contents)?;
+        Ok(inner)
     }
 }
 

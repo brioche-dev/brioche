@@ -8,7 +8,7 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use sqlx::Acquire as _;
 use tracing::Instrument as _;
 
-use crate::project::ProjectHash;
+use crate::{artifact::ProxyArtifact, project::ProjectHash};
 
 use super::{
     artifact::{
@@ -353,15 +353,9 @@ async fn run_resolve(
             let merged = Directory::create(brioche, &merged).await?;
             Ok(CompleteArtifact::Directory(merged))
         }
-        LazyArtifact::Proxy { blob } => {
-            let proxy = {
-                let blob_path = super::blob::blob_path(brioche, blob);
-                let blob_contents = tokio::fs::read(blob_path)
-                    .await
-                    .with_context(|| format!("failed to read blob for proxy: {blob:?}"))?;
-                serde_json::from_slice(&blob_contents)?
-            };
-            let resolved = resolve_inner(brioche, WithMeta::new(proxy, meta.clone())).await?;
+        LazyArtifact::Proxy(proxy) => {
+            let inner = proxy.inner(brioche).await?;
+            let resolved = resolve_inner(brioche, WithMeta::new(inner, meta.clone())).await?;
             Ok(resolved.value)
         }
         LazyArtifact::Peel { directory, depth } => {
@@ -450,7 +444,7 @@ pub async fn create_proxy(
     {
         let proxies = brioche.proxies.read().await;
         if let Some((_, blob)) = proxies.artifacts_by_hash.get(&artifact_hash) {
-            return Ok(LazyArtifact::Proxy { blob: *blob });
+            return Ok(LazyArtifact::Proxy(ProxyArtifact { blob: *blob }));
         }
     }
 
@@ -468,7 +462,7 @@ pub async fn create_proxy(
         .artifacts_by_hash
         .insert(artifact_hash, (artifact.clone(), blob));
 
-    Ok(LazyArtifact::Proxy { blob })
+    Ok(LazyArtifact::Proxy(ProxyArtifact { blob }))
 }
 
 #[derive(Debug, thiserror::Error)]
