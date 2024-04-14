@@ -24,6 +24,7 @@ pub mod reporter;
 pub mod resolve;
 pub mod sandbox;
 pub mod script;
+pub mod sync;
 pub mod vfs;
 
 const MAX_CONCURRENT_PROCESSES: usize = 20;

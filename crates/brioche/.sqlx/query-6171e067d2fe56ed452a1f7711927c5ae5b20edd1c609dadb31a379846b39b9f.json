@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                SELECT output_hash, output_json\n                FROM resolves\n                WHERE input_hash = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "output_hash",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "output_json",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "6171e067d2fe56ed452a1f7711927c5ae5b20edd1c609dadb31a379846b39b9f"
+}

@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                resolves.input_hash,\n                resolves.input_json,\n                resolves.output_hash,\n                resolves.output_json\n            FROM resolves\n            INNER JOIN project_resolves\n                ON project_resolves.artifact_hash = resolves.input_hash\n            WHERE project_resolves.project_hash = ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "input_hash",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "input_json",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "output_hash",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "output_json",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1ff27e5f6ca79c38fa8c0a7c411135c7898287b2845d60f2e713ec6d661b8ac0"
+}
