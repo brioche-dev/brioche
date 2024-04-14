@@ -193,6 +193,20 @@ impl std::ops::DerefMut for WithMeta<LazyArtifact> {
     }
 }
 
+impl std::ops::Deref for WithMeta<CompleteArtifact> {
+    type Target = CompleteArtifact;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl std::ops::DerefMut for WithMeta<CompleteArtifact> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StackFrame {

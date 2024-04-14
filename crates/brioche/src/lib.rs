@@ -18,6 +18,7 @@ pub mod input;
 pub mod output;
 pub mod platform;
 pub mod project;
+pub mod references;
 pub mod registry;
 pub mod reporter;
 pub mod resolve;
