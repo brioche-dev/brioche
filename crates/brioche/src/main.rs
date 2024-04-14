@@ -118,6 +118,8 @@ struct BuildArgs {
     replace: bool,
     #[clap(long)]
     keep: bool,
+    #[clap(long)]
+    sync: bool,
 }
 
 async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
@@ -211,6 +213,13 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             )
             .await?;
             println!("Wrote output to {}", output.display());
+        }
+
+        if args.sync {
+            let sync_start = std::time::Instant::now();
+            brioche::sync::sync_project(&brioche, project_hash).await?;
+            let sync_duration = sync_start.elapsed().human_duration();
+            println!("Finished sync in {sync_duration}");
         }
 
         anyhow::Ok(ExitCode::SUCCESS)
