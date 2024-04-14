@@ -1,6 +1,7 @@
 use anyhow::Context as _;
 
 use crate::{
+    artifact::{ArtifactHash, CompleteArtifact},
     blob::BlobId,
     project::{Project, ProjectHash, ProjectListing},
 };
@@ -149,4 +150,21 @@ pub struct UpdatedTag {
     pub tag: String,
     #[serde_as(as = "Option<serde_with::DisplayFromStr>")]
     pub previous_hash: Option<ProjectHash>,
+}
+
+pub struct GetResolveResponse {
+    pub output_hash: ArtifactHash,
+    pub output_artifact: CompleteArtifact,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateResolveRequest {
+    pub output_hash: ArtifactHash,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateResolveResponse {
+    pub canonical_output_hash: ArtifactHash,
 }
