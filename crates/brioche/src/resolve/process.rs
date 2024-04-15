@@ -29,31 +29,32 @@ const GUEST_GID_HINT: u32 = 1099;
 #[tracing::instrument(skip(brioche, process))]
 pub async fn resolve_lazy_process_to_process(
     brioche: &Brioche,
+    scope: &super::ResolveScope,
     process: ProcessArtifact,
 ) -> anyhow::Result<CompleteProcessArtifact> {
     let command =
-        resolve_lazy_process_template_to_process_template(brioche, process.command).await?;
+        resolve_lazy_process_template_to_process_template(brioche, scope, process.command).await?;
     let args = futures::stream::iter(process.args)
-        .then(|arg| resolve_lazy_process_template_to_process_template(brioche, arg))
+        .then(|arg| resolve_lazy_process_template_to_process_template(brioche, scope, arg))
         .try_collect()
         .await?;
     let env = futures::stream::iter(process.env)
         .then(|(key, artifact)| async move {
             let artifact =
-                resolve_lazy_process_template_to_process_template(brioche, artifact).await?;
+                resolve_lazy_process_template_to_process_template(brioche, scope, artifact).await?;
             anyhow::Ok((key, artifact))
         })
         .try_collect()
         .await?;
 
-    let work_dir = super::resolve_inner(brioche, *process.work_dir).await?;
+    let work_dir = super::resolve(brioche, *process.work_dir, scope).await?;
     let crate::artifact::CompleteArtifact::Directory(work_dir) = work_dir.value else {
         anyhow::bail!("expected process workdir to be a directory artifact");
     };
 
     let output_scaffold = match process.output_scaffold {
         Some(output_scaffold) => {
-            let output_scaffold = super::resolve_inner(brioche, *output_scaffold).await?;
+            let output_scaffold = super::resolve(brioche, *output_scaffold, scope).await?;
             Some(Box::new(output_scaffold.value))
         }
         None => None,
@@ -72,6 +73,7 @@ pub async fn resolve_lazy_process_to_process(
 #[tracing::instrument(skip_all)]
 async fn resolve_lazy_process_template_to_process_template(
     brioche: &Brioche,
+    scope: &super::ResolveScope,
     template: ProcessTemplate,
 ) -> anyhow::Result<CompleteProcessTemplate> {
     let mut result = CompleteProcessTemplate { components: vec![] };
@@ -85,7 +87,7 @@ async fn resolve_lazy_process_template_to_process_template(
                     })
             }
             ProcessTemplateComponent::Input { artifact } => {
-                let resolved = super::resolve_inner(brioche, artifact.clone()).await?;
+                let resolved = super::resolve(brioche, artifact.clone(), scope).await?;
 
                 result
                     .components

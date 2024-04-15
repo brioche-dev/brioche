@@ -42,6 +42,9 @@ pub enum ResolveScope {
         project_hash: ProjectHash,
         export: String,
     },
+    Child {
+        parent_hash: ArtifactHash,
+    },
     Anonymous,
 }
 
@@ -76,6 +79,28 @@ pub async fn resolve(
                 "#,
                 project_hash_value,
                 export_value,
+                artifact_hash_value,
+            )
+            .execute(&mut *db_transaction)
+            .await?;
+
+            db_transaction.commit().await?;
+        }
+        ResolveScope::Child { parent_hash } => {
+            let mut db_conn = brioche.db_conn.lock().await;
+            let mut db_transaction = db_conn.begin().await?;
+
+            let parent_hash_value = parent_hash.to_string();
+            let artifact_hash_value = artifact_hash.to_string();
+            sqlx::query!(
+                r#"
+                    INSERT INTO child_resolves (
+                        parent_hash,
+                        artifact_hash
+                    ) VALUES (?, ?)
+                    ON CONFLICT DO NOTHING
+                "#,
+                parent_hash_value,
                 artifact_hash_value,
             )
             .execute(&mut *db_transaction)
@@ -266,13 +291,17 @@ async fn run_resolve(
     artifact: LazyArtifact,
     meta: &Arc<Meta>,
 ) -> anyhow::Result<CompleteArtifact> {
+    let scope = ResolveScope::Child {
+        parent_hash: artifact.hash(),
+    };
+
     match artifact {
         LazyArtifact::File {
             content_blob,
             executable,
             resources,
         } => {
-            let resources = resolve_inner(brioche, *resources).await?;
+            let resources = resolve(brioche, *resources, &scope).await?;
             let CompleteArtifact::Directory(resources) = resources.value else {
                 anyhow::bail!("file resources resolved to non-directory value");
             };
@@ -293,13 +322,15 @@ async fn run_resolve(
             Ok(CompleteArtifact::Directory(unpacked))
         }
         LazyArtifact::Process(process) => {
-            // We call `resolve_inner` recursively here so that two different
+            // We call `resolve` recursively here so that two different
             // lazy processes that resolve to the same complete process will
-            // only run once (since `resolve_inner` is memoized).
-            let process = process::resolve_lazy_process_to_process(brioche, process).await?;
-            let result = resolve_inner(
+            // only run once (since `resolve` is memoized).
+            let process =
+                process::resolve_lazy_process_to_process(brioche, &scope, process).await?;
+            let result = resolve(
                 brioche,
                 WithMeta::new(LazyArtifact::CompleteProcess(process), meta.clone()),
+                &scope,
             )
             .await?;
             Ok(result.value)
@@ -317,7 +348,7 @@ async fn run_resolve(
                 super::blob::save_blob(brioche, &content, super::blob::SaveBlobOptions::default())
                     .await?;
 
-            let resources = resolve_inner(brioche, *resources).await?;
+            let resources = resolve(brioche, *resources, &scope).await?;
             let CompleteArtifact::Directory(resources) = resources.value else {
                 anyhow::bail!("file resources resolved to non-directory value");
             };
@@ -333,8 +364,9 @@ async fn run_resolve(
                 .into_iter()
                 .map(|(path, entry)| {
                     let brioche = brioche.clone();
+                    let scope = scope.clone();
                     async move {
-                        let entry = resolve_inner(&brioche, entry).await?;
+                        let entry = resolve(&brioche, entry, &scope).await?;
                         anyhow::Ok((path, entry))
                     }
                 })
@@ -346,7 +378,7 @@ async fn run_resolve(
             Ok(CompleteArtifact::Directory(directory))
         }
         LazyArtifact::Cast { artifact, to } => {
-            let result = resolve_inner(brioche, *artifact).await?;
+            let result = resolve(brioche, *artifact, &scope).await?;
             let result_type: CompleteArtifactDiscriminants = (&result.value).into();
             anyhow::ensure!(result_type == to, "tried casting {result_type:?} to {to:?}");
             Ok(result.value)
@@ -355,7 +387,7 @@ async fn run_resolve(
             let directories = futures::future::try_join_all(
                 directories
                     .into_iter()
-                    .map(|dir| resolve_inner(brioche, dir)),
+                    .map(|dir| resolve(brioche, dir, &scope)),
             )
             .await?;
 
@@ -373,11 +405,11 @@ async fn run_resolve(
         }
         LazyArtifact::Proxy(proxy) => {
             let inner = proxy.inner(brioche).await?;
-            let resolved = resolve_inner(brioche, WithMeta::new(inner, meta.clone())).await?;
+            let resolved = resolve(brioche, WithMeta::new(inner, meta.clone()), &scope).await?;
             Ok(resolved.value)
         }
         LazyArtifact::Peel { directory, depth } => {
-            let mut result = resolve_inner(brioche, *directory).await?;
+            let mut result = resolve(brioche, *directory, &scope).await?;
 
             for _ in 0..depth {
                 let CompleteArtifact::Directory(dir) = result.value else {
@@ -399,7 +431,7 @@ async fn run_resolve(
             Ok(result.value)
         }
         LazyArtifact::Get { directory, path } => {
-            let resolved = resolve_inner(brioche, *directory).await?;
+            let resolved = resolve(brioche, *directory, &scope).await?;
             let CompleteArtifact::Directory(directory) = resolved.value else {
                 anyhow::bail!("tried getting item from non-directory");
             };
@@ -416,13 +448,15 @@ async fn run_resolve(
             path,
             artifact,
         } => {
-            let (directory, artifact) =
-                tokio::try_join!(resolve_inner(brioche, *directory), async move {
+            let (directory, artifact) = tokio::try_join!(resolve(brioche, *directory, &scope), {
+                let scope = scope.clone();
+                async move {
                     match artifact {
-                        Some(artifact) => Ok(Some(resolve_inner(brioche, *artifact).await?)),
+                        Some(artifact) => Ok(Some(resolve(brioche, *artifact, &scope).await?)),
                         None => Ok(None),
                     }
-                })?;
+                }
+            })?;
 
             let CompleteArtifact::Directory(directory) = directory.value else {
                 anyhow::bail!("tried removing item from non-directory artifact");
@@ -435,7 +469,7 @@ async fn run_resolve(
             Ok(CompleteArtifact::Directory(new_directory))
         }
         LazyArtifact::SetPermissions { file, executable } => {
-            let result = resolve_inner(brioche, *file).await?;
+            let result = resolve(brioche, *file, &scope).await?;
             let CompleteArtifact::File(mut file) = result.value else {
                 anyhow::bail!("tried setting permissions on non-file");
             };
