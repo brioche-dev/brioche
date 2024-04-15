@@ -137,6 +137,12 @@ impl RegistryClient {
 
     pub async fn create_artifact(&self, artifact: &LazyArtifact) -> anyhow::Result<ArtifactHash> {
         let artifact_hash = artifact.hash();
+        let path = format!("v0/artifacts/{artifact_hash}");
+
+        if self.resource_exists(&path).await? {
+            return Ok(artifact_hash);
+        }
+
         let response = self
             .request(
                 reqwest::Method::PUT,
