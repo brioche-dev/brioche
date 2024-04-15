@@ -686,7 +686,7 @@ impl ResolveDir {
 impl Drop for ResolveDir {
     fn drop(&mut self) {
         if let Some(path) = &self.path {
-            tracing::info!("Keeping resolve dir {}", path.display());
+            tracing::info!("keeping resolve dir {}", path.display());
         }
     }
 }

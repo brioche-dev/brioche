@@ -93,7 +93,7 @@ impl BriocheCompilerHost {
                             entry.get().contents.clone()
                         }
                         std::collections::hash_map::Entry::Vacant(entry) => {
-                            tracing::info!("loaded new document into compiler host: {specifier}");
+                            tracing::debug!("loaded new document into compiler host: {specifier}");
                             let contents = Arc::new(contents.to_string());
                             entry.insert(BriocheDocument {
                                 contents: contents.clone(),
@@ -166,7 +166,7 @@ impl BriocheCompilerHost {
                     }
                 })
                 .or_insert_with(|| {
-                    tracing::info!("inserted new document into compiler host: {specifier}");
+                    tracing::debug!("inserted new document into compiler host: {specifier}");
                     BriocheDocument {
                         contents: Arc::new(contents.to_owned()),
                         version: 0,

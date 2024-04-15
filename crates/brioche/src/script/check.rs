@@ -35,7 +35,7 @@ pub async fn check(
 
     let main_module: deno_core::ModuleSpecifier = "briocheruntime:///dist/index.js".parse()?;
 
-    tracing::info!(%specifier, %main_module, "evaluating module");
+    tracing::debug!(%specifier, %main_module, "evaluating module");
 
     let module_id = js_runtime.load_main_module(&main_module, None).await?;
     let result = js_runtime.mod_evaluate(module_id);
@@ -57,7 +57,7 @@ pub async fn check(
         .try_into()
         .with_context(|| format!("expected export {export_key_name:?} to be a function"))?;
 
-    tracing::info!(%specifier, %main_module, ?export_key_name, "running function");
+    tracing::debug!(%specifier, %main_module, ?export_key_name, "running function");
 
     let files = projects.project_module_specifiers(project_hash)?;
     let files = serde_v8::to_v8(&mut js_scope, &files)?;
