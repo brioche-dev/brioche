@@ -18,11 +18,13 @@ pub mod input;
 pub mod output;
 pub mod platform;
 pub mod project;
+pub mod references;
 pub mod registry;
 pub mod reporter;
 pub mod resolve;
 pub mod sandbox;
 pub mod script;
+pub mod sync;
 pub mod vfs;
 
 const MAX_CONCURRENT_PROCESSES: usize = 20;

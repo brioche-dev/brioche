@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    INSERT INTO project_resolves (\n                        project_hash,\n                        export,\n                        artifact_hash\n                    ) VALUES (?, ?, ?)\n                    ON CONFLICT DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "f5d0c608e4d8c43b17330da94dc5955a90b65d521a4df1cf9b77b73c99185253"
+}

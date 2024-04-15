@@ -18,7 +18,7 @@ pub async fn resolve_unpack(
     meta: &Arc<Meta>,
     unpack: UnpackArtifact,
 ) -> anyhow::Result<Directory> {
-    let file = super::resolve(brioche, *unpack.file).await?;
+    let file = super::resolve_inner(brioche, *unpack.file).await?;
     let CompleteArtifact::File(File {
         content_blob: blob_id,
         ..
@@ -31,7 +31,7 @@ pub async fn resolve_unpack(
 
     let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Unpack);
 
-    let archive_path = crate::blob::blob_path(brioche, blob_id);
+    let archive_path = crate::blob::blob_path(brioche, blob_id).await?;
     let archive_file = tokio::fs::File::open(&archive_path).await?;
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);

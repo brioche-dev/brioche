@@ -118,6 +118,8 @@ struct BuildArgs {
     replace: bool,
     #[clap(long)]
     keep: bool,
+    #[clap(long)]
+    sync: bool,
 }
 
 async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
@@ -166,7 +168,15 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                 .await?;
 
         reporter.set_is_evaluating(false);
-        let result = brioche::resolve::resolve(&brioche, artifact).await?;
+        let result = brioche::resolve::resolve(
+            &brioche,
+            artifact,
+            &brioche::resolve::ResolveScope::Project {
+                project_hash,
+                export: args.export.to_string(),
+            },
+        )
+        .await?;
 
         guard.shutdown_console().await;
 
@@ -203,6 +213,13 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             )
             .await?;
             println!("Wrote output to {}", output.display());
+        }
+
+        if args.sync {
+            let sync_start = std::time::Instant::now();
+            brioche::sync::sync_project(&brioche, project_hash, &args.export).await?;
+            let sync_duration = sync_start.elapsed().human_duration();
+            println!("Finished sync in {sync_duration}");
         }
 
         anyhow::Ok(ExitCode::SUCCESS)

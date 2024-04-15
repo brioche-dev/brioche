@@ -83,6 +83,7 @@ fn run_resolve_benchmark(c: &mut Criterion) {
         let _deep_dir_result = brioche::resolve::resolve(
             &brioche,
             WithMeta::without_meta(LazyArtifact::from(deep_dir.clone())),
+            &brioche::resolve::ResolveScope::Anonymous,
         )
         .await
         .unwrap();
@@ -91,6 +92,7 @@ fn run_resolve_benchmark(c: &mut Criterion) {
         let _wide_dir_result = brioche::resolve::resolve(
             &brioche,
             WithMeta::without_meta(LazyArtifact::from(wide_dir.clone())),
+            &brioche::resolve::ResolveScope::Anonymous,
         )
         .await
         .unwrap();
@@ -138,32 +140,52 @@ fn run_resolve_benchmark(c: &mut Criterion) {
     c.bench_function("cached resolve deep dir", |b| {
         b.to_async(&runtime).iter(|| async {
             let deep_dir = WithMeta::without_meta(LazyArtifact::from(artifacts.deep_dir.clone()));
-            let _ = brioche::resolve::resolve(&brioche, deep_dir).await.unwrap();
+            let _ = brioche::resolve::resolve(
+                &brioche,
+                deep_dir,
+                &brioche::resolve::ResolveScope::Anonymous,
+            )
+            .await
+            .unwrap();
         })
     });
 
     c.bench_function("cached resolve wide dir", |b| {
         b.to_async(&runtime).iter(|| async {
             let wide_dir = WithMeta::without_meta(LazyArtifact::from(artifacts.wide_dir.clone()));
-            let _ = brioche::resolve::resolve(&brioche, wide_dir).await.unwrap();
+            let _ = brioche::resolve::resolve(
+                &brioche,
+                wide_dir,
+                &brioche::resolve::ResolveScope::Anonymous,
+            )
+            .await
+            .unwrap();
         })
     });
 
     c.bench_function("cached resolve deep merge", |b| {
         b.to_async(&runtime).iter(|| async {
             let merge_deep_dir = WithMeta::without_meta(artifacts.merge_deep_dir.clone());
-            let _ = brioche::resolve::resolve(&brioche, merge_deep_dir)
-                .await
-                .unwrap();
+            let _ = brioche::resolve::resolve(
+                &brioche,
+                merge_deep_dir,
+                &brioche::resolve::ResolveScope::Anonymous,
+            )
+            .await
+            .unwrap();
         })
     });
 
     c.bench_function("cached resolve wide merge", |b| {
         b.to_async(&runtime).iter(|| async {
             let merge_wide_dir = WithMeta::without_meta(artifacts.merge_wide_dir.clone());
-            let _ = brioche::resolve::resolve(&brioche, merge_wide_dir)
-                .await
-                .unwrap();
+            let _ = brioche::resolve::resolve(
+                &brioche,
+                merge_wide_dir,
+                &brioche::resolve::ResolveScope::Anonymous,
+            )
+            .await
+            .unwrap();
         })
     });
 }

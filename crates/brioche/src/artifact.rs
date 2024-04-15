@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, OnceLock, RwLock},
 };
 
+use anyhow::Context as _;
 use bstr::{BStr, BString};
 
 use crate::encoding::TickEncoded;
@@ -91,9 +92,7 @@ pub enum LazyArtifact {
         executable: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
-    Proxy {
-        blob: BlobId,
-    },
+    Proxy(ProxyArtifact),
 }
 
 impl LazyArtifact {
@@ -127,6 +126,26 @@ impl LazyArtifact {
 
     pub fn kind(&self) -> LazyArtifactDiscriminants {
         self.into()
+    }
+
+    pub fn is_expensive_to_resolve(&self) -> bool {
+        match self {
+            LazyArtifact::Download(_) | LazyArtifact::CompleteProcess(_) => true,
+            LazyArtifact::File { .. }
+            | LazyArtifact::Directory(_)
+            | LazyArtifact::Symlink { .. }
+            | LazyArtifact::Unpack(_)
+            | LazyArtifact::Process(_)
+            | LazyArtifact::CreateFile { .. }
+            | LazyArtifact::CreateDirectory(_)
+            | LazyArtifact::Cast { .. }
+            | LazyArtifact::Merge { .. }
+            | LazyArtifact::Peel { .. }
+            | LazyArtifact::Get { .. }
+            | LazyArtifact::Insert { .. }
+            | LazyArtifact::SetPermissions { .. }
+            | LazyArtifact::Proxy(_) => false,
+        }
     }
 }
 
@@ -189,6 +208,20 @@ impl std::ops::Deref for WithMeta<LazyArtifact> {
 }
 
 impl std::ops::DerefMut for WithMeta<LazyArtifact> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+impl std::ops::Deref for WithMeta<CompleteArtifact> {
+    type Target = CompleteArtifact;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl std::ops::DerefMut for WithMeta<CompleteArtifact> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
     }
@@ -369,7 +402,7 @@ impl Directory {
     pub async fn listing(&self, brioche: &Brioche) -> anyhow::Result<DirectoryListing> {
         match self.listing_blob {
             Some(tree_blob_id) => {
-                let blob_path = blob::blob_path(brioche, tree_blob_id);
+                let blob_path = blob::blob_path(brioche, tree_blob_id).await?;
                 let listing_json = tokio::fs::read(&blob_path).await?;
                 let listing = serde_json::from_slice(&listing_json)?;
                 Ok(listing)
@@ -645,6 +678,24 @@ impl TryFrom<LazyArtifact> for Directory {
                 anyhow::bail!("expected directory artifact");
             }
         }
+    }
+}
+
+#[serde_with::serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyArtifact {
+    pub blob: BlobId,
+}
+
+impl ProxyArtifact {
+    pub async fn inner(&self, brioche: &Brioche) -> anyhow::Result<LazyArtifact> {
+        let blob_path = super::blob::blob_path(brioche, self.blob).await?;
+        let blob_contents = tokio::fs::read(blob_path)
+            .await
+            .with_context(|| format!("failed to read blob for proxy: {:?}", self.blob))?;
+        let inner = serde_json::from_slice(&blob_contents)?;
+        Ok(inner)
     }
 }
 

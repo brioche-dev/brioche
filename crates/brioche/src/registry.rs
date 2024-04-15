@@ -1,7 +1,7 @@
 use anyhow::Context as _;
 
 use crate::{
-    artifact::{ArtifactHash, CompleteArtifact},
+    artifact::{ArtifactHash, CompleteArtifact, LazyArtifact},
     blob::BlobId,
     project::{Project, ProjectHash, ProjectListing},
 };
@@ -67,6 +67,27 @@ impl RegistryClient {
         Ok(response_body)
     }
 
+    pub async fn send_blob(
+        &self,
+        blob_id: BlobId,
+        content: impl Into<reqwest::Body>,
+    ) -> anyhow::Result<bool> {
+        let path = format!("v0/blobs/{}", blob_id);
+
+        if self.resource_exists(&path).await? {
+            return Ok(false);
+        }
+
+        self.request(reqwest::Method::PUT, &path)?
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            .body(content)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        Ok(true)
+    }
+
     pub async fn get_project_tag(
         &self,
         project_name: &str,
@@ -112,6 +133,72 @@ impl RegistryClient {
             .await?;
         let response_body = response.error_for_status()?.json().await?;
         Ok(response_body)
+    }
+
+    pub async fn create_artifact(&self, artifact: &LazyArtifact) -> anyhow::Result<ArtifactHash> {
+        let artifact_hash = artifact.hash();
+        let path = format!("v0/artifacts/{artifact_hash}");
+
+        if self.resource_exists(&path).await? {
+            return Ok(artifact_hash);
+        }
+
+        let response = self
+            .request(
+                reqwest::Method::PUT,
+                &format!("v0/artifacts/{artifact_hash}"),
+            )?
+            .json(artifact)
+            .send()
+            .await?;
+        let response_body = response.error_for_status()?.json().await?;
+        Ok(response_body)
+    }
+
+    pub async fn create_resolve(
+        &self,
+        input_hash: ArtifactHash,
+        output_hash: ArtifactHash,
+    ) -> anyhow::Result<CreateResolveResponse> {
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("v0/artifacts/{input_hash}/resolve"),
+            )?
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(&CreateResolveRequest { output_hash })
+            .send()
+            .await?;
+
+        let response_body = response.error_for_status()?.json().await?;
+
+        Ok(response_body)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_resolve(
+        &self,
+        input_hash: ArtifactHash,
+    ) -> anyhow::Result<GetResolveResponse> {
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("v0/artifacts/{input_hash}/resolve"),
+            )?
+            .send()
+            .await?;
+        let response_body = response.error_for_status()?.json().await?;
+        Ok(response_body)
+    }
+
+    async fn resource_exists(&self, path: &str) -> anyhow::Result<bool> {
+        let head_response = self.request(reqwest::Method::HEAD, path)?.send().await?;
+
+        match head_response.error_for_status() {
+            Ok(_) => Ok(true),
+            Err(error) if error.status() == Some(reqwest::StatusCode::NOT_FOUND) => Ok(false),
+            Err(other) => Err(other).context(format!("HEAD request for resource {path} failed")),
+        }
     }
 }
 

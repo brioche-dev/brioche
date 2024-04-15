@@ -29,7 +29,7 @@ pub async fn save_blob<'a>(
 
     let hash = hasher.finalize();
     let id = BlobId(hash);
-    let blob_path = blob_path(brioche, id);
+    let blob_path = local_blob_path(brioche, id);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -152,7 +152,7 @@ where
 
     let hash = hasher.finalize();
     let id = BlobId(hash);
-    let blob_path = blob_path(brioche, id);
+    let blob_path = local_blob_path(brioche, id);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -243,7 +243,7 @@ pub async fn save_blob_from_file<'a>(
 
     let hash = hasher.finalize();
     let id = BlobId(hash);
-    let blob_path = blob_path(brioche, id);
+    let blob_path = local_blob_path(brioche, id);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -420,7 +420,45 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
     }
 }
 
-pub fn blob_path(brioche: &Brioche, id: BlobId) -> PathBuf {
+pub async fn blob_path(brioche: &Brioche, id: BlobId) -> anyhow::Result<PathBuf> {
+    let local_path = local_blob_path(brioche, id);
+
+    if tokio::fs::try_exists(&local_path).await? {
+        return Ok(local_path);
+    };
+
+    let blob = brioche.registry_client.get_blob(id).await?;
+
+    let temp_dir = brioche.home.join("blobs-temp");
+    tokio::fs::create_dir_all(&temp_dir).await?;
+    let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
+
+    let mut temp_file = tokio::fs::File::create(&temp_path)
+        .await
+        .context("failed to open temp file")?;
+    temp_file
+        .write_all(&blob)
+        .await
+        .context("failed to write blob to temp file")?;
+    temp_file
+        .set_permissions(blob_permissions())
+        .await
+        .context("failed to set blob permissions")?;
+    let temp_file = temp_file.into_std().await;
+    tokio::task::spawn_blocking(move || {
+        temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
+        anyhow::Ok(())
+    })
+    .await??;
+
+    tokio::fs::rename(&temp_path, &local_path)
+        .await
+        .context("failed to rename blob from temp file")?;
+
+    Ok(local_path)
+}
+
+pub fn local_blob_path(brioche: &Brioche, id: BlobId) -> PathBuf {
     let blobs_dir = brioche.home.join("blobs");
     let blob_path = blobs_dir.join(hex::encode(id.0.as_bytes()));
     blob_path

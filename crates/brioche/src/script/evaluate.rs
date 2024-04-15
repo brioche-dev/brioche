@@ -5,6 +5,7 @@ use anyhow::Context as _;
 use crate::{
     artifact::{LazyArtifact, WithMeta},
     project::{ProjectHash, Projects},
+    resolve::ResolveScope,
     Brioche,
 };
 
@@ -18,11 +19,15 @@ pub async fn evaluate(
     export: &str,
 ) -> anyhow::Result<WithMeta<LazyArtifact>> {
     let module_loader = BriocheModuleLoader::new(brioche, projects);
+    let resolve_scope = ResolveScope::Project {
+        project_hash,
+        export: export.to_string(),
+    };
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
         module_loader: Some(Rc::new(module_loader.clone())),
         source_map_getter: Some(Box::new(module_loader.clone())),
         extensions: vec![
-            super::brioche_rt::init_ops(brioche.clone()),
+            super::brioche_rt::init_ops(brioche.clone(), resolve_scope),
             super::js::brioche_js::init_ops(),
         ],
         ..Default::default()

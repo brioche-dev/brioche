@@ -63,7 +63,12 @@ pub async fn resolve_without_meta(
     brioche: &Brioche,
     artifact: brioche::artifact::LazyArtifact,
 ) -> anyhow::Result<brioche::artifact::CompleteArtifact> {
-    let resolved = brioche::resolve::resolve(brioche, without_meta(artifact)).await?;
+    let resolved = brioche::resolve::resolve(
+        brioche,
+        without_meta(artifact),
+        &brioche::resolve::ResolveScope::Anonymous,
+    )
+    .await?;
     Ok(resolved.value)
 }
 
