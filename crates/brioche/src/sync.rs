@@ -169,7 +169,7 @@ pub async fn sync_project(brioche: &Brioche, project_hash: ProjectHash) -> anyho
     // Sync the artifacts
 
     for blob_id in &sync_references.blobs {
-        let blob_path = crate::blob::blob_path(brioche, *blob_id);
+        let blob_path = crate::blob::blob_path(brioche, *blob_id).await?;
         let blob = tokio::fs::File::open(&blob_path)
             .await
             .with_context(|| format!("blob {blob_id} not found"))?;

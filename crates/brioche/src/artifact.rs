@@ -382,7 +382,7 @@ impl Directory {
     pub async fn listing(&self, brioche: &Brioche) -> anyhow::Result<DirectoryListing> {
         match self.listing_blob {
             Some(tree_blob_id) => {
-                let blob_path = blob::blob_path(brioche, tree_blob_id);
+                let blob_path = blob::blob_path(brioche, tree_blob_id).await?;
                 let listing_json = tokio::fs::read(&blob_path).await?;
                 let listing = serde_json::from_slice(&listing_json)?;
                 Ok(listing)
@@ -670,7 +670,7 @@ pub struct ProxyArtifact {
 
 impl ProxyArtifact {
     pub async fn inner(&self, brioche: &Brioche) -> anyhow::Result<LazyArtifact> {
-        let blob_path = super::blob::blob_path(brioche, self.blob);
+        let blob_path = super::blob::blob_path(brioche, self.blob).await?;
         let blob_contents = tokio::fs::read(blob_path)
             .await
             .with_context(|| format!("failed to read blob for proxy: {:?}", self.blob))?;

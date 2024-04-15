@@ -736,7 +736,7 @@ async fn test_output_with_links() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let hello_blob = brioche_test::blob(&brioche, b"hello").await;
-    let hello_blob_path = brioche::blob::blob_path(&brioche, hello_blob);
+    let hello_blob_path = brioche::blob::blob_path(&brioche, hello_blob).await?;
 
     let hello = brioche_test::file(hello_blob, false);
     let hello_exe = brioche_test::file(hello_blob, true);

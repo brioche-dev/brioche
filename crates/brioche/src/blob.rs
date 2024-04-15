@@ -29,7 +29,7 @@ pub async fn save_blob<'a>(
 
     let hash = hasher.finalize();
     let id = BlobId(hash);
-    let blob_path = blob_path(brioche, id);
+    let blob_path = local_blob_path(brioche, id);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -152,7 +152,7 @@ where
 
     let hash = hasher.finalize();
     let id = BlobId(hash);
-    let blob_path = blob_path(brioche, id);
+    let blob_path = local_blob_path(brioche, id);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -243,7 +243,7 @@ pub async fn save_blob_from_file<'a>(
 
     let hash = hasher.finalize();
     let id = BlobId(hash);
-    let blob_path = blob_path(brioche, id);
+    let blob_path = local_blob_path(brioche, id);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -420,7 +420,20 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
     }
 }
 
-pub fn blob_path(brioche: &Brioche, id: BlobId) -> PathBuf {
+pub async fn blob_path(brioche: &Brioche, id: BlobId) -> anyhow::Result<PathBuf> {
+    let local_path = local_blob_path(brioche, id);
+
+    if tokio::fs::try_exists(&local_path).await? {
+        return Ok(local_path);
+    }
+
+    let blob = brioche.registry_client.get_blob(id).await?;
+    tokio::fs::write(&local_path, &blob).await?;
+
+    todo!();
+}
+
+pub fn local_blob_path(brioche: &Brioche, id: BlobId) -> PathBuf {
     let blobs_dir = brioche.home.join("blobs");
     let blob_path = blobs_dir.join(hex::encode(id.0.as_bytes()));
     blob_path

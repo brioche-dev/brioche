@@ -66,7 +66,7 @@ async fn create_output_inner<'a: 'async_recursion>(
             resources,
         }) => {
             if resources.is_empty() {
-                let blob_path = super::blob::blob_path(brioche, *content_blob);
+                let blob_path = super::blob::blob_path(brioche, *content_blob).await?;
 
                 if options.link_locals && !*executable {
                     crate::fs_utils::try_remove(options.output_path).await?;
