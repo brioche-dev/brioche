@@ -37,6 +37,10 @@ pub async fn artifact_references(
                         unvisited.push_back(resources.value);
                     }
                     LazyArtifact::Directory(directory) => {
+                        if let Some(listing_blob) = directory.listing_blob {
+                            references.blobs.insert(listing_blob);
+                        }
+
                         let listing = directory.listing(brioche).await?;
                         for (_, artifact) in listing.entries {
                             unvisited.push_back(LazyArtifact::from(artifact.value));
