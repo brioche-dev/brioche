@@ -244,15 +244,11 @@ async fn resolve_inner(
     if let Ok(result_artifact) = &result_artifact {
         let mut db_conn = brioche.db_conn.lock().await;
         let mut db_transaction = db_conn.begin().await?;
-        let resolve_id = ulid::Ulid::new().to_string();
-        let resolve_series_id = ulid::Ulid::new().to_string();
         let input_hash = artifact_hash.to_string();
         let output_json = serde_json::to_string(&result_artifact)?;
         let output_hash = result_artifact.hash().to_string();
         sqlx::query!(
-            "INSERT INTO resolves (id, series_id, input_json, input_hash, output_json, output_hash) VALUES (?, ?, ?, ?, ?, ?)",
-            resolve_id,
-            resolve_series_id,
+            "INSERT INTO resolves (input_json, input_hash, output_json, output_hash) VALUES (?, ?, ?, ?)",
             input_json,
             input_hash,
             output_json,

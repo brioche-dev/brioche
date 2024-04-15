@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO resolves (input_json, input_hash, output_json, output_hash) VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "469005cd89e49193cc953a4cfcb93efedac9e38203eca2b60402fafe760b7145"
+}

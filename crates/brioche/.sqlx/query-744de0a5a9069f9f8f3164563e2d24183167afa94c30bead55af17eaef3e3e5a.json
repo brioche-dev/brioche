@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    INSERT INTO child_resolves (\n                        parent_hash,\n                        artifact_hash\n                    ) VALUES (?, ?)\n                    ON CONFLICT DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "744de0a5a9069f9f8f3164563e2d24183167afa94c30bead55af17eaef3e3e5a"
+}
