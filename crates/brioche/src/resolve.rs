@@ -184,18 +184,36 @@ async fn resolve_inner(
 
     let input_json = serde_json::to_string(&artifact.value)?;
 
-    // Resolve the artifact for real
-    let result_artifact = tokio::spawn({
-        let brioche = brioche.clone();
-        let meta = meta.clone();
-        async move { run_resolve(&brioche, artifact.value, &meta).await }
-            .instrument(tracing::debug_span!("run_resolve_task").or_current())
-    })
-    .await?
-    .map_err(|error| ResolveFailed {
-        message: format!("{error:#}"),
-        meta: meta.clone(),
-    });
+    // Try to get the artifact from the registry (if it might be expensive
+    // to resolve)
+    let registry_response = if artifact.is_expensive_to_resolve() {
+        brioche
+            .registry_client
+            .get_resolve(artifact_hash)
+            .await
+            .ok()
+    } else {
+        None
+    };
+
+    // Resolve the artifact for real if we didn't get it from the registry
+    let result_artifact = match registry_response {
+        Some(response) => Ok(response.output_artifact),
+        None => {
+            let resolve_fut = {
+                let brioche = brioche.clone();
+                let meta = meta.clone();
+                async move { run_resolve(&brioche, artifact.value, &meta).await }
+                    .instrument(tracing::debug_span!("run_resolve_task").or_current())
+            };
+            tokio::spawn(resolve_fut)
+                .await?
+                .map_err(|error| ResolveFailed {
+                    message: format!("{error:#}"),
+                    meta: meta.clone(),
+                })
+        }
+    };
 
     // Write the resolved artifact to the database on success
     if let Ok(result_artifact) = &result_artifact {

@@ -127,6 +127,26 @@ impl LazyArtifact {
     pub fn kind(&self) -> LazyArtifactDiscriminants {
         self.into()
     }
+
+    pub fn is_expensive_to_resolve(&self) -> bool {
+        match self {
+            LazyArtifact::Download(_) | LazyArtifact::CompleteProcess(_) => true,
+            LazyArtifact::File { .. }
+            | LazyArtifact::Directory(_)
+            | LazyArtifact::Symlink { .. }
+            | LazyArtifact::Unpack(_)
+            | LazyArtifact::Process(_)
+            | LazyArtifact::CreateFile { .. }
+            | LazyArtifact::CreateDirectory(_)
+            | LazyArtifact::Cast { .. }
+            | LazyArtifact::Merge { .. }
+            | LazyArtifact::Peel { .. }
+            | LazyArtifact::Get { .. }
+            | LazyArtifact::Insert { .. }
+            | LazyArtifact::SetPermissions { .. }
+            | LazyArtifact::Proxy(_) => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
