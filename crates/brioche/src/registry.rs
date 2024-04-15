@@ -169,6 +169,22 @@ impl RegistryClient {
         Ok(response_body)
     }
 
+    #[tracing::instrument(skip(self))]
+    pub async fn get_resolve(
+        &self,
+        input_hash: ArtifactHash,
+    ) -> anyhow::Result<GetResolveResponse> {
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("v0/artifacts/{input_hash}/resolve"),
+            )?
+            .send()
+            .await?;
+        let response_body = response.error_for_status()?.json().await?;
+        Ok(response_body)
+    }
+
     async fn resource_exists(&self, path: &str) -> anyhow::Result<bool> {
         let head_response = self.request(reqwest::Method::HEAD, path)?.send().await?;
 
