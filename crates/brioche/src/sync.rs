@@ -3,6 +3,9 @@ use futures::{StreamExt as _, TryStreamExt as _};
 
 use crate::{project::ProjectHash, references::ArtifactReferences, Brioche};
 
+const RETRY_LIMIT: usize = 5;
+const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
 pub async fn sync_project(
     brioche: &Brioche,
     project_hash: ProjectHash,
@@ -36,11 +39,20 @@ pub async fn sync_project(
             async move {
                 tokio::spawn(async move {
                     let blob_path = crate::blob::blob_path(&brioche, blob_id).await?;
-                    let blob = tokio::fs::File::open(&blob_path)
-                        .await
-                        .with_context(|| format!("blob {blob_id} not found"))?;
+                    retry(RETRY_LIMIT, RETRY_DELAY, || {
+                        let brioche = brioche.clone();
+                        let blob_path = blob_path.clone();
+                        async move {
+                            let blob = tokio::fs::File::open(&blob_path)
+                                .await
+                                .with_context(|| format!("failed to open blob {blob_id}"))?;
 
-                    brioche.registry_client.send_blob(blob_id, blob).await?;
+                            brioche.registry_client.send_blob(blob_id, blob).await?;
+
+                            anyhow::Ok(())
+                        }
+                    })
+                    .await?;
 
                     anyhow::Ok(())
                 })
@@ -58,9 +70,14 @@ pub async fn sync_project(
         .try_for_each_concurrent(Some(100), |artifact| {
             let brioche = brioche.clone();
             async move {
-                tokio::spawn(
-                    async move { brioche.registry_client.create_artifact(&artifact).await },
-                )
+                tokio::spawn(async move {
+                    retry(RETRY_LIMIT, RETRY_DELAY, || {
+                        let brioche = brioche.clone();
+                        let artifact = artifact.clone();
+                        async move { brioche.registry_client.create_artifact(&artifact).await }
+                    })
+                    .await
+                })
                 .await??;
                 anyhow::Ok(())
             }
@@ -75,10 +92,18 @@ pub async fn sync_project(
             let brioche = brioche.clone();
             async move {
                 tokio::spawn(async move {
-                    brioche
-                        .registry_client
-                        .create_resolve(input.hash(), output.hash())
-                        .await
+                    retry(RETRY_LIMIT, RETRY_DELAY, || {
+                        let brioche = brioche.clone();
+                        let input = input.clone();
+                        let output = output.clone();
+                        async move {
+                            brioche
+                                .registry_client
+                                .create_resolve(input.hash(), output.hash())
+                                .await
+                        }
+                    })
+                    .await
                 })
                 .await??;
                 anyhow::Ok(())
@@ -87,4 +112,32 @@ pub async fn sync_project(
         .await?;
 
     Ok(())
+}
+
+async fn retry<Fut, T, E>(
+    mut attempts: usize,
+    delay: std::time::Duration,
+    mut f: impl FnMut() -> Fut,
+) -> Result<T, E>
+where
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    loop {
+        let result = f().await;
+        attempts = attempts.saturating_sub(1);
+
+        match result {
+            Ok(value) => {
+                return Ok(value);
+            }
+            Err(error) if attempts == 0 => {
+                return Err(error);
+            }
+            Err(error) => {
+                tracing::warn!(remaining_attempts = attempts, %error, "retrying after error");
+                tokio::time::sleep(delay).await;
+            }
+        }
+    }
 }
