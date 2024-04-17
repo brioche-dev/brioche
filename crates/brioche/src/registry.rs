@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Context as _;
 
 use crate::{
@@ -71,12 +73,8 @@ impl RegistryClient {
         &self,
         blob_id: BlobId,
         content: impl Into<reqwest::Body>,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<()> {
         let path = format!("v0/blobs/{}", blob_id);
-
-        if self.resource_exists(&path).await? {
-            return Ok(false);
-        }
 
         self.request(reqwest::Method::PUT, &path)?
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
@@ -85,7 +83,7 @@ impl RegistryClient {
             .await?
             .error_for_status()?;
 
-        Ok(true)
+        Ok(())
     }
 
     pub async fn get_project_tag(
@@ -137,11 +135,6 @@ impl RegistryClient {
 
     pub async fn create_artifact(&self, artifact: &LazyArtifact) -> anyhow::Result<ArtifactHash> {
         let artifact_hash = artifact.hash();
-        let path = format!("v0/artifacts/{artifact_hash}");
-
-        if self.resource_exists(&path).await? {
-            return Ok(artifact_hash);
-        }
 
         let response = self
             .request(
@@ -153,6 +146,60 @@ impl RegistryClient {
             .await?;
         let response_body = response.error_for_status()?.json().await?;
         Ok(response_body)
+    }
+
+    pub async fn known_artifacts(
+        &self,
+        artifact_hashes: &[ArtifactHash],
+    ) -> anyhow::Result<HashSet<ArtifactHash>> {
+        let mut all_known_artifacts = HashSet::new();
+        for chunk in artifact_hashes.chunks(1000) {
+            let known_artifacts: Vec<ArtifactHash> = self
+                .request(reqwest::Method::POST, "v0/known-artifacts")?
+                .json(&chunk)
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            all_known_artifacts.extend(known_artifacts);
+        }
+        Ok(all_known_artifacts)
+    }
+
+    pub async fn known_blobs(&self, blobs: &[BlobId]) -> anyhow::Result<HashSet<BlobId>> {
+        let mut all_known_blobs = HashSet::new();
+        for chunk in blobs.chunks(1000) {
+            let known_blobs: Vec<BlobId> = self
+                .request(reqwest::Method::POST, "v0/known-blobs")?
+                .json(&chunk)
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            all_known_blobs.extend(known_blobs);
+        }
+        Ok(all_known_blobs)
+    }
+
+    pub async fn known_resolves(
+        &self,
+        resolves: &[(ArtifactHash, ArtifactHash)],
+    ) -> anyhow::Result<HashSet<(ArtifactHash, ArtifactHash)>> {
+        let mut all_known_resolves = HashSet::new();
+        for chunk in resolves.chunks(1000) {
+            let known_resolves: Vec<(ArtifactHash, ArtifactHash)> = self
+                .request(reqwest::Method::POST, "v0/known-resolves")?
+                .json(&chunk)
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            all_known_resolves.extend(known_resolves);
+        }
+        Ok(all_known_resolves)
     }
 
     pub async fn create_resolve(
@@ -189,16 +236,6 @@ impl RegistryClient {
             .await?;
         let response_body = response.error_for_status()?.json().await?;
         Ok(response_body)
-    }
-
-    async fn resource_exists(&self, path: &str) -> anyhow::Result<bool> {
-        let head_response = self.request(reqwest::Method::HEAD, path)?.send().await?;
-
-        match head_response.error_for_status() {
-            Ok(_) => Ok(true),
-            Err(error) if error.status() == Some(reqwest::StatusCode::NOT_FOUND) => Ok(false),
-            Err(other) => Err(other).context(format!("HEAD request for resource {path} failed")),
-        }
     }
 }
 
