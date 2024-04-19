@@ -100,36 +100,22 @@ pub async fn sync_project(
         .registry_client
         .known_artifacts(&all_artifact_hashes)
         .await?;
-    let new_artifacts =
-        sync_references
-            .artifacts
-            .clone()
-            .into_iter()
-            .filter_map(|(hash, artifact)| {
-                if known_artifact_hashes.contains(&hash) {
-                    None
-                } else {
-                    Some(artifact)
-                }
-            });
-
-    futures::stream::iter(new_artifacts)
-        .map(Ok)
-        .try_for_each_concurrent(Some(100), |artifact| {
-            let brioche = brioche.clone();
-            async move {
-                tokio::spawn(async move {
-                    retry(RETRY_LIMIT, RETRY_DELAY, || {
-                        let brioche = brioche.clone();
-                        let artifact = artifact.clone();
-                        async move { brioche.registry_client.create_artifact(&artifact).await }
-                    })
-                    .await
-                })
-                .await??;
-                anyhow::Ok(())
+    let new_artifacts: Vec<_> = sync_references
+        .artifacts
+        .clone()
+        .into_iter()
+        .filter_map(|(hash, artifact)| {
+            if known_artifact_hashes.contains(&hash) {
+                None
+            } else {
+                Some(artifact)
             }
         })
+        .collect();
+
+    brioche
+        .registry_client
+        .create_artifacts(&new_artifacts)
         .await?;
 
     println!(

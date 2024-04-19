@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Context as _;
 
@@ -146,6 +146,22 @@ impl RegistryClient {
             .await?;
         let response_body = response.error_for_status()?.json().await?;
         Ok(response_body)
+    }
+
+    pub async fn create_artifacts(&self, artifacts: &[LazyArtifact]) -> anyhow::Result<()> {
+        for chunk in artifacts.chunks(1000) {
+            let request: HashMap<_, _> = chunk
+                .iter()
+                .map(|artifact| (artifact.hash(), artifact.clone()))
+                .collect();
+            self.request(reqwest::Method::POST, "v0/artifacts")?
+                .json(&request)
+                .send()
+                .await?
+                .error_for_status()?;
+        }
+
+        Ok(())
     }
 
     pub async fn known_artifacts(
