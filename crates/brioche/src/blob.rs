@@ -491,6 +491,10 @@ impl BlobId {
         Self(hash)
     }
 
+    pub fn to_blake3(&self) -> blake3::Hash {
+        self.0
+    }
+
     pub fn for_content(content: &[u8]) -> BlobId {
         let hash = blake3::hash(content);
         BlobId(hash)
