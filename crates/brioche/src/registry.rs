@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Context as _;
+use futures::TryStreamExt as _;
+use tokio::io::AsyncReadExt as _;
 
 use crate::{
     artifact::{ArtifactHash, CompleteArtifact, LazyArtifact},
@@ -51,16 +53,19 @@ impl RegistryClient {
     }
 
     pub async fn get_blob(&self, blob_hash: BlobHash) -> anyhow::Result<Vec<u8>> {
-        let file_id_component = urlencoding::Encoded::new(blob_hash.to_string());
         let response = self
-            .request(
-                reqwest::Method::GET,
-                &format!("v0/blobs/{file_id_component}"),
-            )?
+            .request(reqwest::Method::GET, &format!("v0/blobs/{blob_hash}.zst"))?
             .send()
-            .await?;
-        let response_body = response.error_for_status()?.bytes().await?;
-        let response_body = response_body.to_vec();
+            .await?
+            .error_for_status()?;
+
+        let response_stream = response.bytes_stream().map_err(std::io::Error::other);
+        let response_reader = tokio_util::io::StreamReader::new(response_stream);
+        let mut response_reader =
+            async_compression::tokio::bufread::ZstdDecoder::new(response_reader);
+
+        let mut response_body = vec![];
+        response_reader.read_to_end(&mut response_body).await?;
 
         blob_hash
             .validate_matches(&response_body)
