@@ -78,11 +78,13 @@ async fn test_registry_client_get_blob() -> anyhow::Result<()> {
     let path = context.write_file("test.txt", "hello world!").await;
     let (file_id, contents) = brioche.vfs.load(&path).await?;
 
+    let contents_zstd = zstd::encode_all(&**contents, 0)?;
+
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/v0/blobs/{file_id}"))
+        .mock("GET", &*format!("/v0/blobs/{file_id}.zst"))
         .with_header("Content-Type", "application/octet-stream")
-        .with_body(&*contents)
+        .with_body(&*contents_zstd)
         .create();
 
     let blob_hash = file_id.as_blob_hash()?;
@@ -103,7 +105,7 @@ async fn test_registry_client_get_blob_invalid_hash() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/v0/blobs/{file_id}"))
+        .mock("GET", &*format!("/v0/blobs/{file_id}.zst"))
         .with_header("Content-Type", "application/octet-stream")
         .with_body("evil")
         .create();

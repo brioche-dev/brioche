@@ -339,11 +339,12 @@ impl TestContext {
             mocks.push(mock);
         }
         for (file_id, file_contents) in &project_listing.files {
+            let file_contents_zstd = zstd::encode_all(&**file_contents, 0).unwrap();
             let mock = self
                 .registry_server
-                .mock("GET", &*format!("/v0/blobs/{file_id}"))
+                .mock("GET", &*format!("/v0/blobs/{file_id}.zst"))
                 .with_header("Content-Type", "application/octet-stream")
-                .with_body(file_contents);
+                .with_body(file_contents_zstd);
 
             mocks.push(mock);
         }
