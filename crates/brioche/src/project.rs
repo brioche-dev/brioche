@@ -788,10 +788,10 @@ async fn fetch_project_from_registry(
             "module path escapes project root",
         );
 
-        let blob_id = file_id.as_blob_id()?;
+        let blob_hash = file_id.as_blob_hash()?;
         let module_content = brioche
             .registry_client
-            .get_blob(blob_id)
+            .get_blob(blob_hash)
             .await
             .context("failed to get blob from registry")?;
         if let Some(temp_module_dir) = temp_module_path.parent() {
@@ -1182,8 +1182,8 @@ impl TryFrom<ProjectListingUnvalidated> for ProjectListing {
             }
         }
         for (file_id, content) in &value.files {
-            let blob_id = file_id.as_blob_id()?;
-            blob_id.validate_matches(content)?;
+            let blob_hash = file_id.as_blob_hash()?;
+            blob_hash.validate_matches(content)?;
         }
 
         let mut orphan_files = value.files.keys().copied().collect::<HashSet<_>>();

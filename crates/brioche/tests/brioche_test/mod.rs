@@ -8,7 +8,7 @@ use std::{
 
 use brioche::{
     artifact::{CreateDirectory, Directory, DirectoryListing, File, WithMeta},
-    blob::{BlobId, SaveBlobOptions},
+    blob::{BlobHash, SaveBlobOptions},
     project::{self, ProjectHash, ProjectListing, Projects},
     Brioche, BriocheBuilder,
 };
@@ -72,13 +72,13 @@ pub async fn resolve_without_meta(
     Ok(resolved.value)
 }
 
-pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobId {
+pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
     brioche::blob::save_blob_from_reader(brioche, content.as_ref(), SaveBlobOptions::default())
         .await
         .unwrap()
 }
 
-pub fn lazy_file(blob: BlobId, executable: bool) -> brioche::artifact::LazyArtifact {
+pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche::artifact::LazyArtifact {
     brioche::artifact::LazyArtifact::File {
         content_blob: blob,
         executable,
@@ -89,7 +89,7 @@ pub fn lazy_file(blob: BlobId, executable: bool) -> brioche::artifact::LazyArtif
 }
 
 pub fn lazy_file_with_resources(
-    blob: BlobId,
+    blob: BlobHash,
     executable: bool,
     resources: brioche::artifact::LazyArtifact,
 ) -> brioche::artifact::LazyArtifact {
@@ -100,7 +100,7 @@ pub fn lazy_file_with_resources(
     }
 }
 
-pub fn file(blob: BlobId, executable: bool) -> brioche::artifact::CompleteArtifact {
+pub fn file(blob: BlobHash, executable: bool) -> brioche::artifact::CompleteArtifact {
     brioche::artifact::CompleteArtifact::File(File {
         content_blob: blob,
         executable,
@@ -109,7 +109,7 @@ pub fn file(blob: BlobId, executable: bool) -> brioche::artifact::CompleteArtifa
 }
 
 pub fn file_with_resources(
-    blob: BlobId,
+    blob: BlobHash,
     executable: bool,
     resources: brioche::artifact::Directory,
 ) -> brioche::artifact::CompleteArtifact {

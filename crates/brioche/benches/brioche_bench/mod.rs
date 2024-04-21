@@ -7,7 +7,7 @@ use std::{
 
 use brioche::{
     artifact::{CreateDirectory, Directory, DirectoryListing, File, WithMeta},
-    blob::{BlobId, SaveBlobOptions},
+    blob::{BlobHash, SaveBlobOptions},
     Brioche, BriocheBuilder,
 };
 
@@ -33,13 +33,13 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
     (brioche, context)
 }
 
-pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobId {
+pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
     brioche::blob::save_blob(brioche, content.as_ref(), SaveBlobOptions::default())
         .await
         .unwrap()
 }
 
-pub fn lazy_file(blob: BlobId, executable: bool) -> brioche::artifact::LazyArtifact {
+pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche::artifact::LazyArtifact {
     brioche::artifact::LazyArtifact::File {
         content_blob: blob,
         executable,
@@ -49,7 +49,7 @@ pub fn lazy_file(blob: BlobId, executable: bool) -> brioche::artifact::LazyArtif
     }
 }
 
-pub fn file(blob: BlobId, executable: bool) -> brioche::artifact::CompleteArtifact {
+pub fn file(blob: BlobHash, executable: bool) -> brioche::artifact::CompleteArtifact {
     brioche::artifact::CompleteArtifact::File(File {
         content_blob: blob,
         executable,
@@ -58,7 +58,7 @@ pub fn file(blob: BlobId, executable: bool) -> brioche::artifact::CompleteArtifa
 }
 
 pub fn file_with_resources(
-    blob: BlobId,
+    blob: BlobHash,
     executable: bool,
     resources: brioche::artifact::Directory,
 ) -> brioche::artifact::CompleteArtifact {

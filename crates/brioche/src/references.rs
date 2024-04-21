@@ -7,14 +7,14 @@ use crate::{
     artifact::{
         ArtifactHash, CompleteArtifact, CompleteProcessArtifact, LazyArtifact, ProcessArtifact,
     },
-    blob::BlobId,
+    blob::BlobHash,
     project::ProjectHash,
     Brioche,
 };
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ArtifactReferences {
-    pub blobs: HashSet<BlobId>,
+    pub blobs: HashSet<BlobHash>,
     pub artifacts: HashMap<ArtifactHash, LazyArtifact>,
 }
 

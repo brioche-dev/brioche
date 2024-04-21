@@ -9,7 +9,7 @@ use bstr::{BStr, BString};
 use crate::encoding::TickEncoded;
 
 use super::{
-    blob::{self, BlobId},
+    blob::{self, BlobHash},
     platform::Platform,
     Brioche, Hash,
 };
@@ -33,7 +33,7 @@ use super::{
 pub enum LazyArtifact {
     #[serde(rename_all = "camelCase")]
     File {
-        content_blob: BlobId,
+        content_blob: BlobHash,
         executable: bool,
         resources: Box<WithMeta<LazyArtifact>>,
     },
@@ -365,7 +365,7 @@ impl CompleteArtifact {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct File {
-    pub content_blob: BlobId,
+    pub content_blob: BlobHash,
 
     pub executable: bool,
 
@@ -377,7 +377,7 @@ pub struct File {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Directory {
-    pub listing_blob: Option<BlobId>,
+    pub listing_blob: Option<BlobHash>,
 }
 
 impl Directory {
@@ -401,8 +401,8 @@ impl Directory {
 
     pub async fn listing(&self, brioche: &Brioche) -> anyhow::Result<DirectoryListing> {
         match self.listing_blob {
-            Some(tree_blob_id) => {
-                let blob_path = blob::blob_path(brioche, tree_blob_id).await?;
+            Some(tree_blob_hash) => {
+                let blob_path = blob::blob_path(brioche, tree_blob_hash).await?;
                 let listing_json = tokio::fs::read(&blob_path).await?;
                 let listing = serde_json::from_slice(&listing_json)?;
                 Ok(listing)
@@ -685,7 +685,7 @@ impl TryFrom<LazyArtifact> for Directory {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyArtifact {
-    pub blob: BlobId,
+    pub blob: BlobHash,
 }
 
 impl ProxyArtifact {

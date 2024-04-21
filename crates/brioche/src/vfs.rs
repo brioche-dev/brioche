@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Context as _;
 
-use crate::blob::BlobId;
+use crate::blob::BlobHash;
 
 #[derive(Debug, Clone)]
 pub struct Vfs {
@@ -46,7 +46,7 @@ impl Vfs {
         let file_id = if self.mutable {
             FileId::Mutable(ulid::Ulid::new())
         } else {
-            FileId::Hash(BlobId::for_content(&contents))
+            FileId::Hash(BlobHash::for_content(&contents))
         };
 
         let mut vfs = self
@@ -127,15 +127,15 @@ struct VfsInner {
     serde_with::DeserializeFromStr,
 )]
 pub enum FileId {
-    Hash(BlobId),
+    Hash(BlobHash),
     Mutable(ulid::Ulid),
 }
 
 impl FileId {
-    pub fn as_blob_id(&self) -> anyhow::Result<BlobId> {
+    pub fn as_blob_hash(&self) -> anyhow::Result<BlobHash> {
         match self {
             Self::Hash(hash) => Ok(*hash),
-            Self::Mutable(_) => anyhow::bail!("tried to get blob ID for mutable file"),
+            Self::Mutable(_) => anyhow::bail!("tried to get blob hash for mutable file"),
         }
     }
 }

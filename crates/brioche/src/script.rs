@@ -13,7 +13,7 @@ use crate::resolve::ResolveScope;
 
 use super::{
     artifact::{CompleteArtifact, LazyArtifact, WithMeta},
-    blob::BlobId,
+    blob::BlobHash,
     project::Projects,
     script::specifier::BriocheImportSpecifier,
     Brioche,
@@ -210,7 +210,7 @@ pub async fn op_brioche_create_proxy(
 #[deno_core::op]
 pub async fn op_brioche_read_blob(
     state: Rc<RefCell<OpState>>,
-    blob_id: BlobId,
+    blob_hash: BlobHash,
 ) -> anyhow::Result<crate::encoding::TickEncode<Vec<u8>>> {
     let brioche = {
         let state = state.try_borrow()?;
@@ -220,10 +220,10 @@ pub async fn op_brioche_read_blob(
             .clone()
     };
 
-    let path = crate::blob::blob_path(&brioche, blob_id).await?;
+    let path = crate::blob::blob_path(&brioche, blob_hash).await?;
     let bytes = tokio::fs::read(path)
         .await
-        .with_context(|| format!("failed to read blob {blob_id}"))?;
+        .with_context(|| format!("failed to read blob {blob_hash}"))?;
 
     Ok(crate::encoding::TickEncode(bytes))
 }

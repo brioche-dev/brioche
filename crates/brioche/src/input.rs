@@ -162,7 +162,7 @@ pub async fn create_input_inner(
         };
         let resources = Directory::create(brioche, &resources).await?;
 
-        let blob_id = super::blob::save_blob_from_file(
+        let blob_hash = super::blob::save_blob_from_file(
             brioche,
             options.input_path,
             super::blob::SaveBlobOptions::default().remove_input(options.remove_input),
@@ -173,7 +173,7 @@ pub async fn create_input_inner(
 
         Ok(WithMeta::new(
             CompleteArtifact::File(File {
-                content_blob: blob_id,
+                content_blob: blob_hash,
                 executable,
                 resources,
             }),

@@ -15,7 +15,7 @@ use super::{
         ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, CreateDirectory, Directory,
         DirectoryListing, File, LazyArtifact, Meta, WithMeta,
     },
-    blob::BlobId,
+    blob::BlobHash,
     Brioche,
 };
 
@@ -25,7 +25,7 @@ mod unpack;
 
 #[derive(Debug, Default)]
 pub struct Proxies {
-    artifacts_by_hash: HashMap<ArtifactHash, (LazyArtifact, BlobId)>,
+    artifacts_by_hash: HashMap<ArtifactHash, (LazyArtifact, BlobHash)>,
 }
 
 #[derive(Debug, Default)]
@@ -340,7 +340,7 @@ async fn run_resolve(
             executable,
             resources,
         } => {
-            let blob_id =
+            let blob_hash =
                 super::blob::save_blob(brioche, &content, super::blob::SaveBlobOptions::default())
                     .await?;
 
@@ -350,7 +350,7 @@ async fn run_resolve(
             };
 
             Ok(CompleteArtifact::File(File {
-                content_blob: blob_id,
+                content_blob: blob_hash,
                 executable,
                 resources,
             }))

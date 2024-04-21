@@ -20,18 +20,18 @@ pub async fn resolve_unpack(
 ) -> anyhow::Result<Directory> {
     let file = super::resolve_inner(brioche, *unpack.file).await?;
     let CompleteArtifact::File(File {
-        content_blob: blob_id,
+        content_blob: blob_hash,
         ..
     }) = file.value
     else {
         anyhow::bail!("expected archive to be a file");
     };
 
-    tracing::debug!(%blob_id, archive = ?unpack.archive, compression = ?unpack.compression, "starting unpack");
+    tracing::debug!(%blob_hash, archive = ?unpack.archive, compression = ?unpack.compression, "starting unpack");
 
     let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Unpack);
 
-    let archive_path = crate::blob::blob_path(brioche, blob_id).await?;
+    let archive_path = crate::blob::blob_path(brioche, blob_hash).await?;
     let archive_file = tokio::fs::File::open(&archive_path).await?;
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);
@@ -57,7 +57,7 @@ pub async fn resolve_unpack(
 
             let entry_artifact = match archive_entry.header().entry_type() {
                 tokio_tar::EntryType::Regular => {
-                    let entry_blob_id = crate::blob::save_blob_from_reader(
+                    let entry_blob_hash = crate::blob::save_blob_from_reader(
                         brioche,
                         archive_entry,
                         crate::blob::SaveBlobOptions::new(),
@@ -66,7 +66,7 @@ pub async fn resolve_unpack(
                     let executable = entry_mode & 0o100 != 0;
 
                     Some(CompleteArtifact::File(File {
-                        content_blob: entry_blob_id,
+                        content_blob: entry_blob_hash,
                         executable,
                         resources: Directory::default(),
                     }))

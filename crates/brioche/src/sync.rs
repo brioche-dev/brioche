@@ -48,24 +48,24 @@ pub async fn sync_project(
     let known_blobs = brioche.registry_client.known_blobs(&all_blobs).await?;
     let new_blobs = all_blobs
         .into_iter()
-        .filter(|blob_id| !known_blobs.contains(blob_id));
+        .filter(|blob_hash| !known_blobs.contains(blob_hash));
 
     futures::stream::iter(new_blobs)
         .map(Ok)
-        .try_for_each_concurrent(Some(100), |blob_id| {
+        .try_for_each_concurrent(Some(100), |blob_hash| {
             let brioche = brioche.clone();
             async move {
                 tokio::spawn(async move {
-                    let blob_path = crate::blob::blob_path(&brioche, blob_id).await?;
+                    let blob_path = crate::blob::blob_path(&brioche, blob_hash).await?;
                     retry(RETRY_LIMIT, RETRY_DELAY, || {
                         let brioche = brioche.clone();
                         let blob_path = blob_path.clone();
                         async move {
                             let blob = tokio::fs::File::open(&blob_path)
                                 .await
-                                .with_context(|| format!("failed to open blob {blob_id}"))?;
+                                .with_context(|| format!("failed to open blob {blob_hash}"))?;
 
-                            brioche.registry_client.send_blob(blob_id, blob).await?;
+                            brioche.registry_client.send_blob(blob_hash, blob).await?;
 
                             anyhow::Ok(())
                         }

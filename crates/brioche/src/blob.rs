@@ -14,7 +14,7 @@ pub async fn save_blob<'a>(
     brioche: &Brioche,
     bytes: &[u8],
     options: SaveBlobOptions<'a>,
-) -> anyhow::Result<BlobId> {
+) -> anyhow::Result<BlobHash> {
     let mut hasher = blake3::Hasher::new();
     let mut validation_hashing = options
         .expected_hash
@@ -28,8 +28,8 @@ pub async fn save_blob<'a>(
     }
 
     let hash = hasher.finalize();
-    let id = BlobId(hash);
-    let blob_path = local_blob_path(brioche, id);
+    let blob_hash = BlobHash(hash);
+    let blob_path = local_blob_path(brioche, blob_hash);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -39,7 +39,7 @@ pub async fn save_blob<'a>(
         }
 
         let expected_hash_string = expected_hash.to_string();
-        let blob_id_string = id.to_string();
+        let blob_hash_string = blob_hash.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
         let mut db_transaction = db_conn.begin().await?;
@@ -49,8 +49,8 @@ pub async fn save_blob<'a>(
                 ON CONFLICT (hash) DO UPDATE SET blob_id = ?
             ",
             expected_hash_string,
-            blob_id_string,
-            blob_id_string,
+            blob_hash_string,
+            blob_hash_string,
         )
         .execute(&mut *db_transaction)
         .await?;
@@ -65,7 +65,7 @@ pub async fn save_blob<'a>(
     }
 
     if tokio::fs::try_exists(&blob_path).await? {
-        return Ok(id);
+        return Ok(blob_hash);
     }
 
     let temp_dir = brioche.home.join("blobs-temp");
@@ -94,7 +94,7 @@ pub async fn save_blob<'a>(
         .await
         .context("failed to rename blob from temp file")?;
 
-    Ok(id)
+    Ok(blob_hash)
 }
 
 #[tracing::instrument(skip(brioche, input, options))]
@@ -102,7 +102,7 @@ pub async fn save_blob_from_reader<'a, R>(
     brioche: &Brioche,
     mut input: R,
     mut options: SaveBlobOptions<'a>,
-) -> anyhow::Result<BlobId>
+) -> anyhow::Result<BlobHash>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
@@ -151,8 +151,8 @@ where
     }
 
     let hash = hasher.finalize();
-    let id = BlobId(hash);
-    let blob_path = local_blob_path(brioche, id);
+    let blob_hash = BlobHash(hash);
+    let blob_path = local_blob_path(brioche, blob_hash);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -162,7 +162,7 @@ where
         }
 
         let expected_hash_string = expected_hash.to_string();
-        let blob_id_string = id.to_string();
+        let blob_hash_string = blob_hash.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
         let mut db_transaction = db_conn.begin().await?;
@@ -172,8 +172,8 @@ where
                 ON CONFLICT (hash) DO UPDATE SET blob_id = ?
             ",
             expected_hash_string,
-            blob_id_string,
-            blob_id_string,
+            blob_hash_string,
+            blob_hash_string,
         )
         .execute(&mut *db_transaction)
         .await?;
@@ -185,7 +185,7 @@ where
         tokio::fs::create_dir_all(parent).await?;
     }
 
-    tracing::debug!(overwrite = blob_path.exists(), blob_id = %id, "saved blob");
+    tracing::debug!(overwrite = blob_path.exists(), %blob_hash, "saved blob");
 
     temp_file
         .set_permissions(blob_permissions())
@@ -202,7 +202,7 @@ where
         .await
         .context("failed to rename blob from temp file")?;
 
-    Ok(id)
+    Ok(blob_hash)
 }
 
 #[tracing::instrument(skip(brioche, options), err)]
@@ -210,7 +210,7 @@ pub async fn save_blob_from_file<'a>(
     brioche: &Brioche,
     input_path: &Path,
     options: SaveBlobOptions<'a>,
-) -> anyhow::Result<BlobId> {
+) -> anyhow::Result<BlobHash> {
     let mut hasher = blake3::Hasher::new();
     let mut validation_hashing = options
         .expected_hash
@@ -242,8 +242,8 @@ pub async fn save_blob_from_file<'a>(
     }
 
     let hash = hasher.finalize();
-    let id = BlobId(hash);
-    let blob_path = local_blob_path(brioche, id);
+    let blob_hash = BlobHash(hash);
+    let blob_path = local_blob_path(brioche, blob_hash);
 
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
@@ -253,7 +253,7 @@ pub async fn save_blob_from_file<'a>(
         }
 
         let expected_hash_string = expected_hash.to_string();
-        let blob_id_string = id.to_string();
+        let blob_hash_string = blob_hash.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
         let mut db_transaction = db_conn.begin().await?;
@@ -263,8 +263,8 @@ pub async fn save_blob_from_file<'a>(
                 ON CONFLICT (hash) DO UPDATE SET blob_id = ?
             ",
             expected_hash_string,
-            blob_id_string,
-            blob_id_string,
+            blob_hash_string,
+            blob_hash_string,
         )
         .execute(&mut *db_transaction)
         .await?;
@@ -336,7 +336,7 @@ pub async fn save_blob_from_file<'a>(
                     blob_path.display()
                 )
             })?;
-        tracing::debug!(input_path = %input_path.display(), blob_id = %id, ?move_type, "saved blob by moving file");
+        tracing::debug!(input_path = %input_path.display(), %blob_hash, ?move_type, "saved blob by moving file");
     } else {
         crate::fs_utils::atomic_copy(input_path, &blob_path)
             .await
@@ -353,7 +353,7 @@ pub async fn save_blob_from_file<'a>(
         crate::fs_utils::set_mtime_to_brioche_epoch(input_path)
             .await
             .context("failed to set blob modified time")?;
-        tracing::debug!(input_path = %input_path.display(), blob_id = %id, "saved blob by copying file");
+        tracing::debug!(input_path = %input_path.display(), %blob_hash, "saved blob by copying file");
 
         if options.remove_input {
             tokio::fs::remove_file(input_path)
@@ -362,7 +362,7 @@ pub async fn save_blob_from_file<'a>(
         }
     }
 
-    Ok(id)
+    Ok(blob_hash)
 }
 
 #[derive(Default)]
@@ -396,7 +396,7 @@ impl<'a> SaveBlobOptions<'a> {
     }
 }
 
-pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<BlobId>> {
+pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<BlobHash>> {
     let hash_string = hash.to_string();
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
@@ -413,21 +413,21 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
 
     match result {
         Some(row) => {
-            let blob_id = row.blob_id.parse()?;
-            Ok(Some(blob_id))
+            let blob_hash = row.blob_id.parse()?;
+            Ok(Some(blob_hash))
         }
         None => Ok(None),
     }
 }
 
-pub async fn blob_path(brioche: &Brioche, id: BlobId) -> anyhow::Result<PathBuf> {
-    let local_path = local_blob_path(brioche, id);
+pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result<PathBuf> {
+    let local_path = local_blob_path(brioche, blob_hash);
 
     if tokio::fs::try_exists(&local_path).await? {
         return Ok(local_path);
     };
 
-    let blob = brioche.registry_client.get_blob(id).await?;
+    let blob = brioche.registry_client.get_blob(blob_hash).await?;
 
     let temp_dir = brioche.home.join("blobs-temp");
     tokio::fs::create_dir_all(&temp_dir).await?;
@@ -458,9 +458,9 @@ pub async fn blob_path(brioche: &Brioche, id: BlobId) -> anyhow::Result<PathBuf>
     Ok(local_path)
 }
 
-pub fn local_blob_path(brioche: &Brioche, id: BlobId) -> PathBuf {
+pub fn local_blob_path(brioche: &Brioche, blob_hash: BlobHash) -> PathBuf {
     let blobs_dir = brioche.home.join("blobs");
-    let blob_path = blobs_dir.join(hex::encode(id.0.as_bytes()));
+    let blob_path = blobs_dir.join(hex::encode(blob_hash.0.as_bytes()));
     blob_path
 }
 
@@ -484,9 +484,9 @@ fn is_file_exclusive(metadata: &std::fs::Metadata) -> bool {
     serde_with::SerializeDisplay,
     serde_with::DeserializeFromStr,
 )]
-pub struct BlobId(blake3::Hash);
+pub struct BlobHash(blake3::Hash);
 
-impl BlobId {
+impl BlobHash {
     pub fn from_blake3(hash: blake3::Hash) -> Self {
         Self(hash)
     }
@@ -495,9 +495,9 @@ impl BlobId {
         self.0
     }
 
-    pub fn for_content(content: &[u8]) -> BlobId {
+    pub fn for_content(content: &[u8]) -> BlobHash {
         let hash = blake3::hash(content);
-        BlobId(hash)
+        BlobHash(hash)
     }
 
     pub fn validate_matches(&self, content: &[u8]) -> anyhow::Result<()> {
@@ -511,13 +511,13 @@ impl BlobId {
     }
 }
 
-impl std::fmt::Display for BlobId {
+impl std::fmt::Display for BlobHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0.to_hex())
     }
 }
 
-impl std::str::FromStr for BlobId {
+impl std::str::FromStr for BlobHash {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

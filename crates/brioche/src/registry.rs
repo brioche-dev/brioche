@@ -4,7 +4,7 @@ use anyhow::Context as _;
 
 use crate::{
     artifact::{ArtifactHash, CompleteArtifact, LazyArtifact},
-    blob::BlobId,
+    blob::BlobHash,
     project::{Project, ProjectHash, ProjectListing},
 };
 
@@ -50,8 +50,8 @@ impl RegistryClient {
         Ok(request)
     }
 
-    pub async fn get_blob(&self, blob_id: BlobId) -> anyhow::Result<Vec<u8>> {
-        let file_id_component = urlencoding::Encoded::new(blob_id.to_string());
+    pub async fn get_blob(&self, blob_hash: BlobHash) -> anyhow::Result<Vec<u8>> {
+        let file_id_component = urlencoding::Encoded::new(blob_hash.to_string());
         let response = self
             .request(
                 reqwest::Method::GET,
@@ -62,7 +62,7 @@ impl RegistryClient {
         let response_body = response.error_for_status()?.bytes().await?;
         let response_body = response_body.to_vec();
 
-        blob_id
+        blob_hash
             .validate_matches(&response_body)
             .context("blob hash did not match")?;
 
@@ -71,10 +71,10 @@ impl RegistryClient {
 
     pub async fn send_blob(
         &self,
-        blob_id: BlobId,
+        blob_hash: BlobHash,
         content: impl Into<reqwest::Body>,
     ) -> anyhow::Result<()> {
-        let path = format!("v0/blobs/{}", blob_id);
+        let path = format!("v0/blobs/{blob_hash}");
 
         self.request(reqwest::Method::PUT, &path)?
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
@@ -183,10 +183,10 @@ impl RegistryClient {
         Ok(all_known_artifacts)
     }
 
-    pub async fn known_blobs(&self, blobs: &[BlobId]) -> anyhow::Result<HashSet<BlobId>> {
+    pub async fn known_blobs(&self, blobs: &[BlobHash]) -> anyhow::Result<HashSet<BlobHash>> {
         let mut all_known_blobs = HashSet::new();
         for chunk in blobs.chunks(1000) {
-            let known_blobs: Vec<BlobId> = self
+            let known_blobs: Vec<BlobHash> = self
                 .request(reqwest::Method::POST, "v0/known-blobs")?
                 .json(&chunk)
                 .send()

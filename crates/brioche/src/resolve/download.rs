@@ -59,7 +59,7 @@ pub async fn resolve_download(
             Ok(())
         });
 
-    let blob_id = crate::blob::save_blob_from_reader(brioche, download_stream, save_blob_options)
+    let blob_hash = crate::blob::save_blob_from_reader(brioche, download_stream, save_blob_options)
         .await
         .context("failed to save blob")?;
 
@@ -71,7 +71,7 @@ pub async fn resolve_download(
     );
 
     Ok(File {
-        content_blob: blob_id,
+        content_blob: blob_hash,
         executable: false,
         resources: Directory::default(),
     })
