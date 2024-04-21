@@ -45,8 +45,8 @@ pub async fn save_blob<'a>(
         let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
-                INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
-                ON CONFLICT (hash) DO UPDATE SET blob_id = ?
+                INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
+                ON CONFLICT (hash) DO UPDATE SET blob_hash = ?
             ",
             expected_hash_string,
             blob_hash_string,
@@ -168,8 +168,8 @@ where
         let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
-                INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
-                ON CONFLICT (hash) DO UPDATE SET blob_id = ?
+                INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
+                ON CONFLICT (hash) DO UPDATE SET blob_hash = ?
             ",
             expected_hash_string,
             blob_hash_string,
@@ -259,8 +259,8 @@ pub async fn save_blob_from_file<'a>(
         let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
-                INSERT INTO blob_aliases (hash, blob_id) VALUES (?, ?)
-                ON CONFLICT (hash) DO UPDATE SET blob_id = ?
+                INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
+                ON CONFLICT (hash) DO UPDATE SET blob_hash = ?
             ",
             expected_hash_string,
             blob_hash_string,
@@ -402,7 +402,7 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
     let mut db_transaction = db_conn.begin().await?;
     let result = sqlx::query!(
         r#"
-            SELECT blob_id FROM blob_aliases WHERE hash = ? LIMIT 1
+            SELECT blob_hash FROM blob_aliases WHERE hash = ? LIMIT 1
         "#,
         hash_string,
     )
@@ -413,7 +413,7 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
 
     match result {
         Some(row) => {
-            let blob_hash = row.blob_id.parse()?;
+            let blob_hash = row.blob_hash.parse()?;
             Ok(Some(blob_hash))
         }
         None => Ok(None),

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)\n                ON CONFLICT (hash) DO UPDATE SET blob_hash = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "093ab60c69f2fc825e796b2de9957035a5e716cba9c24a8449e5b9419b460d12"
+}
