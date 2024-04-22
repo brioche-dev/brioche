@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            WITH RECURSIVE project_descendent_resolves (artifact_hash) AS (\n                SELECT project_resolves.artifact_hash\n                FROM project_resolves\n                WHERE project_hash = ? AND export = ?\n                UNION\n                SELECT child_resolves.artifact_hash\n                FROM child_resolves\n                INNER JOIN project_descendent_resolves ON\n                    project_descendent_resolves.artifact_hash = child_resolves.parent_hash\n            )\n            SELECT\n                input_artifacts.artifact_hash AS input_hash,\n                input_artifacts.artifact_json AS input_json,\n                output_artifacts.artifact_hash AS output_hash,\n                output_artifacts.artifact_json AS output_json\n            FROM project_descendent_resolves\n            INNER JOIN resolves ON\n                resolves.input_hash = project_descendent_resolves.artifact_hash\n            INNER JOIN artifacts AS input_artifacts ON\n                input_artifacts.artifact_hash = resolves.input_hash\n            INNER JOIN artifacts AS output_artifacts ON\n                output_artifacts.artifact_hash = resolves.output_hash\n            WHERE input_artifacts.artifact_json->>'type' IN ('complete_process', 'download');\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "input_hash",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "input_json",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "output_hash",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "output_json",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5e9b2b128b558eafd6ad84dbb64ddd4a382dd7dc8c12d85fdfe76a77f22298ff"
+}

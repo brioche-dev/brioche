@@ -215,14 +215,18 @@ pub async fn descendent_project_resolves(
                     project_descendent_resolves.artifact_hash = child_resolves.parent_hash
             )
             SELECT
-                resolves.input_hash,
-                resolves.input_json,
-                resolves.output_hash,
-                resolves.output_json
+                input_artifacts.artifact_hash AS input_hash,
+                input_artifacts.artifact_json AS input_json,
+                output_artifacts.artifact_hash AS output_hash,
+                output_artifacts.artifact_json AS output_json
             FROM project_descendent_resolves
             INNER JOIN resolves ON
                 resolves.input_hash = project_descendent_resolves.artifact_hash
-            WHERE resolves.input_json->>'type' in ('complete_process', 'download');
+            INNER JOIN artifacts AS input_artifacts ON
+                input_artifacts.artifact_hash = resolves.input_hash
+            INNER JOIN artifacts AS output_artifacts ON
+                output_artifacts.artifact_hash = resolves.output_hash
+            WHERE input_artifacts.artifact_json->>'type' IN ('complete_process', 'download');
         "#,
         project_hash_value,
         export,

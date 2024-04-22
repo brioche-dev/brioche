@@ -183,7 +183,14 @@ async fn resolve_inner(
     let mut db_transaction = db_conn.begin().await?;
     let input_hash = artifact_hash.to_string();
     let result = sqlx::query!(
-        "SELECT output_json FROM resolves WHERE input_hash = ? LIMIT 1",
+        r#"
+            SELECT output_artifacts.artifact_json
+            FROM resolves
+            INNER JOIN artifacts AS output_artifacts
+                ON resolves.output_hash = output_artifacts.artifact_hash
+            WHERE resolves.input_hash = ?
+            LIMIT 1
+        "#,
         input_hash,
     )
     .fetch_optional(&mut *db_transaction)
@@ -192,7 +199,7 @@ async fn resolve_inner(
     drop(db_conn);
 
     if let Some(row) = result {
-        let complete_artifact: CompleteArtifact = serde_json::from_str(&row.output_json)?;
+        let complete_artifact: CompleteArtifact = serde_json::from_str(&row.artifact_json)?;
         tracing::Span::current().record("resolve_method", "database_hit");
         tracing::trace!(%artifact_hash, complete_hash = %complete_artifact.hash(), "got resolve result from database");
 
@@ -248,10 +255,23 @@ async fn resolve_inner(
         let output_json = serde_json::to_string(&result_artifact)?;
         let output_hash = result_artifact.hash().to_string();
         sqlx::query!(
-            "INSERT INTO resolves (input_json, input_hash, output_json, output_hash) VALUES (?, ?, ?, ?)",
-            input_json,
+            r#"
+                INSERT INTO artifacts (artifact_hash, artifact_json)
+                VALUES
+                    (?, ?),
+                    (?, ?)
+                ON CONFLICT (artifact_hash) DO NOTHING
+            "#,
             input_hash,
+            input_json,
+            output_hash,
             output_json,
+        )
+        .execute(&mut *db_transaction)
+        .await?;
+        sqlx::query!(
+            "INSERT INTO resolves (input_hash, output_hash) VALUES (?, ?)",
+            input_hash,
             output_hash,
         )
         .execute(&mut *db_transaction)
