@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{Arc, OnceLock, RwLock},
 };
 
@@ -150,50 +150,89 @@ impl LazyArtifact {
     }
 }
 
-pub async fn get_artifact(
+pub async fn get_artifacts(
     brioche: &Brioche,
-    artifact_hash: ArtifactHash,
-) -> anyhow::Result<LazyArtifact> {
-    {
-        // Try to read the artifact if it's already been cached
-        let cached_artifacts = brioche.cached_artifacts.read().await;
-        if let Some(artifact) = cached_artifacts.artifacts_by_hash.get(&artifact_hash) {
-            return Ok(artifact.clone());
+    artifact_hashes: impl IntoIterator<Item = ArtifactHash>,
+) -> anyhow::Result<HashMap<ArtifactHash, LazyArtifact>> {
+    let mut artifacts = HashMap::new();
+
+    let cached_artifacts = brioche.cached_artifacts.read().await;
+    let mut uncached_artifacts = HashSet::new();
+    let mut arguments = sqlx::sqlite::SqliteArguments::default();
+
+    for artifact_hash in artifact_hashes {
+        match cached_artifacts.artifacts_by_hash.get(&artifact_hash) {
+            Some(artifact) => {
+                artifacts.insert(artifact_hash, artifact.clone());
+            }
+            None => {
+                uncached_artifacts.insert(artifact_hash);
+                arguments.add(artifact_hash.to_string());
+            }
         }
     }
+
+    // Release the lock
+    drop(cached_artifacts);
+
+    // Return early if we have no uncached artifacts to fetch
+    if uncached_artifacts.is_empty() {
+        return Ok(artifacts);
+    }
+
+    let placeholders = std::iter::repeat("?")
+        .take(uncached_artifacts.len())
+        .join_with(", ");
 
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
 
-    // Read the artifact from the database
-    let artifact_hash_value = artifact_hash.to_string();
-    let record = sqlx::query!(
-        r#"
-            SELECT artifact_json
-            FROM artifacts
-            WHERE artifact_hash = ?
-        "#,
-        artifact_hash_value,
+    let records = sqlx::query_as_with::<_, (String, String), _>(
+        &format!(
+            r#"
+                SELECT artifact_hash, artifact_json
+                FROM artifacts
+                WHERE artifact_hash IN ({placeholders})
+            "#,
+        ),
+        arguments,
     )
-    .fetch_optional(&mut *db_transaction)
+    .fetch_all(&mut *db_transaction)
     .await?;
 
     db_transaction.commit().await?;
+    drop(db_conn);
 
-    // Return an error if this artifact hash was not found
-    let Some(record) = record else {
-        anyhow::bail!("artifact not found by hash: {artifact_hash:?}");
-    };
-    let artifact: LazyArtifact = serde_json::from_str(&record.artifact_json)?;
+    let mut cached_artifacts = brioche.cached_artifacts.write().await;
+    for (artifact_hash, artifact_json) in records {
+        let artifact: LazyArtifact = serde_json::from_str(&artifact_json)?;
+        let expected_artifact_hash: ArtifactHash = artifact_hash.parse()?;
+        let artifact_hash = artifact.hash();
 
-    {
-        // Cache the artifact
-        let mut cached_artifacts = brioche.cached_artifacts.write().await;
+        anyhow::ensure!(expected_artifact_hash == artifact_hash, "expected artifact hash from database to be {expected_artifact_hash}, but was {artifact_hash}");
+
         cached_artifacts
             .artifacts_by_hash
             .insert(artifact_hash, artifact.clone());
+        uncached_artifacts.remove(&artifact_hash);
+        artifacts.insert(artifact_hash, artifact);
     }
 
+    if !uncached_artifacts.is_empty() {
+        anyhow::bail!("artifacts not found: {uncached_artifacts:?}");
+    }
+
+    Ok(artifacts)
+}
+
+pub async fn get_artifact(
+    brioche: &Brioche,
+    artifact_hash: ArtifactHash,
+) -> anyhow::Result<LazyArtifact> {
+    let mut artifacts = get_artifacts(brioche, [artifact_hash]).await?;
+    let artifact = artifacts
+        .remove(&artifact_hash)
+        .expect("artifact not returned in collection");
     Ok(artifact)
 }
 

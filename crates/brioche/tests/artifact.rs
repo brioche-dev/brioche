@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use assert_matches::assert_matches;
 use brioche::artifact::{LazyArtifact, WithMeta};
 
@@ -115,14 +117,18 @@ async fn test_artifact_save_multiple() -> anyhow::Result<()> {
         brioche::artifact::save_artifacts(&brioche, [file_2.clone(), file_3.clone()]).await?;
     assert_eq!(new_artifacts, 1);
 
-    let result_1 = brioche::artifact::get_artifact(&brioche, file_1.hash()).await?;
-    assert_eq!(result_1, file_1);
+    let results =
+        brioche::artifact::get_artifacts(&brioche, [file_1.hash(), file_2.hash(), file_3.hash()])
+            .await?;
 
-    let result_2 = brioche::artifact::get_artifact(&brioche, file_2.hash()).await?;
-    assert_eq!(result_2, file_2);
-
-    let result_3 = brioche::artifact::get_artifact(&brioche, file_3.hash()).await?;
-    assert_eq!(result_3, file_3);
+    assert_eq!(
+        results,
+        HashMap::from_iter([
+            (file_1.hash(), file_1),
+            (file_2.hash(), file_2),
+            (file_3.hash(), file_3)
+        ])
+    );
 
     Ok(())
 }
