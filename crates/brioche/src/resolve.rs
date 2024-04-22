@@ -507,42 +507,7 @@ pub async fn create_proxy(
     }
 
     let artifact_hash = artifact.hash();
-
-    {
-        let proxies = brioche.proxies.read().await;
-        if proxies.artifacts_by_hash.contains_key(&artifact_hash) {
-            return Ok(LazyArtifact::Proxy(ProxyArtifact {
-                artifact: artifact_hash,
-            }));
-        }
-    }
-
-    let artifact_json = serde_json::to_string(&artifact).context("failed to serialize artifact")?;
-
-    {
-        let mut db_conn = brioche.db_conn.lock().await;
-        let mut db_transaction = db_conn.begin().await?;
-
-        let artifact_hash_value = artifact_hash.to_string();
-        sqlx::query!(
-            r#"
-            INSERT INTO artifacts (artifact_hash, artifact_json)
-            VALUES (?, ?)
-            ON CONFLICT (artifact_hash) DO NOTHING
-        "#,
-            artifact_hash_value,
-            artifact_json,
-        )
-        .execute(&mut *db_transaction)
-        .await?;
-
-        db_transaction.commit().await?;
-    }
-
-    let mut proxies = brioche.proxies.write().await;
-    proxies
-        .artifacts_by_hash
-        .insert(artifact_hash, artifact.clone());
+    crate::artifact::save_artifacts(brioche, [artifact]).await?;
 
     Ok(LazyArtifact::Proxy(ProxyArtifact {
         artifact: artifact_hash,

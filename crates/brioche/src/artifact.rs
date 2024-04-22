@@ -4,7 +4,8 @@ use std::{
 };
 
 use bstr::{BStr, BString};
-use sqlx::Acquire as _;
+use joinery::JoinableIterator as _;
+use sqlx::{Acquire as _, Arguments as _};
 
 use crate::encoding::TickEncoded;
 
@@ -147,6 +148,120 @@ impl LazyArtifact {
             | LazyArtifact::Proxy(_) => false,
         }
     }
+}
+
+pub async fn get_artifact(
+    brioche: &Brioche,
+    artifact_hash: ArtifactHash,
+) -> anyhow::Result<LazyArtifact> {
+    {
+        // Try to read the artifact if it's already been cached
+        let proxies = brioche.proxies.read().await;
+        if let Some(artifact) = proxies.artifacts_by_hash.get(&artifact_hash) {
+            return Ok(artifact.clone());
+        }
+    }
+
+    let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
+
+    // Read the artifact from the database
+    let artifact_hash_value = artifact_hash.to_string();
+    let record = sqlx::query!(
+        r#"
+            SELECT artifact_json
+            FROM artifacts
+            WHERE artifact_hash = ?
+        "#,
+        artifact_hash_value,
+    )
+    .fetch_optional(&mut *db_transaction)
+    .await?;
+
+    db_transaction.commit().await?;
+
+    // Return an error if this artifact hash was not found
+    let Some(record) = record else {
+        anyhow::bail!("artifact not found by hash: {artifact_hash:?}");
+    };
+    let artifact: LazyArtifact = serde_json::from_str(&record.artifact_json)?;
+
+    {
+        // Cache the artifact
+        let mut proxies = brioche.proxies.write().await;
+        proxies
+            .artifacts_by_hash
+            .insert(artifact_hash, artifact.clone());
+    }
+
+    Ok(artifact)
+}
+
+pub async fn save_artifacts<A>(
+    brioche: &Brioche,
+    artifacts: impl IntoIterator<Item = A>,
+) -> anyhow::Result<u64>
+where
+    A: std::borrow::Borrow<LazyArtifact>,
+{
+    let mut proxies = brioche.proxies.write().await;
+
+    let mut arguments = sqlx::sqlite::SqliteArguments::default();
+    let mut num_artifacts = 0;
+    for artifact in artifacts {
+        let artifact = artifact.borrow();
+        let artifact_hash = artifact.hash();
+        let artifact_json = serde_json::to_string(artifact)?;
+
+        match proxies.artifacts_by_hash.entry(artifact_hash) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                // Artifact already cached locally, which means we've
+                // either already fetched it from the database or
+                // saved it to the database
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                // Artifact not cached, so ensure we cache it then try
+                // to insert it into the database
+                entry.insert(artifact.clone());
+                num_artifacts += 1;
+
+                arguments.add(artifact.hash().to_string());
+                arguments.add(artifact_json);
+            }
+        }
+    }
+
+    // Release the write lock
+    drop(proxies);
+
+    // Short-circuit if we have no artifacts to save
+    if num_artifacts == 0 {
+        return Ok(0);
+    }
+
+    let placeholders = std::iter::repeat("(?, ?)")
+        .take(num_artifacts)
+        .join_with(", ");
+
+    let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
+
+    let result = sqlx::query_with(
+        &format!(
+            r#"
+                INSERT INTO artifacts (artifact_hash, artifact_json)
+                VALUES {placeholders}
+                ON CONFLICT (artifact_hash) DO NOTHING
+            "#
+        ),
+        arguments,
+    )
+    .execute(&mut *db_transaction)
+    .await?;
+
+    db_transaction.commit().await?;
+
+    Ok(result.rows_affected())
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -690,35 +805,7 @@ pub struct ProxyArtifact {
 
 impl ProxyArtifact {
     pub async fn inner(&self, brioche: &Brioche) -> anyhow::Result<LazyArtifact> {
-        {
-            let proxies = brioche.proxies.read().await;
-            if let Some(artifact) = proxies.artifacts_by_hash.get(&self.artifact) {
-                return Ok(artifact.clone());
-            }
-        }
-
-        let mut db_conn = brioche.db_conn.lock().await;
-        let mut db_transaction = db_conn.begin().await?;
-
-        let artifact_hash_value = self.artifact.to_string();
-        let record = sqlx::query!(
-            r#"
-                SELECT artifact_json
-                FROM artifacts
-                WHERE artifact_hash = ?
-            "#,
-            artifact_hash_value,
-        )
-        .fetch_optional(&mut *db_transaction)
-        .await?;
-
-        db_transaction.commit().await?;
-
-        let Some(record) = record else {
-            anyhow::bail!("proxy artifact not found: {:?}", self.artifact);
-        };
-        let inner = serde_json::from_str(&record.artifact_json)?;
-
+        let inner = get_artifact(brioche, self.artifact).await?;
         Ok(inner)
     }
 }
