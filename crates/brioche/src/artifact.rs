@@ -3,17 +3,14 @@ use std::{
     sync::{Arc, OnceLock, RwLock},
 };
 
+use anyhow::Context as _;
 use bstr::{BStr, BString};
 use joinery::JoinableIterator as _;
 use sqlx::{Acquire as _, Arguments as _};
 
 use crate::encoding::TickEncoded;
 
-use super::{
-    blob::{self, BlobHash},
-    platform::Platform,
-    Brioche, Hash,
-};
+use super::{blob::BlobHash, platform::Platform, Brioche, Hash};
 
 #[serde_with::serde_as]
 #[derive(
@@ -308,11 +305,9 @@ pub struct Meta {
     pub source: Option<Vec<StackFrame>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct WithMeta<T> {
-    #[serde(flatten)]
     pub value: T,
-    #[serde(default, skip_serializing)]
     pub meta: Arc<Meta>,
 }
 
@@ -328,8 +323,47 @@ impl<T> WithMeta<T> {
         }
     }
 
+    pub fn as_ref(&self) -> WithMeta<&T> {
+        WithMeta {
+            value: &self.value,
+            meta: self.meta.clone(),
+        }
+    }
+
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> WithMeta<U> {
+        WithMeta {
+            value: f(self.value),
+            meta: self.meta,
+        }
+    }
+
     pub fn source_frame(&self) -> Option<&StackFrame> {
         self.meta.source.as_ref().and_then(|frames| frames.first())
+    }
+}
+
+impl<T> serde::Serialize for WithMeta<T>
+where
+    T: serde::Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serde::Serialize::serialize(&self.value, serializer)
+    }
+}
+
+impl<'de, T> serde::Deserialize<'de> for WithMeta<T>
+where
+    T: serde::Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value: T = serde::Deserialize::deserialize(deserializer)?;
+        Ok(WithMeta::without_meta(value))
     }
 }
 
@@ -376,6 +410,20 @@ impl std::ops::Deref for WithMeta<CompleteArtifact> {
 }
 
 impl std::ops::DerefMut for WithMeta<CompleteArtifact> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
+    }
+}
+
+impl std::ops::Deref for WithMeta<ArtifactHash> {
+    type Target = ArtifactHash;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl std::ops::DerefMut for WithMeta<ArtifactHash> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
     }
@@ -531,56 +579,56 @@ pub struct File {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Directory {
-    pub listing_blob: Option<BlobHash>,
+    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
+    entries: BTreeMap<BString, WithMeta<ArtifactHash>>,
 }
 
 impl Directory {
-    pub async fn create(brioche: &Brioche, listing: &DirectoryListing) -> anyhow::Result<Self> {
-        if listing.is_empty() {
-            return Ok(Self::default());
-        }
+    pub async fn create(
+        brioche: &Brioche,
+        entries: &BTreeMap<BString, WithMeta<CompleteArtifact>>,
+    ) -> anyhow::Result<Self> {
+        let artifacts = entries
+            .values()
+            .map(|artifact| LazyArtifact::from(artifact.value.clone()));
+        save_artifacts(brioche, artifacts).await?;
 
-        let listing_json = json_canon::to_string(&listing)?;
-        let listing_blob = blob::save_blob(
-            brioche,
-            listing_json.as_bytes(),
-            blob::SaveBlobOptions::default(),
-        )
-        .await?;
-
-        Ok(Self {
-            listing_blob: Some(listing_blob),
-        })
+        let entries = entries
+            .iter()
+            .map(|(path, artifact)| {
+                let artifact_hash = artifact.as_ref().map(|artifact| artifact.hash());
+                (path.clone(), artifact_hash)
+            })
+            .collect();
+        Ok(Self { entries })
     }
 
-    pub async fn listing(&self, brioche: &Brioche) -> anyhow::Result<DirectoryListing> {
-        match self.listing_blob {
-            Some(tree_blob_hash) => {
-                let blob_path = blob::blob_path(brioche, tree_blob_hash).await?;
-                let listing_json = tokio::fs::read(&blob_path).await?;
-                let listing = serde_json::from_slice(&listing_json)?;
-                Ok(listing)
-            }
-            None => Ok(DirectoryListing::default()),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.listing_blob.is_none()
-    }
-}
-
-#[serde_with::serde_as]
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DirectoryListing {
-    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
-    pub entries: BTreeMap<BString, WithMeta<CompleteArtifact>>,
-}
-
-impl DirectoryListing {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    pub async fn entries(
+        &self,
+        brioche: &Brioche,
+    ) -> anyhow::Result<BTreeMap<BString, WithMeta<CompleteArtifact>>> {
+        let entry_artifacts =
+            get_artifacts(brioche, self.entries.values().map(|entry| **entry)).await?;
+
+        let entries = self
+            .entries
+            .iter()
+            .map(|(path, artifact_hash)| {
+                let artifact = entry_artifacts
+                    .get(&**artifact_hash)
+                    .with_context(|| format!("failed to get artifact for entry {path:?}"))?;
+                let artifact: CompleteArtifact = artifact.clone().try_into().map_err(|_| {
+                    anyhow::anyhow!("artifact at {path:?} is not a complete artifact")
+                })?;
+                let artifact = artifact_hash.as_ref().map(|_| artifact);
+                Ok((path.clone(), artifact))
+            })
+            .collect::<anyhow::Result<_>>()?;
+        Ok(entries)
     }
 
     #[async_recursion::async_recursion]
@@ -594,18 +642,36 @@ impl DirectoryListing {
             [] => Err(DirectoryError::EmptyPath {
                 path: full_path.into(),
             }),
-            [filename] => Ok(self.entries.get(&**filename).cloned()),
+            [filename] => match self.entries.get(&**filename) {
+                Some(artifact_hash) => {
+                    let artifact = get_artifact(brioche, artifact_hash.value).await?;
+                    let artifact: CompleteArtifact =
+                        artifact
+                            .try_into()
+                            .map_err(|_| DirectoryError::ArtifactIncomplete {
+                                path: full_path.into(),
+                            })?;
+                    Ok(Some(artifact_hash.as_ref().map(|_| artifact)))
+                }
+                None => Ok(None),
+            },
             [directory_name, path_components @ ..] => {
-                let Some(dir_entry) = self.entries.get(&**directory_name) else {
+                let Some(dir_entry_hash) = self.entries.get(&**directory_name) else {
                     return Ok(None);
                 };
-                let CompleteArtifact::Directory(dir_entry) = &dir_entry.value else {
+                let dir_entry = get_artifact(brioche, dir_entry_hash.value).await?;
+                let dir_entry: CompleteArtifact =
+                    dir_entry
+                        .try_into()
+                        .map_err(|_| DirectoryError::ArtifactIncomplete {
+                            path: full_path.into(),
+                        })?;
+                let CompleteArtifact::Directory(dir_entry) = dir_entry else {
                     return Err(DirectoryError::PathDescendsIntoNonDirectory {
                         path: full_path.into(),
                     });
                 };
-                let listing = dir_entry.listing(brioche).await?;
-                let artifact = listing
+                let artifact = dir_entry
                     .get_by_components(brioche, full_path, path_components)
                     .await?;
                 Ok(artifact)
@@ -628,42 +694,66 @@ impl DirectoryListing {
                 });
             }
             [filename] => {
-                let replaced = match artifact {
-                    Some(artifact) => self.entries.insert(filename.to_vec().into(), artifact),
+                let replaced_hash = match artifact {
+                    Some(artifact) => {
+                        let artifact_hash = artifact.as_ref().map(|artifact| artifact.hash());
+                        save_artifacts(brioche, [LazyArtifact::from(artifact.value)]).await?;
+                        self.entries.insert(filename.to_vec().into(), artifact_hash)
+                    }
                     None => self.entries.remove(&**filename),
+                };
+                let replaced = match replaced_hash {
+                    Some(artifact_hash) => {
+                        let artifact = get_artifact(brioche, *artifact_hash).await?;
+                        let artifact: CompleteArtifact = artifact.try_into().map_err(|_| {
+                            DirectoryError::ArtifactIncomplete {
+                                path: full_path.into(),
+                            }
+                        })?;
+                        Some(artifact_hash.map(|_| artifact))
+                    }
+                    None => None,
                 };
                 Ok(replaced)
             }
             [directory_name, path_components @ ..] => {
                 let replaced = match self.entries.entry(directory_name.to_vec().into()) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
-                        let mut new_listing = DirectoryListing::default();
-                        let replaced = new_listing
+                        let mut new_directory = Directory::default();
+                        new_directory
                             .insert_by_components(brioche, full_path, path_components, artifact)
                             .await?;
-                        let new_directory = Directory::create(brioche, &new_listing).await?;
-                        entry.insert(WithMeta::without_meta(CompleteArtifact::Directory(
-                            new_directory,
-                        )));
 
-                        replaced
+                        let new_directory: LazyArtifact = new_directory.into();
+                        let new_directory_hash = new_directory.hash();
+                        save_artifacts(brioche, [new_directory]).await?;
+
+                        entry.insert(WithMeta::without_meta(new_directory_hash));
+
+                        None
                     }
                     std::collections::btree_map::Entry::Occupied(mut entry) => {
-                        let mut listing = {
-                            let CompleteArtifact::Directory(dir_entry) = &entry.get().value else {
-                                return Err(DirectoryError::PathDescendsIntoNonDirectory {
-                                    path: full_path.into(),
-                                });
-                            };
-                            dir_entry.listing(brioche).await?
+                        let dir_entry_hash = entry.get();
+
+                        let dir_entry = get_artifact(brioche, **dir_entry_hash).await?;
+                        let dir_entry: CompleteArtifact = dir_entry.try_into().map_err(|_| {
+                            DirectoryError::ArtifactIncomplete {
+                                path: full_path.into(),
+                            }
+                        })?;
+                        let CompleteArtifact::Directory(mut inner_dir) = dir_entry else {
+                            return Err(DirectoryError::PathDescendsIntoNonDirectory {
+                                path: full_path.into(),
+                            });
                         };
-                        let replaced = listing
+                        let replaced = inner_dir
                             .insert_by_components(brioche, full_path, path_components, artifact)
                             .await?;
-                        let updated_directory = Directory::create(brioche, &listing).await?;
-                        entry.insert(WithMeta::without_meta(CompleteArtifact::Directory(
-                            updated_directory,
-                        )));
+
+                        let updated_dir_entry: LazyArtifact = inner_dir.into();
+                        let updated_dir_entry_hash = updated_dir_entry.hash();
+                        save_artifacts(brioche, [updated_dir_entry]).await?;
+                        entry.insert(WithMeta::without_meta(updated_dir_entry_hash));
 
                         replaced
                     }
@@ -729,20 +819,34 @@ impl DirectoryListing {
     pub async fn merge(&mut self, other: &Self, brioche: &Brioche) -> anyhow::Result<()> {
         for (key, artifact) in &other.entries {
             match self.entries.entry(key.clone()) {
-                std::collections::btree_map::Entry::Occupied(current) => {
-                    match (&mut current.into_mut().value, &artifact.value) {
-                        (
-                            CompleteArtifact::Directory(current),
-                            CompleteArtifact::Directory(other),
-                        ) => {
-                            let (mut current_listing, other_listing) =
-                                tokio::try_join!(current.listing(brioche), other.listing(brioche))?;
+                std::collections::btree_map::Entry::Occupied(mut current) => {
+                    let (current_dir_entry, other_dir_entry) = tokio::try_join!(
+                        get_artifact(brioche, **current.get()),
+                        get_artifact(brioche, **artifact),
+                    )?;
 
-                            current_listing.merge(&other_listing, brioche).await?;
-                            *current = Directory::create(brioche, &current_listing).await?;
+                    let current_dir_entry: CompleteArtifact =
+                        current_dir_entry.try_into().map_err(|_| {
+                            anyhow::anyhow!("current artifact at {key:?} is not complete")
+                        })?;
+                    let other_dir_entry: CompleteArtifact =
+                        other_dir_entry.try_into().map_err(|_| {
+                            anyhow::anyhow!("other artifact at {key:?} is not complete")
+                        })?;
+                    match (current_dir_entry, other_dir_entry) {
+                        (
+                            CompleteArtifact::Directory(mut current_inner),
+                            CompleteArtifact::Directory(other_inner),
+                        ) => {
+                            current_inner.merge(&other_inner, brioche).await?;
+
+                            let updated_current_inner_artifact: LazyArtifact = current_inner.into();
+                            let updated_current_inner_hash = updated_current_inner_artifact.hash();
+                            save_artifacts(brioche, [updated_current_inner_artifact]).await?;
+                            current.insert(WithMeta::without_meta(updated_current_inner_hash));
                         }
-                        (current, artifact) => {
-                            *current = artifact.clone();
+                        (_, other_dir_entry) => {
+                            current.insert(artifact.as_ref().map(|_| other_dir_entry.hash()));
                         }
                     }
                 }
@@ -859,6 +963,8 @@ pub enum DirectoryError {
     PathEscapes { path: bstr::BString },
     #[error("path descends into non-directory: {path:?}")]
     PathDescendsIntoNonDirectory { path: bstr::BString },
+    #[error("path {path:?} contains a non-complete artifact")]
+    ArtifactIncomplete { path: bstr::BString },
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }

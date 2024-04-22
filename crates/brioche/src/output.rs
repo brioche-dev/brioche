@@ -208,9 +208,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                 }
             }
 
-            let listing = directory.listing(brioche).await?;
-
-            for (path, entry) in listing.entries {
+            for (path, entry) in directory.entries(brioche).await? {
                 let path = bytes_to_path_component(path.as_bstr())?;
                 let entry_path = options.output_path.join(path);
                 let resources_dir_buf;

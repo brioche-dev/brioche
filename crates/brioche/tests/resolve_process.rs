@@ -96,8 +96,7 @@ async fn try_get(
     dir: &Directory,
     path: impl AsRef<[u8]>,
 ) -> anyhow::Result<Option<WithMeta<CompleteArtifact>>> {
-    let listing = dir.listing(brioche).await?;
-    let artifact = listing.get(brioche, path.as_ref()).await?;
+    let artifact = dir.get(brioche, path.as_ref()).await?;
     Ok(artifact)
 }
 

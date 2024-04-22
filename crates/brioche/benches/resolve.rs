@@ -1,5 +1,5 @@
 use brioche::{
-    artifact::{Directory, DirectoryListing, LazyArtifact, WithMeta},
+    artifact::{Directory, LazyArtifact, WithMeta},
     Brioche,
 };
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -8,13 +8,13 @@ use futures::StreamExt as _;
 mod brioche_bench;
 
 async fn make_deep_dir(brioche: &Brioche, key: &str) -> Directory {
-    let mut listing = DirectoryListing::default();
+    let mut directory = Directory::default();
     for a in 0..10 {
         for b in 0..3 {
             for c in 0..3 {
                 for d in 0..3 {
                     for e in 0..3 {
-                        listing
+                        directory
                             .insert(
                                 brioche,
                                 format!(
@@ -38,14 +38,14 @@ async fn make_deep_dir(brioche: &Brioche, key: &str) -> Directory {
         }
     }
 
-    Directory::create(brioche, &listing).await.unwrap()
+    directory
 }
 
 async fn make_wide_dir(brioche: &Brioche, key: &str) -> Directory {
-    let mut listing = DirectoryListing::default();
+    let mut directory = Directory::default();
     for a in 0..100 {
         for b in 0..10 {
-            listing
+            directory
                 .insert(
                     brioche,
                     format!("{key}a{a}/{key}b{b}/file.txt").as_bytes(),
@@ -59,7 +59,7 @@ async fn make_wide_dir(brioche: &Brioche, key: &str) -> Directory {
         }
     }
 
-    Directory::create(brioche, &listing).await.unwrap()
+    directory
 }
 
 fn run_resolve_benchmark(c: &mut Criterion) {

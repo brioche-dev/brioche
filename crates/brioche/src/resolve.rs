@@ -13,7 +13,7 @@ use crate::{artifact::ProxyArtifact, project::ProjectHash};
 use super::{
     artifact::{
         ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, CreateDirectory, Directory,
-        DirectoryListing, File, LazyArtifact, Meta, WithMeta,
+        File, LazyArtifact, Meta, WithMeta,
     },
     Brioche,
 };
@@ -388,8 +388,7 @@ async fn run_resolve(
                 .collect::<FuturesUnordered<_>>()
                 .try_collect()
                 .await?;
-            let listing = DirectoryListing { entries };
-            let directory = Directory::create(brioche, &listing).await?;
+            let directory = Directory::create(brioche, &entries).await?;
             Ok(CompleteArtifact::Directory(directory))
         }
         LazyArtifact::Cast { artifact, to } => {
@@ -406,16 +405,14 @@ async fn run_resolve(
             )
             .await?;
 
-            let mut merged = DirectoryListing::default();
+            let mut merged = Directory::default();
             for dir in directories {
                 let CompleteArtifact::Directory(dir) = dir.value else {
                     anyhow::bail!("tried merging non-directory artifact");
                 };
-                let listing = dir.listing(brioche).await?;
-                merged.merge(&listing, brioche).await?;
+                merged.merge(&dir, brioche).await?;
             }
 
-            let merged = Directory::create(brioche, &merged).await?;
             Ok(CompleteArtifact::Directory(merged))
         }
         LazyArtifact::Proxy(proxy) => {
@@ -430,9 +427,9 @@ async fn run_resolve(
                 let CompleteArtifact::Directory(dir) = result.value else {
                     anyhow::bail!("tried peeling non-directory artifact");
                 };
-                let listing = dir.listing(brioche).await?;
-                let mut entries = listing.entries.into_iter();
-                let Some((_, peeled)) = entries.next() else {
+                let entries = dir.entries(brioche).await?;
+                let mut entries = entries.into_values();
+                let Some(peeled) = entries.next() else {
                     anyhow::bail!("tried peeling empty directory");
                 };
 
@@ -450,9 +447,8 @@ async fn run_resolve(
             let CompleteArtifact::Directory(directory) = resolved.value else {
                 anyhow::bail!("tried getting item from non-directory");
             };
-            let listing = directory.listing(brioche).await?;
 
-            let Some(result) = listing.get(brioche, &path).await? else {
+            let Some(result) = directory.get(brioche, &path).await? else {
                 anyhow::bail!("path not found in directory: {path:?}");
             };
 
@@ -473,15 +469,13 @@ async fn run_resolve(
                 }
             })?;
 
-            let CompleteArtifact::Directory(directory) = directory.value else {
+            let CompleteArtifact::Directory(mut directory) = directory.value else {
                 anyhow::bail!("tried removing item from non-directory artifact");
             };
-            let mut listing = directory.listing(brioche).await?;
 
-            listing.insert(brioche, &path, artifact).await?;
+            directory.insert(brioche, &path, artifact).await?;
 
-            let new_directory = Directory::create(brioche, &listing).await?;
-            Ok(CompleteArtifact::Directory(new_directory))
+            Ok(CompleteArtifact::Directory(directory))
         }
         LazyArtifact::SetPermissions { file, executable } => {
             let result = resolve(brioche, *file, &scope).await?;
