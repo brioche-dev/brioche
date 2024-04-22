@@ -23,7 +23,7 @@ mod process;
 mod unpack;
 
 #[derive(Debug, Default)]
-pub struct Proxies {
+pub struct CachedArtifacts {
     pub artifacts_by_hash: HashMap<ArtifactHash, LazyArtifact>,
 }
 

@@ -156,8 +156,8 @@ pub async fn get_artifact(
 ) -> anyhow::Result<LazyArtifact> {
     {
         // Try to read the artifact if it's already been cached
-        let proxies = brioche.proxies.read().await;
-        if let Some(artifact) = proxies.artifacts_by_hash.get(&artifact_hash) {
+        let cached_artifacts = brioche.cached_artifacts.read().await;
+        if let Some(artifact) = cached_artifacts.artifacts_by_hash.get(&artifact_hash) {
             return Ok(artifact.clone());
         }
     }
@@ -188,8 +188,8 @@ pub async fn get_artifact(
 
     {
         // Cache the artifact
-        let mut proxies = brioche.proxies.write().await;
-        proxies
+        let mut cached_artifacts = brioche.cached_artifacts.write().await;
+        cached_artifacts
             .artifacts_by_hash
             .insert(artifact_hash, artifact.clone());
     }
@@ -204,7 +204,7 @@ pub async fn save_artifacts<A>(
 where
     A: std::borrow::Borrow<LazyArtifact>,
 {
-    let mut proxies = brioche.proxies.write().await;
+    let mut cached_artifacts = brioche.cached_artifacts.write().await;
 
     let mut arguments = sqlx::sqlite::SqliteArguments::default();
     let mut num_artifacts = 0;
@@ -213,7 +213,7 @@ where
         let artifact_hash = artifact.hash();
         let artifact_json = serde_json::to_string(artifact)?;
 
-        match proxies.artifacts_by_hash.entry(artifact_hash) {
+        match cached_artifacts.artifacts_by_hash.entry(artifact_hash) {
             std::collections::hash_map::Entry::Occupied(_) => {
                 // Artifact already cached locally, which means we've
                 // either already fetched it from the database or
@@ -232,7 +232,7 @@ where
     }
 
     // Release the write lock
-    drop(proxies);
+    drop(cached_artifacts);
 
     // Short-circuit if we have no artifacts to save
     if num_artifacts == 0 {
