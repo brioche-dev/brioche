@@ -15,7 +15,6 @@ use super::{
         ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, CreateDirectory, Directory,
         DirectoryListing, File, LazyArtifact, Meta, WithMeta,
     },
-    blob::BlobHash,
     Brioche,
 };
 
@@ -25,7 +24,7 @@ mod unpack;
 
 #[derive(Debug, Default)]
 pub struct Proxies {
-    artifacts_by_hash: HashMap<ArtifactHash, (LazyArtifact, BlobHash)>,
+    pub artifacts_by_hash: HashMap<ArtifactHash, LazyArtifact>,
 }
 
 #[derive(Debug, Default)]
@@ -511,26 +510,43 @@ pub async fn create_proxy(
 
     {
         let proxies = brioche.proxies.read().await;
-        if let Some((_, blob)) = proxies.artifacts_by_hash.get(&artifact_hash) {
-            return Ok(LazyArtifact::Proxy(ProxyArtifact { blob: *blob }));
+        if proxies.artifacts_by_hash.contains_key(&artifact_hash) {
+            return Ok(LazyArtifact::Proxy(ProxyArtifact {
+                artifact: artifact_hash,
+            }));
         }
     }
 
-    let artifact_json = json_canon::to_string(&artifact).context("failed to serialize artifact")?;
+    let artifact_json = serde_json::to_string(&artifact).context("failed to serialize artifact")?;
 
-    let blob = super::blob::save_blob(
-        brioche,
-        artifact_json.as_bytes(),
-        super::blob::SaveBlobOptions::default(),
-    )
-    .await?;
+    {
+        let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
+
+        let artifact_hash_value = artifact_hash.to_string();
+        sqlx::query!(
+            r#"
+            INSERT INTO artifacts (artifact_hash, artifact_json)
+            VALUES (?, ?)
+            ON CONFLICT (artifact_hash) DO NOTHING
+        "#,
+            artifact_hash_value,
+            artifact_json,
+        )
+        .execute(&mut *db_transaction)
+        .await?;
+
+        db_transaction.commit().await?;
+    }
 
     let mut proxies = brioche.proxies.write().await;
     proxies
         .artifacts_by_hash
-        .insert(artifact_hash, (artifact.clone(), blob));
+        .insert(artifact_hash, artifact.clone());
 
-    Ok(LazyArtifact::Proxy(ProxyArtifact { blob }))
+    Ok(LazyArtifact::Proxy(ProxyArtifact {
+        artifact: artifact_hash,
+    }))
 }
 
 #[derive(Debug, thiserror::Error)]

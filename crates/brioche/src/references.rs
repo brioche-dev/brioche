@@ -177,8 +177,6 @@ pub async fn artifact_references(
                         unvisited.push_back(file.value);
                     }
                     LazyArtifact::Proxy(proxy) => {
-                        references.blobs.insert(proxy.blob);
-
                         let inner = proxy.inner(brioche).await?;
                         unvisited.push_back(inner);
                     }

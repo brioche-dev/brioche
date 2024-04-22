@@ -3,8 +3,8 @@ use std::{
     sync::{Arc, OnceLock, RwLock},
 };
 
-use anyhow::Context as _;
 use bstr::{BStr, BString};
+use sqlx::Acquire as _;
 
 use crate::encoding::TickEncoded;
 
@@ -685,16 +685,40 @@ impl TryFrom<LazyArtifact> for Directory {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyArtifact {
-    pub blob: BlobHash,
+    pub artifact: ArtifactHash,
 }
 
 impl ProxyArtifact {
     pub async fn inner(&self, brioche: &Brioche) -> anyhow::Result<LazyArtifact> {
-        let blob_path = super::blob::blob_path(brioche, self.blob).await?;
-        let blob_contents = tokio::fs::read(blob_path)
-            .await
-            .with_context(|| format!("failed to read blob for proxy: {:?}", self.blob))?;
-        let inner = serde_json::from_slice(&blob_contents)?;
+        {
+            let proxies = brioche.proxies.read().await;
+            if let Some(artifact) = proxies.artifacts_by_hash.get(&self.artifact) {
+                return Ok(artifact.clone());
+            }
+        }
+
+        let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
+
+        let artifact_hash_value = self.artifact.to_string();
+        let record = sqlx::query!(
+            r#"
+                SELECT artifact_json
+                FROM artifacts
+                WHERE artifact_hash = ?
+            "#,
+            artifact_hash_value,
+        )
+        .fetch_optional(&mut *db_transaction)
+        .await?;
+
+        db_transaction.commit().await?;
+
+        let Some(record) = record else {
+            anyhow::bail!("proxy artifact not found: {:?}", self.artifact);
+        };
+        let inner = serde_json::from_str(&record.artifact_json)?;
+
         Ok(inner)
     }
 }
