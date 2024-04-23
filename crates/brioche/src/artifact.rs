@@ -163,8 +163,12 @@ pub async fn get_artifacts(
                 artifacts.insert(artifact_hash, artifact.clone());
             }
             None => {
-                uncached_artifacts.insert(artifact_hash);
-                arguments.add(artifact_hash.to_string());
+                let is_new = uncached_artifacts.insert(artifact_hash);
+
+                // Add as SQL argument unless we've added it before
+                if is_new {
+                    arguments.add(artifact_hash.to_string());
+                }
             }
         }
     }
