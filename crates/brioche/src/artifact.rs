@@ -240,43 +240,38 @@ pub async fn save_artifacts<A>(
 where
     A: std::borrow::Borrow<LazyArtifact>,
 {
-    let mut cached_artifacts = brioche.cached_artifacts.write().await;
+    let cached_artifacts = brioche.cached_artifacts.read().await;
 
     let mut arguments = sqlx::sqlite::SqliteArguments::default();
-    let mut num_artifacts = 0;
+    let mut uncached_artifacts = vec![];
     for artifact in artifacts {
         let artifact = artifact.borrow();
         let artifact_hash = artifact.hash();
         let artifact_json = serde_json::to_string(artifact)?;
 
-        match cached_artifacts.artifacts_by_hash.entry(artifact_hash) {
-            std::collections::hash_map::Entry::Occupied(_) => {
-                // Artifact already cached locally, which means we've
-                // either already fetched it from the database or
-                // saved it to the database
-            }
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                // Artifact not cached, so ensure we cache it then try
-                // to insert it into the database
-                entry.insert(artifact.clone());
-                num_artifacts += 1;
+        if !cached_artifacts
+            .artifacts_by_hash
+            .contains_key(&artifact_hash)
+        {
+            // Artifact not cached, so try to insert it into the database
+            // and cache it afterward
+            uncached_artifacts.push(artifact.clone());
 
-                arguments.add(artifact.hash().to_string());
-                arguments.add(artifact_json);
-            }
+            arguments.add(artifact_hash.to_string());
+            arguments.add(artifact_json);
         }
     }
 
-    // Release the write lock
+    // Release the read lock
     drop(cached_artifacts);
 
     // Short-circuit if we have no artifacts to save
-    if num_artifacts == 0 {
+    if uncached_artifacts.is_empty() {
         return Ok(0);
     }
 
     let placeholders = std::iter::repeat("(?, ?)")
-        .take(num_artifacts)
+        .take(uncached_artifacts.len())
         .join_with(", ");
 
     let mut db_conn = brioche.db_conn.lock().await;
@@ -296,6 +291,16 @@ where
     .await?;
 
     db_transaction.commit().await?;
+    drop(db_conn);
+
+    // Cache each artifact that wasn't cached before. We do this after
+    // writing to the database to ensure cached items are always in the database
+    let mut cached_artifacts = brioche.cached_artifacts.write().await;
+    for artifact in uncached_artifacts {
+        cached_artifacts
+            .artifacts_by_hash
+            .insert(artifact.hash(), artifact);
+    }
 
     Ok(result.rows_affected())
 }
