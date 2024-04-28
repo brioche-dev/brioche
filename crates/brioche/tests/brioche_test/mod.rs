@@ -59,17 +59,17 @@ pub async fn load_project(
     Ok((projects, project_hash))
 }
 
-pub async fn resolve_without_meta(
+pub async fn bake_without_meta(
     brioche: &Brioche,
     recipe: brioche::recipe::Recipe,
 ) -> anyhow::Result<brioche::recipe::Artifact> {
-    let resolved = brioche::resolve::resolve(
+    let artifact = brioche::bake::bake(
         brioche,
         without_meta(recipe),
-        &brioche::resolve::ResolveScope::Anonymous,
+        &brioche::bake::BakeScope::Anonymous,
     )
     .await?;
-    Ok(resolved.value)
+    Ok(artifact.value)
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {

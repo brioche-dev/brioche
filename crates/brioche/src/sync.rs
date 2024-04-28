@@ -14,18 +14,18 @@ pub async fn sync_project(
 ) -> anyhow::Result<()> {
     // TODO: Use reporter for logging in this function
 
-    // Get all descendent resolves for the project/export
+    // Get all descendent bakes for the project/export
 
     let start_refs = std::time::Instant::now();
 
-    let descendent_project_resolves =
-        crate::references::descendent_project_resolves(brioche, project_hash, export).await?;
+    let descendent_project_bakes =
+        crate::references::descendent_project_bakes(brioche, project_hash, export).await?;
 
     // Collect the references from each input recipe/output artifact
 
     let mut sync_references = RecipeReferences::default();
 
-    let recipe_hashes = descendent_project_resolves
+    let recipe_hashes = descendent_project_bakes
         .iter()
         .flat_map(|(input, output)| [input.hash(), output.hash()]);
     crate::references::recipe_references(brioche, &mut sync_references, recipe_hashes).await?;
@@ -117,25 +117,22 @@ pub async fn sync_project(
         start_recipes.elapsed().human_duration()
     );
 
-    // Sync each resolve
+    // Sync each baked recipe
 
-    let start_resolves = std::time::Instant::now();
+    let start_bakes = std::time::Instant::now();
 
-    let num_descendent_project_resolves = descendent_project_resolves.len();
+    let num_descendent_project_bakes = descendent_project_bakes.len();
 
-    let all_resolves = descendent_project_resolves
+    let all_bakes = descendent_project_bakes
         .into_iter()
         .map(|(input, output)| (input.hash(), output.hash()))
         .collect::<Vec<_>>();
-    let known_resolves = brioche
-        .registry_client
-        .known_resolves(&all_resolves)
-        .await?;
-    let new_resolves = all_resolves
+    let known_bakes = brioche.registry_client.known_resolves(&all_bakes).await?;
+    let new_bakes = all_bakes
         .into_iter()
-        .filter(|resolve| !known_resolves.contains(resolve));
+        .filter(|bake| !known_bakes.contains(bake));
 
-    futures::stream::iter(new_resolves)
+    futures::stream::iter(new_bakes)
         .map(Ok)
         .try_for_each_concurrent(Some(100), |(input_hash, output_hash)| {
             let brioche = brioche.clone();
@@ -159,8 +156,8 @@ pub async fn sync_project(
         .await?;
 
     println!(
-        "Finished syncing {num_descendent_project_resolves} resolves in {}",
-        start_resolves.elapsed().human_duration()
+        "Finished syncing {num_descendent_project_bakes} bakes in {}",
+        start_bakes.elapsed().human_duration()
     );
 
     Ok(())

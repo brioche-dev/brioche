@@ -184,7 +184,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
     }
 }
 
-pub async fn descendent_project_resolves(
+pub async fn descendent_project_bakes(
     brioche: &Brioche,
     project_hash: ProjectHash,
     export: &str,
@@ -192,11 +192,11 @@ pub async fn descendent_project_resolves(
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
 
-    // Find all recipes resolved by the project (either directly in the
+    // Find all recipes baked by the project (either directly in the
     // `project_resolves` table or indirectly in the `child_resolves` table),
     // then filter it down to only `complete_process` and `download` recipes.
     let project_hash_value = project_hash.to_string();
-    let project_descendent_resolves = sqlx::query!(
+    let project_descendent_bakes = sqlx::query!(
         r#"
             WITH RECURSIVE project_descendent_resolves (artifact_hash) AS (
                 SELECT project_resolves.artifact_hash
@@ -228,7 +228,7 @@ pub async fn descendent_project_resolves(
     .fetch_all(&mut *db_transaction)
     .await?;
 
-    let project_descendent_resolves = project_descendent_resolves
+    let project_descendent_bakes = project_descendent_bakes
         .into_iter()
         .map(|record| {
             let input_hash = record
@@ -264,5 +264,5 @@ pub async fn descendent_project_resolves(
 
     db_transaction.commit().await?;
 
-    Ok(project_descendent_resolves)
+    Ok(project_descendent_bakes)
 }

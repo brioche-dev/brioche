@@ -10,6 +10,7 @@ use tokio::{
     sync::{Mutex, RwLock},
 };
 
+pub mod bake;
 pub mod blob;
 pub mod encoding;
 pub mod fs_utils;
@@ -21,7 +22,6 @@ pub mod recipe;
 pub mod references;
 pub mod registry;
 pub mod reporter;
-pub mod resolve;
 pub mod sandbox;
 pub mod script;
 pub mod sync;
@@ -50,8 +50,8 @@ pub struct Brioche {
     /// useful for debugging, where build outputs may succeed but need to be
     /// manually investigated.
     pub keep_temps: bool,
-    pub cached_recipes: Arc<RwLock<resolve::CachedRecipes>>,
-    pub active_resolves: Arc<RwLock<resolve::ActiveResolves>>,
+    pub cached_recipes: Arc<RwLock<bake::CachedRecipes>>,
+    pub active_bakes: Arc<RwLock<bake::ActiveBakes>>,
     pub process_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_client: reqwest_middleware::ClientWithMiddleware,
@@ -199,8 +199,8 @@ impl BriocheBuilder {
             home: brioche_home,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
-            cached_recipes: Arc::new(RwLock::new(resolve::CachedRecipes::default())),
-            active_resolves: Arc::new(RwLock::new(resolve::ActiveResolves::default())),
+            cached_recipes: Arc::new(RwLock::new(bake::CachedRecipes::default())),
+            active_bakes: Arc::new(RwLock::new(bake::ActiveBakes::default())),
             process_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROCESSES)),
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,

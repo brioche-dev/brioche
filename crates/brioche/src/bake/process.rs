@@ -27,34 +27,34 @@ const GUEST_UID_HINT: u32 = 1099;
 const GUEST_GID_HINT: u32 = 1099;
 
 #[tracing::instrument(skip(brioche, process))]
-pub async fn resolve_lazy_process_to_process(
+pub async fn bake_lazy_process_to_process(
     brioche: &Brioche,
-    scope: &super::ResolveScope,
+    scope: &super::BakeScope,
     process: ProcessRecipe,
 ) -> anyhow::Result<CompleteProcessRecipe> {
     let command =
-        resolve_lazy_process_template_to_process_template(brioche, scope, process.command).await?;
+        bake_lazy_process_template_to_process_template(brioche, scope, process.command).await?;
     let args = futures::stream::iter(process.args)
-        .then(|arg| resolve_lazy_process_template_to_process_template(brioche, scope, arg))
+        .then(|arg| bake_lazy_process_template_to_process_template(brioche, scope, arg))
         .try_collect()
         .await?;
     let env = futures::stream::iter(process.env)
         .then(|(key, artifact)| async move {
             let template =
-                resolve_lazy_process_template_to_process_template(brioche, scope, artifact).await?;
+                bake_lazy_process_template_to_process_template(brioche, scope, artifact).await?;
             anyhow::Ok((key, template))
         })
         .try_collect()
         .await?;
 
-    let work_dir = super::resolve(brioche, *process.work_dir, scope).await?;
+    let work_dir = super::bake(brioche, *process.work_dir, scope).await?;
     let crate::recipe::Artifact::Directory(work_dir) = work_dir.value else {
         anyhow::bail!("expected process workdir to be a directory artifact");
     };
 
     let output_scaffold = match process.output_scaffold {
         Some(output_scaffold) => {
-            let output_scaffold = super::resolve(brioche, *output_scaffold, scope).await?;
+            let output_scaffold = super::bake(brioche, *output_scaffold, scope).await?;
             Some(Box::new(output_scaffold.value))
         }
         None => None,
@@ -71,9 +71,9 @@ pub async fn resolve_lazy_process_to_process(
 }
 
 #[tracing::instrument(skip_all)]
-async fn resolve_lazy_process_template_to_process_template(
+async fn bake_lazy_process_template_to_process_template(
     brioche: &Brioche,
-    scope: &super::ResolveScope,
+    scope: &super::BakeScope,
     template: ProcessTemplate,
 ) -> anyhow::Result<CompleteProcessTemplate> {
     let mut result = CompleteProcessTemplate { components: vec![] };
@@ -87,7 +87,7 @@ async fn resolve_lazy_process_template_to_process_template(
                     })
             }
             ProcessTemplateComponent::Input { recipe } => {
-                let artifact = super::resolve(brioche, recipe.clone(), scope).await?;
+                let artifact = super::bake(brioche, recipe.clone(), scope).await?;
 
                 result
                     .components
@@ -115,7 +115,7 @@ async fn resolve_lazy_process_template_to_process_template(
 }
 
 #[tracing::instrument(skip(brioche, process))]
-pub async fn resolve_process(
+pub async fn bake_process(
     brioche: &Brioche,
     meta: &Arc<Meta>,
     process: CompleteProcessRecipe,
@@ -127,16 +127,16 @@ pub async fn resolve_process(
     let hash = Recipe::CompleteProcess(process.clone()).hash();
 
     let temp_dir = brioche.home.join("process-temp");
-    let resolve_dir = temp_dir.join(ulid::Ulid::new().to_string());
-    let resolve_dir = ResolveDir::create(resolve_dir).await?;
-    let root_dir = resolve_dir.path().join("root");
+    let bake_dir = temp_dir.join(ulid::Ulid::new().to_string());
+    let bake_dir = BakeDir::create(bake_dir).await?;
+    let root_dir = bake_dir.path().join("root");
     tokio::fs::create_dir(&root_dir).await?;
-    let output_dir = resolve_dir.path().join("outputs");
+    let output_dir = bake_dir.path().join("outputs");
     tokio::fs::create_dir(&output_dir).await?;
     let output_path = output_dir.join(format!("output-{hash}"));
-    let stdout_file = tokio::fs::File::create(resolve_dir.path().join("stdout.log")).await?;
-    let stderr_file = tokio::fs::File::create(resolve_dir.path().join("stderr.log")).await?;
-    let status_path = resolve_dir.path().join("status.txt");
+    let stdout_file = tokio::fs::File::create(bake_dir.path().join("stdout.log")).await?;
+    let stderr_file = tokio::fs::File::create(bake_dir.path().join("stderr.log")).await?;
+    let status_path = bake_dir.path().join("status.txt");
 
     // Generate a username and home directory in the sandbox based on
     // the process's hash. This is done so processes can't make assumptions
@@ -315,7 +315,7 @@ pub async fn resolve_process(
     .context("failed to save outputs from process")?;
 
     if !brioche.keep_temps {
-        resolve_dir.remove().await?;
+        bake_dir.remove().await?;
     }
 
     Ok(result.value)
@@ -653,40 +653,40 @@ async fn set_up_rootfs(
     Ok(())
 }
 
-struct ResolveDir {
+struct BakeDir {
     path: Option<PathBuf>,
 }
 
-impl ResolveDir {
+impl BakeDir {
     async fn create(path: PathBuf) -> anyhow::Result<Self> {
         tokio::fs::create_dir_all(&path).await?;
         Ok(Self { path: Some(path) })
     }
 
     fn path(&self) -> &Path {
-        self.path.as_ref().expect("resolve dir not found")
+        self.path.as_ref().expect("bake dir not found")
     }
 
     async fn remove(mut self) -> anyhow::Result<()> {
-        let path = self.path.take().context("resolve dir not found")?;
+        let path = self.path.take().context("bake dir not found")?;
 
         // Ensure that directories are writable so we can recursively remove
         // all files
         crate::fs_utils::set_directory_rwx_recursive(&path)
             .await
-            .context("failed to set permissions for temprorary resolve directory")?;
+            .context("failed to set permissions for temprorary bake directory")?;
 
         tokio::fs::remove_dir_all(&path)
             .await
-            .context("failed to remove temporary resolve directory")?;
+            .context("failed to remove temporary bake directory")?;
         Ok(())
     }
 }
 
-impl Drop for ResolveDir {
+impl Drop for BakeDir {
     fn drop(&mut self) {
         if let Some(path) = &self.path {
-            tracing::info!("keeping resolve dir {}", path.display());
+            tracing::info!("keeping temporary bake dir {}", path.display());
         }
     }
 }

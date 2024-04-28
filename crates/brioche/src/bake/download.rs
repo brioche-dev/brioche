@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip(brioche, download), fields(url = %download.url))]
-pub async fn resolve_download(brioche: &Brioche, download: DownloadRecipe) -> anyhow::Result<File> {
+pub async fn bake_download(brioche: &Brioche, download: DownloadRecipe) -> anyhow::Result<File> {
     tracing::debug!("acquiring download semaphore permit");
     let _permit = brioche.download_semaphore.acquire().await;
     tracing::debug!("acquired download semaphore permit");

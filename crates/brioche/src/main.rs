@@ -168,10 +168,10 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                 .await?;
 
         reporter.set_is_evaluating(false);
-        let artifact = brioche::resolve::resolve(
+        let artifact = brioche::bake::bake(
             &brioche,
             recipe,
-            &brioche::resolve::ResolveScope::Project {
+            &brioche::bake::BakeScope::Project {
                 project_hash,
                 export: args.export.to_string(),
             },

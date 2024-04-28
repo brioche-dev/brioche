@@ -28,13 +28,13 @@ pub struct CachedRecipes {
 }
 
 #[derive(Debug, Default)]
-pub struct ActiveResolves {
-    resolve_watchers:
+pub struct ActiveBakes {
+    bake_watchers:
         HashMap<RecipeHash, tokio::sync::watch::Receiver<Option<Result<Artifact, String>>>>,
 }
 
 #[derive(Debug, Clone)]
-pub enum ResolveScope {
+pub enum BakeScope {
     Project {
         project_hash: ProjectHash,
         export: String,
@@ -45,17 +45,17 @@ pub enum ResolveScope {
     Anonymous,
 }
 
-#[tracing::instrument(skip(brioche, recipe), fields(recipe_hash = %recipe.hash(), recipe_kind = ?recipe.kind(), resolved_method))]
-pub async fn resolve(
+#[tracing::instrument(skip(brioche, recipe), fields(recipe_hash = %recipe.hash(), recipe_kind = ?recipe.kind(), bake_method))]
+pub async fn bake(
     brioche: &Brioche,
     recipe: WithMeta<Recipe>,
-    scope: &ResolveScope,
+    scope: &BakeScope,
 ) -> anyhow::Result<WithMeta<Artifact>> {
     let recipe_hash = recipe.hash();
     let result = bake_inner(brioche, recipe).await?;
 
     match scope {
-        ResolveScope::Project {
+        BakeScope::Project {
             project_hash,
             export,
         } => {
@@ -83,7 +83,7 @@ pub async fn resolve(
 
             db_transaction.commit().await?;
         }
-        ResolveScope::Child { parent_hash } => {
+        BakeScope::Child { parent_hash } => {
             let mut db_conn = brioche.db_conn.lock().await;
             let mut db_transaction = db_conn.begin().await?;
 
@@ -105,14 +105,14 @@ pub async fn resolve(
 
             db_transaction.commit().await?;
         }
-        ResolveScope::Anonymous => {}
+        BakeScope::Anonymous => {}
     }
 
     Ok(result)
 }
 
 #[async_recursion::async_recursion]
-#[tracing::instrument(skip(brioche, recipe), fields(recipe_hash = %recipe.hash(), recipe_kind = ?recipe.kind(), resolved_method))]
+#[tracing::instrument(skip(brioche, recipe), fields(recipe_hash = %recipe.hash(), recipe_kind = ?recipe.kind(), bake_method))]
 async fn bake_inner(
     brioche: &Brioche,
     recipe: WithMeta<Recipe>,
@@ -122,38 +122,38 @@ async fn bake_inner(
 
     // If we're currently resolving the recipe in another task, wait for it to
     // complete and return early
-    let resolve_tx = {
-        let mut active_resolves = brioche.active_resolves.write().await;
-        match active_resolves.resolve_watchers.entry(recipe_hash) {
+    let bake_tx = {
+        let mut active_bakes = brioche.active_bakes.write().await;
+        match active_bakes.bake_watchers.entry(recipe_hash) {
             std::collections::hash_map::Entry::Occupied(entry) => {
-                let mut active_resolve = entry.get().clone();
+                let mut active_bake = entry.get().clone();
 
-                // Make sure we don't hold the lock while waiting for the resolve to finish
-                drop(active_resolves);
+                // Make sure we don't hold the lock while waiting for the bake to finish
+                drop(active_bakes);
 
-                let resolve_result = active_resolve
+                let bake_result = active_bake
                     .wait_for(Option::is_some)
                     .await
-                    .context("expected resolve result")?;
+                    .context("expected bake result")?;
 
-                tracing::Span::current().record("resolve_method", "active_resolve");
+                tracing::Span::current().record("bake_method", "active_bake");
 
-                let resolve_result = resolve_result.as_ref().expect("expected resolve result");
-                match resolve_result {
-                    Ok(resolve_result) => {
-                        tracing::debug!(%recipe_hash, "received resolve result from in-progress resolve");
-                        return Ok(WithMeta::new(resolve_result.clone(), meta));
+                let bake_result = bake_result.as_ref().expect("expected bake result");
+                match bake_result {
+                    Ok(bake_result) => {
+                        tracing::debug!(%recipe_hash, "received bake result from in-progress bake");
+                        return Ok(WithMeta::new(bake_result.clone(), meta));
                     }
                     Err(error) => {
-                        tracing::debug!(%recipe_hash, %error, "received error while waiting for in-progress resolve to finish, resolve already failed");
+                        tracing::debug!(%recipe_hash, %error, "received error while waiting for in-progress bake to finish, bake already failed");
                         anyhow::bail!("{error}");
                     }
                 };
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
-                let (resolve_tx, resolve_rx) = tokio::sync::watch::channel(None);
-                entry.insert(resolve_rx);
-                resolve_tx
+                let (bake_tx, bake_rx) = tokio::sync::watch::channel(None);
+                entry.insert(bake_rx);
+                bake_tx
             }
         }
     };
@@ -162,15 +162,15 @@ async fn bake_inner(
     // avoid saving it and just return it directly
     let artifact: Result<Artifact, _> = recipe.value.clone().try_into();
     if let Ok(artifact) = artifact {
-        tracing::Span::current().record("resolve_method", "trivial_conversion");
+        tracing::Span::current().record("bake_method", "trivial_conversion");
 
-        // Remove the active resolve watcher
+        // Remove the active bake watcher
         {
-            let mut active_resolves = brioche.active_resolves.write().await;
-            active_resolves.resolve_watchers.remove(&recipe_hash);
+            let mut active_bakes = brioche.active_bakes.write().await;
+            active_bakes.bake_watchers.remove(&recipe_hash);
         }
 
-        let _ = resolve_tx.send(Some(Ok(artifact.clone())));
+        let _ = bake_tx.send(Some(Ok(artifact.clone())));
 
         return Ok(WithMeta::new(artifact, meta));
     }
@@ -197,50 +197,48 @@ async fn bake_inner(
 
     if let Some(row) = result {
         let artifact: Artifact = serde_json::from_str(&row.artifact_json)?;
-        tracing::Span::current().record("resolve_method", "database_hit");
-        tracing::trace!(%recipe_hash, artifact_hash = %artifact.hash(), "got resolve result from database");
+        tracing::Span::current().record("bake_method", "database_hit");
+        tracing::trace!(%recipe_hash, artifact_hash = %artifact.hash(), "got bake result from database");
 
-        // Remove the active resolve watcher
+        // Remove the active bake watcher
         {
-            let mut active_resolves = brioche.active_resolves.write().await;
-            active_resolves.resolve_watchers.remove(&recipe_hash);
+            let mut active_bakes = brioche.active_bakes.write().await;
+            active_bakes.bake_watchers.remove(&recipe_hash);
         }
 
-        let _ = resolve_tx.send(Some(Ok(artifact.clone())));
+        let _ = bake_tx.send(Some(Ok(artifact.clone())));
 
         return Ok(WithMeta::new(artifact, meta));
     }
 
     let input_json = serde_json::to_string(&recipe.value)?;
 
-    // Try to get the resolved recipe from the registry (if it might be
-    // expensive to resolve)
-    let registry_response = if recipe.is_expensive_to_resolve() {
+    // Try to get the baked recipe from the registry (if it might be
+    // expensive to bake)
+    let registry_response = if recipe.is_expensive_to_bake() {
         brioche.registry_client.get_resolve(recipe_hash).await.ok()
     } else {
         None
     };
 
-    // Resolve the recipe for real if we didn't get it from the registry
+    // Bake the recipe for real if we didn't get it from the registry
     let result_artifact = match registry_response {
         Some(response) => Ok(response.output_artifact),
         None => {
-            let resolve_fut = {
+            let bake_fut = {
                 let brioche = brioche.clone();
                 let meta = meta.clone();
-                async move { run_resolve(&brioche, recipe.value, &meta).await }
-                    .instrument(tracing::debug_span!("run_resolve_task").or_current())
+                async move { run_bake(&brioche, recipe.value, &meta).await }
+                    .instrument(tracing::debug_span!("run_bake_task").or_current())
             };
-            tokio::spawn(resolve_fut)
-                .await?
-                .map_err(|error| ResolveFailed {
-                    message: format!("{error:#}"),
-                    meta: meta.clone(),
-                })
+            tokio::spawn(bake_fut).await?.map_err(|error| BakeFailed {
+                message: format!("{error:#}"),
+                meta: meta.clone(),
+            })
         }
     };
 
-    // Write the resolved recipe to the database on success
+    // Write the baked recipe to the database on success
     if let Ok(artifact) = &result_artifact {
         let mut db_conn = brioche.db_conn.lock().await;
         let mut db_transaction = db_conn.begin().await?;
@@ -271,36 +269,32 @@ async fn bake_inner(
         .await?;
         db_transaction.commit().await?;
 
-        tracing::trace!(%recipe_hash, result_hash = %output_hash, "saved resolve result to database");
+        tracing::trace!(%recipe_hash, result_hash = %output_hash, "saved bake result to database");
     }
 
-    // Remove the active resolve watcher
+    // Remove the active bake watcher
     {
-        let mut active_resolves = brioche.active_resolves.write().await;
-        active_resolves.resolve_watchers.remove(&recipe_hash);
+        let mut active_bakes = brioche.active_bakes.write().await;
+        active_bakes.bake_watchers.remove(&recipe_hash);
     }
 
     match result_artifact {
         Ok(result_artifact) => {
             // Ignore error because channel may have closed
-            let _ = resolve_tx.send(Some(Ok(result_artifact.clone())));
+            let _ = bake_tx.send(Some(Ok(result_artifact.clone())));
             Ok(WithMeta::new(result_artifact, meta))
         }
         Err(error) => {
             // Ignore error because channel may have closed
-            let _ = resolve_tx.send(Some(Err(format!("{error:#}"))));
+            let _ = bake_tx.send(Some(Err(format!("{error:#}"))));
             Err(error.into())
         }
     }
 }
 
 #[tracing::instrument(skip_all, err)]
-async fn run_resolve(
-    brioche: &Brioche,
-    recipe: Recipe,
-    meta: &Arc<Meta>,
-) -> anyhow::Result<Artifact> {
-    let scope = ResolveScope::Child {
+async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow::Result<Artifact> {
+    let scope = BakeScope::Child {
         parent_hash: recipe.hash(),
     };
 
@@ -310,9 +304,9 @@ async fn run_resolve(
             executable,
             resources,
         } => {
-            let resources = resolve(brioche, *resources, &scope).await?;
+            let resources = bake(brioche, *resources, &scope).await?;
             let Artifact::Directory(resources) = resources.value else {
-                anyhow::bail!("file resources resolved to non-directory value");
+                anyhow::bail!("file resources recipe returned non-directory artifact");
             };
             Ok(Artifact::File(File {
                 content_blob,
@@ -323,20 +317,19 @@ async fn run_resolve(
         Recipe::Directory(directory) => Ok(Artifact::Directory(directory)),
         Recipe::Symlink { target } => Ok(Artifact::Symlink { target }),
         Recipe::Download(download) => {
-            let downloaded = download::resolve_download(brioche, download).await?;
+            let downloaded = download::bake_download(brioche, download).await?;
             Ok(Artifact::File(downloaded))
         }
         Recipe::Unpack(unpack) => {
-            let unpacked = unpack::resolve_unpack(brioche, meta, unpack).await?;
+            let unpacked = unpack::bake_unpack(brioche, meta, unpack).await?;
             Ok(Artifact::Directory(unpacked))
         }
         Recipe::Process(process) => {
-            // We call `resolve` recursively here so that two different
-            // lazy processes that resolve to the same complete process will
-            // only run once (since `resolve` is memoized).
-            let process =
-                process::resolve_lazy_process_to_process(brioche, &scope, process).await?;
-            let result = resolve(
+            // We call `bake` recursively here so that two different
+            // lazy processes that bake to the same complete process will
+            // only run once (since `bake` is memoized).
+            let process = process::bake_lazy_process_to_process(brioche, &scope, process).await?;
+            let result = bake(
                 brioche,
                 WithMeta::new(Recipe::CompleteProcess(process), meta.clone()),
                 &scope,
@@ -345,7 +338,7 @@ async fn run_resolve(
             Ok(result.value)
         }
         Recipe::CompleteProcess(process) => {
-            let result = process::resolve_process(brioche, meta, process).await?;
+            let result = process::bake_process(brioche, meta, process).await?;
             Ok(result)
         }
         Recipe::CreateFile {
@@ -357,9 +350,9 @@ async fn run_resolve(
                 super::blob::save_blob(brioche, &content, super::blob::SaveBlobOptions::default())
                     .await?;
 
-            let resources = resolve(brioche, *resources, &scope).await?;
+            let resources = bake(brioche, *resources, &scope).await?;
             let Artifact::Directory(resources) = resources.value else {
-                anyhow::bail!("file resources resolved to non-directory value");
+                anyhow::bail!("file resources recipe returned non-directory artifact");
             };
 
             Ok(Artifact::File(File {
@@ -375,7 +368,7 @@ async fn run_resolve(
                     let brioche = brioche.clone();
                     let scope = scope.clone();
                     async move {
-                        let entry = resolve(&brioche, entry, &scope).await?;
+                        let entry = bake(&brioche, entry, &scope).await?;
                         anyhow::Ok((path, entry))
                     }
                 })
@@ -386,7 +379,7 @@ async fn run_resolve(
             Ok(Artifact::Directory(directory))
         }
         Recipe::Cast { recipe, to } => {
-            let result = resolve(brioche, *recipe, &scope).await?;
+            let result = bake(brioche, *recipe, &scope).await?;
             let result_type: ArtifactDiscriminants = (&result.value).into();
             anyhow::ensure!(result_type == to, "tried casting {result_type:?} to {to:?}");
             Ok(result.value)
@@ -395,7 +388,7 @@ async fn run_resolve(
             let directories = futures::future::try_join_all(
                 directories
                     .into_iter()
-                    .map(|dir| resolve(brioche, dir, &scope)),
+                    .map(|dir| bake(brioche, dir, &scope)),
             )
             .await?;
 
@@ -411,11 +404,11 @@ async fn run_resolve(
         }
         Recipe::Proxy(proxy) => {
             let inner = proxy.inner(brioche).await?;
-            let resolved = resolve(brioche, WithMeta::new(inner, meta.clone()), &scope).await?;
-            Ok(resolved.value)
+            let artifact = bake(brioche, WithMeta::new(inner, meta.clone()), &scope).await?;
+            Ok(artifact.value)
         }
         Recipe::Peel { directory, depth } => {
-            let mut result = resolve(brioche, *directory, &scope).await?;
+            let mut result = bake(brioche, *directory, &scope).await?;
 
             for _ in 0..depth {
                 let Artifact::Directory(dir) = result.value else {
@@ -437,8 +430,8 @@ async fn run_resolve(
             Ok(result.value)
         }
         Recipe::Get { directory, path } => {
-            let resolved = resolve(brioche, *directory, &scope).await?;
-            let Artifact::Directory(directory) = resolved.value else {
+            let artifact = bake(brioche, *directory, &scope).await?;
+            let Artifact::Directory(directory) = artifact.value else {
                 anyhow::bail!("tried getting item from non-directory");
             };
 
@@ -453,11 +446,11 @@ async fn run_resolve(
             path,
             recipe,
         } => {
-            let (directory, artifact) = tokio::try_join!(resolve(brioche, *directory, &scope), {
+            let (directory, artifact) = tokio::try_join!(bake(brioche, *directory, &scope), {
                 let scope = scope.clone();
                 async move {
                     match recipe {
-                        Some(recipe) => Ok(Some(resolve(brioche, *recipe, &scope).await?)),
+                        Some(recipe) => Ok(Some(bake(brioche, *recipe, &scope).await?)),
                         None => Ok(None),
                     }
                 }
@@ -472,7 +465,7 @@ async fn run_resolve(
             Ok(Artifact::Directory(directory))
         }
         Recipe::SetPermissions { file, executable } => {
-            let result = resolve(brioche, *file, &scope).await?;
+            let result = bake(brioche, *file, &scope).await?;
             let Artifact::File(mut file) = result.value else {
                 anyhow::bail!("tried setting permissions on non-file");
             };
@@ -500,12 +493,12 @@ pub async fn create_proxy(brioche: &Brioche, recipe: Recipe) -> anyhow::Result<R
 }
 
 #[derive(Debug, thiserror::Error)]
-struct ResolveFailed {
+struct BakeFailed {
     message: String,
     meta: Arc<Meta>,
 }
 
-impl std::fmt::Display for ResolveFailed {
+impl std::fmt::Display for BakeFailed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (message_sources, mut message_lines) = self
             .message

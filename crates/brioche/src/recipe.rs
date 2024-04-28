@@ -126,7 +126,7 @@ impl Recipe {
         self.into()
     }
 
-    pub fn is_expensive_to_resolve(&self) -> bool {
+    pub fn is_expensive_to_bake(&self) -> bool {
         match self {
             Recipe::Download(_) | Recipe::CompleteProcess(_) => true,
             Recipe::File { .. }

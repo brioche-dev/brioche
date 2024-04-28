@@ -1,10 +1,10 @@
 use brioche::recipe::{DownloadRecipe, Recipe};
-use brioche_test::resolve_without_meta;
+use brioche_test::bake_without_meta;
 
 mod brioche_test;
 
 #[tokio::test]
-async fn test_resolve_cache_nested() -> anyhow::Result<()> {
+async fn test_bake_cache_nested() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -27,13 +27,13 @@ async fn test_resolve_cache_nested() -> anyhow::Result<()> {
     let hello_nested_download = brioche_test::lazy_dir([("file.txt", hello_download.clone())]);
 
     assert_eq!(
-        resolve_without_meta(&brioche, hello_download.clone()).await?,
+        bake_without_meta(&brioche, hello_download.clone()).await?,
         brioche_test::file(hello_blob, false),
     );
 
     // The cache from hello_download should be re-used
     assert_eq!(
-        resolve_without_meta(&brioche, hello_nested_download).await?,
+        bake_without_meta(&brioche, hello_nested_download).await?,
         brioche_test::dir(
             &brioche,
             [("file.txt", brioche_test::file(hello_blob, false))]
@@ -47,7 +47,7 @@ async fn test_resolve_cache_nested() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_cache_unnested() -> anyhow::Result<()> {
+async fn test_bake_cache_unnested() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -70,7 +70,7 @@ async fn test_resolve_cache_unnested() -> anyhow::Result<()> {
     let hello_nested_download = brioche_test::lazy_dir([("file.txt", hello_download.clone())]);
 
     assert_eq!(
-        resolve_without_meta(&brioche, hello_nested_download).await?,
+        bake_without_meta(&brioche, hello_nested_download).await?,
         brioche_test::dir(
             &brioche,
             [("file.txt", brioche_test::file(hello_blob, false))]
@@ -80,7 +80,7 @@ async fn test_resolve_cache_unnested() -> anyhow::Result<()> {
 
     // The cache from hello_nested_download should be re-used
     assert_eq!(
-        resolve_without_meta(&brioche, hello_download.clone()).await?,
+        bake_without_meta(&brioche, hello_download.clone()).await?,
         brioche_test::file(hello_blob, false),
     );
 

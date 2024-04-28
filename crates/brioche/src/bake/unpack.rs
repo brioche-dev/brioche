@@ -10,7 +10,7 @@ use crate::{
 };
 
 #[tracing::instrument(skip(brioche, unpack), fields(file_recipe = %unpack.file.hash(), archive = ?unpack.archive, compression = ?unpack.compression))]
-pub async fn resolve_unpack(
+pub async fn bake_unpack(
     brioche: &Brioche,
     meta: &Arc<Meta>,
     unpack: UnpackRecipe,

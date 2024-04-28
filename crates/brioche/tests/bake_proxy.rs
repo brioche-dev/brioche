@@ -1,10 +1,10 @@
-use brioche::{recipe::Recipe, resolve::create_proxy};
-use brioche_test::resolve_without_meta;
+use brioche::{bake::create_proxy, recipe::Recipe};
+use brioche_test::bake_without_meta;
 
 mod brioche_test;
 
 #[tokio::test]
-async fn test_resolve_proxy() -> anyhow::Result<()> {
+async fn test_bake_proxy() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let hello_blob = brioche_test::blob(&brioche, "hello").await;
@@ -25,7 +25,7 @@ async fn test_resolve_proxy() -> anyhow::Result<()> {
     // recipe it wraps
     assert_ne!(merge_proxy.hash(), merge.hash());
 
-    let merge_proxy_result = resolve_without_meta(&brioche, merge_proxy).await?;
+    let merge_proxy_result = bake_without_meta(&brioche, merge_proxy).await?;
     assert_eq!(
         merge_proxy_result,
         brioche_test::dir(&brioche, [("hello", brioche_test::file(hello_blob, false))]).await,

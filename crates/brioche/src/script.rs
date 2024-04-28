@@ -9,7 +9,7 @@ use anyhow::Context as _;
 use deno_core::OpState;
 use specifier::BriocheModuleSpecifier;
 
-use crate::resolve::ResolveScope;
+use crate::bake::BakeScope;
 
 use super::{
     blob::BlobHash,
@@ -147,22 +147,22 @@ struct ModuleSource {
 
 deno_core::extension!(brioche_rt,
     ops = [
-        op_brioche_resolve_all,
+        op_brioche_bake_all,
         op_brioche_create_proxy,
         op_brioche_read_blob,
     ],
     options = {
         brioche: Brioche,
-        resolve_scope: ResolveScope,
+        bake_scope: BakeScope,
     },
     state = |state, options| {
         state.put(options.brioche);
-        state.put(options.resolve_scope);
+        state.put(options.bake_scope);
     },
 );
 
 #[deno_core::op]
-pub async fn op_brioche_resolve_all(
+pub async fn op_brioche_bake_all(
     state: Rc<RefCell<OpState>>,
     recipes: Vec<WithMeta<Recipe>>,
 ) -> anyhow::Result<Vec<Artifact>> {
@@ -173,17 +173,17 @@ pub async fn op_brioche_resolve_all(
             .context("failed to get brioche instance")?
             .clone()
     };
-    let resolve_scope = {
+    let bake_scope = {
         let state = state.try_borrow()?;
         state
-            .try_borrow::<ResolveScope>()
-            .context("failed to get resolve scope")?
+            .try_borrow::<BakeScope>()
+            .context("failed to get bake scope")?
             .clone()
     };
 
     let mut results = vec![];
     for recipe in recipes {
-        let result = super::resolve::resolve(&brioche, recipe, &resolve_scope).await?;
+        let result = super::bake::bake(&brioche, recipe, &bake_scope).await?;
         results.push(result.value);
     }
     Ok(results)
@@ -202,7 +202,7 @@ pub async fn op_brioche_create_proxy(
             .clone()
     };
 
-    let result = super::resolve::create_proxy(&brioche, recipe).await?;
+    let result = super::bake::create_proxy(&brioche, recipe).await?;
     Ok(result)
 }
 

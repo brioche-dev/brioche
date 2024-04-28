@@ -1,11 +1,11 @@
 use assert_matches::assert_matches;
 use brioche::recipe::{DownloadRecipe, Recipe};
-use brioche_test::resolve_without_meta;
+use brioche_test::bake_without_meta;
 
 mod brioche_test;
 
 #[tokio::test]
-async fn test_resolve_download() -> anyhow::Result<()> {
+async fn test_bake_download() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -26,7 +26,7 @@ async fn test_resolve_download() -> anyhow::Result<()> {
     });
 
     assert_eq!(
-        resolve_without_meta(&brioche, hello_download).await?,
+        bake_without_meta(&brioche, hello_download).await?,
         brioche_test::file(hello_blob, false),
     );
 
@@ -36,7 +36,7 @@ async fn test_resolve_download() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_download_cached() -> anyhow::Result<()> {
+async fn test_bake_download_cached() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -57,12 +57,12 @@ async fn test_resolve_download_cached() -> anyhow::Result<()> {
     });
 
     assert_eq!(
-        resolve_without_meta(&brioche, hello_download.clone()).await?,
+        bake_without_meta(&brioche, hello_download.clone()).await?,
         brioche_test::file(hello_blob, false),
     );
 
     assert_eq!(
-        resolve_without_meta(&brioche, hello_download).await?,
+        bake_without_meta(&brioche, hello_download).await?,
         brioche_test::file(hello_blob, false),
     );
 
@@ -72,7 +72,7 @@ async fn test_resolve_download_cached() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_download_rerun_after_failure() -> anyhow::Result<()> {
+async fn test_bake_download_rerun_after_failure() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -89,7 +89,7 @@ async fn test_resolve_download_rerun_after_failure() -> anyhow::Result<()> {
     });
 
     assert_matches!(
-        resolve_without_meta(&brioche, hello_download.clone()).await,
+        bake_without_meta(&brioche, hello_download.clone()).await,
         Err(_)
     );
 
@@ -98,7 +98,7 @@ async fn test_resolve_download_rerun_after_failure() -> anyhow::Result<()> {
     let hello_endpoint = hello_endpoint.with_status(200).with_body(hello).create();
 
     assert_eq!(
-        resolve_without_meta(&brioche, hello_download).await?,
+        bake_without_meta(&brioche, hello_download).await?,
         brioche_test::file(hello_blob, false),
     );
 
@@ -108,7 +108,7 @@ async fn test_resolve_download_rerun_after_failure() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_download_different_urls_with_same_hash() -> anyhow::Result<()> {
+async fn test_bake_download_different_urls_with_same_hash() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -126,7 +126,7 @@ async fn test_resolve_download_different_urls_with_same_hash() -> anyhow::Result
     });
 
     assert_eq!(
-        resolve_without_meta(&brioche, file_1_download).await?,
+        bake_without_meta(&brioche, file_1_download).await?,
         brioche_test::file(hello_blob, false),
     );
 
@@ -136,7 +136,7 @@ async fn test_resolve_download_different_urls_with_same_hash() -> anyhow::Result
     });
 
     assert_eq!(
-        resolve_without_meta(&brioche, file_2_download).await?,
+        bake_without_meta(&brioche, file_2_download).await?,
         brioche_test::file(hello_blob, false),
     );
 
@@ -147,7 +147,7 @@ async fn test_resolve_download_different_urls_with_same_hash() -> anyhow::Result
 }
 
 #[tokio::test]
-async fn test_resolve_download_url_changed_hash() -> anyhow::Result<()> {
+async fn test_bake_download_url_changed_hash() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -169,7 +169,7 @@ async fn test_resolve_download_url_changed_hash() -> anyhow::Result<()> {
     });
 
     assert_eq!(
-        resolve_without_meta(&brioche, file_download_1).await?,
+        bake_without_meta(&brioche, file_download_1).await?,
         brioche_test::file(hello_blob, false),
     );
 
@@ -183,7 +183,7 @@ async fn test_resolve_download_url_changed_hash() -> anyhow::Result<()> {
     });
 
     assert_eq!(
-        resolve_without_meta(&brioche, file_download_2).await?,
+        bake_without_meta(&brioche, file_download_2).await?,
         brioche_test::file(hi_blob, false),
     );
 
@@ -193,7 +193,7 @@ async fn test_resolve_download_url_changed_hash() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_download_invalid_hash() -> anyhow::Result<()> {
+async fn test_bake_download_invalid_hash() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -213,14 +213,14 @@ async fn test_resolve_download_invalid_hash() -> anyhow::Result<()> {
     });
 
     assert_matches!(
-        resolve_without_meta(&brioche, hello_download.clone()).await,
+        bake_without_meta(&brioche, hello_download.clone()).await,
         Err(_)
     );
 
     hello_endpoint.with_body(hello).create();
 
     assert_eq!(
-        resolve_without_meta(&brioche, hello_download).await?,
+        bake_without_meta(&brioche, hello_download).await?,
         brioche_test::file(hello_blob, false),
     );
 
@@ -228,7 +228,7 @@ async fn test_resolve_download_invalid_hash() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_resolve_download_does_not_cache_using_only_hash() -> anyhow::Result<()> {
+async fn test_bake_download_does_not_cache_using_only_hash() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -265,17 +265,17 @@ async fn test_resolve_download_does_not_cache_using_only_hash() -> anyhow::Resul
     });
 
     assert_eq!(
-        resolve_without_meta(&brioche, hello_download.clone()).await?,
+        bake_without_meta(&brioche, hello_download.clone()).await?,
         brioche_test::file(hello_blob, false),
     );
 
     assert_matches!(
-        resolve_without_meta(&brioche, invalid_hi_download.clone()).await,
+        bake_without_meta(&brioche, invalid_hi_download.clone()).await,
         Err(_)
     );
 
     assert_eq!(
-        resolve_without_meta(&brioche, hi_download.clone()).await?,
+        bake_without_meta(&brioche, hi_download.clone()).await?,
         brioche_test::file(hi_blob, false),
     );
 
