@@ -35,8 +35,10 @@ pub async fn sync_project(
         .await?;
     }
 
+    let num_artifact_refs = sync_references.artifacts.len();
+    let num_blob_refs = sync_references.blobs.len();
     println!(
-        "Collected refs in {}",
+        "Collected refs in {} ({num_artifact_refs} artifacts, {num_blob_refs} blobs",
         start_refs.elapsed().human_duration()
     );
 
