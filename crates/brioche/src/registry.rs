@@ -231,7 +231,7 @@ impl RegistryClient {
                 &format!("v0/recipes/{input_hash}/bake"),
             )?
             .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .json(&CreateResolveRequest { output_hash })
+            .json(&CreateBakeRequest { output_hash })
             .send()
             .await?;
 
@@ -241,7 +241,7 @@ impl RegistryClient {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_bake(&self, input_hash: RecipeHash) -> anyhow::Result<GetBakedResponse> {
+    pub async fn get_bake(&self, input_hash: RecipeHash) -> anyhow::Result<GetBakeResponse> {
         let response = self
             .request(
                 reqwest::Method::GET,
@@ -293,14 +293,14 @@ pub struct UpdatedTag {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetBakedResponse {
+pub struct GetBakeResponse {
     pub output_hash: RecipeHash,
     pub output_artifact: Artifact,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateResolveRequest {
+pub struct CreateBakeRequest {
     pub output_hash: RecipeHash,
 }
 
