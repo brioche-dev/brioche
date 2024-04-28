@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use human_repr::HumanDuration;
 
-use crate::{project::ProjectHash, references::ArtifactReferences, Brioche};
+use crate::{project::ProjectHash, references::RecipeReferences, Brioche};
 
 const RETRY_LIMIT: usize = 5;
 const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
@@ -14,26 +14,26 @@ pub async fn sync_project(
 ) -> anyhow::Result<()> {
     // TODO: Use reporter for logging in this function
 
-    // Get all descendent resolves for the project/export
+    // Get all descendent bakes for the project/export
 
     let start_refs = std::time::Instant::now();
 
-    let descendent_project_resolves =
-        crate::references::descendent_project_resolves(brioche, project_hash, export).await?;
+    let descendent_project_bakes =
+        crate::references::descendent_project_bakes(brioche, project_hash, export).await?;
 
-    // Collect the references from each input/output artifact
+    // Collect the references from each input recipe/output artifact
 
-    let mut sync_references = ArtifactReferences::default();
+    let mut sync_references = RecipeReferences::default();
 
-    let artifact_hashes = descendent_project_resolves
+    let recipe_hashes = descendent_project_bakes
         .iter()
         .flat_map(|(input, output)| [input.hash(), output.hash()]);
-    crate::references::artifact_references(brioche, &mut sync_references, artifact_hashes).await?;
+    crate::references::recipe_references(brioche, &mut sync_references, recipe_hashes).await?;
 
-    let num_artifact_refs = sync_references.artifacts.len();
+    let num_recipe_refs = sync_references.recipes.len();
     let num_blob_refs = sync_references.blobs.len();
     println!(
-        "Collected refs in {} ({num_artifact_refs} artifacts, {num_blob_refs} blobs)",
+        "Collected refs in {} ({num_recipe_refs} recipes, {num_blob_refs} blobs)",
         start_refs.elapsed().human_duration()
     );
 
@@ -84,62 +84,52 @@ pub async fn sync_project(
         start_blobs.elapsed().human_duration()
     );
 
-    // Sync referenced artifacts
+    // Sync referenced recipes
 
-    let start_artifacts = std::time::Instant::now();
+    let start_recipes = std::time::Instant::now();
 
-    let all_artifact_hashes = sync_references
-        .artifacts
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
-    let known_artifact_hashes = brioche
+    let all_recipe_hashes = sync_references.recipes.keys().cloned().collect::<Vec<_>>();
+    let known_recipe_hashes = brioche
         .registry_client
-        .known_artifacts(&all_artifact_hashes)
+        .known_recipes(&all_recipe_hashes)
         .await?;
-    let new_artifacts: Vec<_> = sync_references
-        .artifacts
+    let new_recipes: Vec<_> = sync_references
+        .recipes
         .clone()
         .into_iter()
-        .filter_map(|(hash, artifact)| {
-            if known_artifact_hashes.contains(&hash) {
+        .filter_map(|(hash, recipe)| {
+            if known_recipe_hashes.contains(&hash) {
                 None
             } else {
-                Some(artifact)
+                Some(recipe)
             }
         })
         .collect();
 
-    brioche
-        .registry_client
-        .create_artifacts(&new_artifacts)
-        .await?;
+    brioche.registry_client.create_recipes(&new_recipes).await?;
 
     println!(
-        "Finished syncing {} artifacts in {}",
-        sync_references.artifacts.len(),
-        start_artifacts.elapsed().human_duration()
+        "Finished syncing {} recipes in {}",
+        sync_references.recipes.len(),
+        start_recipes.elapsed().human_duration()
     );
 
-    // Sync each resolve
+    // Sync each baked recipe
 
-    let start_resolves = std::time::Instant::now();
+    let start_bakes = std::time::Instant::now();
 
-    let num_descendent_project_resolves = descendent_project_resolves.len();
+    let num_descendent_project_bakes = descendent_project_bakes.len();
 
-    let all_resolves = descendent_project_resolves
+    let all_bakes = descendent_project_bakes
         .into_iter()
         .map(|(input, output)| (input.hash(), output.hash()))
         .collect::<Vec<_>>();
-    let known_resolves = brioche
-        .registry_client
-        .known_resolves(&all_resolves)
-        .await?;
-    let new_resolves = all_resolves
+    let known_bakes = brioche.registry_client.known_bakes(&all_bakes).await?;
+    let new_bakes = all_bakes
         .into_iter()
-        .filter(|resolve| !known_resolves.contains(resolve));
+        .filter(|bake| !known_bakes.contains(bake));
 
-    futures::stream::iter(new_resolves)
+    futures::stream::iter(new_bakes)
         .map(Ok)
         .try_for_each_concurrent(Some(100), |(input_hash, output_hash)| {
             let brioche = brioche.clone();
@@ -150,7 +140,7 @@ pub async fn sync_project(
                         async move {
                             brioche
                                 .registry_client
-                                .create_resolve(input_hash, output_hash)
+                                .create_bake(input_hash, output_hash)
                                 .await
                         }
                     })
@@ -163,8 +153,8 @@ pub async fn sync_project(
         .await?;
 
     println!(
-        "Finished syncing {num_descendent_project_resolves} resolves in {}",
-        start_resolves.elapsed().human_duration()
+        "Finished syncing {num_descendent_project_bakes} bakes in {}",
+        start_bakes.elapsed().human_duration()
     );
 
     Ok(())

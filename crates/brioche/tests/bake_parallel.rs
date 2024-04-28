@@ -1,10 +1,10 @@
-use brioche::artifact::{DownloadArtifact, LazyArtifact};
-use brioche_test::resolve_without_meta;
+use brioche::recipe::{DownloadRecipe, Recipe};
+use brioche_test::bake_without_meta;
 
 mod brioche_test;
 
 #[tokio::test]
-async fn test_resolve_parallel_no_duplicates() -> anyhow::Result<()> {
+async fn test_bake_parallel_no_duplicates() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test::brioche_test().await;
 
     let mut server = mockito::Server::new();
@@ -19,13 +19,13 @@ async fn test_resolve_parallel_no_duplicates() -> anyhow::Result<()> {
         .expect(1)
         .create();
 
-    let hello_download = LazyArtifact::Download(DownloadArtifact {
+    let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash,
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });
 
-    let download_1 = resolve_without_meta(&brioche, hello_download.clone());
-    let download_2 = resolve_without_meta(&brioche, hello_download);
+    let download_1 = bake_without_meta(&brioche, hello_download.clone());
+    let download_2 = bake_without_meta(&brioche, hello_download);
 
     let (download_result_1, download_result_2) = tokio::join!(download_1, download_2);
 

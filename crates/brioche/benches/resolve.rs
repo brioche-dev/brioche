@@ -1,5 +1,5 @@
 use brioche::{
-    artifact::{Directory, LazyArtifact, WithMeta},
+    recipe::{Directory, Recipe, WithMeta},
     Brioche,
 };
 use criterion::{criterion_group, criterion_main, Criterion};
@@ -62,47 +62,47 @@ async fn make_wide_dir(brioche: &Brioche, key: &str) -> Directory {
     directory
 }
 
-fn run_resolve_benchmark(c: &mut Criterion) {
+fn run_bake_benchmark(c: &mut Criterion) {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .expect("failed to build Tokio runtime");
     let _runtime_guard = runtime.enter();
 
-    struct Artifacts {
+    struct Recipes {
         deep_dir: Directory,
         wide_dir: Directory,
-        merge_deep_dir: LazyArtifact,
-        merge_wide_dir: LazyArtifact,
+        merge_deep_dir: Recipe,
+        merge_wide_dir: Recipe,
     }
 
-    let (brioche, _context, artifacts) = runtime.block_on(async {
+    let (brioche, _context, recipes) = runtime.block_on(async {
         let (brioche, context) = brioche_bench::brioche_test().await;
 
         let deep_dir = make_deep_dir(&brioche, "").await;
-        let _deep_dir_result = brioche::resolve::resolve(
+        let _deep_dir_result = brioche::bake::bake(
             &brioche,
-            WithMeta::without_meta(LazyArtifact::from(deep_dir.clone())),
-            &brioche::resolve::ResolveScope::Anonymous,
+            WithMeta::without_meta(Recipe::from(deep_dir.clone())),
+            &brioche::bake::BakeScope::Anonymous,
         )
         .await
         .unwrap();
 
         let wide_dir = make_wide_dir(&brioche, "").await;
-        let _wide_dir_result = brioche::resolve::resolve(
+        let _wide_dir_result = brioche::bake::bake(
             &brioche,
-            WithMeta::without_meta(LazyArtifact::from(wide_dir.clone())),
-            &brioche::resolve::ResolveScope::Anonymous,
+            WithMeta::without_meta(Recipe::from(wide_dir.clone())),
+            &brioche::bake::BakeScope::Anonymous,
         )
         .await
         .unwrap();
 
-        let merge_deep_dir = LazyArtifact::Merge {
+        let merge_deep_dir = Recipe::Merge {
             directories: futures::stream::iter(0..10)
                 .then(|n| {
                     let brioche = brioche.clone();
                     async move {
-                        WithMeta::without_meta(LazyArtifact::from(
+                        WithMeta::without_meta(Recipe::from(
                             make_deep_dir(&brioche, &n.to_string()).await,
                         ))
                     }
@@ -111,12 +111,12 @@ fn run_resolve_benchmark(c: &mut Criterion) {
                 .await,
         };
 
-        let merge_wide_dir = LazyArtifact::Merge {
+        let merge_wide_dir = Recipe::Merge {
             directories: futures::stream::iter(0..10)
                 .then(|n| {
                     let brioche = brioche.clone();
                     async move {
-                        WithMeta::without_meta(LazyArtifact::from(
+                        WithMeta::without_meta(Recipe::from(
                             make_deep_dir(&brioche, &n.to_string()).await,
                         ))
                     }
@@ -128,7 +128,7 @@ fn run_resolve_benchmark(c: &mut Criterion) {
         (
             brioche,
             context,
-            Artifacts {
+            Recipes {
                 deep_dir,
                 wide_dir,
                 merge_deep_dir,
@@ -137,52 +137,44 @@ fn run_resolve_benchmark(c: &mut Criterion) {
         )
     });
 
-    c.bench_function("cached resolve deep dir", |b| {
+    c.bench_function("cached bake deep dir", |b| {
         b.to_async(&runtime).iter(|| async {
-            let deep_dir = WithMeta::without_meta(LazyArtifact::from(artifacts.deep_dir.clone()));
-            let _ = brioche::resolve::resolve(
-                &brioche,
-                deep_dir,
-                &brioche::resolve::ResolveScope::Anonymous,
-            )
-            .await
-            .unwrap();
+            let deep_dir = WithMeta::without_meta(Recipe::from(recipes.deep_dir.clone()));
+            let _ = brioche::bake::bake(&brioche, deep_dir, &brioche::bake::BakeScope::Anonymous)
+                .await
+                .unwrap();
         })
     });
 
-    c.bench_function("cached resolve wide dir", |b| {
+    c.bench_function("cached bake wide dir", |b| {
         b.to_async(&runtime).iter(|| async {
-            let wide_dir = WithMeta::without_meta(LazyArtifact::from(artifacts.wide_dir.clone()));
-            let _ = brioche::resolve::resolve(
-                &brioche,
-                wide_dir,
-                &brioche::resolve::ResolveScope::Anonymous,
-            )
-            .await
-            .unwrap();
+            let wide_dir = WithMeta::without_meta(Recipe::from(recipes.wide_dir.clone()));
+            let _ = brioche::bake::bake(&brioche, wide_dir, &brioche::bake::BakeScope::Anonymous)
+                .await
+                .unwrap();
         })
     });
 
-    c.bench_function("cached resolve deep merge", |b| {
+    c.bench_function("cached bake deep merge", |b| {
         b.to_async(&runtime).iter(|| async {
-            let merge_deep_dir = WithMeta::without_meta(artifacts.merge_deep_dir.clone());
-            let _ = brioche::resolve::resolve(
+            let merge_deep_dir = WithMeta::without_meta(recipes.merge_deep_dir.clone());
+            let _ = brioche::bake::bake(
                 &brioche,
                 merge_deep_dir,
-                &brioche::resolve::ResolveScope::Anonymous,
+                &brioche::bake::BakeScope::Anonymous,
             )
             .await
             .unwrap();
         })
     });
 
-    c.bench_function("cached resolve wide merge", |b| {
+    c.bench_function("cached bake wide merge", |b| {
         b.to_async(&runtime).iter(|| async {
-            let merge_wide_dir = WithMeta::without_meta(artifacts.merge_wide_dir.clone());
-            let _ = brioche::resolve::resolve(
+            let merge_wide_dir = WithMeta::without_meta(recipes.merge_wide_dir.clone());
+            let _ = brioche::bake::bake(
                 &brioche,
                 merge_wide_dir,
-                &brioche::resolve::ResolveScope::Anonymous,
+                &brioche::bake::BakeScope::Anonymous,
             )
             .await
             .unwrap();
@@ -190,5 +182,5 @@ fn run_resolve_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, run_resolve_benchmark);
+criterion_group!(benches, run_bake_benchmark);
 criterion_main!(benches);

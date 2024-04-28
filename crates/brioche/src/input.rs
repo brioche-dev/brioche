@@ -6,7 +6,7 @@ use bstr::{ByteSlice as _, ByteVec as _};
 use crate::fs_utils::{is_executable, set_directory_rwx_recursive};
 
 use super::{
-    artifact::{CompleteArtifact, Directory, File, Meta, WithMeta},
+    recipe::{Artifact, Directory, File, Meta, WithMeta},
     Brioche,
 };
 
@@ -22,7 +22,7 @@ pub struct InputOptions<'a> {
 pub async fn create_input(
     brioche: &Brioche,
     options: InputOptions<'_>,
-) -> anyhow::Result<WithMeta<CompleteArtifact>> {
+) -> anyhow::Result<WithMeta<Artifact>> {
     // Ensure directories that we will remove are writable and executable
     if options.remove_input {
         set_directory_rwx_recursive(options.input_path).await?;
@@ -40,7 +40,7 @@ pub async fn create_input(
 pub async fn create_input_inner(
     brioche: &Brioche,
     options: InputOptions<'async_recursion>,
-) -> anyhow::Result<WithMeta<CompleteArtifact>> {
+) -> anyhow::Result<WithMeta<Artifact>> {
     let metadata = tokio::fs::symlink_metadata(options.input_path)
         .await
         .with_context(|| {
@@ -171,7 +171,7 @@ pub async fn create_input_inner(
         let executable = is_executable(&permissions);
 
         Ok(WithMeta::new(
-            CompleteArtifact::File(File {
+            Artifact::File(File {
                 content_blob: blob_hash,
                 executable,
                 resources,
@@ -223,7 +223,7 @@ pub async fn create_input_inner(
 
         let result_dir = Directory::create(brioche, &result_dir_entries).await?;
         Ok(WithMeta::new(
-            CompleteArtifact::Directory(result_dir),
+            Artifact::Directory(result_dir),
             options.meta.clone(),
         ))
     } else if metadata.is_symlink() {
@@ -249,7 +249,7 @@ pub async fn create_input_inner(
         }
 
         Ok(WithMeta::new(
-            CompleteArtifact::Symlink { target },
+            Artifact::Symlink { target },
             options.meta.clone(),
         ))
     } else {

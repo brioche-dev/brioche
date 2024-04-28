@@ -4,86 +4,86 @@ use anyhow::Context as _;
 use sqlx::Acquire as _;
 
 use crate::{
-    artifact::{
-        ArtifactHash, CompleteArtifact, CompleteProcessArtifact, CompleteProcessTemplateComponent,
-        LazyArtifact, ProcessArtifact, ProcessTemplateComponent,
-    },
     blob::BlobHash,
     project::ProjectHash,
+    recipe::{
+        Artifact, CompleteProcessRecipe, CompleteProcessTemplateComponent, ProcessRecipe,
+        ProcessTemplateComponent, Recipe, RecipeHash,
+    },
     Brioche,
 };
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ArtifactReferences {
+pub struct RecipeReferences {
     pub blobs: HashSet<BlobHash>,
-    pub artifacts: HashMap<ArtifactHash, LazyArtifact>,
+    pub recipes: HashMap<RecipeHash, Recipe>,
 }
 
-pub async fn artifact_references(
+pub async fn recipe_references(
     brioche: &Brioche,
-    references: &mut ArtifactReferences,
-    artifacts: impl IntoIterator<Item = ArtifactHash>,
+    references: &mut RecipeReferences,
+    recipes: impl IntoIterator<Item = RecipeHash>,
 ) -> anyhow::Result<()> {
-    let mut unvisited = VecDeque::from_iter(artifacts);
+    let mut unvisited = VecDeque::from_iter(recipes);
 
     loop {
-        unvisited.retain(|artifact| !references.artifacts.contains_key(artifact));
+        unvisited.retain(|recipe| !references.recipes.contains_key(recipe));
 
         if unvisited.is_empty() {
             break;
         }
 
-        let artifacts = crate::artifact::get_artifacts(brioche, unvisited.drain(..)).await?;
+        let recipes = crate::recipe::get_recipes(brioche, unvisited.drain(..)).await?;
 
-        for artifact in artifacts.values() {
-            unvisited.extend(referenced_artifacts(artifact));
-            references.blobs.extend(referenced_blobs(artifact));
+        for recipe in recipes.values() {
+            unvisited.extend(referenced_recipes(recipe));
+            references.blobs.extend(referenced_blobs(recipe));
         }
 
-        references.artifacts.extend(artifacts);
+        references.recipes.extend(recipes);
     }
 
     Ok(())
 }
 
-pub fn referenced_blobs(artifact: &LazyArtifact) -> Vec<BlobHash> {
-    match artifact {
-        LazyArtifact::File { content_blob, .. } => vec![*content_blob],
-        LazyArtifact::Directory(_)
-        | LazyArtifact::Symlink { .. }
-        | LazyArtifact::Download(_)
-        | LazyArtifact::Unpack(_)
-        | LazyArtifact::Process(_)
-        | LazyArtifact::CompleteProcess(_)
-        | LazyArtifact::CreateFile { .. }
-        | LazyArtifact::CreateDirectory(_)
-        | LazyArtifact::Cast { .. }
-        | LazyArtifact::Merge { .. }
-        | LazyArtifact::Peel { .. }
-        | LazyArtifact::Get { .. }
-        | LazyArtifact::Insert { .. }
-        | LazyArtifact::SetPermissions { .. }
-        | LazyArtifact::Proxy(_) => vec![],
+pub fn referenced_blobs(recipe: &Recipe) -> Vec<BlobHash> {
+    match recipe {
+        Recipe::File { content_blob, .. } => vec![*content_blob],
+        Recipe::Directory(_)
+        | Recipe::Symlink { .. }
+        | Recipe::Download(_)
+        | Recipe::Unpack(_)
+        | Recipe::Process(_)
+        | Recipe::CompleteProcess(_)
+        | Recipe::CreateFile { .. }
+        | Recipe::CreateDirectory(_)
+        | Recipe::Cast { .. }
+        | Recipe::Merge { .. }
+        | Recipe::Peel { .. }
+        | Recipe::Get { .. }
+        | Recipe::Insert { .. }
+        | Recipe::SetPermissions { .. }
+        | Recipe::Proxy(_) => vec![],
     }
 }
 
-pub fn referenced_artifacts(artifact: &LazyArtifact) -> Vec<ArtifactHash> {
-    match artifact {
-        LazyArtifact::File {
+pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
+    match recipe {
+        Recipe::File {
             resources,
             content_blob: _,
             executable: _,
-        } => referenced_artifacts(resources),
-        LazyArtifact::Directory(directory) => directory
+        } => referenced_recipes(resources),
+        Recipe::Directory(directory) => directory
             .entry_hashes()
             .values()
             .map(|entry| entry.value)
             .collect(),
-        LazyArtifact::Symlink { .. } => vec![],
-        LazyArtifact::Download(_) => vec![],
-        LazyArtifact::Unpack(unpack) => referenced_artifacts(&unpack.file),
-        LazyArtifact::Process(process) => {
-            let ProcessArtifact {
+        Recipe::Symlink { .. } => vec![],
+        Recipe::Download(_) => vec![],
+        Recipe::Unpack(unpack) => referenced_recipes(&unpack.file),
+        Recipe::Process(process) => {
+            let ProcessRecipe {
                 command,
                 args,
                 env,
@@ -97,7 +97,7 @@ pub fn referenced_artifacts(artifact: &LazyArtifact) -> Vec<ArtifactHash> {
             templates
                 .flat_map(|template| &template.components)
                 .flat_map(|component| match component {
-                    ProcessTemplateComponent::Input { artifact } => referenced_artifacts(artifact),
+                    ProcessTemplateComponent::Input { recipe } => referenced_recipes(recipe),
                     ProcessTemplateComponent::Literal { .. }
                     | ProcessTemplateComponent::OutputPath
                     | ProcessTemplateComponent::ResourcesDir
@@ -105,16 +105,16 @@ pub fn referenced_artifacts(artifact: &LazyArtifact) -> Vec<ArtifactHash> {
                     | ProcessTemplateComponent::WorkDir
                     | ProcessTemplateComponent::TempDir => vec![],
                 })
-                .chain(referenced_artifacts(work_dir))
+                .chain(referenced_recipes(work_dir))
                 .chain(
                     output_scaffold
                         .iter()
-                        .flat_map(|artifact| referenced_artifacts(artifact)),
+                        .flat_map(|recipe| referenced_recipes(recipe)),
                 )
                 .collect()
         }
-        LazyArtifact::CompleteProcess(process) => {
-            let CompleteProcessArtifact {
+        Recipe::CompleteProcess(process) => {
+            let CompleteProcessRecipe {
                 command,
                 args,
                 env,
@@ -123,10 +123,10 @@ pub fn referenced_artifacts(artifact: &LazyArtifact) -> Vec<ArtifactHash> {
                 platform: _,
             } = process;
 
-            let work_dir = LazyArtifact::from(work_dir.clone());
+            let work_dir = Recipe::from(work_dir.clone());
             let output_scaffold = output_scaffold
                 .as_ref()
-                .map(|artifact| LazyArtifact::from((**artifact).clone()));
+                .map(|artifact| Recipe::from((**artifact).clone()));
 
             let templates = [command].into_iter().chain(args).chain(env.values());
 
@@ -134,8 +134,8 @@ pub fn referenced_artifacts(artifact: &LazyArtifact) -> Vec<ArtifactHash> {
                 .flat_map(|template| &template.components)
                 .flat_map(|component| match component {
                     CompleteProcessTemplateComponent::Input { artifact } => {
-                        let artifact = LazyArtifact::from(artifact.value.clone());
-                        referenced_artifacts(&artifact)
+                        let recipe = Recipe::from(artifact.value.clone());
+                        referenced_recipes(&recipe)
                     }
                     CompleteProcessTemplateComponent::Literal { .. }
                     | CompleteProcessTemplateComponent::OutputPath
@@ -144,87 +144,83 @@ pub fn referenced_artifacts(artifact: &LazyArtifact) -> Vec<ArtifactHash> {
                     | CompleteProcessTemplateComponent::WorkDir
                     | CompleteProcessTemplateComponent::TempDir => vec![],
                 })
-                .chain(referenced_artifacts(&work_dir))
-                .chain(output_scaffold.iter().flat_map(referenced_artifacts))
+                .chain(referenced_recipes(&work_dir))
+                .chain(output_scaffold.iter().flat_map(referenced_recipes))
                 .collect()
         }
-        LazyArtifact::CreateFile {
+        Recipe::CreateFile {
             content: _,
             executable: _,
             resources,
-        } => referenced_artifacts(resources),
-        LazyArtifact::CreateDirectory(directory) => directory
+        } => referenced_recipes(resources),
+        Recipe::CreateDirectory(directory) => directory
             .entries
             .values()
-            .flat_map(|entry| referenced_artifacts(entry))
+            .flat_map(|entry| referenced_recipes(entry))
             .collect(),
-        LazyArtifact::Cast { artifact, to: _ } => referenced_artifacts(artifact),
-        LazyArtifact::Merge { directories } => directories
+        Recipe::Cast { recipe, to: _ } => referenced_recipes(recipe),
+        Recipe::Merge { directories } => directories
             .iter()
-            .flat_map(|dir| referenced_artifacts(dir))
+            .flat_map(|dir| referenced_recipes(dir))
             .collect(),
-        LazyArtifact::Peel {
+        Recipe::Peel {
             directory,
             depth: _,
-        } => referenced_artifacts(directory),
-        LazyArtifact::Get { directory, path: _ } => referenced_artifacts(directory),
-        LazyArtifact::Insert {
+        } => referenced_recipes(directory),
+        Recipe::Get { directory, path: _ } => referenced_recipes(directory),
+        Recipe::Insert {
             directory,
             path: _,
-            artifact,
-        } => referenced_artifacts(directory)
+            recipe,
+        } => referenced_recipes(directory)
             .into_iter()
-            .chain(
-                artifact
-                    .iter()
-                    .flat_map(|artifact| referenced_artifacts(artifact)),
-            )
+            .chain(recipe.iter().flat_map(|recipe| referenced_recipes(recipe)))
             .collect(),
-        LazyArtifact::SetPermissions {
+        Recipe::SetPermissions {
             file,
             executable: _,
-        } => referenced_artifacts(file),
-        LazyArtifact::Proxy(proxy) => vec![proxy.artifact],
+        } => referenced_recipes(file),
+        Recipe::Proxy(proxy) => vec![proxy.recipe],
     }
 }
 
-pub async fn descendent_project_resolves(
+pub async fn descendent_project_bakes(
     brioche: &Brioche,
     project_hash: ProjectHash,
     export: &str,
-) -> anyhow::Result<Vec<(LazyArtifact, CompleteArtifact)>> {
+) -> anyhow::Result<Vec<(Recipe, Artifact)>> {
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
 
-    // Find all artifacts resolved by the project (either directly in the
+    // Find all recipes baked by the project (either directly in the
     // `project_resolves` table or indirectly in the `child_resolves` table),
-    // then filter it down to only `complete_process` and `download` artifacts.
+    // then filter it down to only `complete_process` and `download` recipes.
     let project_hash_value = project_hash.to_string();
-    let project_descendent_resolves = sqlx::query!(
+    let project_descendent_bakes = sqlx::query!(
         r#"
-            WITH RECURSIVE project_descendent_resolves (artifact_hash) AS (
-                SELECT project_resolves.artifact_hash
-                FROM project_resolves
+            WITH RECURSIVE project_descendent_bakes (recipe_hash) AS (
+                SELECT project_bakes.recipe_hash
+                FROM project_bakes
                 WHERE project_hash = ? AND export = ?
                 UNION
-                SELECT child_resolves.artifact_hash
-                FROM child_resolves
-                INNER JOIN project_descendent_resolves ON
-                    project_descendent_resolves.artifact_hash = child_resolves.parent_hash
+                SELECT child_bakes.recipe_hash
+                FROM child_bakes
+                INNER JOIN project_descendent_bakes ON
+                    project_descendent_bakes.recipe_hash = child_bakes.parent_hash
             )
             SELECT
-                input_artifacts.artifact_hash AS input_hash,
-                input_artifacts.artifact_json AS input_json,
-                output_artifacts.artifact_hash AS output_hash,
-                output_artifacts.artifact_json AS output_json
-            FROM project_descendent_resolves
-            INNER JOIN resolves ON
-                resolves.input_hash = project_descendent_resolves.artifact_hash
-            INNER JOIN artifacts AS input_artifacts ON
-                input_artifacts.artifact_hash = resolves.input_hash
-            INNER JOIN artifacts AS output_artifacts ON
-                output_artifacts.artifact_hash = resolves.output_hash
-            WHERE input_artifacts.artifact_json->>'type' IN ('complete_process', 'download');
+                input_recipes.recipe_hash AS input_hash,
+                input_recipes.recipe_json AS input_json,
+                output_artifacts.recipe_hash AS output_hash,
+                output_artifacts.recipe_json AS output_json
+            FROM project_descendent_bakes
+            INNER JOIN bakes ON
+                bakes.input_hash = project_descendent_bakes.recipe_hash
+            INNER JOIN recipes AS input_recipes ON
+                input_recipes.recipe_hash = bakes.input_hash
+            INNER JOIN recipes AS output_artifacts ON
+                output_artifacts.recipe_hash = bakes.output_hash
+            WHERE input_recipes.recipe_json->>'type' IN ('complete_process', 'download');
         "#,
         project_hash_value,
         export,
@@ -232,21 +228,24 @@ pub async fn descendent_project_resolves(
     .fetch_all(&mut *db_transaction)
     .await?;
 
-    let project_descendent_resolves = project_descendent_resolves
+    let project_descendent_bakes = project_descendent_bakes
         .into_iter()
         .map(|record| {
             let input_hash = record
                 .input_hash
                 .parse()
-                .context("invalid artifact hash from database")?;
+                .context("invalid recipe hash from database")?;
             let output_hash = record
                 .output_hash
                 .parse()
-                .context("invalid artifact hash from database")?;
-            let input: LazyArtifact = serde_json::from_str(&record.input_json)
-                .context("invalid artifact JSON from database")?;
-            let output: CompleteArtifact = serde_json::from_str(&record.output_json)
-                .context("invalid artifact JSON from database")?;
+                .context("invalid recipe hash from database")?;
+            let input: Recipe = serde_json::from_str(&record.input_json)
+                .context("invalid recipe JSON from database")?;
+            let output: Recipe = serde_json::from_str(&record.output_json)
+                .context("invalid recipe JSON from database")?;
+            let output: Artifact = output
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("output recipe is not complete"))?;
 
             anyhow::ensure!(
                 input.hash() == input_hash,
@@ -265,5 +264,5 @@ pub async fn descendent_project_resolves(
 
     db_transaction.commit().await?;
 
-    Ok(project_descendent_resolves)
+    Ok(project_descendent_bakes)
 }

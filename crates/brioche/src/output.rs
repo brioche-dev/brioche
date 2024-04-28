@@ -4,7 +4,7 @@ use anyhow::Context as _;
 use bstr::ByteSlice;
 
 use super::{
-    artifact::{CompleteArtifact, Directory, File},
+    recipe::{Artifact, Directory, File},
     Brioche,
 };
 
@@ -25,7 +25,7 @@ pub struct OutputOptions<'a> {
 #[tracing::instrument(skip(brioche, artifact), fields(artifact_hash = %artifact.hash()), err)]
 pub async fn create_output(
     brioche: &Brioche,
-    artifact: &CompleteArtifact,
+    artifact: &Artifact,
     options: OutputOptions<'_>,
 ) -> anyhow::Result<()> {
     let lock = if options.link_locals {
@@ -45,7 +45,7 @@ pub async fn create_output(
 #[tracing::instrument(skip(brioche, artifact, link_lock), fields(artifact_hash = %artifact.hash()), err)]
 async fn create_output_inner<'a: 'async_recursion>(
     brioche: &Brioche,
-    artifact: &CompleteArtifact,
+    artifact: &Artifact,
     options: OutputOptions<'a>,
     link_lock: Option<&'a tokio::sync::MutexGuard<'a, LocalOutputLock>>,
 ) -> anyhow::Result<()> {
@@ -60,7 +60,7 @@ async fn create_output_inner<'a: 'async_recursion>(
     };
 
     match artifact {
-        CompleteArtifact::File(File {
+        Artifact::File(File {
             content_blob,
             executable,
             resources,
@@ -122,7 +122,7 @@ async fn create_output_inner<'a: 'async_recursion>(
 
                 create_output_inner(
                     brioche,
-                    &CompleteArtifact::Directory(resources.clone()),
+                    &Artifact::Directory(resources.clone()),
                     OutputOptions {
                         output_path: resources_dir,
                         resources_dir: Some(resources_dir),
@@ -134,7 +134,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                 )
                 .await?;
 
-                let artifact_without_resources = CompleteArtifact::File(File {
+                let artifact_without_resources = Artifact::File(File {
                     content_blob: *content_blob,
                     executable: *executable,
                     resources: Directory::default(),
@@ -171,7 +171,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                 }
             }
         }
-        CompleteArtifact::Symlink { target } => {
+        Artifact::Symlink { target } => {
             let target = target.to_path()?;
             if options.merge {
                 // Try to remove the file if it already exists so we can
@@ -191,7 +191,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                     )
                 })?;
         }
-        CompleteArtifact::Directory(directory) => {
+        Artifact::Directory(directory) => {
             let result = tokio::fs::create_dir(options.output_path).await;
 
             match result {
@@ -221,11 +221,11 @@ async fn create_output_inner<'a: 'async_recursion>(
                 };
 
                 match (&entry.value, link_lock) {
-                    (CompleteArtifact::File(file), Some(link_lock)) => {
+                    (Artifact::File(file), Some(link_lock)) => {
                         if !file.resources.is_empty() {
                             create_output_inner(
                                 brioche,
-                                &CompleteArtifact::Directory(file.resources.clone()),
+                                &Artifact::Directory(file.resources.clone()),
                                 OutputOptions {
                                     output_path: resources_dir,
                                     resources_dir: Some(resources_dir),
@@ -279,7 +279,7 @@ async fn create_output_inner<'a: 'async_recursion>(
 
 pub async fn create_local_output(
     brioche: &Brioche,
-    artifact: &CompleteArtifact,
+    artifact: &Artifact,
 ) -> anyhow::Result<LocalOutput> {
     // Use a mutex to ensure we don't try to create the same local output
     // simultaneously.
@@ -293,7 +293,7 @@ pub async fn create_local_output(
 
 async fn create_local_output_inner(
     brioche: &Brioche,
-    artifact: &CompleteArtifact,
+    artifact: &Artifact,
     lock: &tokio::sync::MutexGuard<'_, LocalOutputLock>,
 ) -> anyhow::Result<LocalOutput> {
     let local_dir = brioche.home.join("locals");
@@ -329,7 +329,7 @@ async fn create_local_output_inner(
             .context("failed to finish saving local output")?;
 
         match artifact {
-            CompleteArtifact::File(file) => {
+            Artifact::File(file) => {
                 set_file_permissions(
                     &local_path,
                     SetFilePermissions {
@@ -343,12 +343,12 @@ async fn create_local_output_inner(
                     .await
                     .context("failed to set modified time for local file")?;
             }
-            CompleteArtifact::Directory(_) => {
+            Artifact::Directory(_) => {
                 set_directory_permissions(&local_path, SetDirectoryPermissions { readonly: true })
                     .await
                     .context("failed to set permissions for local output directory")?
             }
-            CompleteArtifact::Symlink { .. } => {}
+            Artifact::Symlink { .. } => {}
         }
 
         if tokio::fs::try_exists(&local_temp_resources_dir).await? {
