@@ -11,8 +11,6 @@ INSERT INTO recipes (recipe_hash, recipe_json, created_at)
 SELECT artifact_hash, artifact_json, created_at
 FROM artifacts;
 
-DROP TABLE artifacts;
-
 -- Rename `project_resolves` table to `project_bakes`
 -- - Rename `artifact_hash` column to `recipe_hash`
 CREATE TABLE project_bakes (
@@ -77,3 +75,4 @@ FROM resolves;
 
 DROP INDEX resolves_input_hash_output_hash;
 DROP TABLE resolves;
+DROP TABLE artifacts;
