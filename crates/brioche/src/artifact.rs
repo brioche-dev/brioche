@@ -616,6 +616,10 @@ impl Directory {
         self.entries.is_empty()
     }
 
+    pub fn entry_hashes(&self) -> &BTreeMap<BString, WithMeta<ArtifactHash>> {
+        &self.entries
+    }
+
     pub async fn entries(
         &self,
         brioche: &Brioche,
