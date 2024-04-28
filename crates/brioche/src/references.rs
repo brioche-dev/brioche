@@ -5,7 +5,8 @@ use sqlx::Acquire as _;
 
 use crate::{
     artifact::{
-        ArtifactHash, CompleteArtifact, CompleteProcessArtifact, LazyArtifact, ProcessArtifact,
+        ArtifactHash, CompleteArtifact, CompleteProcessArtifact, CompleteProcessTemplateComponent,
+        LazyArtifact, ProcessArtifact, ProcessTemplateComponent,
     },
     blob::BlobHash,
     project::ProjectHash,
@@ -21,173 +22,170 @@ pub struct ArtifactReferences {
 pub async fn artifact_references(
     brioche: &Brioche,
     references: &mut ArtifactReferences,
-    artifact: LazyArtifact,
+    artifacts: impl IntoIterator<Item = ArtifactHash>,
 ) -> anyhow::Result<()> {
-    let mut unvisited = VecDeque::from_iter([artifact]);
-    while let Some(artifact) = unvisited.pop_front() {
-        let hash = artifact.hash();
-        match references.artifacts.entry(hash) {
-            std::collections::hash_map::Entry::Occupied(_) => {
-                // Already visited
-            }
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(artifact.clone());
+    let mut unvisited = VecDeque::from_iter(artifacts);
 
-                match artifact {
-                    LazyArtifact::File {
-                        content_blob,
-                        executable: _,
-                        resources,
-                    } => {
-                        references.blobs.insert(content_blob);
-                        unvisited.push_back(resources.value);
-                    }
-                    LazyArtifact::Directory(directory) => {
-                        if let Some(listing_blob) = directory.listing_blob {
-                            references.blobs.insert(listing_blob);
-                        }
+    loop {
+        unvisited.retain(|artifact| !references.artifacts.contains_key(artifact));
 
-                        let listing = directory.listing(brioche).await?;
-                        for (_, artifact) in listing.entries {
-                            unvisited.push_back(LazyArtifact::from(artifact.value));
-                        }
-                    }
-                    LazyArtifact::Symlink { .. } => {}
-                    LazyArtifact::Download(_) => {}
-                    LazyArtifact::Unpack(unpack) => {
-                        unvisited.push_back(unpack.file.value);
-                    }
-                    LazyArtifact::Process(process) => {
-                        let ProcessArtifact {
-                            command,
-                            args,
-                            env,
-                            work_dir,
-                            output_scaffold,
-                            platform: _,
-                        } = process;
-
-                        let templates = [command].into_iter().chain(args).chain(env.into_values());
-
-                        for template in templates {
-                            for component in template.components {
-                                match component {
-                                    crate::artifact::ProcessTemplateComponent::Input {
-                                        artifact,
-                                    } => {
-                                        unvisited.push_back(artifact.value);
-                                    }
-                                    crate::artifact::ProcessTemplateComponent::Literal {
-                                        ..
-                                    }
-                                    | crate::artifact::ProcessTemplateComponent::OutputPath
-                                    | crate::artifact::ProcessTemplateComponent::ResourcesDir
-                                    | crate::artifact::ProcessTemplateComponent::HomeDir
-                                    | crate::artifact::ProcessTemplateComponent::WorkDir
-                                    | crate::artifact::ProcessTemplateComponent::TempDir => {}
-                                }
-                            }
-                        }
-
-                        unvisited.push_back(work_dir.value);
-                        if let Some(output_scaffold) = output_scaffold {
-                            unvisited.push_back(output_scaffold.value);
-                        }
-                    }
-                    LazyArtifact::CompleteProcess(process) => {
-                        let CompleteProcessArtifact {
-                            command,
-                            args,
-                            env,
-                            work_dir,
-                            output_scaffold,
-                            platform: _,
-                        } = process;
-
-                        let templates = [command].into_iter().chain(args).chain(env.into_values());
-
-                        for template in templates {
-                            for component in template.components {
-                                match component {
-                                    crate::artifact::CompleteProcessTemplateComponent::Input {
-                                        artifact,
-                                    } => {
-                                        unvisited.push_back(LazyArtifact::from(artifact.value));
-                                    }
-                                    crate::artifact::CompleteProcessTemplateComponent::Literal {
-                                        ..
-                                    }
-                                    | crate::artifact::CompleteProcessTemplateComponent::OutputPath
-                                    | crate::artifact::CompleteProcessTemplateComponent::ResourcesDir
-                                    | crate::artifact::CompleteProcessTemplateComponent::HomeDir
-                                    | crate::artifact::CompleteProcessTemplateComponent::WorkDir
-                                    | crate::artifact::CompleteProcessTemplateComponent::TempDir => {}
-                                }
-                            }
-                        }
-
-                        unvisited.push_back(LazyArtifact::from(work_dir));
-                        if let Some(output_scaffold) = output_scaffold {
-                            unvisited.push_back(LazyArtifact::from(*output_scaffold));
-                        }
-                    }
-                    LazyArtifact::CreateFile {
-                        content: _,
-                        executable: _,
-                        resources,
-                    } => {
-                        unvisited.push_back(resources.value);
-                    }
-                    LazyArtifact::CreateDirectory(directory) => {
-                        for (_, artifact) in directory.entries {
-                            unvisited.push_back(artifact.value);
-                        }
-                    }
-                    LazyArtifact::Cast { artifact, to: _ } => {
-                        unvisited.push_back(artifact.value);
-                    }
-                    LazyArtifact::Merge { directories } => {
-                        for directory in directories {
-                            unvisited.push_back(directory.value);
-                        }
-                    }
-                    LazyArtifact::Peel {
-                        directory,
-                        depth: _,
-                    } => {
-                        unvisited.push_back(directory.value);
-                    }
-                    LazyArtifact::Get { directory, path: _ } => {
-                        unvisited.push_back(directory.value);
-                    }
-                    LazyArtifact::Insert {
-                        directory,
-                        path: _,
-                        artifact,
-                    } => {
-                        unvisited.push_back(directory.value);
-                        if let Some(artifact) = artifact {
-                            unvisited.push_back(artifact.value);
-                        }
-                    }
-                    LazyArtifact::SetPermissions {
-                        file,
-                        executable: _,
-                    } => {
-                        unvisited.push_back(file.value);
-                    }
-                    LazyArtifact::Proxy(proxy) => {
-                        references.blobs.insert(proxy.blob);
-
-                        let inner = proxy.inner(brioche).await?;
-                        unvisited.push_back(inner);
-                    }
-                }
-            }
+        if unvisited.is_empty() {
+            break;
         }
+
+        let artifacts = crate::artifact::get_artifacts(brioche, unvisited.drain(..)).await?;
+
+        for artifact in artifacts.values() {
+            unvisited.extend(referenced_artifacts(artifact));
+            references.blobs.extend(referenced_blobs(artifact));
+        }
+
+        references.artifacts.extend(artifacts);
     }
 
     Ok(())
+}
+
+pub fn referenced_blobs(artifact: &LazyArtifact) -> Vec<BlobHash> {
+    match artifact {
+        LazyArtifact::File { content_blob, .. } => vec![*content_blob],
+        LazyArtifact::Directory(_)
+        | LazyArtifact::Symlink { .. }
+        | LazyArtifact::Download(_)
+        | LazyArtifact::Unpack(_)
+        | LazyArtifact::Process(_)
+        | LazyArtifact::CompleteProcess(_)
+        | LazyArtifact::CreateFile { .. }
+        | LazyArtifact::CreateDirectory(_)
+        | LazyArtifact::Cast { .. }
+        | LazyArtifact::Merge { .. }
+        | LazyArtifact::Peel { .. }
+        | LazyArtifact::Get { .. }
+        | LazyArtifact::Insert { .. }
+        | LazyArtifact::SetPermissions { .. }
+        | LazyArtifact::Proxy(_) => vec![],
+    }
+}
+
+pub fn referenced_artifacts(artifact: &LazyArtifact) -> Vec<ArtifactHash> {
+    match artifact {
+        LazyArtifact::File {
+            resources,
+            content_blob: _,
+            executable: _,
+        } => referenced_artifacts(resources),
+        LazyArtifact::Directory(directory) => directory
+            .entry_hashes()
+            .values()
+            .map(|entry| entry.value)
+            .collect(),
+        LazyArtifact::Symlink { .. } => vec![],
+        LazyArtifact::Download(_) => vec![],
+        LazyArtifact::Unpack(unpack) => referenced_artifacts(&unpack.file),
+        LazyArtifact::Process(process) => {
+            let ProcessArtifact {
+                command,
+                args,
+                env,
+                work_dir,
+                output_scaffold,
+                platform: _,
+            } = process;
+
+            let templates = [command].into_iter().chain(args).chain(env.values());
+
+            templates
+                .flat_map(|template| &template.components)
+                .flat_map(|component| match component {
+                    ProcessTemplateComponent::Input { artifact } => referenced_artifacts(artifact),
+                    ProcessTemplateComponent::Literal { .. }
+                    | ProcessTemplateComponent::OutputPath
+                    | ProcessTemplateComponent::ResourcesDir
+                    | ProcessTemplateComponent::HomeDir
+                    | ProcessTemplateComponent::WorkDir
+                    | ProcessTemplateComponent::TempDir => vec![],
+                })
+                .chain(referenced_artifacts(work_dir))
+                .chain(
+                    output_scaffold
+                        .iter()
+                        .flat_map(|artifact| referenced_artifacts(artifact)),
+                )
+                .collect()
+        }
+        LazyArtifact::CompleteProcess(process) => {
+            let CompleteProcessArtifact {
+                command,
+                args,
+                env,
+                work_dir,
+                output_scaffold,
+                platform: _,
+            } = process;
+
+            let work_dir = LazyArtifact::from(work_dir.clone());
+            let output_scaffold = output_scaffold
+                .as_ref()
+                .map(|artifact| LazyArtifact::from((**artifact).clone()));
+
+            let templates = [command].into_iter().chain(args).chain(env.values());
+
+            templates
+                .flat_map(|template| &template.components)
+                .flat_map(|component| match component {
+                    CompleteProcessTemplateComponent::Input { artifact } => {
+                        let artifact = LazyArtifact::from(artifact.value.clone());
+                        referenced_artifacts(&artifact)
+                    }
+                    CompleteProcessTemplateComponent::Literal { .. }
+                    | CompleteProcessTemplateComponent::OutputPath
+                    | CompleteProcessTemplateComponent::ResourcesDir
+                    | CompleteProcessTemplateComponent::HomeDir
+                    | CompleteProcessTemplateComponent::WorkDir
+                    | CompleteProcessTemplateComponent::TempDir => vec![],
+                })
+                .chain(referenced_artifacts(&work_dir))
+                .chain(output_scaffold.iter().flat_map(referenced_artifacts))
+                .collect()
+        }
+        LazyArtifact::CreateFile {
+            content: _,
+            executable: _,
+            resources,
+        } => referenced_artifacts(resources),
+        LazyArtifact::CreateDirectory(directory) => directory
+            .entries
+            .values()
+            .flat_map(|entry| referenced_artifacts(entry))
+            .collect(),
+        LazyArtifact::Cast { artifact, to: _ } => referenced_artifacts(artifact),
+        LazyArtifact::Merge { directories } => directories
+            .iter()
+            .flat_map(|dir| referenced_artifacts(dir))
+            .collect(),
+        LazyArtifact::Peel {
+            directory,
+            depth: _,
+        } => referenced_artifacts(directory),
+        LazyArtifact::Get { directory, path: _ } => referenced_artifacts(directory),
+        LazyArtifact::Insert {
+            directory,
+            path: _,
+            artifact,
+        } => referenced_artifacts(directory)
+            .into_iter()
+            .chain(
+                artifact
+                    .iter()
+                    .flat_map(|artifact| referenced_artifacts(artifact)),
+            )
+            .collect(),
+        LazyArtifact::SetPermissions {
+            file,
+            executable: _,
+        } => referenced_artifacts(file),
+        LazyArtifact::Proxy(proxy) => vec![proxy.artifact],
+    }
 }
 
 pub async fn descendent_project_resolves(
@@ -215,14 +213,18 @@ pub async fn descendent_project_resolves(
                     project_descendent_resolves.artifact_hash = child_resolves.parent_hash
             )
             SELECT
-                resolves.input_hash,
-                resolves.input_json,
-                resolves.output_hash,
-                resolves.output_json
+                input_artifacts.artifact_hash AS input_hash,
+                input_artifacts.artifact_json AS input_json,
+                output_artifacts.artifact_hash AS output_hash,
+                output_artifacts.artifact_json AS output_json
             FROM project_descendent_resolves
             INNER JOIN resolves ON
                 resolves.input_hash = project_descendent_resolves.artifact_hash
-            WHERE resolves.input_json->>'type' in ('complete_process', 'download');
+            INNER JOIN artifacts AS input_artifacts ON
+                input_artifacts.artifact_hash = resolves.input_hash
+            INNER JOIN artifacts AS output_artifacts ON
+                output_artifacts.artifact_hash = resolves.output_hash
+            WHERE input_artifacts.artifact_json->>'type' IN ('complete_process', 'download');
         "#,
         project_hash_value,
         export,

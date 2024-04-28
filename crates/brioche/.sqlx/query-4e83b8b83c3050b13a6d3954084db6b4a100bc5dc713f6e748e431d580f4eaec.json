@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                SELECT artifact_json\n                FROM artifacts\n                WHERE artifact_hash = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "artifact_json",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4e83b8b83c3050b13a6d3954084db6b4a100bc5dc713f6e748e431d580f4eaec"
+}

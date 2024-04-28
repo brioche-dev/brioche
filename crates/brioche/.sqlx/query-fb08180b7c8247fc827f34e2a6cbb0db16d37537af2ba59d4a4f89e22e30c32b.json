@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT output_artifacts.artifact_json\n            FROM resolves\n            INNER JOIN artifacts AS output_artifacts\n                ON resolves.output_hash = output_artifacts.artifact_hash\n            WHERE resolves.input_hash = ?\n            LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "artifact_json",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fb08180b7c8247fc827f34e2a6cbb0db16d37537af2ba59d4a4f89e22e30c32b"
+}

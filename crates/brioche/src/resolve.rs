@@ -13,9 +13,8 @@ use crate::{artifact::ProxyArtifact, project::ProjectHash};
 use super::{
     artifact::{
         ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, CreateDirectory, Directory,
-        DirectoryListing, File, LazyArtifact, Meta, WithMeta,
+        File, LazyArtifact, Meta, WithMeta,
     },
-    blob::BlobHash,
     Brioche,
 };
 
@@ -24,8 +23,8 @@ mod process;
 mod unpack;
 
 #[derive(Debug, Default)]
-pub struct Proxies {
-    artifacts_by_hash: HashMap<ArtifactHash, (LazyArtifact, BlobHash)>,
+pub struct CachedArtifacts {
+    pub artifacts_by_hash: HashMap<ArtifactHash, LazyArtifact>,
 }
 
 #[derive(Debug, Default)]
@@ -183,7 +182,14 @@ async fn resolve_inner(
     let mut db_transaction = db_conn.begin().await?;
     let input_hash = artifact_hash.to_string();
     let result = sqlx::query!(
-        "SELECT output_json FROM resolves WHERE input_hash = ? LIMIT 1",
+        r#"
+            SELECT output_artifacts.artifact_json
+            FROM resolves
+            INNER JOIN artifacts AS output_artifacts
+                ON resolves.output_hash = output_artifacts.artifact_hash
+            WHERE resolves.input_hash = ?
+            LIMIT 1
+        "#,
         input_hash,
     )
     .fetch_optional(&mut *db_transaction)
@@ -192,7 +198,7 @@ async fn resolve_inner(
     drop(db_conn);
 
     if let Some(row) = result {
-        let complete_artifact: CompleteArtifact = serde_json::from_str(&row.output_json)?;
+        let complete_artifact: CompleteArtifact = serde_json::from_str(&row.artifact_json)?;
         tracing::Span::current().record("resolve_method", "database_hit");
         tracing::trace!(%artifact_hash, complete_hash = %complete_artifact.hash(), "got resolve result from database");
 
@@ -248,10 +254,23 @@ async fn resolve_inner(
         let output_json = serde_json::to_string(&result_artifact)?;
         let output_hash = result_artifact.hash().to_string();
         sqlx::query!(
-            "INSERT INTO resolves (input_json, input_hash, output_json, output_hash) VALUES (?, ?, ?, ?)",
-            input_json,
+            r#"
+                INSERT INTO artifacts (artifact_hash, artifact_json)
+                VALUES
+                    (?, ?),
+                    (?, ?)
+                ON CONFLICT (artifact_hash) DO NOTHING
+            "#,
             input_hash,
+            input_json,
+            output_hash,
             output_json,
+        )
+        .execute(&mut *db_transaction)
+        .await?;
+        sqlx::query!(
+            "INSERT INTO resolves (input_hash, output_hash) VALUES (?, ?)",
+            input_hash,
             output_hash,
         )
         .execute(&mut *db_transaction)
@@ -369,8 +388,7 @@ async fn run_resolve(
                 .collect::<FuturesUnordered<_>>()
                 .try_collect()
                 .await?;
-            let listing = DirectoryListing { entries };
-            let directory = Directory::create(brioche, &listing).await?;
+            let directory = Directory::create(brioche, &entries).await?;
             Ok(CompleteArtifact::Directory(directory))
         }
         LazyArtifact::Cast { artifact, to } => {
@@ -387,16 +405,14 @@ async fn run_resolve(
             )
             .await?;
 
-            let mut merged = DirectoryListing::default();
+            let mut merged = Directory::default();
             for dir in directories {
                 let CompleteArtifact::Directory(dir) = dir.value else {
                     anyhow::bail!("tried merging non-directory artifact");
                 };
-                let listing = dir.listing(brioche).await?;
-                merged.merge(&listing, brioche).await?;
+                merged.merge(&dir, brioche).await?;
             }
 
-            let merged = Directory::create(brioche, &merged).await?;
             Ok(CompleteArtifact::Directory(merged))
         }
         LazyArtifact::Proxy(proxy) => {
@@ -411,9 +427,9 @@ async fn run_resolve(
                 let CompleteArtifact::Directory(dir) = result.value else {
                     anyhow::bail!("tried peeling non-directory artifact");
                 };
-                let listing = dir.listing(brioche).await?;
-                let mut entries = listing.entries.into_iter();
-                let Some((_, peeled)) = entries.next() else {
+                let entries = dir.entries(brioche).await?;
+                let mut entries = entries.into_values();
+                let Some(peeled) = entries.next() else {
                     anyhow::bail!("tried peeling empty directory");
                 };
 
@@ -431,9 +447,8 @@ async fn run_resolve(
             let CompleteArtifact::Directory(directory) = resolved.value else {
                 anyhow::bail!("tried getting item from non-directory");
             };
-            let listing = directory.listing(brioche).await?;
 
-            let Some(result) = listing.get(brioche, &path).await? else {
+            let Some(result) = directory.get(brioche, &path).await? else {
                 anyhow::bail!("path not found in directory: {path:?}");
             };
 
@@ -454,15 +469,13 @@ async fn run_resolve(
                 }
             })?;
 
-            let CompleteArtifact::Directory(directory) = directory.value else {
+            let CompleteArtifact::Directory(mut directory) = directory.value else {
                 anyhow::bail!("tried removing item from non-directory artifact");
             };
-            let mut listing = directory.listing(brioche).await?;
 
-            listing.insert(brioche, &path, artifact).await?;
+            directory.insert(brioche, &path, artifact).await?;
 
-            let new_directory = Directory::create(brioche, &listing).await?;
-            Ok(CompleteArtifact::Directory(new_directory))
+            Ok(CompleteArtifact::Directory(directory))
         }
         LazyArtifact::SetPermissions { file, executable } => {
             let result = resolve(brioche, *file, &scope).await?;
@@ -488,29 +501,11 @@ pub async fn create_proxy(
     }
 
     let artifact_hash = artifact.hash();
+    crate::artifact::save_artifacts(brioche, [artifact]).await?;
 
-    {
-        let proxies = brioche.proxies.read().await;
-        if let Some((_, blob)) = proxies.artifacts_by_hash.get(&artifact_hash) {
-            return Ok(LazyArtifact::Proxy(ProxyArtifact { blob: *blob }));
-        }
-    }
-
-    let artifact_json = json_canon::to_string(&artifact).context("failed to serialize artifact")?;
-
-    let blob = super::blob::save_blob(
-        brioche,
-        artifact_json.as_bytes(),
-        super::blob::SaveBlobOptions::default(),
-    )
-    .await?;
-
-    let mut proxies = brioche.proxies.write().await;
-    proxies
-        .artifacts_by_hash
-        .insert(artifact_hash, (artifact.clone(), blob));
-
-    Ok(LazyArtifact::Proxy(ProxyArtifact { blob }))
+    Ok(LazyArtifact::Proxy(ProxyArtifact {
+        artifact: artifact_hash,
+    }))
 }
 
 #[derive(Debug, thiserror::Error)]

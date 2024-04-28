@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                INSERT INTO artifacts (artifact_hash, artifact_json)\n                VALUES\n                    (?, ?),\n                    (?, ?)\n                ON CONFLICT (artifact_hash) DO NOTHING\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "997056556bd689d498a90114a005acbab8404323e6e0b94d0c294647d8aade96"
+}

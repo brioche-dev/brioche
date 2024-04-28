@@ -24,31 +24,31 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
 
     asserts.push((
         brioche_test::file(hello_blob, false).hash().to_string(),
-        "d227def794e3645dde5eaec99c66b593b6f3c2bcc0769104c3fb69c2058ae186",
+        "042cbcf2fc68cccbde296bcb6bae718ca625866b1c245c8e980cef7a0a5cf269",
     ));
     asserts.push((
         brioche_test::lazy_file(hello_blob, false)
             .hash()
             .to_string(),
-        "d227def794e3645dde5eaec99c66b593b6f3c2bcc0769104c3fb69c2058ae186",
+        "042cbcf2fc68cccbde296bcb6bae718ca625866b1c245c8e980cef7a0a5cf269",
     ));
 
     asserts.push((
         brioche_test::file(hi_blob, false).hash().to_string(),
-        "97908c17864a649c59ad0e2fece3ea6769e473e4b8472fe1c010e2b307713f05",
+        "0db68b5a219eb5ec35887d86401a2991445acd5b37e3a5893bf78ffce0df346b",
     ));
     asserts.push((
         brioche_test::lazy_file(hi_blob, false).hash().to_string(),
-        "97908c17864a649c59ad0e2fece3ea6769e473e4b8472fe1c010e2b307713f05",
+        "0db68b5a219eb5ec35887d86401a2991445acd5b37e3a5893bf78ffce0df346b",
     ));
 
     asserts.push((
         brioche_test::file(hello_blob, true).hash().to_string(),
-        "3648fb32ff94b7e51853e70b220a1012bfa38e33d4e88f5dfa6d1b1b0a231a4e",
+        "65b1f6376f34e88546d5f313b8e2dd7f2516e5c2d78500c7f6f474cc0141fd20",
     ));
     asserts.push((
         brioche_test::lazy_file(hello_blob, true).hash().to_string(),
-        "3648fb32ff94b7e51853e70b220a1012bfa38e33d4e88f5dfa6d1b1b0a231a4e",
+        "65b1f6376f34e88546d5f313b8e2dd7f2516e5c2d78500c7f6f474cc0141fd20",
     ));
 
     asserts.push((
@@ -63,7 +63,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "6b8e393b935024be81b311363e87e5ec04ee0c708325f1d2caee89986ebf1e2a",
+        "b02bb2a50344129ab3684eaf4eafedc8a550049e85006ee6a7fdefd79c6db345",
     ));
     asserts.push((
         brioche_test::lazy_file_with_resources(
@@ -79,7 +79,7 @@ async fn test_artifact_hash_stable_file() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "6b8e393b935024be81b311363e87e5ec04ee0c708325f1d2caee89986ebf1e2a",
+        "b02bb2a50344129ab3684eaf4eafedc8a550049e85006ee6a7fdefd79c6db345",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();
@@ -101,13 +101,13 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
 
     asserts.push((
         brioche_test::dir_empty().hash().to_string(),
-        "a9618a15769435ea5f78a60c9090bc6dd81f28b1d41da54c34c7f0ede9424ec1",
+        "2e4799f8f3b8e26761b4ab8700222d0b112737b601870de583f371f8ba03d08d",
     ));
     asserts.push((
         LazyArtifact::from(brioche_test::dir_empty())
             .hash()
             .to_string(),
-        "a9618a15769435ea5f78a60c9090bc6dd81f28b1d41da54c34c7f0ede9424ec1",
+        "2e4799f8f3b8e26761b4ab8700222d0b112737b601870de583f371f8ba03d08d",
     ));
 
     asserts.push((
@@ -118,7 +118,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         .await
         .hash()
         .to_string(),
-        "b09749fe2c801b5dae89cf6a98475a9c5a4a99740cccf8b89aa0459f709d71c2",
+        "39beed924e377831f4fed7dbc9a7c5cdb700d8d677a27c873190a81eef69ca28",
     ));
     asserts.push((
         LazyArtifact::from(
@@ -130,7 +130,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "b09749fe2c801b5dae89cf6a98475a9c5a4a99740cccf8b89aa0459f709d71c2",
+        "39beed924e377831f4fed7dbc9a7c5cdb700d8d677a27c873190a81eef69ca28",
     ));
 
     asserts.push((
@@ -148,7 +148,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         .await
         .hash()
         .to_string(),
-        "3416a6ebc40bdf233c4747db9af2d227e7a368948e23dabca8f54de072f567ce",
+        "b49eb0f9321dbcb1a6b0345a8b430a76e4f63b85047d21474c8eed8601e7ccc8",
     ));
     asserts.push((
         LazyArtifact::from(
@@ -170,7 +170,7 @@ async fn test_artifact_hash_stable_directory() -> anyhow::Result<()> {
         )
         .hash()
         .to_string(),
-        "3416a6ebc40bdf233c4747db9af2d227e7a368948e23dabca8f54de072f567ce",
+        "b49eb0f9321dbcb1a6b0345a8b430a76e4f63b85047d21474c8eed8601e7ccc8",
     ));
 
     asserts.push((

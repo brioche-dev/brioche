@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use anyhow::Context as _;
 use bstr::{ByteSlice as _, ByteVec as _};
@@ -6,7 +6,7 @@ use bstr::{ByteSlice as _, ByteVec as _};
 use crate::fs_utils::{is_executable, set_directory_rwx_recursive};
 
 use super::{
-    artifact::{CompleteArtifact, Directory, DirectoryListing, File, Meta, WithMeta},
+    artifact::{CompleteArtifact, Directory, File, Meta, WithMeta},
     Brioche,
 };
 
@@ -69,7 +69,7 @@ pub async fn create_input_inner(
                 let pack_paths = pack.iter().flat_map(|pack| pack.paths());
 
                 let mut pack_paths: Vec<_> = pack_paths.collect();
-                let mut resources = DirectoryListing::default();
+                let mut resources = Directory::default();
                 while let Some(pack_path) = pack_paths.pop() {
                     let path = pack_path.to_path().context("invalid resource path")?;
                     let resource_path = resources_dir.join(path);
@@ -158,9 +158,8 @@ pub async fn create_input_inner(
 
                 resources
             }
-            None => DirectoryListing::default(),
+            None => Directory::default(),
         };
-        let resources = Directory::create(brioche, &resources).await?;
 
         let blob_hash = super::blob::save_blob_from_file(
             brioche,
@@ -186,7 +185,7 @@ pub async fn create_input_inner(
                 format!("failed to read directory {}", options.input_path.display())
             })?;
 
-        let mut result_dir = DirectoryListing::default();
+        let mut result_dir_entries = BTreeMap::new();
 
         while let Some(entry) = dir.next_entry().await? {
             let entry_name = <Vec<u8> as bstr::ByteVec>::from_os_string(entry.file_name())
@@ -208,7 +207,7 @@ pub async fn create_input_inner(
             )
             .await?;
 
-            result_dir.entries.insert(entry_name, result_entry);
+            result_dir_entries.insert(entry_name, result_entry);
         }
 
         if options.remove_input {
@@ -222,7 +221,7 @@ pub async fn create_input_inner(
                 })?;
         }
 
-        let result_dir = Directory::create(brioche, &result_dir).await?;
+        let result_dir = Directory::create(brioche, &result_dir_entries).await?;
         Ok(WithMeta::new(
             CompleteArtifact::Directory(result_dir),
             options.meta.clone(),

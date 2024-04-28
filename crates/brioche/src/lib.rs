@@ -50,7 +50,7 @@ pub struct Brioche {
     /// useful for debugging, where build outputs may succeed but need to be
     /// manually investigated.
     pub keep_temps: bool,
-    pub proxies: Arc<RwLock<resolve::Proxies>>,
+    pub cached_artifacts: Arc<RwLock<resolve::CachedArtifacts>>,
     pub active_resolves: Arc<RwLock<resolve::ActiveResolves>>,
     pub process_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_semaphore: Arc<tokio::sync::Semaphore>,
@@ -199,7 +199,7 @@ impl BriocheBuilder {
             home: brioche_home,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
-            proxies: Arc::new(RwLock::new(resolve::Proxies::default())),
+            cached_artifacts: Arc::new(RwLock::new(resolve::CachedArtifacts::default())),
             active_resolves: Arc::new(RwLock::new(resolve::ActiveResolves::default())),
             process_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROCESSES)),
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),

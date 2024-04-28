@@ -7,7 +7,7 @@ use std::{
 };
 
 use brioche::{
-    artifact::{CreateDirectory, Directory, DirectoryListing, File, WithMeta},
+    artifact::{CreateDirectory, Directory, File, WithMeta},
     blob::{BlobHash, SaveBlobOptions},
     project::{self, ProjectHash, ProjectListing, Projects},
     Brioche, BriocheBuilder,
@@ -150,17 +150,15 @@ pub async fn dir_value<K: AsRef<[u8]>>(
     brioche: &Brioche,
     entries: impl IntoIterator<Item = (K, brioche::artifact::CompleteArtifact)>,
 ) -> brioche::artifact::Directory {
-    let mut listing = DirectoryListing::default();
+    let mut directory = Directory::default();
     for (k, v) in entries {
-        listing
+        directory
             .insert(brioche, k.as_ref(), Some(WithMeta::without_meta(v)))
             .await
             .expect("failed to insert into dir");
     }
 
-    Directory::create(brioche, &listing)
-        .await
-        .expect("failed to create dir")
+    directory
 }
 
 pub async fn dir<K: AsRef<[u8]>>(

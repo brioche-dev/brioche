@@ -24,19 +24,16 @@ pub async fn sync_project(
     // Collect the references from each input/output artifact
 
     let mut sync_references = ArtifactReferences::default();
-    for (input, output) in &descendent_project_resolves {
-        crate::references::artifact_references(brioche, &mut sync_references, input.clone())
-            .await?;
-        crate::references::artifact_references(
-            brioche,
-            &mut sync_references,
-            output.clone().into(),
-        )
-        .await?;
-    }
 
+    let artifact_hashes = descendent_project_resolves
+        .iter()
+        .flat_map(|(input, output)| [input.hash(), output.hash()]);
+    crate::references::artifact_references(brioche, &mut sync_references, artifact_hashes).await?;
+
+    let num_artifact_refs = sync_references.artifacts.len();
+    let num_blob_refs = sync_references.blobs.len();
     println!(
-        "Collected refs in {}",
+        "Collected refs in {} ({num_artifact_refs} artifacts, {num_blob_refs} blobs)",
         start_refs.elapsed().human_duration()
     );
 

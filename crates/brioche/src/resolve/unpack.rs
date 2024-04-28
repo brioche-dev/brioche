@@ -5,10 +5,7 @@ use futures::TryStreamExt as _;
 use tracing::Instrument;
 
 use crate::{
-    artifact::{
-        CompleteArtifact, Directory, DirectoryError, DirectoryListing, File, Meta, UnpackArtifact,
-        WithMeta,
-    },
+    artifact::{CompleteArtifact, Directory, DirectoryError, File, Meta, UnpackArtifact, WithMeta},
     Brioche,
 };
 
@@ -40,7 +37,7 @@ pub async fn resolve_unpack(
 
     let mut archive = tokio_tar::Archive::new(decompressed_archive_file);
     let mut archive_entries = archive.entries()?;
-    let mut directory = DirectoryListing::default();
+    let mut directory = Directory::default();
 
     let save_blobs_future = async {
         while let Some(archive_entry) = archive_entries.try_next().await? {
@@ -155,6 +152,5 @@ pub async fn resolve_unpack(
 
     save_blobs_future.await?;
 
-    let directory = Directory::create(brioche, &directory).await?;
     Ok(directory)
 }
