@@ -198,29 +198,29 @@ pub async fn descendent_project_bakes(
     let project_hash_value = project_hash.to_string();
     let project_descendent_bakes = sqlx::query!(
         r#"
-            WITH RECURSIVE project_descendent_resolves (artifact_hash) AS (
-                SELECT project_resolves.artifact_hash
-                FROM project_resolves
+            WITH RECURSIVE project_descendent_bakes (recipe_hash) AS (
+                SELECT project_bakes.recipe_hash
+                FROM project_bakes
                 WHERE project_hash = ? AND export = ?
                 UNION
-                SELECT child_resolves.artifact_hash
-                FROM child_resolves
-                INNER JOIN project_descendent_resolves ON
-                    project_descendent_resolves.artifact_hash = child_resolves.parent_hash
+                SELECT child_bakes.recipe_hash
+                FROM child_bakes
+                INNER JOIN project_descendent_bakes ON
+                    project_descendent_bakes.recipe_hash = child_bakes.parent_hash
             )
             SELECT
-                input_artifacts.artifact_hash AS input_hash,
-                input_artifacts.artifact_json AS input_json,
-                output_artifacts.artifact_hash AS output_hash,
-                output_artifacts.artifact_json AS output_json
-            FROM project_descendent_resolves
-            INNER JOIN resolves ON
-                resolves.input_hash = project_descendent_resolves.artifact_hash
-            INNER JOIN artifacts AS input_artifacts ON
-                input_artifacts.artifact_hash = resolves.input_hash
-            INNER JOIN artifacts AS output_artifacts ON
-                output_artifacts.artifact_hash = resolves.output_hash
-            WHERE input_artifacts.artifact_json->>'type' IN ('complete_process', 'download');
+                input_recipes.recipe_hash AS input_hash,
+                input_recipes.recipe_json AS input_json,
+                output_artifacts.recipe_hash AS output_hash,
+                output_artifacts.recipe_json AS output_json
+            FROM project_descendent_bakes
+            INNER JOIN bakes ON
+                bakes.input_hash = project_descendent_bakes.recipe_hash
+            INNER JOIN recipes AS input_recipes ON
+                input_recipes.recipe_hash = bakes.input_hash
+            INNER JOIN recipes AS output_artifacts ON
+                output_artifacts.recipe_hash = bakes.output_hash
+            WHERE input_recipes.recipe_json->>'type' IN ('complete_process', 'download');
         "#,
         project_hash_value,
         export,

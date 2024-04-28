@@ -67,12 +67,12 @@ pub async fn bake(
             let recipe_hash_value = recipe_hash.to_string();
             sqlx::query!(
                 r#"
-                    INSERT INTO project_resolves (
+                    INSERT INTO project_bakes (
                         project_hash,
                         export,
-                        artifact_hash
+                        recipe_hash
                     ) VALUES (?, ?, ?)
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (project_hash, export, recipe_hash) DO NOTHING
                 "#,
                 project_hash_value,
                 export_value,
@@ -91,11 +91,11 @@ pub async fn bake(
             let recipe_hash_value = recipe_hash.to_string();
             sqlx::query!(
                 r#"
-                    INSERT INTO child_resolves (
+                    INSERT INTO child_bakes (
                         parent_hash,
-                        artifact_hash
+                        recipe_hash
                     ) VALUES (?, ?)
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (parent_hash, recipe_hash) DO NOTHING
                 "#,
                 parent_hash_value,
                 recipe_hash_value,
@@ -181,11 +181,11 @@ async fn bake_inner(
     let input_hash = recipe_hash.to_string();
     let result = sqlx::query!(
         r#"
-            SELECT output_artifacts.artifact_json
-            FROM resolves
-            INNER JOIN artifacts AS output_artifacts
-                ON resolves.output_hash = output_artifacts.artifact_hash
-            WHERE resolves.input_hash = ?
+            SELECT output_artifacts.recipe_json AS artifact_json
+            FROM bakes
+            INNER JOIN recipes AS output_artifacts
+                ON bakes.output_hash = output_artifacts.recipe_hash
+            WHERE bakes.input_hash = ?
             LIMIT 1
         "#,
         input_hash,
@@ -247,11 +247,11 @@ async fn bake_inner(
         let output_hash = artifact.hash().to_string();
         sqlx::query!(
             r#"
-                INSERT INTO artifacts (artifact_hash, artifact_json)
+                INSERT INTO recipes (recipe_hash, recipe_json)
                 VALUES
                     (?, ?),
                     (?, ?)
-                ON CONFLICT (artifact_hash) DO NOTHING
+                ON CONFLICT (recipe_hash) DO NOTHING
             "#,
             input_hash,
             input_json,
@@ -261,7 +261,7 @@ async fn bake_inner(
         .execute(&mut *db_transaction)
         .await?;
         sqlx::query!(
-            "INSERT INTO resolves (input_hash, output_hash) VALUES (?, ?)",
+            "INSERT INTO bakes (input_hash, output_hash) VALUES (?, ?)",
             input_hash,
             output_hash,
         )

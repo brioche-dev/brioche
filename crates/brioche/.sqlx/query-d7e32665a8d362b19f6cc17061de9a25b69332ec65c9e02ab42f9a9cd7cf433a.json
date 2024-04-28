@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT output_artifacts.recipe_json AS artifact_json\n            FROM bakes\n            INNER JOIN recipes AS output_artifacts\n                ON bakes.output_hash = output_artifacts.recipe_hash\n            WHERE bakes.input_hash = ?\n            LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "artifact_json",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d7e32665a8d362b19f6cc17061de9a25b69332ec65c9e02ab42f9a9cd7cf433a"
+}

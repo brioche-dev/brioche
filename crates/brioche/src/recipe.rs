@@ -191,9 +191,9 @@ pub async fn get_recipes(
     let records = sqlx::query_as_with::<_, (String, String), _>(
         &format!(
             r#"
-                SELECT artifact_hash, artifact_json
-                FROM artifacts
-                WHERE artifact_hash IN ({placeholders})
+                SELECT recipe_hash, recipe_json
+                FROM recipes
+                WHERE recipe_hash IN ({placeholders})
             "#,
         ),
         arguments,
@@ -278,9 +278,9 @@ where
     let result = sqlx::query_with(
         &format!(
             r#"
-                INSERT INTO artifacts (artifact_hash, artifact_json)
+                INSERT INTO recipes (recipe_hash, recipe_json)
                 VALUES {placeholders}
-                ON CONFLICT (artifact_hash) DO NOTHING
+                ON CONFLICT (recipe_hash) DO NOTHING
             "#
         ),
         arguments,

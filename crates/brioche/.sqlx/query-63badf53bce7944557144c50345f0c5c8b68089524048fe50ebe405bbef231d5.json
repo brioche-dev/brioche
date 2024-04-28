@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                    INSERT INTO project_bakes (\n                        project_hash,\n                        export,\n                        recipe_hash\n                    ) VALUES (?, ?, ?)\n                    ON CONFLICT (project_hash, export, recipe_hash) DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "63badf53bce7944557144c50345f0c5c8b68089524048fe50ebe405bbef231d5"
+}
