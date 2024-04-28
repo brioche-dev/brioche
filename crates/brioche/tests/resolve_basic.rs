@@ -1,10 +1,10 @@
-use brioche::{artifact::LazyArtifact, Brioche};
+use brioche::{recipe::Recipe, Brioche};
 
 mod brioche_test;
 
-pub async fn resolve_to_lazy(brioche: &Brioche, artifact: &LazyArtifact) -> LazyArtifact {
-    let resolved = brioche_test::resolve_without_meta(brioche, artifact.clone()).await;
-    LazyArtifact::from(resolved.expect("failed to resolve"))
+pub async fn resolve_to_recipe(brioche: &Brioche, recipe: &Recipe) -> Recipe {
+    let resolved = brioche_test::resolve_without_meta(brioche, recipe.clone()).await;
+    Recipe::from(resolved.expect("failed to resolve"))
 }
 
 #[tokio::test]
@@ -57,20 +57,20 @@ async fn test_resolve_basic() -> anyhow::Result<()> {
     )
     .await;
 
-    assert_eq!(resolve_to_lazy(&brioche, &file_hello).await, file_hello);
+    assert_eq!(resolve_to_recipe(&brioche, &file_hello).await, file_hello);
 
     assert_eq!(
-        resolve_to_lazy(&brioche, &lazy_empty_dir).await,
+        resolve_to_recipe(&brioche, &lazy_empty_dir).await,
         empty_dir.into()
     );
 
     assert_eq!(
-        resolve_to_lazy(&brioche, &lazy_hello_dir).await,
+        resolve_to_recipe(&brioche, &lazy_hello_dir).await,
         hello_dir.into()
     );
 
     assert_eq!(
-        resolve_to_lazy(&brioche, &lazy_complex_dir).await,
+        resolve_to_recipe(&brioche, &lazy_complex_dir).await,
         complex_dir.into()
     );
 

@@ -3,8 +3,8 @@ use std::rc::Rc;
 use anyhow::Context as _;
 
 use crate::{
-    artifact::{LazyArtifact, WithMeta},
     project::{ProjectHash, Projects},
+    recipe::{Recipe, WithMeta},
     resolve::ResolveScope,
     Brioche,
 };
@@ -17,7 +17,7 @@ pub async fn evaluate(
     projects: &Projects,
     project_hash: ProjectHash,
     export: &str,
-) -> anyhow::Result<WithMeta<LazyArtifact>> {
+) -> anyhow::Result<WithMeta<Recipe>> {
     let module_loader = BriocheModuleLoader::new(brioche, projects);
     let resolve_scope = ResolveScope::Project {
         project_hash,
@@ -132,12 +132,12 @@ pub async fn evaluate(
     let serialized_resolved_result =
         deno_core::v8::Local::new(&mut js_scope, serialized_resolved_result);
 
-    let artifact: WithMeta<LazyArtifact> =
-        serde_v8::from_v8(&mut js_scope, serialized_resolved_result).with_context(|| {
-            format!("invalid artifact returned when serializing result from {export}")
+    let recipe: WithMeta<Recipe> = serde_v8::from_v8(&mut js_scope, serialized_resolved_result)
+        .with_context(|| {
+            format!("invalid recipe returned when serializing result from {export}")
         })?;
 
-    tracing::debug!(%main_module, artifact_hash = %artifact.hash(), "finished evaluating module");
+    tracing::debug!(%main_module, recipe_hash = %recipe.hash(), "finished evaluating module");
 
-    Ok(artifact)
+    Ok(recipe)
 }

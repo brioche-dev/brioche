@@ -6,8 +6,8 @@ use std::{
 };
 
 use brioche::{
-    artifact::{CreateDirectory, Directory, File, WithMeta},
     blob::{BlobHash, SaveBlobOptions},
+    recipe::{CreateDirectory, Directory, File, WithMeta},
     Brioche, BriocheBuilder,
 };
 
@@ -39,18 +39,18 @@ pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Un
         .unwrap()
 }
 
-pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche::artifact::LazyArtifact {
-    brioche::artifact::LazyArtifact::File {
+pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche::recipe::Recipe {
+    brioche::recipe::Recipe::File {
         content_blob: blob,
         executable,
-        resources: Box::new(WithMeta::without_meta(
-            brioche::artifact::LazyArtifact::Directory(Directory::default()),
-        )),
+        resources: Box::new(WithMeta::without_meta(brioche::recipe::Recipe::Directory(
+            Directory::default(),
+        ))),
     }
 }
 
-pub fn file(blob: BlobHash, executable: bool) -> brioche::artifact::CompleteArtifact {
-    brioche::artifact::CompleteArtifact::File(File {
+pub fn file(blob: BlobHash, executable: bool) -> brioche::recipe::Artifact {
+    brioche::recipe::Artifact::File(File {
         content_blob: blob,
         executable,
         resources: Directory::default(),
@@ -60,9 +60,9 @@ pub fn file(blob: BlobHash, executable: bool) -> brioche::artifact::CompleteArti
 pub fn file_with_resources(
     blob: BlobHash,
     executable: bool,
-    resources: brioche::artifact::Directory,
-) -> brioche::artifact::CompleteArtifact {
-    brioche::artifact::CompleteArtifact::File(File {
+    resources: brioche::recipe::Directory,
+) -> brioche::recipe::Artifact {
+    brioche::recipe::Artifact::File(File {
         content_blob: blob,
         executable,
         resources,
@@ -70,26 +70,24 @@ pub fn file_with_resources(
 }
 
 pub fn lazy_dir<K: AsRef<[u8]>>(
-    entries: impl IntoIterator<Item = (K, brioche::artifact::LazyArtifact)>,
-) -> WithMeta<brioche::artifact::LazyArtifact> {
-    WithMeta::without_meta(brioche::artifact::LazyArtifact::CreateDirectory(
-        CreateDirectory {
-            entries: entries
-                .into_iter()
-                .map(|(k, v)| (k.as_ref().into(), WithMeta::without_meta(v)))
-                .collect(),
-        },
-    ))
+    entries: impl IntoIterator<Item = (K, brioche::recipe::Recipe)>,
+) -> WithMeta<brioche::recipe::Recipe> {
+    WithMeta::without_meta(brioche::recipe::Recipe::CreateDirectory(CreateDirectory {
+        entries: entries
+            .into_iter()
+            .map(|(k, v)| (k.as_ref().into(), WithMeta::without_meta(v)))
+            .collect(),
+    }))
 }
 
-pub fn empty_dir_value() -> brioche::artifact::Directory {
-    brioche::artifact::Directory::default()
+pub fn empty_dir_value() -> brioche::recipe::Directory {
+    brioche::recipe::Directory::default()
 }
 
 pub async fn dir_value<K: AsRef<[u8]>>(
     brioche: &Brioche,
-    entries: impl IntoIterator<Item = (K, brioche::artifact::CompleteArtifact)>,
-) -> brioche::artifact::Directory {
+    entries: impl IntoIterator<Item = (K, brioche::recipe::Artifact)>,
+) -> brioche::recipe::Directory {
     let mut directory = Directory::default();
     for (k, v) in entries {
         directory
@@ -103,27 +101,27 @@ pub async fn dir_value<K: AsRef<[u8]>>(
 
 pub async fn dir<K: AsRef<[u8]>>(
     brioche: &Brioche,
-    entries: impl IntoIterator<Item = (K, brioche::artifact::CompleteArtifact)>,
-) -> brioche::artifact::CompleteArtifact {
-    brioche::artifact::CompleteArtifact::Directory(dir_value(brioche, entries).await)
+    entries: impl IntoIterator<Item = (K, brioche::recipe::Artifact)>,
+) -> brioche::recipe::Artifact {
+    brioche::recipe::Artifact::Directory(dir_value(brioche, entries).await)
 }
 
-pub fn lazy_dir_empty() -> brioche::artifact::LazyArtifact {
-    brioche::artifact::LazyArtifact::CreateDirectory(CreateDirectory::default())
+pub fn lazy_dir_empty() -> brioche::recipe::Recipe {
+    brioche::recipe::Recipe::CreateDirectory(CreateDirectory::default())
 }
 
-pub fn dir_empty() -> brioche::artifact::CompleteArtifact {
-    brioche::artifact::CompleteArtifact::Directory(Directory::default())
+pub fn dir_empty() -> brioche::recipe::Artifact {
+    brioche::recipe::Artifact::Directory(Directory::default())
 }
 
-pub fn lazy_symlink(target: impl AsRef<[u8]>) -> brioche::artifact::LazyArtifact {
-    brioche::artifact::LazyArtifact::Symlink {
+pub fn lazy_symlink(target: impl AsRef<[u8]>) -> brioche::recipe::Recipe {
+    brioche::recipe::Recipe::Symlink {
         target: target.as_ref().into(),
     }
 }
 
-pub fn symlink(target: impl AsRef<[u8]>) -> brioche::artifact::CompleteArtifact {
-    brioche::artifact::CompleteArtifact::Symlink {
+pub fn symlink(target: impl AsRef<[u8]>) -> brioche::recipe::Artifact {
+    brioche::recipe::Artifact::Symlink {
         target: target.as_ref().into(),
     }
 }

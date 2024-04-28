@@ -1,4 +1,4 @@
-use brioche::artifact::{DownloadArtifact, LazyArtifact};
+use brioche::recipe::{DownloadRecipe, Recipe};
 use brioche_test::resolve_without_meta;
 
 mod brioche_test;
@@ -19,7 +19,7 @@ async fn test_resolve_cache_nested() -> anyhow::Result<()> {
         .expect(1)
         .create();
 
-    let hello_download = LazyArtifact::Download(DownloadArtifact {
+    let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });
@@ -62,7 +62,7 @@ async fn test_resolve_cache_unnested() -> anyhow::Result<()> {
         .expect(1)
         .create();
 
-    let hello_download = LazyArtifact::Download(DownloadArtifact {
+    let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });

@@ -5,18 +5,18 @@ use futures::TryStreamExt as _;
 use tracing::Instrument;
 
 use crate::{
-    artifact::{CompleteArtifact, Directory, DirectoryError, File, Meta, UnpackArtifact, WithMeta},
+    recipe::{Artifact, Directory, DirectoryError, File, Meta, UnpackRecipe, WithMeta},
     Brioche,
 };
 
-#[tracing::instrument(skip(brioche, unpack), fields(file_artifact = %unpack.file.hash(), archive = ?unpack.archive, compression = ?unpack.compression))]
+#[tracing::instrument(skip(brioche, unpack), fields(file_recipe = %unpack.file.hash(), archive = ?unpack.archive, compression = ?unpack.compression))]
 pub async fn resolve_unpack(
     brioche: &Brioche,
     meta: &Arc<Meta>,
-    unpack: UnpackArtifact,
+    unpack: UnpackRecipe,
 ) -> anyhow::Result<Directory> {
-    let file = super::resolve_inner(brioche, *unpack.file).await?;
-    let CompleteArtifact::File(File {
+    let file = super::bake_inner(brioche, *unpack.file).await?;
+    let Artifact::File(File {
         content_blob: blob_hash,
         ..
     }) = file.value
@@ -62,7 +62,7 @@ pub async fn resolve_unpack(
                     .await?;
                     let executable = entry_mode & 0o100 != 0;
 
-                    Some(CompleteArtifact::File(File {
+                    Some(Artifact::File(File {
                         content_blob: entry_blob_hash,
                         executable,
                         resources: Directory::default(),
@@ -76,7 +76,7 @@ pub async fn resolve_unpack(
                         )
                     })?;
 
-                    Some(CompleteArtifact::Symlink {
+                    Some(Artifact::Symlink {
                         target: link_name.into_owned().into(),
                     })
                 }
@@ -99,9 +99,7 @@ pub async fn resolve_unpack(
 
                     Some(linked_entry.value.clone())
                 }
-                tokio_tar::EntryType::Directory => {
-                    Some(CompleteArtifact::Directory(Directory::default()))
-                }
+                tokio_tar::EntryType::Directory => Some(Artifact::Directory(Directory::default())),
                 tokio_tar::EntryType::XGlobalHeader | tokio_tar::EntryType::XHeader => {
                     // Ignore
                     None

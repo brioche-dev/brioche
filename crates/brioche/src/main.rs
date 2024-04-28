@@ -163,14 +163,14 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             }
         }
 
-        let artifact =
+        let recipe =
             brioche::script::evaluate::evaluate(&brioche, &projects, project_hash, &args.export)
                 .await?;
 
         reporter.set_is_evaluating(false);
-        let result = brioche::resolve::resolve(
+        let artifact = brioche::resolve::resolve(
             &brioche,
-            artifact,
+            recipe,
             &brioche::resolve::ResolveScope::Project {
                 project_hash,
                 export: args.export.to_string(),
@@ -189,8 +189,8 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         };
         println!("Build finished, completed {jobs_message} in {elapsed}");
 
-        let result_hash = result.value.hash();
-        println!("Result: {result_hash}");
+        let artifact_hash = artifact.value.hash();
+        println!("Result: {artifact_hash}");
 
         if let Some(output) = &args.output {
             if args.replace {
@@ -202,7 +202,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             println!("Writing output");
             brioche::output::create_output(
                 &brioche,
-                &result.value,
+                &artifact.value,
                 brioche::output::OutputOptions {
                     output_path: output,
                     merge: false,

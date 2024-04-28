@@ -8,13 +8,13 @@ use futures::{stream::FuturesUnordered, TryStreamExt as _};
 use sqlx::Acquire as _;
 use tracing::Instrument as _;
 
-use crate::{artifact::ProxyArtifact, project::ProjectHash};
+use crate::{
+    project::ProjectHash,
+    recipe::{ArtifactDiscriminants, ProxyRecipe},
+};
 
 use super::{
-    artifact::{
-        ArtifactHash, CompleteArtifact, CompleteArtifactDiscriminants, CreateDirectory, Directory,
-        File, LazyArtifact, Meta, WithMeta,
-    },
+    recipe::{Artifact, CreateDirectory, Directory, File, Meta, Recipe, RecipeHash, WithMeta},
     Brioche,
 };
 
@@ -23,16 +23,14 @@ mod process;
 mod unpack;
 
 #[derive(Debug, Default)]
-pub struct CachedArtifacts {
-    pub artifacts_by_hash: HashMap<ArtifactHash, LazyArtifact>,
+pub struct CachedRecipes {
+    pub recipes_by_hash: HashMap<RecipeHash, Recipe>,
 }
 
 #[derive(Debug, Default)]
 pub struct ActiveResolves {
-    resolve_watchers: HashMap<
-        ArtifactHash,
-        tokio::sync::watch::Receiver<Option<Result<CompleteArtifact, String>>>,
-    >,
+    resolve_watchers:
+        HashMap<RecipeHash, tokio::sync::watch::Receiver<Option<Result<Artifact, String>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -42,19 +40,19 @@ pub enum ResolveScope {
         export: String,
     },
     Child {
-        parent_hash: ArtifactHash,
+        parent_hash: RecipeHash,
     },
     Anonymous,
 }
 
-#[tracing::instrument(skip(brioche, artifact), fields(artifact_hash = %artifact.hash(), artifact_kind = ?artifact.kind(), resolved_method))]
+#[tracing::instrument(skip(brioche, recipe), fields(recipe_hash = %recipe.hash(), recipe_kind = ?recipe.kind(), resolved_method))]
 pub async fn resolve(
     brioche: &Brioche,
-    artifact: WithMeta<LazyArtifact>,
+    recipe: WithMeta<Recipe>,
     scope: &ResolveScope,
-) -> anyhow::Result<WithMeta<CompleteArtifact>> {
-    let artifact_hash = artifact.hash();
-    let result = resolve_inner(brioche, artifact).await?;
+) -> anyhow::Result<WithMeta<Artifact>> {
+    let recipe_hash = recipe.hash();
+    let result = bake_inner(brioche, recipe).await?;
 
     match scope {
         ResolveScope::Project {
@@ -66,7 +64,7 @@ pub async fn resolve(
 
             let project_hash_value = project_hash.to_string();
             let export_value = export.to_string();
-            let artifact_hash_value = artifact_hash.to_string();
+            let recipe_hash_value = recipe_hash.to_string();
             sqlx::query!(
                 r#"
                     INSERT INTO project_resolves (
@@ -78,7 +76,7 @@ pub async fn resolve(
                 "#,
                 project_hash_value,
                 export_value,
-                artifact_hash_value,
+                recipe_hash_value,
             )
             .execute(&mut *db_transaction)
             .await?;
@@ -90,7 +88,7 @@ pub async fn resolve(
             let mut db_transaction = db_conn.begin().await?;
 
             let parent_hash_value = parent_hash.to_string();
-            let artifact_hash_value = artifact_hash.to_string();
+            let recipe_hash_value = recipe_hash.to_string();
             sqlx::query!(
                 r#"
                     INSERT INTO child_resolves (
@@ -100,7 +98,7 @@ pub async fn resolve(
                     ON CONFLICT DO NOTHING
                 "#,
                 parent_hash_value,
-                artifact_hash_value,
+                recipe_hash_value,
             )
             .execute(&mut *db_transaction)
             .await?;
@@ -114,19 +112,19 @@ pub async fn resolve(
 }
 
 #[async_recursion::async_recursion]
-#[tracing::instrument(skip(brioche, artifact), fields(artifact_hash = %artifact.hash(), artifact_kind = ?artifact.kind(), resolved_method))]
-async fn resolve_inner(
+#[tracing::instrument(skip(brioche, recipe), fields(recipe_hash = %recipe.hash(), recipe_kind = ?recipe.kind(), resolved_method))]
+async fn bake_inner(
     brioche: &Brioche,
-    artifact: WithMeta<LazyArtifact>,
-) -> anyhow::Result<WithMeta<CompleteArtifact>> {
-    let meta = artifact.meta.clone();
-    let artifact_hash = artifact.hash();
+    recipe: WithMeta<Recipe>,
+) -> anyhow::Result<WithMeta<Artifact>> {
+    let meta = recipe.meta.clone();
+    let recipe_hash = recipe.hash();
 
-    // If we're currently resolving the artifact in another task, wait for it to
+    // If we're currently resolving the recipe in another task, wait for it to
     // complete and return early
     let resolve_tx = {
         let mut active_resolves = brioche.active_resolves.write().await;
-        match active_resolves.resolve_watchers.entry(artifact_hash) {
+        match active_resolves.resolve_watchers.entry(recipe_hash) {
             std::collections::hash_map::Entry::Occupied(entry) => {
                 let mut active_resolve = entry.get().clone();
 
@@ -143,11 +141,11 @@ async fn resolve_inner(
                 let resolve_result = resolve_result.as_ref().expect("expected resolve result");
                 match resolve_result {
                     Ok(resolve_result) => {
-                        tracing::debug!(%artifact_hash, "received resolve result from in-progress resolve");
+                        tracing::debug!(%recipe_hash, "received resolve result from in-progress resolve");
                         return Ok(WithMeta::new(resolve_result.clone(), meta));
                     }
                     Err(error) => {
-                        tracing::debug!(%artifact_hash, %error, "received error while waiting for in-progress resolve to finish, resolve already failed");
+                        tracing::debug!(%recipe_hash, %error, "received error while waiting for in-progress resolve to finish, resolve already failed");
                         anyhow::bail!("{error}");
                     }
                 };
@@ -160,27 +158,27 @@ async fn resolve_inner(
         }
     };
 
-    // If we have a artifact that can be trivially converted to a complete
-    // artifact, avoid saving it and just return it directly
-    let complete_artifact: Result<CompleteArtifact, _> = artifact.value.clone().try_into();
-    if let Ok(complete_artifact) = complete_artifact {
+    // If we have a recipe that can be trivially converted to an artifact,
+    // avoid saving it and just return it directly
+    let artifact: Result<Artifact, _> = recipe.value.clone().try_into();
+    if let Ok(artifact) = artifact {
         tracing::Span::current().record("resolve_method", "trivial_conversion");
 
         // Remove the active resolve watcher
         {
             let mut active_resolves = brioche.active_resolves.write().await;
-            active_resolves.resolve_watchers.remove(&artifact_hash);
+            active_resolves.resolve_watchers.remove(&recipe_hash);
         }
 
-        let _ = resolve_tx.send(Some(Ok(complete_artifact.clone())));
+        let _ = resolve_tx.send(Some(Ok(artifact.clone())));
 
-        return Ok(WithMeta::new(complete_artifact, meta));
+        return Ok(WithMeta::new(artifact, meta));
     }
 
-    // Check the database to see if we've cached this artifact before
+    // Check the database to see if we've cached this recipe before
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
-    let input_hash = artifact_hash.to_string();
+    let input_hash = recipe_hash.to_string();
     let result = sqlx::query!(
         r#"
             SELECT output_artifacts.artifact_json
@@ -198,43 +196,39 @@ async fn resolve_inner(
     drop(db_conn);
 
     if let Some(row) = result {
-        let complete_artifact: CompleteArtifact = serde_json::from_str(&row.artifact_json)?;
+        let artifact: Artifact = serde_json::from_str(&row.artifact_json)?;
         tracing::Span::current().record("resolve_method", "database_hit");
-        tracing::trace!(%artifact_hash, complete_hash = %complete_artifact.hash(), "got resolve result from database");
+        tracing::trace!(%recipe_hash, artifact_hash = %artifact.hash(), "got resolve result from database");
 
         // Remove the active resolve watcher
         {
             let mut active_resolves = brioche.active_resolves.write().await;
-            active_resolves.resolve_watchers.remove(&artifact_hash);
+            active_resolves.resolve_watchers.remove(&recipe_hash);
         }
 
-        let _ = resolve_tx.send(Some(Ok(complete_artifact.clone())));
+        let _ = resolve_tx.send(Some(Ok(artifact.clone())));
 
-        return Ok(WithMeta::new(complete_artifact, meta));
+        return Ok(WithMeta::new(artifact, meta));
     }
 
-    let input_json = serde_json::to_string(&artifact.value)?;
+    let input_json = serde_json::to_string(&recipe.value)?;
 
-    // Try to get the artifact from the registry (if it might be expensive
-    // to resolve)
-    let registry_response = if artifact.is_expensive_to_resolve() {
-        brioche
-            .registry_client
-            .get_resolve(artifact_hash)
-            .await
-            .ok()
+    // Try to get the resolved recipe from the registry (if it might be
+    // expensive to resolve)
+    let registry_response = if recipe.is_expensive_to_resolve() {
+        brioche.registry_client.get_resolve(recipe_hash).await.ok()
     } else {
         None
     };
 
-    // Resolve the artifact for real if we didn't get it from the registry
+    // Resolve the recipe for real if we didn't get it from the registry
     let result_artifact = match registry_response {
         Some(response) => Ok(response.output_artifact),
         None => {
             let resolve_fut = {
                 let brioche = brioche.clone();
                 let meta = meta.clone();
-                async move { run_resolve(&brioche, artifact.value, &meta).await }
+                async move { run_resolve(&brioche, recipe.value, &meta).await }
                     .instrument(tracing::debug_span!("run_resolve_task").or_current())
             };
             tokio::spawn(resolve_fut)
@@ -246,13 +240,13 @@ async fn resolve_inner(
         }
     };
 
-    // Write the resolved artifact to the database on success
-    if let Ok(result_artifact) = &result_artifact {
+    // Write the resolved recipe to the database on success
+    if let Ok(artifact) = &result_artifact {
         let mut db_conn = brioche.db_conn.lock().await;
         let mut db_transaction = db_conn.begin().await?;
-        let input_hash = artifact_hash.to_string();
-        let output_json = serde_json::to_string(&result_artifact)?;
-        let output_hash = result_artifact.hash().to_string();
+        let input_hash = recipe_hash.to_string();
+        let output_json = serde_json::to_string(&artifact)?;
+        let output_hash = artifact.hash().to_string();
         sqlx::query!(
             r#"
                 INSERT INTO artifacts (artifact_hash, artifact_json)
@@ -277,13 +271,13 @@ async fn resolve_inner(
         .await?;
         db_transaction.commit().await?;
 
-        tracing::trace!(%artifact_hash, result_hash = %output_hash, "saved resolve result to database");
+        tracing::trace!(%recipe_hash, result_hash = %output_hash, "saved resolve result to database");
     }
 
     // Remove the active resolve watcher
     {
         let mut active_resolves = brioche.active_resolves.write().await;
-        active_resolves.resolve_watchers.remove(&artifact_hash);
+        active_resolves.resolve_watchers.remove(&recipe_hash);
     }
 
     match result_artifact {
@@ -303,40 +297,40 @@ async fn resolve_inner(
 #[tracing::instrument(skip_all, err)]
 async fn run_resolve(
     brioche: &Brioche,
-    artifact: LazyArtifact,
+    recipe: Recipe,
     meta: &Arc<Meta>,
-) -> anyhow::Result<CompleteArtifact> {
+) -> anyhow::Result<Artifact> {
     let scope = ResolveScope::Child {
-        parent_hash: artifact.hash(),
+        parent_hash: recipe.hash(),
     };
 
-    match artifact {
-        LazyArtifact::File {
+    match recipe {
+        Recipe::File {
             content_blob,
             executable,
             resources,
         } => {
             let resources = resolve(brioche, *resources, &scope).await?;
-            let CompleteArtifact::Directory(resources) = resources.value else {
+            let Artifact::Directory(resources) = resources.value else {
                 anyhow::bail!("file resources resolved to non-directory value");
             };
-            Ok(CompleteArtifact::File(File {
+            Ok(Artifact::File(File {
                 content_blob,
                 executable,
                 resources,
             }))
         }
-        LazyArtifact::Directory(directory) => Ok(CompleteArtifact::Directory(directory)),
-        LazyArtifact::Symlink { target } => Ok(CompleteArtifact::Symlink { target }),
-        LazyArtifact::Download(download) => {
+        Recipe::Directory(directory) => Ok(Artifact::Directory(directory)),
+        Recipe::Symlink { target } => Ok(Artifact::Symlink { target }),
+        Recipe::Download(download) => {
             let downloaded = download::resolve_download(brioche, download).await?;
-            Ok(CompleteArtifact::File(downloaded))
+            Ok(Artifact::File(downloaded))
         }
-        LazyArtifact::Unpack(unpack) => {
+        Recipe::Unpack(unpack) => {
             let unpacked = unpack::resolve_unpack(brioche, meta, unpack).await?;
-            Ok(CompleteArtifact::Directory(unpacked))
+            Ok(Artifact::Directory(unpacked))
         }
-        LazyArtifact::Process(process) => {
+        Recipe::Process(process) => {
             // We call `resolve` recursively here so that two different
             // lazy processes that resolve to the same complete process will
             // only run once (since `resolve` is memoized).
@@ -344,17 +338,17 @@ async fn run_resolve(
                 process::resolve_lazy_process_to_process(brioche, &scope, process).await?;
             let result = resolve(
                 brioche,
-                WithMeta::new(LazyArtifact::CompleteProcess(process), meta.clone()),
+                WithMeta::new(Recipe::CompleteProcess(process), meta.clone()),
                 &scope,
             )
             .await?;
             Ok(result.value)
         }
-        LazyArtifact::CompleteProcess(process) => {
+        Recipe::CompleteProcess(process) => {
             let result = process::resolve_process(brioche, meta, process).await?;
             Ok(result)
         }
-        LazyArtifact::CreateFile {
+        Recipe::CreateFile {
             content,
             executable,
             resources,
@@ -364,17 +358,17 @@ async fn run_resolve(
                     .await?;
 
             let resources = resolve(brioche, *resources, &scope).await?;
-            let CompleteArtifact::Directory(resources) = resources.value else {
+            let Artifact::Directory(resources) = resources.value else {
                 anyhow::bail!("file resources resolved to non-directory value");
             };
 
-            Ok(CompleteArtifact::File(File {
+            Ok(Artifact::File(File {
                 content_blob: blob_hash,
                 executable,
                 resources,
             }))
         }
-        LazyArtifact::CreateDirectory(CreateDirectory { entries }) => {
+        Recipe::CreateDirectory(CreateDirectory { entries }) => {
             let entries = entries
                 .into_iter()
                 .map(|(path, entry)| {
@@ -389,15 +383,15 @@ async fn run_resolve(
                 .try_collect()
                 .await?;
             let directory = Directory::create(brioche, &entries).await?;
-            Ok(CompleteArtifact::Directory(directory))
+            Ok(Artifact::Directory(directory))
         }
-        LazyArtifact::Cast { artifact, to } => {
-            let result = resolve(brioche, *artifact, &scope).await?;
-            let result_type: CompleteArtifactDiscriminants = (&result.value).into();
+        Recipe::Cast { recipe, to } => {
+            let result = resolve(brioche, *recipe, &scope).await?;
+            let result_type: ArtifactDiscriminants = (&result.value).into();
             anyhow::ensure!(result_type == to, "tried casting {result_type:?} to {to:?}");
             Ok(result.value)
         }
-        LazyArtifact::Merge { directories } => {
+        Recipe::Merge { directories } => {
             let directories = futures::future::try_join_all(
                 directories
                     .into_iter()
@@ -407,24 +401,24 @@ async fn run_resolve(
 
             let mut merged = Directory::default();
             for dir in directories {
-                let CompleteArtifact::Directory(dir) = dir.value else {
+                let Artifact::Directory(dir) = dir.value else {
                     anyhow::bail!("tried merging non-directory artifact");
                 };
                 merged.merge(&dir, brioche).await?;
             }
 
-            Ok(CompleteArtifact::Directory(merged))
+            Ok(Artifact::Directory(merged))
         }
-        LazyArtifact::Proxy(proxy) => {
+        Recipe::Proxy(proxy) => {
             let inner = proxy.inner(brioche).await?;
             let resolved = resolve(brioche, WithMeta::new(inner, meta.clone()), &scope).await?;
             Ok(resolved.value)
         }
-        LazyArtifact::Peel { directory, depth } => {
+        Recipe::Peel { directory, depth } => {
             let mut result = resolve(brioche, *directory, &scope).await?;
 
             for _ in 0..depth {
-                let CompleteArtifact::Directory(dir) = result.value else {
+                let Artifact::Directory(dir) = result.value else {
                     anyhow::bail!("tried peeling non-directory artifact");
                 };
                 let entries = dir.entries(brioche).await?;
@@ -442,9 +436,9 @@ async fn run_resolve(
 
             Ok(result.value)
         }
-        LazyArtifact::Get { directory, path } => {
+        Recipe::Get { directory, path } => {
             let resolved = resolve(brioche, *directory, &scope).await?;
-            let CompleteArtifact::Directory(directory) = resolved.value else {
+            let Artifact::Directory(directory) = resolved.value else {
                 anyhow::bail!("tried getting item from non-directory");
             };
 
@@ -454,32 +448,32 @@ async fn run_resolve(
 
             Ok(result.value)
         }
-        LazyArtifact::Insert {
+        Recipe::Insert {
             directory,
             path,
-            artifact,
+            recipe,
         } => {
             let (directory, artifact) = tokio::try_join!(resolve(brioche, *directory, &scope), {
                 let scope = scope.clone();
                 async move {
-                    match artifact {
-                        Some(artifact) => Ok(Some(resolve(brioche, *artifact, &scope).await?)),
+                    match recipe {
+                        Some(recipe) => Ok(Some(resolve(brioche, *recipe, &scope).await?)),
                         None => Ok(None),
                     }
                 }
             })?;
 
-            let CompleteArtifact::Directory(mut directory) = directory.value else {
+            let Artifact::Directory(mut directory) = directory.value else {
                 anyhow::bail!("tried removing item from non-directory artifact");
             };
 
             directory.insert(brioche, &path, artifact).await?;
 
-            Ok(CompleteArtifact::Directory(directory))
+            Ok(Artifact::Directory(directory))
         }
-        LazyArtifact::SetPermissions { file, executable } => {
+        Recipe::SetPermissions { file, executable } => {
             let result = resolve(brioche, *file, &scope).await?;
-            let CompleteArtifact::File(mut file) = result.value else {
+            let Artifact::File(mut file) = result.value else {
                 anyhow::bail!("tried setting permissions on non-file");
             };
 
@@ -487,24 +481,21 @@ async fn run_resolve(
                 file.executable = executable;
             }
 
-            Ok(CompleteArtifact::File(file))
+            Ok(Artifact::File(file))
         }
     }
 }
 
-pub async fn create_proxy(
-    brioche: &Brioche,
-    artifact: LazyArtifact,
-) -> anyhow::Result<LazyArtifact> {
-    if let LazyArtifact::Proxy { .. } = artifact {
-        return Ok(artifact);
+pub async fn create_proxy(brioche: &Brioche, recipe: Recipe) -> anyhow::Result<Recipe> {
+    if let Recipe::Proxy { .. } = recipe {
+        return Ok(recipe);
     }
 
-    let artifact_hash = artifact.hash();
-    crate::artifact::save_artifacts(brioche, [artifact]).await?;
+    let recipe_hash = recipe.hash();
+    crate::recipe::save_recipes(brioche, [recipe]).await?;
 
-    Ok(LazyArtifact::Proxy(ProxyArtifact {
-        artifact: artifact_hash,
+    Ok(Recipe::Proxy(ProxyRecipe {
+        recipe: recipe_hash,
     }))
 }
 

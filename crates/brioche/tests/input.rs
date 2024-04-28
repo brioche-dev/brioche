@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt as _, path::Path, sync::Arc};
 
 use brioche::{
-    artifact::{CompleteArtifact, Meta},
+    recipe::{Artifact, Meta},
     Brioche,
 };
 use pretty_assertions::assert_eq;
@@ -12,7 +12,7 @@ async fn create_input(
     brioche: &Brioche,
     input_path: &Path,
     remove_input: bool,
-) -> anyhow::Result<CompleteArtifact> {
+) -> anyhow::Result<Artifact> {
     let artifact = brioche::input::create_input(
         brioche,
         brioche::input::InputOptions {
@@ -32,7 +32,7 @@ async fn create_input_with_resources(
     input_path: &Path,
     resources_dir: &Path,
     remove_input: bool,
-) -> anyhow::Result<CompleteArtifact> {
+) -> anyhow::Result<Artifact> {
     let artifact = brioche::input::create_input(
         brioche,
         brioche::input::InputOptions {

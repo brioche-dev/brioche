@@ -1,4 +1,4 @@
-use brioche::{artifact::LazyArtifact, resolve::create_proxy};
+use brioche::{recipe::Recipe, resolve::create_proxy};
 use brioche_test::resolve_without_meta;
 
 mod brioche_test;
@@ -9,7 +9,7 @@ async fn test_resolve_proxy() -> anyhow::Result<()> {
 
     let hello_blob = brioche_test::blob(&brioche, "hello").await;
 
-    let merge = LazyArtifact::Merge {
+    let merge = Recipe::Merge {
         directories: vec![
             brioche_test::without_meta(brioche_test::lazy_dir_empty()),
             brioche_test::without_meta(brioche_test::lazy_dir([(
@@ -21,8 +21,8 @@ async fn test_resolve_proxy() -> anyhow::Result<()> {
 
     let merge_proxy = create_proxy(&brioche, merge.clone()).await?;
 
-    // The hash of the proxy artifact should be different from the hash of the
-    // lazy artifact it wraps
+    // The hash of the proxy recipe should be different from the hash of the
+    // recipe it wraps
     assert_ne!(merge_proxy.hash(), merge.hash());
 
     let merge_proxy_result = resolve_without_meta(&brioche, merge_proxy).await?;

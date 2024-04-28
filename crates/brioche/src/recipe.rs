@@ -28,12 +28,12 @@ use super::{blob::BlobHash, platform::Platform, Brioche, Hash};
 #[strum_discriminants(vis(pub))]
 #[strum_discriminants(derive(serde::Serialize, serde::Deserialize))]
 #[strum_discriminants(serde(rename_all = "snake_case"))]
-pub enum LazyArtifact {
+pub enum Recipe {
     #[serde(rename_all = "camelCase")]
     File {
         content_blob: BlobHash,
         executable: bool,
-        resources: Box<WithMeta<LazyArtifact>>,
+        resources: Box<WithMeta<Recipe>>,
     },
     #[serde(rename_all = "camelCase")]
     Directory(Directory),
@@ -43,60 +43,60 @@ pub enum LazyArtifact {
         target: BString,
     },
     #[serde(rename_all = "camelCase")]
-    Download(DownloadArtifact),
+    Download(DownloadRecipe),
     #[serde(rename_all = "camelCase")]
-    Unpack(UnpackArtifact),
-    Process(ProcessArtifact),
-    CompleteProcess(CompleteProcessArtifact),
+    Unpack(UnpackRecipe),
+    Process(ProcessRecipe),
+    CompleteProcess(CompleteProcessRecipe),
     #[serde(rename_all = "camelCase")]
     CreateFile {
         #[serde_as(as = "TickEncoded")]
         content: BString,
         executable: bool,
-        resources: Box<WithMeta<LazyArtifact>>,
+        resources: Box<WithMeta<Recipe>>,
     },
     #[serde(rename_all = "camelCase")]
     CreateDirectory(CreateDirectory),
     #[serde(rename_all = "camelCase")]
     Cast {
-        artifact: Box<WithMeta<LazyArtifact>>,
-        to: CompleteArtifactDiscriminants,
+        recipe: Box<WithMeta<Recipe>>,
+        to: ArtifactDiscriminants,
     },
     #[serde(rename_all = "camelCase")]
     Merge {
-        directories: Vec<WithMeta<LazyArtifact>>,
+        directories: Vec<WithMeta<Recipe>>,
     },
     #[serde(rename_all = "camelCase")]
     Peel {
-        directory: Box<WithMeta<LazyArtifact>>,
+        directory: Box<WithMeta<Recipe>>,
         depth: u32,
     },
     #[serde(rename_all = "camelCase")]
     Get {
-        directory: Box<WithMeta<LazyArtifact>>,
+        directory: Box<WithMeta<Recipe>>,
         #[serde_as(as = "TickEncoded")]
         path: BString,
     },
     #[serde(rename_all = "camelCase")]
     Insert {
-        directory: Box<WithMeta<LazyArtifact>>,
+        directory: Box<WithMeta<Recipe>>,
         #[serde_as(as = "TickEncoded")]
         path: BString,
-        artifact: Option<Box<WithMeta<LazyArtifact>>>,
+        recipe: Option<Box<WithMeta<Recipe>>>,
     },
     #[serde(rename_all = "camelCase")]
     SetPermissions {
-        file: Box<WithMeta<LazyArtifact>>,
+        file: Box<WithMeta<Recipe>>,
         executable: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
-    Proxy(ProxyArtifact),
+    Proxy(ProxyRecipe),
 }
 
-impl LazyArtifact {
+impl Recipe {
     #[tracing::instrument(skip_all)]
-    pub fn try_hash(&self) -> anyhow::Result<ArtifactHash> {
-        static HASHES: OnceLock<RwLock<HashMap<LazyArtifact, ArtifactHash>>> = OnceLock::new();
+    pub fn try_hash(&self) -> anyhow::Result<RecipeHash> {
+        static HASHES: OnceLock<RwLock<HashMap<Recipe, RecipeHash>>> = OnceLock::new();
         let hashes = HASHES.get_or_init(|| RwLock::new(HashMap::new()));
         {
             let hashes_reader = hashes
@@ -107,7 +107,7 @@ impl LazyArtifact {
             }
         }
 
-        let hash = ArtifactHash::from_serializable(self)?;
+        let hash = RecipeHash::from_serializable(self)?;
         {
             let mut hashes_writer = hashes
                 .write()
@@ -118,71 +118,71 @@ impl LazyArtifact {
         Ok(hash)
     }
 
-    pub fn hash(&self) -> ArtifactHash {
-        self.try_hash().expect("failed to hash artifact")
+    pub fn hash(&self) -> RecipeHash {
+        self.try_hash().expect("failed to hash recipe")
     }
 
-    pub fn kind(&self) -> LazyArtifactDiscriminants {
+    pub fn kind(&self) -> RecipeDiscriminants {
         self.into()
     }
 
     pub fn is_expensive_to_resolve(&self) -> bool {
         match self {
-            LazyArtifact::Download(_) | LazyArtifact::CompleteProcess(_) => true,
-            LazyArtifact::File { .. }
-            | LazyArtifact::Directory(_)
-            | LazyArtifact::Symlink { .. }
-            | LazyArtifact::Unpack(_)
-            | LazyArtifact::Process(_)
-            | LazyArtifact::CreateFile { .. }
-            | LazyArtifact::CreateDirectory(_)
-            | LazyArtifact::Cast { .. }
-            | LazyArtifact::Merge { .. }
-            | LazyArtifact::Peel { .. }
-            | LazyArtifact::Get { .. }
-            | LazyArtifact::Insert { .. }
-            | LazyArtifact::SetPermissions { .. }
-            | LazyArtifact::Proxy(_) => false,
+            Recipe::Download(_) | Recipe::CompleteProcess(_) => true,
+            Recipe::File { .. }
+            | Recipe::Directory(_)
+            | Recipe::Symlink { .. }
+            | Recipe::Unpack(_)
+            | Recipe::Process(_)
+            | Recipe::CreateFile { .. }
+            | Recipe::CreateDirectory(_)
+            | Recipe::Cast { .. }
+            | Recipe::Merge { .. }
+            | Recipe::Peel { .. }
+            | Recipe::Get { .. }
+            | Recipe::Insert { .. }
+            | Recipe::SetPermissions { .. }
+            | Recipe::Proxy(_) => false,
         }
     }
 }
 
-pub async fn get_artifacts(
+pub async fn get_recipes(
     brioche: &Brioche,
-    artifact_hashes: impl IntoIterator<Item = ArtifactHash>,
-) -> anyhow::Result<HashMap<ArtifactHash, LazyArtifact>> {
-    let mut artifacts = HashMap::new();
+    recipe_hashes: impl IntoIterator<Item = RecipeHash>,
+) -> anyhow::Result<HashMap<RecipeHash, Recipe>> {
+    let mut recipes = HashMap::new();
 
-    let cached_artifacts = brioche.cached_artifacts.read().await;
-    let mut uncached_artifacts = HashSet::new();
+    let cached_recipes = brioche.cached_recipes.read().await;
+    let mut uncached_recipes = HashSet::new();
     let mut arguments = sqlx::sqlite::SqliteArguments::default();
 
-    for artifact_hash in artifact_hashes {
-        match cached_artifacts.artifacts_by_hash.get(&artifact_hash) {
-            Some(artifact) => {
-                artifacts.insert(artifact_hash, artifact.clone());
+    for recipe_hash in recipe_hashes {
+        match cached_recipes.recipes_by_hash.get(&recipe_hash) {
+            Some(recipe) => {
+                recipes.insert(recipe_hash, recipe.clone());
             }
             None => {
-                let is_new = uncached_artifacts.insert(artifact_hash);
+                let is_new = uncached_recipes.insert(recipe_hash);
 
                 // Add as SQL argument unless we've added it before
                 if is_new {
-                    arguments.add(artifact_hash.to_string());
+                    arguments.add(recipe_hash.to_string());
                 }
             }
         }
     }
 
     // Release the lock
-    drop(cached_artifacts);
+    drop(cached_recipes);
 
-    // Return early if we have no uncached artifacts to fetch
-    if uncached_artifacts.is_empty() {
-        return Ok(artifacts);
+    // Return early if we have no uncached recipess to fetch
+    if uncached_recipes.is_empty() {
+        return Ok(recipes);
     }
 
     let placeholders = std::iter::repeat("?")
-        .take(uncached_artifacts.len())
+        .take(uncached_recipes.len())
         .join_with(", ");
 
     let mut db_conn = brioche.db_conn.lock().await;
@@ -204,78 +204,72 @@ pub async fn get_artifacts(
     db_transaction.commit().await?;
     drop(db_conn);
 
-    let mut cached_artifacts = brioche.cached_artifacts.write().await;
-    for (artifact_hash, artifact_json) in records {
-        let artifact: LazyArtifact = serde_json::from_str(&artifact_json)?;
-        let expected_artifact_hash: ArtifactHash = artifact_hash.parse()?;
-        let artifact_hash = artifact.hash();
+    let mut cached_recipes = brioche.cached_recipes.write().await;
+    for (recipe_hash, recipe_json) in records {
+        let recipe: Recipe = serde_json::from_str(&recipe_json)?;
+        let expected_recipe_hash: RecipeHash = recipe_hash.parse()?;
+        let recipe_hash = recipe.hash();
 
-        anyhow::ensure!(expected_artifact_hash == artifact_hash, "expected artifact hash from database to be {expected_artifact_hash}, but was {artifact_hash}");
+        anyhow::ensure!(expected_recipe_hash == recipe_hash, "expected recipe hash from database to be {expected_recipe_hash}, but was {recipe_hash}");
 
-        cached_artifacts
-            .artifacts_by_hash
-            .insert(artifact_hash, artifact.clone());
-        uncached_artifacts.remove(&artifact_hash);
-        artifacts.insert(artifact_hash, artifact);
+        cached_recipes
+            .recipes_by_hash
+            .insert(recipe_hash, recipe.clone());
+        uncached_recipes.remove(&recipe_hash);
+        recipes.insert(recipe_hash, recipe);
     }
 
-    if !uncached_artifacts.is_empty() {
-        anyhow::bail!("artifacts not found: {uncached_artifacts:?}");
+    if !uncached_recipes.is_empty() {
+        anyhow::bail!("recipes not found: {uncached_recipes:?}");
     }
 
-    Ok(artifacts)
+    Ok(recipes)
 }
 
-pub async fn get_artifact(
-    brioche: &Brioche,
-    artifact_hash: ArtifactHash,
-) -> anyhow::Result<LazyArtifact> {
-    let mut artifacts = get_artifacts(brioche, [artifact_hash]).await?;
-    let artifact = artifacts
-        .remove(&artifact_hash)
-        .expect("artifact not returned in collection");
-    Ok(artifact)
+pub async fn get_recipe(brioche: &Brioche, recipe_hash: RecipeHash) -> anyhow::Result<Recipe> {
+    let mut recipes = get_recipes(brioche, [recipe_hash]).await?;
+    let recipe = recipes
+        .remove(&recipe_hash)
+        .expect("recipe not returned in collection");
+    Ok(recipe)
 }
 
-pub async fn save_artifacts<A>(
+pub async fn save_recipes<A>(
     brioche: &Brioche,
-    artifacts: impl IntoIterator<Item = A>,
+    recipes: impl IntoIterator<Item = A>,
 ) -> anyhow::Result<u64>
 where
-    A: std::borrow::Borrow<LazyArtifact>,
+    A: std::borrow::Borrow<Recipe>,
 {
-    let cached_artifacts = brioche.cached_artifacts.read().await;
+    let cached_recipes = brioche.cached_recipes.read().await;
 
     let mut arguments = sqlx::sqlite::SqliteArguments::default();
-    let mut uncached_artifacts = vec![];
-    for artifact in artifacts {
-        let artifact = artifact.borrow();
-        let artifact_hash = artifact.hash();
-        let artifact_json = serde_json::to_string(artifact)?;
+    let mut uncached_recipes = vec![];
+    for recipe in recipes {
+        let recipe = recipe.borrow();
+        let recipe_hash = recipe.hash();
+        let recipe_json = serde_json::to_string(recipe)?;
 
-        if !cached_artifacts
-            .artifacts_by_hash
-            .contains_key(&artifact_hash)
-        {
-            // Artifact not cached, so try to insert it into the database
+        if !cached_recipes.recipes_by_hash.contains_key(&recipe_hash) {
+            // Recipe not cached, so try to insert it into the database
             // and cache it afterward
-            uncached_artifacts.push(artifact.clone());
+            uncached_recipes.push(recipe.clone());
 
-            arguments.add(artifact_hash.to_string());
-            arguments.add(artifact_json);
+            arguments.add(recipe_hash.to_string());
+            arguments.add(recipe_json);
         }
     }
 
     // Release the read lock
-    drop(cached_artifacts);
+    drop(cached_recipes);
 
-    // Short-circuit if we have no artifacts to save
-    if uncached_artifacts.is_empty() {
+    // Short-circuit if we have no recipes to save
+    if uncached_recipes.is_empty() {
         return Ok(0);
     }
 
     let placeholders = std::iter::repeat("(?, ?)")
-        .take(uncached_artifacts.len())
+        .take(uncached_recipes.len())
         .join_with(", ");
 
     let mut db_conn = brioche.db_conn.lock().await;
@@ -297,13 +291,11 @@ where
     db_transaction.commit().await?;
     drop(db_conn);
 
-    // Cache each artifact that wasn't cached before. We do this after
+    // Cache each recipe that wasn't cached before. We do this after
     // writing to the database to ensure cached items are always in the database
-    let mut cached_artifacts = brioche.cached_artifacts.write().await;
-    for artifact in uncached_artifacts {
-        cached_artifacts
-            .artifacts_by_hash
-            .insert(artifact.hash(), artifact);
+    let mut cached_recipes = brioche.cached_recipes.write().await;
+    for recipe in uncached_recipes {
+        cached_recipes.recipes_by_hash.insert(recipe.hash(), recipe);
     }
 
     Ok(result.rows_affected())
@@ -396,43 +388,43 @@ where
     }
 }
 
-impl std::ops::Deref for WithMeta<LazyArtifact> {
-    type Target = LazyArtifact;
+impl std::ops::Deref for WithMeta<Recipe> {
+    type Target = Recipe;
 
     fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
 
-impl std::ops::DerefMut for WithMeta<LazyArtifact> {
+impl std::ops::DerefMut for WithMeta<Recipe> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
     }
 }
 
-impl std::ops::Deref for WithMeta<CompleteArtifact> {
-    type Target = CompleteArtifact;
+impl std::ops::Deref for WithMeta<Artifact> {
+    type Target = Artifact;
 
     fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
 
-impl std::ops::DerefMut for WithMeta<CompleteArtifact> {
+impl std::ops::DerefMut for WithMeta<Artifact> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
     }
 }
 
-impl std::ops::Deref for WithMeta<ArtifactHash> {
-    type Target = ArtifactHash;
+impl std::ops::Deref for WithMeta<RecipeHash> {
+    type Target = RecipeHash;
 
     fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
 
-impl std::ops::DerefMut for WithMeta<ArtifactHash> {
+impl std::ops::DerefMut for WithMeta<RecipeHash> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
     }
@@ -468,7 +460,7 @@ impl std::fmt::Display for StackFrame {
 #[serde(rename_all = "camelCase")]
 pub struct CreateDirectory {
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
-    pub entries: BTreeMap<BString, WithMeta<LazyArtifact>>,
+    pub entries: BTreeMap<BString, WithMeta<Recipe>>,
 }
 
 impl CreateDirectory {
@@ -479,15 +471,15 @@ impl CreateDirectory {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DownloadArtifact {
+pub struct DownloadRecipe {
     pub url: url::Url,
     pub hash: Hash,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UnpackArtifact {
-    pub file: Box<WithMeta<LazyArtifact>>,
+pub struct UnpackRecipe {
+    pub file: Box<WithMeta<Recipe>>,
     pub archive: ArchiveFormat,
     #[serde(default)]
     pub compression: CompressionFormat,
@@ -496,7 +488,7 @@ pub struct UnpackArtifact {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProcessArtifact {
+pub struct ProcessRecipe {
     pub command: ProcessTemplate,
 
     pub args: Vec<ProcessTemplate>,
@@ -504,10 +496,10 @@ pub struct ProcessArtifact {
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, ProcessTemplate>,
 
-    pub work_dir: Box<WithMeta<LazyArtifact>>,
+    pub work_dir: Box<WithMeta<Recipe>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_scaffold: Option<Box<WithMeta<LazyArtifact>>>,
+    pub output_scaffold: Option<Box<WithMeta<Recipe>>>,
 
     pub platform: Platform,
 }
@@ -515,7 +507,7 @@ pub struct ProcessArtifact {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CompleteProcessArtifact {
+pub struct CompleteProcessRecipe {
     pub command: CompleteProcessTemplate,
 
     pub args: Vec<CompleteProcessTemplate>,
@@ -523,11 +515,11 @@ pub struct CompleteProcessArtifact {
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, CompleteProcessTemplate>,
 
-    #[serde_as(as = "serde_with::TryFromInto<LazyArtifact>")]
+    #[serde_as(as = "serde_with::TryFromInto<Recipe>")]
     pub work_dir: Directory,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_scaffold: Option<Box<CompleteArtifact>>,
+    pub output_scaffold: Option<Box<Artifact>>,
 
     pub platform: Platform,
 }
@@ -548,7 +540,7 @@ pub struct CompleteProcessArtifact {
 #[strum_discriminants(vis(pub))]
 #[strum_discriminants(derive(Hash, serde::Serialize, serde::Deserialize))]
 #[strum_discriminants(serde(rename_all = "snake_case"))]
-pub enum CompleteArtifact {
+pub enum Artifact {
     #[serde(rename_all = "camelCase")]
     File(File),
     #[serde(rename_all = "camelCase")]
@@ -560,14 +552,14 @@ pub enum CompleteArtifact {
     Directory(Directory),
 }
 
-impl CompleteArtifact {
+impl Artifact {
     #[tracing::instrument(skip_all)]
-    pub fn try_hash(&self) -> anyhow::Result<ArtifactHash> {
-        let hash = ArtifactHash::from_serializable(self)?;
+    pub fn try_hash(&self) -> anyhow::Result<RecipeHash> {
+        let hash = RecipeHash::from_serializable(self)?;
         Ok(hash)
     }
 
-    pub fn hash(&self) -> ArtifactHash {
+    pub fn hash(&self) -> RecipeHash {
         self.try_hash().expect("failed to hash artifact")
     }
 }
@@ -580,7 +572,7 @@ pub struct File {
 
     pub executable: bool,
 
-    #[serde_as(as = "serde_with::TryFromInto<LazyArtifact>")]
+    #[serde_as(as = "serde_with::TryFromInto<Recipe>")]
     pub resources: Directory,
 }
 
@@ -589,24 +581,24 @@ pub struct File {
 #[serde(rename_all = "camelCase")]
 pub struct Directory {
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
-    entries: BTreeMap<BString, WithMeta<ArtifactHash>>,
+    entries: BTreeMap<BString, WithMeta<RecipeHash>>,
 }
 
 impl Directory {
     pub async fn create(
         brioche: &Brioche,
-        entries: &BTreeMap<BString, WithMeta<CompleteArtifact>>,
+        entries: &BTreeMap<BString, WithMeta<Artifact>>,
     ) -> anyhow::Result<Self> {
-        let artifacts = entries
+        let recipes = entries
             .values()
-            .map(|artifact| LazyArtifact::from(artifact.value.clone()));
-        save_artifacts(brioche, artifacts).await?;
+            .map(|recipe| Recipe::from(recipe.value.clone()));
+        save_recipes(brioche, recipes).await?;
 
         let entries = entries
             .iter()
-            .map(|(path, artifact)| {
-                let artifact_hash = artifact.as_ref().map(|artifact| artifact.hash());
-                (path.clone(), artifact_hash)
+            .map(|(path, recipe)| {
+                let recipe_hash = recipe.as_ref().map(|recipe| recipe.hash());
+                (path.clone(), recipe_hash)
             })
             .collect();
         Ok(Self { entries })
@@ -616,28 +608,28 @@ impl Directory {
         self.entries.is_empty()
     }
 
-    pub fn entry_hashes(&self) -> &BTreeMap<BString, WithMeta<ArtifactHash>> {
+    pub fn entry_hashes(&self) -> &BTreeMap<BString, WithMeta<RecipeHash>> {
         &self.entries
     }
 
     pub async fn entries(
         &self,
         brioche: &Brioche,
-    ) -> anyhow::Result<BTreeMap<BString, WithMeta<CompleteArtifact>>> {
-        let entry_artifacts =
-            get_artifacts(brioche, self.entries.values().map(|entry| **entry)).await?;
+    ) -> anyhow::Result<BTreeMap<BString, WithMeta<Artifact>>> {
+        let entry_recipes =
+            get_recipes(brioche, self.entries.values().map(|entry| **entry)).await?;
 
         let entries = self
             .entries
             .iter()
-            .map(|(path, artifact_hash)| {
-                let artifact = entry_artifacts
-                    .get(&**artifact_hash)
+            .map(|(path, recipe_hash)| {
+                let recipe = entry_recipes
+                    .get(&**recipe_hash)
                     .with_context(|| format!("failed to get artifact for entry {path:?}"))?;
-                let artifact: CompleteArtifact = artifact.clone().try_into().map_err(|_| {
-                    anyhow::anyhow!("artifact at {path:?} is not a complete artifact")
+                let artifact: Artifact = recipe.clone().try_into().map_err(|_| {
+                    anyhow::anyhow!("recipe at {path:?} is not a complete artifact")
                 })?;
-                let artifact = artifact_hash.as_ref().map(|_| artifact);
+                let artifact = recipe_hash.as_ref().map(|_| artifact);
                 Ok((path.clone(), artifact))
             })
             .collect::<anyhow::Result<_>>()?;
@@ -650,21 +642,21 @@ impl Directory {
         brioche: &Brioche,
         full_path: &BStr,
         path_components: &[&BStr],
-    ) -> Result<Option<WithMeta<CompleteArtifact>>, DirectoryError> {
+    ) -> Result<Option<WithMeta<Artifact>>, DirectoryError> {
         match path_components {
             [] => Err(DirectoryError::EmptyPath {
                 path: full_path.into(),
             }),
             [filename] => match self.entries.get(&**filename) {
-                Some(artifact_hash) => {
-                    let artifact = get_artifact(brioche, artifact_hash.value).await?;
-                    let artifact: CompleteArtifact =
-                        artifact
+                Some(recipe_hash) => {
+                    let recipe = get_recipe(brioche, recipe_hash.value).await?;
+                    let artifact: Artifact =
+                        recipe
                             .try_into()
-                            .map_err(|_| DirectoryError::ArtifactIncomplete {
+                            .map_err(|_| DirectoryError::RecipeIncomplete {
                                 path: full_path.into(),
                             })?;
-                    Ok(Some(artifact_hash.as_ref().map(|_| artifact)))
+                    Ok(Some(recipe_hash.as_ref().map(|_| artifact)))
                 }
                 None => Ok(None),
             },
@@ -672,14 +664,14 @@ impl Directory {
                 let Some(dir_entry_hash) = self.entries.get(&**directory_name) else {
                     return Ok(None);
                 };
-                let dir_entry = get_artifact(brioche, dir_entry_hash.value).await?;
-                let dir_entry: CompleteArtifact =
+                let dir_entry = get_recipe(brioche, dir_entry_hash.value).await?;
+                let dir_entry: Artifact =
                     dir_entry
                         .try_into()
-                        .map_err(|_| DirectoryError::ArtifactIncomplete {
+                        .map_err(|_| DirectoryError::RecipeIncomplete {
                             path: full_path.into(),
                         })?;
-                let CompleteArtifact::Directory(dir_entry) = dir_entry else {
+                let Artifact::Directory(dir_entry) = dir_entry else {
                     return Err(DirectoryError::PathDescendsIntoNonDirectory {
                         path: full_path.into(),
                     });
@@ -698,8 +690,8 @@ impl Directory {
         brioche: &Brioche,
         full_path: &BStr,
         path_components: &[&BStr],
-        artifact: Option<WithMeta<CompleteArtifact>>,
-    ) -> Result<Option<WithMeta<CompleteArtifact>>, DirectoryError> {
+        artifact: Option<WithMeta<Artifact>>,
+    ) -> Result<Option<WithMeta<Artifact>>, DirectoryError> {
         match path_components {
             [] => {
                 return Err(DirectoryError::EmptyPath {
@@ -710,20 +702,21 @@ impl Directory {
                 let replaced_hash = match artifact {
                     Some(artifact) => {
                         let artifact_hash = artifact.as_ref().map(|artifact| artifact.hash());
-                        save_artifacts(brioche, [LazyArtifact::from(artifact.value)]).await?;
+                        save_recipes(brioche, [Recipe::from(artifact.value)]).await?;
                         self.entries.insert(filename.to_vec().into(), artifact_hash)
                     }
                     None => self.entries.remove(&**filename),
                 };
                 let replaced = match replaced_hash {
-                    Some(artifact_hash) => {
-                        let artifact = get_artifact(brioche, *artifact_hash).await?;
-                        let artifact: CompleteArtifact = artifact.try_into().map_err(|_| {
-                            DirectoryError::ArtifactIncomplete {
-                                path: full_path.into(),
-                            }
-                        })?;
-                        Some(artifact_hash.map(|_| artifact))
+                    Some(recipe_hash) => {
+                        let recipe = get_recipe(brioche, *recipe_hash).await?;
+                        let artifact: Artifact =
+                            recipe
+                                .try_into()
+                                .map_err(|_| DirectoryError::RecipeIncomplete {
+                                    path: full_path.into(),
+                                })?;
+                        Some(recipe_hash.map(|_| artifact))
                     }
                     None => None,
                 };
@@ -737,9 +730,9 @@ impl Directory {
                             .insert_by_components(brioche, full_path, path_components, artifact)
                             .await?;
 
-                        let new_directory: LazyArtifact = new_directory.into();
+                        let new_directory: Recipe = new_directory.into();
                         let new_directory_hash = new_directory.hash();
-                        save_artifacts(brioche, [new_directory]).await?;
+                        save_recipes(brioche, [new_directory]).await?;
 
                         entry.insert(WithMeta::without_meta(new_directory_hash));
 
@@ -748,13 +741,14 @@ impl Directory {
                     std::collections::btree_map::Entry::Occupied(mut entry) => {
                         let dir_entry_hash = entry.get();
 
-                        let dir_entry = get_artifact(brioche, **dir_entry_hash).await?;
-                        let dir_entry: CompleteArtifact = dir_entry.try_into().map_err(|_| {
-                            DirectoryError::ArtifactIncomplete {
-                                path: full_path.into(),
-                            }
-                        })?;
-                        let CompleteArtifact::Directory(mut inner_dir) = dir_entry else {
+                        let dir_entry = get_recipe(brioche, **dir_entry_hash).await?;
+                        let dir_entry: Artifact =
+                            dir_entry
+                                .try_into()
+                                .map_err(|_| DirectoryError::RecipeIncomplete {
+                                    path: full_path.into(),
+                                })?;
+                        let Artifact::Directory(mut inner_dir) = dir_entry else {
                             return Err(DirectoryError::PathDescendsIntoNonDirectory {
                                 path: full_path.into(),
                             });
@@ -763,9 +757,9 @@ impl Directory {
                             .insert_by_components(brioche, full_path, path_components, artifact)
                             .await?;
 
-                        let updated_dir_entry: LazyArtifact = inner_dir.into();
+                        let updated_dir_entry: Recipe = inner_dir.into();
                         let updated_dir_entry_hash = updated_dir_entry.hash();
-                        save_artifacts(brioche, [updated_dir_entry]).await?;
+                        save_recipes(brioche, [updated_dir_entry]).await?;
                         entry.insert(WithMeta::without_meta(updated_dir_entry_hash));
 
                         replaced
@@ -780,7 +774,7 @@ impl Directory {
         &self,
         brioche: &Brioche,
         path: &[u8],
-    ) -> Result<Option<WithMeta<CompleteArtifact>>, DirectoryError> {
+    ) -> Result<Option<WithMeta<Artifact>>, DirectoryError> {
         let path = bstr::BStr::new(path);
         let mut components = vec![];
         for component in path.split(|&byte| byte == b'/' || byte == b'\\') {
@@ -805,8 +799,8 @@ impl Directory {
         &mut self,
         brioche: &Brioche,
         path: &[u8],
-        artifact: Option<WithMeta<CompleteArtifact>>,
-    ) -> Result<Option<WithMeta<CompleteArtifact>>, DirectoryError> {
+        artifact: Option<WithMeta<Artifact>>,
+    ) -> Result<Option<WithMeta<Artifact>>, DirectoryError> {
         let path = bstr::BStr::new(path);
         let mut components = vec![];
         for component in path.split(|&byte| byte == b'/' || byte == b'\\') {
@@ -834,28 +828,26 @@ impl Directory {
             match self.entries.entry(key.clone()) {
                 std::collections::btree_map::Entry::Occupied(mut current) => {
                     let (current_dir_entry, other_dir_entry) = tokio::try_join!(
-                        get_artifact(brioche, **current.get()),
-                        get_artifact(brioche, **artifact),
+                        get_recipe(brioche, **current.get()),
+                        get_recipe(brioche, **artifact),
                     )?;
 
-                    let current_dir_entry: CompleteArtifact =
-                        current_dir_entry.try_into().map_err(|_| {
-                            anyhow::anyhow!("current artifact at {key:?} is not complete")
-                        })?;
-                    let other_dir_entry: CompleteArtifact =
-                        other_dir_entry.try_into().map_err(|_| {
-                            anyhow::anyhow!("other artifact at {key:?} is not complete")
-                        })?;
+                    let current_dir_entry: Artifact = current_dir_entry
+                        .try_into()
+                        .map_err(|_| anyhow::anyhow!("current recipe at {key:?} is incomplete"))?;
+                    let other_dir_entry: Artifact = other_dir_entry
+                        .try_into()
+                        .map_err(|_| anyhow::anyhow!("other recipe at {key:?} is incomplete"))?;
                     match (current_dir_entry, other_dir_entry) {
                         (
-                            CompleteArtifact::Directory(mut current_inner),
-                            CompleteArtifact::Directory(other_inner),
+                            Artifact::Directory(mut current_inner),
+                            Artifact::Directory(other_inner),
                         ) => {
                             current_inner.merge(&other_inner, brioche).await?;
 
-                            let updated_current_inner_artifact: LazyArtifact = current_inner.into();
+                            let updated_current_inner_artifact: Recipe = current_inner.into();
                             let updated_current_inner_hash = updated_current_inner_artifact.hash();
-                            save_artifacts(brioche, [updated_current_inner_artifact]).await?;
+                            save_recipes(brioche, [updated_current_inner_artifact]).await?;
                             current.insert(WithMeta::without_meta(updated_current_inner_hash));
                         }
                         (_, other_dir_entry) => {
@@ -873,80 +865,80 @@ impl Directory {
     }
 }
 
-impl TryFrom<LazyArtifact> for CompleteArtifact {
-    type Error = ArtifactIncomplete;
+impl TryFrom<Recipe> for Artifact {
+    type Error = RecipeIncomplete;
 
-    fn try_from(value: LazyArtifact) -> Result<Self, Self::Error> {
+    fn try_from(value: Recipe) -> Result<Self, Self::Error> {
         match value {
-            LazyArtifact::File {
+            Recipe::File {
                 content_blob: data,
                 executable,
                 resources,
             } => {
-                let resources: CompleteArtifact = resources.value.try_into()?;
-                let CompleteArtifact::Directory(resources) = resources else {
-                    return Err(ArtifactIncomplete);
+                let resources: Artifact = resources.value.try_into()?;
+                let Artifact::Directory(resources) = resources else {
+                    return Err(RecipeIncomplete);
                 };
-                Ok(CompleteArtifact::File(File {
+                Ok(Artifact::File(File {
                     content_blob: data,
                     executable,
                     resources,
                 }))
             }
-            LazyArtifact::Symlink { target } => Ok(CompleteArtifact::Symlink { target }),
-            LazyArtifact::Directory(directory) => Ok(CompleteArtifact::Directory(directory)),
-            LazyArtifact::CreateDirectory(directory) if directory.is_empty() => {
-                Ok(CompleteArtifact::Directory(Directory::default()))
+            Recipe::Symlink { target } => Ok(Artifact::Symlink { target }),
+            Recipe::Directory(directory) => Ok(Artifact::Directory(directory)),
+            Recipe::CreateDirectory(directory) if directory.is_empty() => {
+                Ok(Artifact::Directory(Directory::default()))
             }
-            LazyArtifact::Download { .. }
-            | LazyArtifact::Unpack { .. }
-            | LazyArtifact::Process { .. }
-            | LazyArtifact::CompleteProcess { .. }
-            | LazyArtifact::CreateFile { .. }
-            | LazyArtifact::CreateDirectory(..)
-            | LazyArtifact::Cast { .. }
-            | LazyArtifact::Merge { .. }
-            | LazyArtifact::Peel { .. }
-            | LazyArtifact::Get { .. }
-            | LazyArtifact::Insert { .. }
-            | LazyArtifact::SetPermissions { .. }
-            | LazyArtifact::Proxy { .. } => Err(ArtifactIncomplete),
+            Recipe::Download { .. }
+            | Recipe::Unpack { .. }
+            | Recipe::Process { .. }
+            | Recipe::CompleteProcess { .. }
+            | Recipe::CreateFile { .. }
+            | Recipe::CreateDirectory(..)
+            | Recipe::Cast { .. }
+            | Recipe::Merge { .. }
+            | Recipe::Peel { .. }
+            | Recipe::Get { .. }
+            | Recipe::Insert { .. }
+            | Recipe::SetPermissions { .. }
+            | Recipe::Proxy { .. } => Err(RecipeIncomplete),
         }
     }
 }
 
-impl From<CompleteArtifact> for LazyArtifact {
-    fn from(value: CompleteArtifact) -> Self {
+impl From<Artifact> for Recipe {
+    fn from(value: Artifact) -> Self {
         match value {
-            CompleteArtifact::File(File {
+            Artifact::File(File {
                 content_blob: data,
                 executable,
                 resources,
             }) => Self::File {
                 content_blob: data,
                 executable,
-                resources: Box::new(WithMeta::without_meta(LazyArtifact::Directory(resources))),
+                resources: Box::new(WithMeta::without_meta(Recipe::Directory(resources))),
             },
-            CompleteArtifact::Symlink { target } => Self::Symlink { target },
-            CompleteArtifact::Directory(directory) => Self::Directory(directory),
+            Artifact::Symlink { target } => Self::Symlink { target },
+            Artifact::Directory(directory) => Self::Directory(directory),
         }
     }
 }
 
-impl From<Directory> for LazyArtifact {
+impl From<Directory> for Recipe {
     fn from(value: Directory) -> Self {
         Self::Directory(value)
     }
 }
 
-impl TryFrom<LazyArtifact> for Directory {
+impl TryFrom<Recipe> for Directory {
     type Error = anyhow::Error;
 
-    fn try_from(value: LazyArtifact) -> Result<Self, Self::Error> {
+    fn try_from(value: Recipe) -> Result<Self, Self::Error> {
         match value {
-            LazyArtifact::Directory(directory) => Ok(directory),
+            Recipe::Directory(directory) => Ok(directory),
             _ => {
-                anyhow::bail!("expected directory artifact");
+                anyhow::bail!("expected directory recipe");
             }
         }
     }
@@ -955,18 +947,18 @@ impl TryFrom<LazyArtifact> for Directory {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProxyArtifact {
-    pub artifact: ArtifactHash,
+pub struct ProxyRecipe {
+    pub recipe: RecipeHash,
 }
 
-impl ProxyArtifact {
-    pub async fn inner(&self, brioche: &Brioche) -> anyhow::Result<LazyArtifact> {
-        let inner = get_artifact(brioche, self.artifact).await?;
+impl ProxyRecipe {
+    pub async fn inner(&self, brioche: &Brioche) -> anyhow::Result<Recipe> {
+        let inner = get_recipe(brioche, self.recipe).await?;
         Ok(inner)
     }
 }
 
-pub struct ArtifactIncomplete;
+pub struct RecipeIncomplete;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DirectoryError {
@@ -976,8 +968,8 @@ pub enum DirectoryError {
     PathEscapes { path: bstr::BString },
     #[error("path descends into non-directory: {path:?}")]
     PathDescendsIntoNonDirectory { path: bstr::BString },
-    #[error("path {path:?} contains a non-complete artifact")]
-    ArtifactIncomplete { path: bstr::BString },
+    #[error("path {path:?} contains an incomplete recipe")]
+    RecipeIncomplete { path: bstr::BString },
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -992,9 +984,9 @@ pub enum DirectoryError {
     serde_with::SerializeDisplay,
     serde_with::DeserializeFromStr,
 )]
-pub struct ArtifactHash(blake3::Hash);
+pub struct RecipeHash(blake3::Hash);
 
-impl ArtifactHash {
+impl RecipeHash {
     fn from_serializable<V>(value: &V) -> anyhow::Result<Self>
     where
         V: serde::Serialize,
@@ -1008,13 +1000,13 @@ impl ArtifactHash {
     }
 }
 
-impl std::fmt::Display for ArtifactHash {
+impl std::fmt::Display for RecipeHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl std::str::FromStr for ArtifactHash {
+impl std::str::FromStr for RecipeHash {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -1039,7 +1031,7 @@ pub enum ProcessTemplateComponent {
         value: BString,
     },
     Input {
-        artifact: WithMeta<LazyArtifact>,
+        recipe: WithMeta<Recipe>,
     },
     OutputPath,
     ResourcesDir,
@@ -1064,7 +1056,7 @@ pub enum CompleteProcessTemplateComponent {
         value: BString,
     },
     Input {
-        artifact: WithMeta<CompleteArtifact>,
+        artifact: WithMeta<Artifact>,
     },
     OutputPath,
     ResourcesDir,

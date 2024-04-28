@@ -10,7 +10,6 @@ use tokio::{
     sync::{Mutex, RwLock},
 };
 
-pub mod artifact;
 pub mod blob;
 pub mod encoding;
 pub mod fs_utils;
@@ -18,6 +17,7 @@ pub mod input;
 pub mod output;
 pub mod platform;
 pub mod project;
+pub mod recipe;
 pub mod references;
 pub mod registry;
 pub mod reporter;
@@ -50,7 +50,7 @@ pub struct Brioche {
     /// useful for debugging, where build outputs may succeed but need to be
     /// manually investigated.
     pub keep_temps: bool,
-    pub cached_artifacts: Arc<RwLock<resolve::CachedArtifacts>>,
+    pub cached_recipes: Arc<RwLock<resolve::CachedRecipes>>,
     pub active_resolves: Arc<RwLock<resolve::ActiveResolves>>,
     pub process_semaphore: Arc<tokio::sync::Semaphore>,
     pub download_semaphore: Arc<tokio::sync::Semaphore>,
@@ -199,7 +199,7 @@ impl BriocheBuilder {
             home: brioche_home,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
-            cached_artifacts: Arc::new(RwLock::new(resolve::CachedArtifacts::default())),
+            cached_recipes: Arc::new(RwLock::new(resolve::CachedRecipes::default())),
             active_resolves: Arc::new(RwLock::new(resolve::ActiveResolves::default())),
             process_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROCESSES)),
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),

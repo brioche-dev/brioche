@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use brioche::artifact::{DownloadArtifact, LazyArtifact};
+use brioche::recipe::{DownloadRecipe, Recipe};
 use brioche_test::resolve_without_meta;
 
 mod brioche_test;
@@ -20,7 +20,7 @@ async fn test_resolve_download() -> anyhow::Result<()> {
         .expect(1)
         .create();
 
-    let hello_download = LazyArtifact::Download(DownloadArtifact {
+    let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash,
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });
@@ -51,7 +51,7 @@ async fn test_resolve_download_cached() -> anyhow::Result<()> {
         .expect(1)
         .create();
 
-    let hello_download = LazyArtifact::Download(DownloadArtifact {
+    let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });
@@ -83,7 +83,7 @@ async fn test_resolve_download_rerun_after_failure() -> anyhow::Result<()> {
     let hello_hash = brioche_test::sha256(hello);
     let hello_endpoint = server.mock("GET", "/file.txt").with_status(500).create();
 
-    let hello_download = LazyArtifact::Download(DownloadArtifact {
+    let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });
@@ -120,7 +120,7 @@ async fn test_resolve_download_different_urls_with_same_hash() -> anyhow::Result
     let file_1_endpoint = server.mock("GET", "/file1.txt").with_body(hello).create();
     let file_2_endpoint = server.mock("GET", "/file2.txt").with_body(hello).create();
 
-    let file_1_download = LazyArtifact::Download(DownloadArtifact {
+    let file_1_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/file1.txt").parse().unwrap(),
     });
@@ -130,7 +130,7 @@ async fn test_resolve_download_different_urls_with_same_hash() -> anyhow::Result
         brioche_test::file(hello_blob, false),
     );
 
-    let file_2_download = LazyArtifact::Download(DownloadArtifact {
+    let file_2_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/file2.txt").parse().unwrap(),
     });
@@ -163,7 +163,7 @@ async fn test_resolve_download_url_changed_hash() -> anyhow::Result<()> {
 
     let file_endpoint = server.mock("GET", "/file.txt").with_body(hello).create();
 
-    let file_download_1 = LazyArtifact::Download(DownloadArtifact {
+    let file_download_1 = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });
@@ -177,7 +177,7 @@ async fn test_resolve_download_url_changed_hash() -> anyhow::Result<()> {
 
     let file_endpoint = file_endpoint.with_body(hi).create();
 
-    let file_download_2 = LazyArtifact::Download(DownloadArtifact {
+    let file_download_2 = Recipe::Download(DownloadRecipe {
         hash: hi_hash.clone(),
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });
@@ -207,7 +207,7 @@ async fn test_resolve_download_invalid_hash() -> anyhow::Result<()> {
         .with_body("not hello")
         .create();
 
-    let hello_download = LazyArtifact::Download(DownloadArtifact {
+    let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/file.txt").parse().unwrap(),
     });
@@ -244,7 +244,7 @@ async fn test_resolve_download_does_not_cache_using_only_hash() -> anyhow::Resul
     let hi_hash = brioche_test::sha256(hi);
     let hi_endpoint = server.mock("GET", "/hi.txt").with_body(hi).create();
 
-    let hello_download = LazyArtifact::Download(DownloadArtifact {
+    let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/hello.txt").parse().unwrap(),
     });
@@ -254,12 +254,12 @@ async fn test_resolve_download_does_not_cache_using_only_hash() -> anyhow::Resul
     // (This has always felt like a footgun in Nix because it's easy to update
     // the URL and to forget to update the hash, which will often do the
     // wrong thing)
-    let invalid_hi_download = LazyArtifact::Download(DownloadArtifact {
+    let invalid_hi_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
         url: format!("{server_url}/hi.txt").parse().unwrap(),
     });
 
-    let hi_download = LazyArtifact::Download(DownloadArtifact {
+    let hi_download = Recipe::Download(DownloadRecipe {
         hash: hi_hash.clone(),
         url: format!("{server_url}/hi.txt").parse().unwrap(),
     });

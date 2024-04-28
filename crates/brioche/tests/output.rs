@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt, path::Path};
 
 use assert_matches::assert_matches;
-use brioche::{artifact::CompleteArtifact, output::create_local_output, Brioche};
+use brioche::{output::create_local_output, recipe::Artifact, Brioche};
 use pretty_assertions::assert_eq;
 
 mod brioche_test;
@@ -15,7 +15,7 @@ async fn dir_is_empty(path: impl AsRef<Path>) -> bool {
 async fn create_output(
     brioche: &Brioche,
     output_path: &Path,
-    artifact: &CompleteArtifact,
+    artifact: &Artifact,
     merge: bool,
 ) -> anyhow::Result<()> {
     brioche::output::create_output(
@@ -36,7 +36,7 @@ async fn create_output_with_resources(
     brioche: &Brioche,
     output_path: &Path,
     resources_dir: &Path,
-    artifact: &CompleteArtifact,
+    artifact: &Artifact,
     merge: bool,
 ) -> anyhow::Result<()> {
     brioche::output::create_output(
@@ -56,7 +56,7 @@ async fn create_output_with_resources(
 async fn create_output_with_links(
     brioche: &Brioche,
     output_path: &Path,
-    artifact: &CompleteArtifact,
+    artifact: &Artifact,
     merge: bool,
 ) -> anyhow::Result<()> {
     brioche::output::create_output(

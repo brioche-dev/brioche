@@ -2,7 +2,7 @@ use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use human_repr::HumanDuration;
 
-use crate::{project::ProjectHash, references::ArtifactReferences, Brioche};
+use crate::{project::ProjectHash, references::RecipeReferences, Brioche};
 
 const RETRY_LIMIT: usize = 5;
 const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
@@ -21,19 +21,19 @@ pub async fn sync_project(
     let descendent_project_resolves =
         crate::references::descendent_project_resolves(brioche, project_hash, export).await?;
 
-    // Collect the references from each input/output artifact
+    // Collect the references from each input recipe/output artifact
 
-    let mut sync_references = ArtifactReferences::default();
+    let mut sync_references = RecipeReferences::default();
 
-    let artifact_hashes = descendent_project_resolves
+    let recipe_hashes = descendent_project_resolves
         .iter()
         .flat_map(|(input, output)| [input.hash(), output.hash()]);
-    crate::references::artifact_references(brioche, &mut sync_references, artifact_hashes).await?;
+    crate::references::recipe_references(brioche, &mut sync_references, recipe_hashes).await?;
 
-    let num_artifact_refs = sync_references.artifacts.len();
+    let num_recipe_refs = sync_references.recipes.len();
     let num_blob_refs = sync_references.blobs.len();
     println!(
-        "Collected refs in {} ({num_artifact_refs} artifacts, {num_blob_refs} blobs)",
+        "Collected refs in {} ({num_recipe_refs} recipes, {num_blob_refs} blobs)",
         start_refs.elapsed().human_duration()
     );
 
@@ -84,41 +84,37 @@ pub async fn sync_project(
         start_blobs.elapsed().human_duration()
     );
 
-    // Sync referenced artifacts
+    // Sync referenced recipes
 
-    let start_artifacts = std::time::Instant::now();
+    let start_recipes = std::time::Instant::now();
 
-    let all_artifact_hashes = sync_references
-        .artifacts
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
-    let known_artifact_hashes = brioche
+    let all_recipe_hashes = sync_references.recipes.keys().cloned().collect::<Vec<_>>();
+    let known_recipe_hashes = brioche
         .registry_client
-        .known_artifacts(&all_artifact_hashes)
+        .known_artifacts(&all_recipe_hashes)
         .await?;
-    let new_artifacts: Vec<_> = sync_references
-        .artifacts
+    let new_recipes: Vec<_> = sync_references
+        .recipes
         .clone()
         .into_iter()
-        .filter_map(|(hash, artifact)| {
-            if known_artifact_hashes.contains(&hash) {
+        .filter_map(|(hash, recipe)| {
+            if known_recipe_hashes.contains(&hash) {
                 None
             } else {
-                Some(artifact)
+                Some(recipe)
             }
         })
         .collect();
 
     brioche
         .registry_client
-        .create_artifacts(&new_artifacts)
+        .create_artifacts(&new_recipes)
         .await?;
 
     println!(
-        "Finished syncing {} artifacts in {}",
-        sync_references.artifacts.len(),
-        start_artifacts.elapsed().human_duration()
+        "Finished syncing {} recipes in {}",
+        sync_references.recipes.len(),
+        start_recipes.elapsed().human_duration()
     );
 
     // Sync each resolve

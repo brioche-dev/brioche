@@ -5,9 +5,9 @@ use futures::TryStreamExt as _;
 use tokio::io::AsyncReadExt as _;
 
 use crate::{
-    artifact::{ArtifactHash, CompleteArtifact, LazyArtifact},
     blob::BlobHash,
     project::{Project, ProjectHash, ProjectListing},
+    recipe::{Artifact, Recipe, RecipeHash},
 };
 
 #[derive(Clone)]
@@ -138,7 +138,7 @@ impl RegistryClient {
         Ok(response_body)
     }
 
-    pub async fn create_artifact(&self, artifact: &LazyArtifact) -> anyhow::Result<ArtifactHash> {
+    pub async fn create_artifact(&self, artifact: &Recipe) -> anyhow::Result<RecipeHash> {
         let artifact_hash = artifact.hash();
 
         let response = self
@@ -153,7 +153,7 @@ impl RegistryClient {
         Ok(response_body)
     }
 
-    pub async fn create_artifacts(&self, artifacts: &[LazyArtifact]) -> anyhow::Result<()> {
+    pub async fn create_artifacts(&self, artifacts: &[Recipe]) -> anyhow::Result<()> {
         for chunk in artifacts.chunks(1000) {
             let request: HashMap<_, _> = chunk
                 .iter()
@@ -171,11 +171,11 @@ impl RegistryClient {
 
     pub async fn known_artifacts(
         &self,
-        artifact_hashes: &[ArtifactHash],
-    ) -> anyhow::Result<HashSet<ArtifactHash>> {
+        artifact_hashes: &[RecipeHash],
+    ) -> anyhow::Result<HashSet<RecipeHash>> {
         let mut all_known_artifacts = HashSet::new();
         for chunk in artifact_hashes.chunks(1000) {
-            let known_artifacts: Vec<ArtifactHash> = self
+            let known_artifacts: Vec<RecipeHash> = self
                 .request(reqwest::Method::POST, "v0/known-artifacts")?
                 .json(&chunk)
                 .send()
@@ -206,11 +206,11 @@ impl RegistryClient {
 
     pub async fn known_resolves(
         &self,
-        resolves: &[(ArtifactHash, ArtifactHash)],
-    ) -> anyhow::Result<HashSet<(ArtifactHash, ArtifactHash)>> {
+        resolves: &[(RecipeHash, RecipeHash)],
+    ) -> anyhow::Result<HashSet<(RecipeHash, RecipeHash)>> {
         let mut all_known_resolves = HashSet::new();
         for chunk in resolves.chunks(1000) {
-            let known_resolves: Vec<(ArtifactHash, ArtifactHash)> = self
+            let known_resolves: Vec<(RecipeHash, RecipeHash)> = self
                 .request(reqwest::Method::POST, "v0/known-resolves")?
                 .json(&chunk)
                 .send()
@@ -225,8 +225,8 @@ impl RegistryClient {
 
     pub async fn create_resolve(
         &self,
-        input_hash: ArtifactHash,
-        output_hash: ArtifactHash,
+        input_hash: RecipeHash,
+        output_hash: RecipeHash,
     ) -> anyhow::Result<CreateResolveResponse> {
         let response = self
             .request(
@@ -244,10 +244,7 @@ impl RegistryClient {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_resolve(
-        &self,
-        input_hash: ArtifactHash,
-    ) -> anyhow::Result<GetResolveResponse> {
+    pub async fn get_resolve(&self, input_hash: RecipeHash) -> anyhow::Result<GetResolveResponse> {
         let response = self
             .request(
                 reqwest::Method::GET,
@@ -300,18 +297,18 @@ pub struct UpdatedTag {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetResolveResponse {
-    pub output_hash: ArtifactHash,
-    pub output_artifact: CompleteArtifact,
+    pub output_hash: RecipeHash,
+    pub output_artifact: Artifact,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateResolveRequest {
-    pub output_hash: ArtifactHash,
+    pub output_hash: RecipeHash,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateResolveResponse {
-    pub canonical_output_hash: ArtifactHash,
+    pub canonical_output_hash: RecipeHash,
 }

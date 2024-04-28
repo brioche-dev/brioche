@@ -11,10 +11,10 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tracing::Instrument as _;
 
 use crate::{
-    artifact::{
-        ArchiveFormat, CompleteArtifact, CompleteProcessArtifact, CompleteProcessTemplate,
-        CompleteProcessTemplateComponent, CompressionFormat, DownloadArtifact, LazyArtifact, Meta,
-        ProcessArtifact, ProcessTemplate, ProcessTemplateComponent, UnpackArtifact, WithMeta,
+    recipe::{
+        ArchiveFormat, Artifact, CompleteProcessRecipe, CompleteProcessTemplate,
+        CompleteProcessTemplateComponent, CompressionFormat, DownloadRecipe, Meta, ProcessRecipe,
+        ProcessTemplate, ProcessTemplateComponent, Recipe, UnpackRecipe, WithMeta,
     },
     sandbox::{
         HostPathMode, SandboxExecutionConfig, SandboxPath, SandboxPathOptions, SandboxTemplate,
@@ -30,8 +30,8 @@ const GUEST_GID_HINT: u32 = 1099;
 pub async fn resolve_lazy_process_to_process(
     brioche: &Brioche,
     scope: &super::ResolveScope,
-    process: ProcessArtifact,
-) -> anyhow::Result<CompleteProcessArtifact> {
+    process: ProcessRecipe,
+) -> anyhow::Result<CompleteProcessRecipe> {
     let command =
         resolve_lazy_process_template_to_process_template(brioche, scope, process.command).await?;
     let args = futures::stream::iter(process.args)
@@ -40,15 +40,15 @@ pub async fn resolve_lazy_process_to_process(
         .await?;
     let env = futures::stream::iter(process.env)
         .then(|(key, artifact)| async move {
-            let artifact =
+            let template =
                 resolve_lazy_process_template_to_process_template(brioche, scope, artifact).await?;
-            anyhow::Ok((key, artifact))
+            anyhow::Ok((key, template))
         })
         .try_collect()
         .await?;
 
     let work_dir = super::resolve(brioche, *process.work_dir, scope).await?;
-    let crate::artifact::CompleteArtifact::Directory(work_dir) = work_dir.value else {
+    let crate::recipe::Artifact::Directory(work_dir) = work_dir.value else {
         anyhow::bail!("expected process workdir to be a directory artifact");
     };
 
@@ -60,7 +60,7 @@ pub async fn resolve_lazy_process_to_process(
         None => None,
     };
 
-    Ok(CompleteProcessArtifact {
+    Ok(CompleteProcessRecipe {
         command,
         args,
         env,
@@ -86,12 +86,12 @@ async fn resolve_lazy_process_template_to_process_template(
                         value: value.clone(),
                     })
             }
-            ProcessTemplateComponent::Input { artifact } => {
-                let resolved = super::resolve(brioche, artifact.clone(), scope).await?;
+            ProcessTemplateComponent::Input { recipe } => {
+                let artifact = super::resolve(brioche, recipe.clone(), scope).await?;
 
                 result
                     .components
-                    .push(CompleteProcessTemplateComponent::Input { artifact: resolved });
+                    .push(CompleteProcessTemplateComponent::Input { artifact });
             }
             ProcessTemplateComponent::OutputPath => result
                 .components
@@ -118,13 +118,13 @@ async fn resolve_lazy_process_template_to_process_template(
 pub async fn resolve_process(
     brioche: &Brioche,
     meta: &Arc<Meta>,
-    process: CompleteProcessArtifact,
-) -> anyhow::Result<CompleteArtifact> {
+    process: CompleteProcessRecipe,
+) -> anyhow::Result<Artifact> {
     tracing::debug!("acquiring process semaphore permit");
     let _permit = brioche.process_semaphore.acquire().await;
     tracing::debug!("acquired process semaphore permit");
 
-    let hash = LazyArtifact::CompleteProcess(process.clone()).hash();
+    let hash = Recipe::CompleteProcess(process.clone()).hash();
 
     let temp_dir = brioche.home.join("process-temp");
     let resolve_dir = temp_dir.join(ulid::Ulid::new().to_string());
@@ -183,7 +183,7 @@ pub async fn resolve_process(
     let create_work_dir_fut = async {
         crate::output::create_output(
             brioche,
-            &crate::artifact::CompleteArtifact::Directory(process.work_dir),
+            &crate::recipe::Artifact::Directory(process.work_dir),
             crate::output::OutputOptions {
                 output_path: &host_work_dir,
                 merge: true,
@@ -234,8 +234,8 @@ pub async fn resolve_process(
 
     let env = futures::stream::iter(process.env)
         .then(|(key, artifact)| async move {
-            let artifact = build_process_template(brioche, artifact, dirs).await?;
-            anyhow::Ok((key, artifact))
+            let template = build_process_template(brioche, artifact, dirs).await?;
+            anyhow::Ok((key, template))
         })
         .try_collect::<HashMap<_, _>>()
         .await?;
@@ -595,27 +595,27 @@ async fn set_up_rootfs(
         link_locals: true,
     };
 
-    let dash = LazyArtifact::Unpack(UnpackArtifact {
+    let dash = Recipe::Unpack(UnpackRecipe {
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
-        file: Box::new(WithMeta::without_meta(LazyArtifact::Download(DownloadArtifact {
+        file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
             url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/dash_amd64_linux.tar.zstd".parse()?,
             hash: crate::Hash::Sha256 { value: hex::decode("ff52ae7e883ee4cbb0878f0e17decc18cd80b364147881fb576440e72e0129b2")? }
         }))),
     });
-    let env = LazyArtifact::Unpack(UnpackArtifact {
+    let env = Recipe::Unpack(UnpackRecipe {
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
-        file: Box::new(WithMeta::without_meta(LazyArtifact::Download(DownloadArtifact {
+        file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
             url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/env_amd64_linux.tar.zstd".parse()?,
             hash: crate::Hash::Sha256 { value: hex::decode("8f5b15a9b5c695663ca2caefa0077c3889fcf65793c9a20ceca4ab12c7007453")? }
         }))),
     });
 
     tracing::debug!("resolving rootfs dash/env dependencies");
-    let dash_and_env = super::resolve_inner(
+    let dash_and_env = super::bake_inner(
         brioche,
-        WithMeta::without_meta(LazyArtifact::Merge {
+        WithMeta::without_meta(Recipe::Merge {
             directories: vec![WithMeta::without_meta(dash), WithMeta::without_meta(env)],
         }),
     )
