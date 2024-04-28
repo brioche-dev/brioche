@@ -91,7 +91,7 @@ pub async fn sync_project(
     let all_recipe_hashes = sync_references.recipes.keys().cloned().collect::<Vec<_>>();
     let known_recipe_hashes = brioche
         .registry_client
-        .known_artifacts(&all_recipe_hashes)
+        .known_recipes(&all_recipe_hashes)
         .await?;
     let new_recipes: Vec<_> = sync_references
         .recipes
@@ -106,10 +106,7 @@ pub async fn sync_project(
         })
         .collect();
 
-    brioche
-        .registry_client
-        .create_artifacts(&new_recipes)
-        .await?;
+    brioche.registry_client.create_recipes(&new_recipes).await?;
 
     println!(
         "Finished syncing {} recipes in {}",
@@ -127,7 +124,7 @@ pub async fn sync_project(
         .into_iter()
         .map(|(input, output)| (input.hash(), output.hash()))
         .collect::<Vec<_>>();
-    let known_bakes = brioche.registry_client.known_resolves(&all_bakes).await?;
+    let known_bakes = brioche.registry_client.known_bakes(&all_bakes).await?;
     let new_bakes = all_bakes
         .into_iter()
         .filter(|bake| !known_bakes.contains(bake));
@@ -143,7 +140,7 @@ pub async fn sync_project(
                         async move {
                             brioche
                                 .registry_client
-                                .create_resolve(input_hash, output_hash)
+                                .create_bake(input_hash, output_hash)
                                 .await
                         }
                     })

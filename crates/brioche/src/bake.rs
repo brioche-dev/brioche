@@ -216,7 +216,7 @@ async fn bake_inner(
     // Try to get the baked recipe from the registry (if it might be
     // expensive to bake)
     let registry_response = if recipe.is_expensive_to_bake() {
-        brioche.registry_client.get_resolve(recipe_hash).await.ok()
+        brioche.registry_client.get_bake(recipe_hash).await.ok()
     } else {
         None
     };
