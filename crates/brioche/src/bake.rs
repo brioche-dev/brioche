@@ -266,7 +266,11 @@ async fn bake_inner(
         .execute(&mut *db_transaction)
         .await?;
         sqlx::query!(
-            "INSERT INTO bakes (input_hash, output_hash) VALUES (?, ?)",
+            r#"
+                INSERT INTO bakes (input_hash, output_hash)
+                VALUES (?, ?)
+                ON CONFLICT (input_hash, output_hash) DO NOTHING
+            "#,
             input_hash,
             output_hash,
         )
