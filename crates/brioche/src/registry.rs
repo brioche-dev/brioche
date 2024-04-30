@@ -138,6 +138,15 @@ impl RegistryClient {
         Ok(response_body)
     }
 
+    pub async fn get_recipe(&self, recipe_hash: RecipeHash) -> anyhow::Result<Recipe> {
+        let response = self
+            .request(reqwest::Method::GET, &format!("v0/recipes/{recipe_hash}"))?
+            .send()
+            .await?;
+        let response_body = response.error_for_status()?.json().await?;
+        Ok(response_body)
+    }
+
     pub async fn create_recipe(&self, recipe: &Recipe) -> anyhow::Result<RecipeHash> {
         let recipe_hash = recipe.hash();
 
