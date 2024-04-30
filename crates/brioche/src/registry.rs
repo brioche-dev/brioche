@@ -300,11 +300,13 @@ pub struct UpdatedTag {
     pub previous_hash: Option<ProjectHash>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBakeResponse {
     pub output_hash: RecipeHash,
     pub output_artifact: Artifact,
+    pub referenced_recipes: HashSet<RecipeHash>,
+    pub referenced_blobs: HashSet<BlobHash>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
