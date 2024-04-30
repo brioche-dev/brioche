@@ -4,7 +4,8 @@ use std::{
 };
 
 use anyhow::Context as _;
-use bstr::{BStr, BString};
+use bstr::{BStr, BString, ByteSlice as _};
+use futures::{StreamExt as _, TryStreamExt as _};
 use joinery::JoinableIterator as _;
 use sqlx::{Acquire as _, Arguments as _};
 
@@ -597,12 +598,51 @@ impl Directory {
         brioche: &Brioche,
         entries: &BTreeMap<BString, WithMeta<Artifact>>,
     ) -> anyhow::Result<Self> {
-        let recipes = entries
+        let mut subdir_entries = BTreeMap::<BString, BTreeMap<_, _>>::new();
+        let mut dir_entries = BTreeMap::new();
+
+        for (path, artifact) in entries {
+            match path.split_once_str("/") {
+                Some((dir, subpath)) => {
+                    let entries_for_subdir = subdir_entries.entry(BString::from(dir)).or_default();
+                    entries_for_subdir.insert(BString::from(subpath), artifact.clone());
+                }
+                None => {
+                    dir_entries.insert(path.clone(), artifact.clone());
+                }
+            }
+        }
+
+        for subdir_path in subdir_entries.keys() {
+            if let Some(dir_entry) = dir_entries.remove(subdir_path) {
+                let Artifact::Directory(dir) = dir_entry.value else {
+                    anyhow::bail!(
+                        "tried to create directory with conflicting non-directory entry at {subdir_path:?}"
+                    );
+                };
+
+                anyhow::ensure!(
+                    dir.is_empty(),
+                    "directory at {subdir_path:?} contains conflicting values"
+                );
+            }
+        }
+
+        let subdir_entries = futures::stream::iter(subdir_entries)
+            .then(|(dir, entries)| async move {
+                let directory = Box::pin(Self::create(brioche, &entries)).await?;
+                anyhow::Ok((dir, WithMeta::without_meta(Artifact::Directory(directory))))
+            })
+            .try_collect::<Vec<_>>()
+            .await?;
+        dir_entries.extend(subdir_entries);
+
+        let recipes = dir_entries
             .values()
             .map(|recipe| Recipe::from(recipe.value.clone()));
         save_recipes(brioche, recipes).await?;
 
-        let entries = entries
+        let entries = dir_entries
             .iter()
             .map(|(path, recipe)| {
                 let recipe_hash = recipe.as_ref().map(|recipe| recipe.hash());
