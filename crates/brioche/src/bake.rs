@@ -221,10 +221,15 @@ async fn bake_inner(
         None
     };
 
-    // Bake the recipe for real if we didn't get it from the registry
     let result_artifact = match registry_response {
-        Some(response) => Ok(response.output_artifact),
+        Some(response) => {
+            // The registry has the baked recipe, so fetch the references
+            // and return the output artifact
+            crate::registry::fetch_bake_references(brioche.clone(), response.clone()).await?;
+            Ok(response.output_artifact)
+        }
         None => {
+            // Bake the recipe for real if we didn't get it from the registry
             let bake_fut = {
                 let brioche = brioche.clone();
                 let meta = meta.clone();
@@ -261,7 +266,11 @@ async fn bake_inner(
         .execute(&mut *db_transaction)
         .await?;
         sqlx::query!(
-            "INSERT INTO bakes (input_hash, output_hash) VALUES (?, ?)",
+            r#"
+                INSERT INTO bakes (input_hash, output_hash)
+                VALUES (?, ?)
+                ON CONFLICT (input_hash, output_hash) DO NOTHING
+            "#,
             input_hash,
             output_hash,
         )
@@ -321,7 +330,7 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             Ok(Artifact::File(downloaded))
         }
         Recipe::Unpack(unpack) => {
-            let unpacked = unpack::bake_unpack(brioche, meta, unpack).await?;
+            let unpacked = unpack::bake_unpack(brioche, &scope, meta, unpack).await?;
             Ok(Artifact::Directory(unpacked))
         }
         Recipe::Process(process) => {

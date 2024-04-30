@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::Context as _;
-use sqlx::Acquire as _;
+use joinery::JoinableIterator as _;
+use sqlx::{Acquire as _, Arguments as _};
 
 use crate::{
     blob::BlobHash,
@@ -265,4 +266,44 @@ pub async fn descendent_project_bakes(
     db_transaction.commit().await?;
 
     Ok(project_descendent_bakes)
+}
+
+pub async fn local_recipes(
+    brioche: &Brioche,
+    recipes: impl IntoIterator<Item = RecipeHash>,
+) -> anyhow::Result<HashSet<RecipeHash>> {
+    let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
+
+    let mut arguments = sqlx::sqlite::SqliteArguments::default();
+    let mut num_recipe_hashes = 0;
+    for recipe_hash in recipes {
+        arguments.add(recipe_hash.to_string());
+        num_recipe_hashes += 1;
+    }
+
+    let placeholders = std::iter::repeat("?")
+        .take(num_recipe_hashes)
+        .join_with(", ");
+
+    let known_recipes = sqlx::query_as_with::<_, (String,), _>(
+        &format!(
+            r#"
+                SELECT recipe_hash
+                FROM recipes
+                WHERE recipe_hash IN ({placeholders})
+            "#,
+        ),
+        arguments,
+    )
+    .fetch_all(&mut *db_transaction)
+    .await?;
+
+    db_transaction.commit().await?;
+
+    let known_recipes = known_recipes
+        .into_iter()
+        .map(|(recipe_hash,)| recipe_hash.parse())
+        .collect::<anyhow::Result<HashSet<RecipeHash>>>()?;
+    Ok(known_recipes)
 }

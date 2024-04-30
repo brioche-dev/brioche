@@ -1,13 +1,17 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::Context as _;
-use futures::TryStreamExt as _;
+use futures::{StreamExt as _, TryStreamExt as _};
 use tokio::io::AsyncReadExt as _;
 
 use crate::{
     blob::BlobHash,
     project::{Project, ProjectHash, ProjectListing},
     recipe::{Artifact, Recipe, RecipeHash},
+    Brioche,
 };
 
 #[derive(Clone)]
@@ -138,6 +142,15 @@ impl RegistryClient {
         Ok(response_body)
     }
 
+    pub async fn get_recipe(&self, recipe_hash: RecipeHash) -> anyhow::Result<Recipe> {
+        let response = self
+            .request(reqwest::Method::GET, &format!("v0/recipes/{recipe_hash}"))?
+            .send()
+            .await?;
+        let response_body = response.error_for_status()?.json().await?;
+        Ok(response_body)
+    }
+
     pub async fn create_recipe(&self, recipe: &Recipe) -> anyhow::Result<RecipeHash> {
         let recipe_hash = recipe.hash();
 
@@ -254,6 +267,54 @@ impl RegistryClient {
     }
 }
 
+#[tracing::instrument(skip(brioche, response))]
+pub async fn fetch_bake_references(
+    brioche: Brioche,
+    response: GetBakeResponse,
+) -> anyhow::Result<()> {
+    let fetch_blobs_fut = futures::stream::iter(response.referenced_blobs)
+        .map(Ok)
+        .try_for_each_concurrent(25, |blob| {
+            let brioche = brioche.clone();
+            async move {
+                super::blob::blob_path(&brioche, blob).await?;
+                anyhow::Ok(())
+            }
+        });
+
+    let known_recipes =
+        crate::references::local_recipes(&brioche, response.referenced_recipes.clone()).await?;
+    let unknown_recipes = response
+        .referenced_recipes
+        .difference(&known_recipes)
+        .copied()
+        .collect::<Vec<_>>();
+    let new_recipes = Arc::new(tokio::sync::Mutex::new(vec![]));
+    let fetch_recipes_fut = futures::stream::iter(unknown_recipes)
+        .map(Ok)
+        .try_for_each_concurrent(25, |recipe| {
+            let brioche = brioche.clone();
+            let new_recipes = new_recipes.clone();
+            async move {
+                let recipe = brioche.registry_client.get_recipe(recipe).await;
+                if let Ok(recipe) = recipe {
+                    let mut new_recipes = new_recipes.lock().await;
+                    new_recipes.push(recipe);
+                }
+                anyhow::Ok(())
+            }
+        });
+
+    tokio::try_join!(fetch_blobs_fut, fetch_recipes_fut)?;
+
+    let mut new_recipes = new_recipes.lock().await;
+    let new_recipes = std::mem::take(&mut *new_recipes);
+
+    crate::recipe::save_recipes(&brioche, new_recipes).await?;
+
+    Ok(())
+}
+
 #[derive(Clone)]
 pub enum RegistryAuthentication {
     Anonymous,
@@ -291,11 +352,13 @@ pub struct UpdatedTag {
     pub previous_hash: Option<ProjectHash>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBakeResponse {
     pub output_hash: RecipeHash,
     pub output_artifact: Artifact,
+    pub referenced_recipes: HashSet<RecipeHash>,
+    pub referenced_blobs: HashSet<BlobHash>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

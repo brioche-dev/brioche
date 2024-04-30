@@ -613,11 +613,12 @@ async fn set_up_rootfs(
     });
 
     tracing::debug!("resolving rootfs dash/env dependencies");
-    let dash_and_env = super::bake_inner(
+    let dash_and_env = super::bake(
         brioche,
         WithMeta::without_meta(Recipe::Merge {
             directories: vec![WithMeta::without_meta(dash), WithMeta::without_meta(env)],
         }),
+        &super::BakeScope::Anonymous,
     )
     .await?;
     crate::output::create_output(brioche, &dash_and_env.value, output_rootfs_options).await?;

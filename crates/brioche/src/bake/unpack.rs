@@ -1,21 +1,23 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Context as _;
+use bstr::BString;
 use futures::TryStreamExt as _;
 use tracing::Instrument;
 
 use crate::{
-    recipe::{Artifact, Directory, DirectoryError, File, Meta, UnpackRecipe, WithMeta},
+    recipe::{Artifact, Directory, File, Meta, UnpackRecipe, WithMeta},
     Brioche,
 };
 
 #[tracing::instrument(skip(brioche, unpack), fields(file_recipe = %unpack.file.hash(), archive = ?unpack.archive, compression = ?unpack.compression))]
 pub async fn bake_unpack(
     brioche: &Brioche,
+    scope: &super::BakeScope,
     meta: &Arc<Meta>,
     unpack: UnpackRecipe,
 ) -> anyhow::Result<Directory> {
-    let file = super::bake_inner(brioche, *unpack.file).await?;
+    let file = super::bake(brioche, *unpack.file, scope).await?;
     let Artifact::File(File {
         content_blob: blob_hash,
         ..
@@ -37,7 +39,7 @@ pub async fn bake_unpack(
 
     let mut archive = tokio_tar::Archive::new(decompressed_archive_file);
     let mut archive_entries = archive.entries()?;
-    let mut directory = Directory::default();
+    let mut directory_entries = BTreeMap::<BString, WithMeta<Artifact>>::new();
 
     let save_blobs_future = async {
         while let Some(archive_entry) = archive_entries.try_next().await? {
@@ -87,10 +89,8 @@ pub async fn bake_unpack(
                             entry_path
                         )
                     })?;
-                    let linked_entry = directory
-                        .get(brioche, link_name.as_ref())
-                        .await?
-                        .with_context(|| {
+                    let linked_entry =
+                        directory_entries.get(link_name.as_ref()).with_context(|| {
                             format!(
                             "unsupported tar archive: could not find target for link entry at {}",
                             entry_path
@@ -113,28 +113,19 @@ pub async fn bake_unpack(
                 }
             };
 
-            let insert_result = match entry_artifact {
-                Some(entry_artifact) => directory
-                    .insert(
-                        brioche,
-                        &entry_path,
-                        Some(WithMeta::new(entry_artifact, meta.clone())),
-                    )
-                    .await
-                    .map(|_| ()),
-                None => Ok(()),
-            };
-            match insert_result {
-                Ok(_) => {}
-                Err(DirectoryError::EmptyPath { .. }) => {
-                    tracing::debug!("skipping empty path in tar archive");
-                    // Tarfiles can have entries pointing to the root path, which
-                    // we can safely ignore
-                }
-                Err(error) => {
-                    return Err(error.into());
-                }
+            let entry_path = crate::fs_utils::logical_path_bytes(&entry_path);
+
+            if entry_path.is_empty() {
+                continue;
             }
+            let Some(entry_artifact) = entry_artifact else {
+                continue;
+            };
+
+            directory_entries.insert(
+                entry_path.into(),
+                WithMeta::new(entry_artifact, meta.clone()),
+            );
         }
 
         brioche.reporter.update_job(
@@ -149,6 +140,8 @@ pub async fn bake_unpack(
     .instrument(tracing::info_span!("save_blobs"));
 
     save_blobs_future.await?;
+
+    let directory = Directory::create(brioche, &directory_entries).await?;
 
     Ok(directory)
 }
