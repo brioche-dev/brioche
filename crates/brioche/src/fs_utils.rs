@@ -1,6 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::Context as _;
+use bstr::ByteSlice as _;
 use relative_path::RelativePath;
 
 pub fn logical_path(path: &Path) -> PathBuf {
@@ -18,6 +19,23 @@ pub fn logical_path(path: &Path) -> PathBuf {
     }
 
     PathBuf::from_iter(components)
+}
+
+pub fn logical_path_bytes(path: &[u8]) -> Vec<u8> {
+    let mut components = vec![];
+    for component in path.split_str("/") {
+        match component {
+            b"" | b"." => {}
+            b".." => {
+                components.pop();
+            }
+            normal => {
+                components.push(normal);
+            }
+        }
+    }
+
+    bstr::join("/", components)
 }
 
 pub fn is_subpath(path: &RelativePath) -> bool {
