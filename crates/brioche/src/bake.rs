@@ -330,7 +330,7 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             Ok(Artifact::File(downloaded))
         }
         Recipe::Unpack(unpack) => {
-            let unpacked = unpack::bake_unpack(brioche, meta, unpack).await?;
+            let unpacked = unpack::bake_unpack(brioche, &scope, meta, unpack).await?;
             Ok(Artifact::Directory(unpacked))
         }
         Recipe::Process(process) => {
