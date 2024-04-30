@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Context as _;
 use futures::TryStreamExt as _;
@@ -37,7 +37,7 @@ pub async fn bake_unpack(
 
     let mut archive = tokio_tar::Archive::new(decompressed_archive_file);
     let mut archive_entries = archive.entries()?;
-    let mut directory = Directory::default();
+    let mut directory_entries = HashMap::<bstr::BString, WithMeta<Artifact>>::new();
 
     let save_blobs_future = async {
         while let Some(archive_entry) = archive_entries.try_next().await? {
@@ -87,10 +87,8 @@ pub async fn bake_unpack(
                             entry_path
                         )
                     })?;
-                    let linked_entry = directory
-                        .get(brioche, link_name.as_ref())
-                        .await?
-                        .with_context(|| {
+                    let linked_entry =
+                        directory_entries.get(link_name.as_ref()).with_context(|| {
                             format!(
                             "unsupported tar archive: could not find target for link entry at {}",
                             entry_path
@@ -113,27 +111,8 @@ pub async fn bake_unpack(
                 }
             };
 
-            let insert_result = match entry_artifact {
-                Some(entry_artifact) => directory
-                    .insert(
-                        brioche,
-                        &entry_path,
-                        Some(WithMeta::new(entry_artifact, meta.clone())),
-                    )
-                    .await
-                    .map(|_| ()),
-                None => Ok(()),
-            };
-            match insert_result {
-                Ok(_) => {}
-                Err(DirectoryError::EmptyPath { .. }) => {
-                    tracing::debug!("skipping empty path in tar archive");
-                    // Tarfiles can have entries pointing to the root path, which
-                    // we can safely ignore
-                }
-                Err(error) => {
-                    return Err(error.into());
-                }
+            if let Some(entry_artifact) = entry_artifact {
+                directory_entries.insert(entry_path, WithMeta::new(entry_artifact, meta.clone()));
             }
         }
 
@@ -149,6 +128,30 @@ pub async fn bake_unpack(
     .instrument(tracing::info_span!("save_blobs"));
 
     save_blobs_future.await?;
+
+    crate::recipe::save_recipes(
+        brioche,
+        directory_entries
+            .values()
+            .map(|artifact| crate::recipe::Recipe::from(artifact.value.clone())),
+    )
+    .await?;
+
+    let mut directory = Directory::default();
+    for (path, artifact) in directory_entries {
+        let insert_result = directory.insert(brioche, &path, Some(artifact)).await;
+        match insert_result {
+            Ok(_) => {}
+            Err(DirectoryError::EmptyPath { .. }) => {
+                tracing::debug!("skipping empty path in tar archive");
+                // Tarfiles can have entries pointing to the root path, which
+                // we can safely ignore
+            }
+            Err(error) => {
+                return Err(error.into());
+            }
+        }
+    }
 
     Ok(directory)
 }
