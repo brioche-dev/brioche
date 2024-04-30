@@ -243,20 +243,14 @@ where
 {
     let cached_recipes = brioche.cached_recipes.read().await;
 
-    let mut arguments = sqlx::sqlite::SqliteArguments::default();
     let mut uncached_recipes = vec![];
     for recipe in recipes {
         let recipe = recipe.borrow();
-        let recipe_hash = recipe.hash();
-        let recipe_json = serde_json::to_string(recipe)?;
 
-        if !cached_recipes.recipes_by_hash.contains_key(&recipe_hash) {
+        if !cached_recipes.recipes_by_hash.contains_key(&recipe.hash()) {
             // Recipe not cached, so try to insert it into the database
             // and cache it afterward
             uncached_recipes.push(recipe.clone());
-
-            arguments.add(recipe_hash.to_string());
-            arguments.add(recipe_json);
         }
     }
 
@@ -268,25 +262,39 @@ where
         return Ok(0);
     }
 
-    let placeholders = std::iter::repeat("(?, ?)")
-        .take(uncached_recipes.len())
-        .join_with(", ");
-
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
 
-    let result = sqlx::query_with(
-        &format!(
-            r#"
-                INSERT INTO recipes (recipe_hash, recipe_json)
-                VALUES {placeholders}
-                ON CONFLICT (recipe_hash) DO NOTHING
-            "#
-        ),
-        arguments,
-    )
-    .execute(&mut *db_transaction)
-    .await?;
+    // Save each recipe to the database (in batches, so we limit the maximum
+    // number of variables used per query)
+    let mut num_rows_affected = 0;
+    for recipe_batch in uncached_recipes.chunks(400) {
+        let mut arguments = sqlx::sqlite::SqliteArguments::default();
+
+        for recipe in recipe_batch {
+            arguments.add(recipe.hash().to_string());
+            arguments.add(serde_json::to_string(recipe)?);
+        }
+
+        let placeholders = std::iter::repeat("(?, ?)")
+            .take(recipe_batch.len())
+            .join_with(", ");
+
+        let result = sqlx::query_with(
+            &format!(
+                r#"
+                        INSERT INTO recipes (recipe_hash, recipe_json)
+                        VALUES {placeholders}
+                        ON CONFLICT (recipe_hash) DO NOTHING
+                    "#
+            ),
+            arguments,
+        )
+        .execute(&mut *db_transaction)
+        .await?;
+
+        num_rows_affected += result.rows_affected();
+    }
 
     db_transaction.commit().await?;
     drop(db_conn);
@@ -298,7 +306,7 @@ where
         cached_recipes.recipes_by_hash.insert(recipe.hash(), recipe);
     }
 
-    Ok(result.rows_affected())
+    Ok(num_rows_affected)
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
