@@ -12,30 +12,44 @@ pub async fn sync_project(
     project_hash: ProjectHash,
     export: &str,
 ) -> anyhow::Result<()> {
-    // TODO: Use reporter for logging in this function
-
     // Get all descendent bakes for the project/export
-
-    let start_refs = std::time::Instant::now();
 
     let descendent_project_bakes =
         crate::references::descendent_project_bakes(brioche, project_hash, export).await?;
 
+    // Sync all descendent bakes
+
+    sync_bakes(brioche, descendent_project_bakes, true).await?;
+
+    Ok(())
+}
+
+pub async fn sync_bakes(
+    brioche: &Brioche,
+    bakes: Vec<(crate::recipe::Recipe, crate::recipe::Artifact)>,
+    verbose: bool,
+) -> anyhow::Result<SyncResults> {
+    // TODO: Use reporter for logging in this function
+
     // Collect the references from each input recipe/output artifact
+
+    let start_refs = std::time::Instant::now();
 
     let mut sync_references = RecipeReferences::default();
 
-    let recipe_hashes = descendent_project_bakes
+    let recipe_hashes = bakes
         .iter()
         .flat_map(|(input, output)| [input.hash(), output.hash()]);
     crate::references::recipe_references(brioche, &mut sync_references, recipe_hashes).await?;
 
     let num_recipe_refs = sync_references.recipes.len();
     let num_blob_refs = sync_references.blobs.len();
-    println!(
-        "Collected refs in {} ({num_recipe_refs} recipes, {num_blob_refs} blobs)",
-        start_refs.elapsed().human_duration()
-    );
+    if verbose {
+        println!(
+            "Collected refs in {} ({num_recipe_refs} recipes, {num_blob_refs} blobs)",
+            start_refs.elapsed().human_duration()
+        );
+    }
 
     // Sync referenced blobs
 
@@ -43,6 +57,7 @@ pub async fn sync_project(
 
     let all_blobs = sync_references.blobs.iter().cloned().collect::<Vec<_>>();
     let known_blobs = brioche.registry_client.known_blobs(&all_blobs).await?;
+    let num_new_blobs = all_blobs.len() - known_blobs.len();
     let new_blobs = all_blobs
         .into_iter()
         .filter(|blob_hash| !known_blobs.contains(blob_hash));
@@ -78,11 +93,13 @@ pub async fn sync_project(
         })
         .await?;
 
-    println!(
-        "Finished syncing {} blobs in {}",
-        sync_references.blobs.len(),
-        start_blobs.elapsed().human_duration()
-    );
+    let num_total_blobs = sync_references.blobs.len();
+    if verbose {
+        println!(
+            "Finished syncing {num_new_blobs} / {num_total_blobs} blobs in {}",
+            start_blobs.elapsed().human_duration()
+        );
+    }
 
     // Sync referenced recipes
 
@@ -108,23 +125,27 @@ pub async fn sync_project(
 
     brioche.registry_client.create_recipes(&new_recipes).await?;
 
-    println!(
-        "Finished syncing {} recipes in {}",
-        sync_references.recipes.len(),
-        start_recipes.elapsed().human_duration()
-    );
+    let num_new_recipes = new_recipes.len();
+    let num_total_recipes = sync_references.recipes.len();
+    if verbose {
+        println!(
+            "Finished syncing {num_new_recipes} / {num_total_recipes} recipes in {}",
+            start_recipes.elapsed().human_duration()
+        );
+    }
 
     // Sync each baked recipe
 
     let start_bakes = std::time::Instant::now();
 
-    let num_descendent_project_bakes = descendent_project_bakes.len();
+    let num_bakes = bakes.len();
 
-    let all_bakes = descendent_project_bakes
+    let all_bakes = bakes
         .into_iter()
         .map(|(input, output)| (input.hash(), output.hash()))
         .collect::<Vec<_>>();
     let known_bakes = brioche.registry_client.known_bakes(&all_bakes).await?;
+    let num_new_bakes = all_bakes.len() - known_bakes.len();
     let new_bakes = all_bakes
         .into_iter()
         .filter(|bake| !known_bakes.contains(bake));
@@ -152,12 +173,33 @@ pub async fn sync_project(
         })
         .await?;
 
-    println!(
-        "Finished syncing {num_descendent_project_bakes} bakes in {}",
-        start_bakes.elapsed().human_duration()
-    );
+    if verbose {
+        println!(
+            "Finished syncing {num_new_bakes} / {num_bakes} bakes in {}",
+            start_bakes.elapsed().human_duration()
+        );
+    }
 
-    Ok(())
+    Ok(SyncResults {
+        num_new_bakes,
+        num_new_blobs,
+        num_new_recipes,
+    })
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SyncResults {
+    pub num_new_blobs: usize,
+    pub num_new_recipes: usize,
+    pub num_new_bakes: usize,
+}
+
+impl SyncResults {
+    pub fn merge(&mut self, other: Self) {
+        self.num_new_blobs += other.num_new_blobs;
+        self.num_new_recipes += other.num_new_recipes;
+        self.num_new_bakes += other.num_new_bakes;
+    }
 }
 
 async fn retry<Fut, T, E>(

@@ -50,6 +50,8 @@ pub struct Brioche {
     /// useful for debugging, where build outputs may succeed but need to be
     /// manually investigated.
     pub keep_temps: bool,
+    /// Synchronize baked recipes to the registry automatically.
+    pub sync_tx: Arc<tokio::sync::mpsc::Sender<SyncMessage>>,
     pub cached_recipes: Arc<RwLock<bake::CachedRecipes>>,
     pub active_bakes: Arc<RwLock<bake::ActiveBakes>>,
     pub process_semaphore: Arc<tokio::sync::Semaphore>,
@@ -65,6 +67,7 @@ pub struct BriocheBuilder {
     home: Option<PathBuf>,
     self_exec_processes: bool,
     keep_temps: bool,
+    sync: bool,
 }
 
 impl BriocheBuilder {
@@ -76,6 +79,7 @@ impl BriocheBuilder {
             home: None,
             self_exec_processes: true,
             keep_temps: false,
+            sync: false,
         }
     }
 
@@ -101,6 +105,11 @@ impl BriocheBuilder {
 
     pub fn vfs(mut self, vfs: vfs::Vfs) -> Self {
         self.vfs = vfs;
+        self
+    }
+
+    pub fn sync(mut self, sync: bool) -> Self {
+        self.sync = sync;
         self
     }
 
@@ -192,6 +201,44 @@ impl BriocheBuilder {
             registry::RegistryClient::new(registry_url, registry_auth)
         });
 
+        let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(1000);
+
+        // Start a task that listens for sync messages and syncs to the
+        // registry during builds. This allows for some bakes to be synced
+        // even if the overall build fails.
+        let sync_enabled = self.sync;
+        tokio::spawn(async move {
+            let mut sync_results = sync::SyncResults::default();
+
+            while let Some(sync_message) = sync_rx.recv().await {
+                match sync_message {
+                    SyncMessage::StartSync {
+                        brioche,
+                        recipe,
+                        artifact,
+                    } => {
+                        if sync_enabled {
+                            let result =
+                                sync::sync_bakes(&brioche, vec![(recipe, artifact)], false)
+                                    .await
+                                    .inspect_err(|error| {
+                                        tracing::warn!("failed to sync baked recipe: {error}");
+                                    });
+                            if let Ok(result) = result {
+                                sync_results.merge(result);
+                            }
+                        }
+                    }
+                    SyncMessage::Flush { completed } => {
+                        let results = std::mem::take(&mut sync_results);
+                        let _ = completed.send(results).inspect_err(|_| {
+                            tracing::warn!("failed to send sync flush completion");
+                        });
+                    }
+                }
+            }
+        });
+
         Ok(Brioche {
             reporter: self.reporter,
             vfs: self.vfs,
@@ -199,6 +246,7 @@ impl BriocheBuilder {
             home: brioche_home,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
+            sync_tx: Arc::new(sync_tx),
             cached_recipes: Arc::new(RwLock::new(bake::CachedRecipes::default())),
             active_bakes: Arc::new(RwLock::new(bake::ActiveBakes::default())),
             process_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROCESSES)),
@@ -212,6 +260,17 @@ impl BriocheBuilder {
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 struct BriocheConfig {
     registry_url: Option<url::Url>,
+}
+
+pub enum SyncMessage {
+    StartSync {
+        brioche: Brioche,
+        recipe: recipe::Recipe,
+        artifact: recipe::Artifact,
+    },
+    Flush {
+        completed: tokio::sync::oneshot::Sender<sync::SyncResults>,
+    },
 }
 
 #[derive(rust_embed::RustEmbed)]

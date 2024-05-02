@@ -233,8 +233,33 @@ async fn bake_inner(
             let bake_fut = {
                 let brioche = brioche.clone();
                 let meta = meta.clone();
-                async move { run_bake(&brioche, recipe.value, &meta).await }
-                    .instrument(tracing::debug_span!("run_bake_task").or_current())
+                async move {
+                    // Clone the recipe (but only if we are going to sync it)
+                    let input_recipe = if recipe.is_expensive_to_bake() {
+                        Some(recipe.value.clone())
+                    } else {
+                        None
+                    };
+
+                    // Bake the recipe
+                    let baked = run_bake(&brioche, recipe.value, &meta).await?;
+
+                    // Send expensive recipes to optionally be synced to
+                    // the registry right afer we baked it
+                    if let Some(input_recipe) = input_recipe {
+                        brioche
+                            .sync_tx
+                            .send(crate::SyncMessage::StartSync {
+                                brioche: brioche.clone(),
+                                recipe: input_recipe,
+                                artifact: baked.clone(),
+                            })
+                            .await?;
+                    }
+
+                    anyhow::Ok(baked)
+                }
+                .instrument(tracing::debug_span!("run_bake_task").or_current())
             };
             tokio::spawn(bake_fut).await?.map_err(|error| BakeFailed {
                 message: format!("{error:#}"),
