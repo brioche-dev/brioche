@@ -179,8 +179,12 @@ impl BriocheBuilder {
 
         tracing::debug!("finished running database migrations");
 
-        let download_retry_policy =
-            reqwest_retry::policies::ExponentialBackoff::builder().build_with_max_retries(5);
+        let download_retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
+            .retry_bounds(
+                std::time::Duration::from_secs(1),
+                std::time::Duration::from_secs(30),
+            )
+            .build_with_max_retries(5);
         let download_retry_middleware =
             reqwest_retry::RetryTransientMiddleware::new_with_policy(download_retry_policy);
         let download_client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
