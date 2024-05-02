@@ -4,9 +4,6 @@ use human_repr::HumanDuration;
 
 use crate::{project::ProjectHash, references::RecipeReferences, Brioche};
 
-const RETRY_LIMIT: usize = 5;
-const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
-
 pub async fn sync_project(
     brioche: &Brioche,
     project_hash: ProjectHash,
@@ -69,20 +66,11 @@ pub async fn sync_bakes(
             async move {
                 tokio::spawn(async move {
                     let blob_path = crate::blob::blob_path(&brioche, blob_hash).await?;
-                    retry(RETRY_LIMIT, RETRY_DELAY, || {
-                        let brioche = brioche.clone();
-                        let blob_path = blob_path.clone();
-                        async move {
-                            let blob = tokio::fs::File::open(&blob_path)
-                                .await
-                                .with_context(|| format!("failed to open blob {blob_hash}"))?;
+                    let blob = tokio::fs::File::open(&blob_path)
+                        .await
+                        .with_context(|| format!("failed to open blob {blob_hash}"))?;
 
-                            brioche.registry_client.send_blob(blob_hash, blob).await?;
-
-                            anyhow::Ok(())
-                        }
-                    })
-                    .await?;
+                    brioche.registry_client.send_blob(blob_hash, blob).await?;
 
                     anyhow::Ok(())
                 })
@@ -156,16 +144,10 @@ pub async fn sync_bakes(
             let brioche = brioche.clone();
             async move {
                 tokio::spawn(async move {
-                    retry(RETRY_LIMIT, RETRY_DELAY, || {
-                        let brioche = brioche.clone();
-                        async move {
-                            brioche
-                                .registry_client
-                                .create_bake(input_hash, output_hash)
-                                .await
-                        }
-                    })
-                    .await
+                    brioche
+                        .registry_client
+                        .create_bake(input_hash, output_hash)
+                        .await
                 })
                 .await??;
                 anyhow::Ok(())
@@ -199,33 +181,5 @@ impl SyncResults {
         self.num_new_blobs += other.num_new_blobs;
         self.num_new_recipes += other.num_new_recipes;
         self.num_new_bakes += other.num_new_bakes;
-    }
-}
-
-async fn retry<Fut, T, E>(
-    mut attempts: usize,
-    delay: std::time::Duration,
-    mut f: impl FnMut() -> Fut,
-) -> Result<T, E>
-where
-    Fut: std::future::Future<Output = Result<T, E>>,
-    E: std::fmt::Display,
-{
-    loop {
-        let result = f().await;
-        attempts = attempts.saturating_sub(1);
-
-        match result {
-            Ok(value) => {
-                return Ok(value);
-            }
-            Err(error) if attempts == 0 => {
-                return Err(error);
-            }
-            Err(error) => {
-                tracing::warn!(remaining_attempts = attempts, %error, "retrying after error");
-                tokio::time::sleep(delay).await;
-            }
-        }
     }
 }
