@@ -129,6 +129,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 
     let brioche = brioche::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep)
+        .sync(args.sync)
         .build()
         .await?;
     let projects = brioche::project::Projects::default();
@@ -216,6 +217,31 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         }
 
         if args.sync {
+            println!("Waiting for in-progress syncs to finish...");
+            let wait_start = std::time::Instant::now();
+
+            let (sync_complete_tx, sync_complete_rx) = tokio::sync::oneshot::channel();
+
+            brioche
+                .sync_tx
+                .send(brioche::SyncMessage::Flush {
+                    completed: sync_complete_tx,
+                })
+                .await?;
+            let brioche::sync::SyncResults {
+                num_new_blobs,
+                num_new_recipes,
+                num_new_bakes,
+            } = sync_complete_rx.await?;
+
+            let wait_duration = wait_start.elapsed().human_duration();
+            println!("In-progress sync waited for {wait_duration} and synced:");
+            println!("  {num_new_blobs} blobs");
+            println!("  {num_new_recipes} recipes");
+            println!("  {num_new_bakes} bakes");
+
+            println!("Syncing project...");
+
             let sync_start = std::time::Instant::now();
             brioche::sync::sync_project(&brioche, project_hash, &args.export).await?;
             let sync_duration = sync_start.elapsed().human_duration();

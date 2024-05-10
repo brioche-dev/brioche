@@ -17,7 +17,7 @@ use crate::{
 #[derive(Clone)]
 pub enum RegistryClient {
     Enabled {
-        client: reqwest::Client,
+        client: reqwest_middleware::ClientWithMiddleware,
         url: url::Url,
         auth: RegistryAuthentication,
     },
@@ -26,11 +26,21 @@ pub enum RegistryClient {
 
 impl RegistryClient {
     pub fn new(url: url::Url, auth: RegistryAuthentication) -> Self {
-        Self::Enabled {
-            client: reqwest::Client::new(),
-            url,
-            auth,
-        }
+        let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
+            .retry_bounds(
+                std::time::Duration::from_millis(500),
+                std::time::Duration::from_millis(3000),
+            )
+            .build_with_max_retries(5);
+        let retry_middleware =
+            reqwest_retry::RetryTransientMiddleware::new_with_policy(retry_policy);
+
+        let client = reqwest::Client::new();
+        let client = reqwest_middleware::ClientBuilder::new(client)
+            .with(retry_middleware)
+            .build();
+
+        Self::Enabled { client, url, auth }
     }
 
     pub fn disabled() -> Self {
@@ -41,7 +51,7 @@ impl RegistryClient {
         &self,
         method: reqwest::Method,
         path: &str,
-    ) -> anyhow::Result<reqwest::RequestBuilder> {
+    ) -> anyhow::Result<reqwest_middleware::RequestBuilder> {
         let Self::Enabled { client, url, auth } = self else {
             return Err(anyhow::anyhow!("registry client is disabled"));
         };
