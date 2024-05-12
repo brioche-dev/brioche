@@ -15,12 +15,10 @@ pub enum Platform {
     X86_64Linux,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(all(target_os = "linux", target_arch = "x86_64"))] {
-        pub fn current_platform() -> Platform {
-            Platform::X86_64Linux
-        }
+pub fn current_platform() -> Platform {
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Platform::X86_64Linux
     } else {
-        compile_error!("unsupported platform");
+        unimplemented!("unsupported platform");
     }
 }
