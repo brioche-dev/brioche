@@ -27,6 +27,9 @@ pub async fn brioche_test_with(
     tokio::fs::create_dir_all(&brioche_home)
         .await
         .expect("failed to create brioche home");
+    let brioche_home = tokio::fs::canonicalize(&brioche_home)
+        .await
+        .expect("failed to canonicalize brioche home path");
 
     let (reporter, reporter_guard) = brioche::reporter::start_test_reporter();
     let builder = BriocheBuilder::new(reporter)
@@ -207,17 +210,22 @@ pub struct TestContext {
 
 impl TestContext {
     pub fn path(&self, path: impl AsRef<Path>) -> PathBuf {
-        self.temp.path().join(path)
+        let temp_path = self
+            .temp
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize temp path");
+        temp_path.join(path)
     }
 
     pub async fn mkdir(&self, path: impl AsRef<Path>) -> PathBuf {
-        let path = self.temp.path().join(path);
+        let path = self.path(path.as_ref());
         tokio::fs::create_dir_all(&path).await.unwrap();
         path
     }
 
     pub async fn write_file(&self, path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> PathBuf {
-        let path = self.temp.path().join(path);
+        let path = self.path(path.as_ref());
 
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await.unwrap();
@@ -229,7 +237,7 @@ impl TestContext {
     }
 
     pub async fn write_symlink(&self, src: impl AsRef<Path>, dst: impl AsRef<Path>) -> PathBuf {
-        let dst = self.temp.path().join(dst);
+        let dst = self.path(dst.as_ref());
 
         if let Some(parent) = dst.parent() {
             tokio::fs::create_dir_all(parent).await.unwrap();
