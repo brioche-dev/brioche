@@ -107,7 +107,16 @@ pub async fn create_input_inner(
                                     continue;
                                 }
                             };
-                            let target = match target.strip_prefix(resources_dir) {
+                            let canonical_resources_dir =
+                                tokio::fs::canonicalize(&resources_dir).await;
+                            let canonical_resources_dir = match canonical_resources_dir {
+                                Ok(target) => target,
+                                Err(err) => {
+                                    tracing::warn!(resources_dir = %resources_dir.display(), "failed to canonicalize resources dir: {err}");
+                                    continue;
+                                }
+                            };
+                            let target = match target.strip_prefix(&canonical_resources_dir) {
                                 Ok(target) => target,
                                 Err(err) => {
                                     tracing::warn!(resource = %resource_path.display(), "resource symlink target not under resources dir: {err}");
