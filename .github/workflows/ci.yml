@@ -67,6 +67,14 @@ jobs:
             runs_on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             tools_target: x86_64-unknown-linux-musl
+          - name: x86_64-macos
+            runs_on: macos-14
+            target: x86_64-apple-darwin
+            tools_target: x86_64-apple-darwin
+          - name: aarch64-macos
+            runs_on: macos-14
+            target: aarch64-apple-darwin
+            tools_target: aarch64-apple-darwin
 
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
@@ -148,6 +156,21 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: brioche-x86_64-linux
+          path: artifacts/brioche
+      - name: Download artifacts (aarch64-linux)
+        uses: actions/download-artifact@v4
+        with:
+          name: brioche-aarch64-linux
+          path: artifacts/brioche
+      - name: Download artifacts (x86_64-macos)
+        uses: actions/download-artifact@v4
+        with:
+          name: brioche-x86_64-macos
+          path: artifacts/brioche
+      - name: Download artifacts (aarch64-macos)
+        uses: actions/download-artifact@v4
+        with:
+          name: brioche-aarch64-macos
           path: artifacts/brioche
       # Prepare the upload for the current commit and branch:
       # - The current branch will be uploaded with all artifacts
