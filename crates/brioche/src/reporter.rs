@@ -9,6 +9,7 @@ use std::{
 use bstr::ByteSlice;
 use debug_ignore::DebugIgnore;
 use human_repr::HumanDuration as _;
+use joinery::JoinableIterator as _;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
 const DEFAULT_TRACING_LEVEL: &str = "brioche=info";
@@ -238,6 +239,16 @@ impl ConsoleReporter {
                         eprintln!("Started process");
                     }
                 }
+                NewJob::RegistryFetch {
+                    total_blobs,
+                    total_recipes,
+                } => {
+                    eprintln!(
+                        "Fetching {total_blobs} blob{} / {total_recipes} recipe{} from registry",
+                        if total_blobs == 1 { "" } else { "s" },
+                        if total_recipes == 1 { "" } else { "s" },
+                    );
+                }
             },
         }
     }
@@ -323,6 +334,10 @@ impl ConsoleReporter {
                             }
                         }
                     }
+                }
+                UpdateJob::RegistryFetchAdd { .. } => {}
+                UpdateJob::RegistryFetchFinish => {
+                    eprintln!("Finished fetching from registry");
                 }
             },
         }
@@ -499,9 +514,17 @@ impl Drop for ReporterGuard {
 
 #[derive(Debug)]
 pub enum NewJob {
-    Download { url: url::Url },
+    Download {
+        url: url::Url,
+    },
     Unpack,
-    Process { status: ProcessStatus },
+    Process {
+        status: ProcessStatus,
+    },
+    RegistryFetch {
+        total_blobs: usize,
+        total_recipes: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -516,6 +539,11 @@ pub enum UpdateJob {
         packet: DebugIgnore<Option<ProcessPacket>>,
         status: ProcessStatus,
     },
+    RegistryFetchAdd {
+        blobs_fetched: usize,
+        recipes_fetched: usize,
+    },
+    RegistryFetchFinish,
 }
 
 #[derive(Debug)]
@@ -530,6 +558,12 @@ pub enum Job {
     Process {
         packet_queue: DebugIgnore<Arc<RwLock<Vec<ProcessPacket>>>>,
         status: ProcessStatus,
+    },
+    RegistryFetch {
+        complete_blobs: usize,
+        total_blobs: usize,
+        complete_recipes: usize,
+        total_recipes: usize,
     },
 }
 
@@ -546,6 +580,15 @@ impl Job {
             NewJob::Process { status } => Self::Process {
                 packet_queue: Default::default(),
                 status,
+            },
+            NewJob::RegistryFetch {
+                total_blobs,
+                total_recipes,
+            } => Self::RegistryFetch {
+                complete_blobs: 0,
+                total_blobs,
+                complete_recipes: 0,
+                total_recipes,
             },
         }
     }
@@ -594,6 +637,40 @@ impl Job {
                 }
                 *status = new_status;
             }
+            UpdateJob::RegistryFetchAdd {
+                blobs_fetched,
+                recipes_fetched,
+            } => {
+                let Self::RegistryFetch {
+                    complete_blobs,
+                    complete_recipes,
+                    ..
+                } = self
+                else {
+                    anyhow::bail!(
+                        "tried to update a non-registry-fetch job with a registry-fetch update"
+                    );
+                };
+
+                *complete_blobs += blobs_fetched;
+                *complete_recipes += recipes_fetched;
+            }
+            UpdateJob::RegistryFetchFinish => {
+                let Self::RegistryFetch {
+                    complete_blobs,
+                    total_blobs,
+                    complete_recipes,
+                    total_recipes,
+                } = self
+                else {
+                    anyhow::bail!(
+                        "tried to update a non-registry-fetch job with a registry-fetch-finish update"
+                    );
+                };
+
+                *complete_blobs = *total_blobs;
+                *complete_recipes = *total_recipes;
+            }
         }
 
         Ok(())
@@ -609,6 +686,12 @@ impl Job {
                 status,
                 packet_queue: _,
             } => matches!(status, ProcessStatus::Exited { .. }),
+            Job::RegistryFetch {
+                complete_blobs,
+                total_blobs,
+                complete_recipes,
+                total_recipes,
+            } => total_blobs == complete_blobs && total_recipes == complete_recipes,
         }
     }
 
@@ -617,7 +700,7 @@ impl Job {
     fn job_type_priority(&self) -> u8 {
         match self {
             Job::Unpack { .. } => 0,
-            Job::Download { .. } => 1,
+            Job::Download { .. } | Job::RegistryFetch { .. } => 1,
             Job::Process { .. } => 2,
         }
     }
@@ -681,6 +764,62 @@ impl superconsole::Component for Job {
                 superconsole::Lines::from_iter(std::iter::once(superconsole::Line::sanitized(
                     &message,
                 )))
+            }
+            Job::RegistryFetch {
+                complete_blobs,
+                total_blobs,
+                complete_recipes,
+                total_recipes,
+            } => {
+                let blob_percent = if *total_blobs > 0 {
+                    (*complete_blobs as f64 / *total_blobs as f64) * 100.0
+                } else {
+                    100.0
+                };
+                let recipe_percent = if *total_recipes > 0 {
+                    (*complete_recipes as f64 / *total_recipes as f64) * 100.0
+                } else {
+                    100.0
+                };
+                let total_percent = (recipe_percent * 0.9 + blob_percent * 0.1) as u8;
+                let verb = if self.is_complete() {
+                    "Fetched"
+                } else {
+                    "Fetching"
+                };
+                let fetched_blobs = if *total_blobs == 0 {
+                    None
+                } else if self.is_complete() {
+                    Some(format!(
+                        "{complete_blobs} blob{s}",
+                        s = if *complete_blobs == 1 { "" } else { "s" }
+                    ))
+                } else {
+                    Some(format!(
+                        "{complete_blobs} / {total_blobs} blob{s}",
+                        s = if *total_blobs == 1 { "" } else { "s" }
+                    ))
+                };
+                let fetched_recipes = if *total_recipes == 0 {
+                    None
+                } else if self.is_complete() {
+                    Some(format!(
+                        "{complete_recipes} recipe{s}",
+                        s = if *complete_recipes == 1 { "" } else { "s" }
+                    ))
+                } else {
+                    Some(format!(
+                        "{complete_recipes} / {total_recipes} recipe{s}",
+                        s = if *total_recipes == 1 { "" } else { "s" }
+                    ))
+                };
+                let fetching_message = [fetched_blobs, fetched_recipes]
+                    .into_iter()
+                    .flatten()
+                    .join_with(" + ");
+                let message =
+                    format!("[{total_percent:>3}%] {verb} {fetching_message} from registry",);
+                superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
             }
         };
 

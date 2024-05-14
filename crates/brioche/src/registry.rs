@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use futures::{StreamExt as _, TryStreamExt as _};
+use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _};
 use tokio::io::AsyncReadExt as _;
 
 use crate::{
@@ -282,23 +282,54 @@ pub async fn fetch_bake_references(
     brioche: Brioche,
     response: GetBakeResponse,
 ) -> anyhow::Result<()> {
-    let fetch_blobs_fut = futures::stream::iter(response.referenced_blobs)
-        .map(Ok)
-        .try_for_each_concurrent(25, |blob| {
+    let unknown_blobs_fut = futures::stream::iter(response.referenced_blobs)
+        .filter({
             let brioche = brioche.clone();
-            async move {
-                super::blob::blob_path(&brioche, blob).await?;
-                anyhow::Ok(())
+            move |&blob_hash| {
+                let brioche = brioche.clone();
+                async move {
+                    let blob_path = super::blob::local_blob_path(&brioche, blob_hash);
+                    matches!(tokio::fs::try_exists(&blob_path).await, Ok(true))
+                }
             }
-        });
-
-    let known_recipes =
-        crate::references::local_recipes(&brioche, response.referenced_recipes.clone()).await?;
+        })
+        .collect::<Vec<_>>()
+        .map(anyhow::Ok);
+    let known_recipes_fut =
+        crate::references::local_recipes(&brioche, response.referenced_recipes.clone());
+    let (unknown_blobs, known_recipes) = tokio::try_join!(unknown_blobs_fut, known_recipes_fut)?;
     let unknown_recipes = response
         .referenced_recipes
         .difference(&known_recipes)
         .copied()
         .collect::<Vec<_>>();
+
+    let job_id = brioche
+        .reporter
+        .add_job(crate::reporter::NewJob::RegistryFetch {
+            total_blobs: unknown_blobs.len(),
+            total_recipes: unknown_recipes.len(),
+        });
+
+    let fetch_blobs_fut = futures::stream::iter(unknown_blobs)
+        .map(Ok)
+        .try_for_each_concurrent(25, |blob| {
+            let brioche = brioche.clone();
+            async move {
+                super::blob::blob_path(&brioche, blob).await?;
+
+                brioche.reporter.update_job(
+                    job_id,
+                    crate::reporter::UpdateJob::RegistryFetchAdd {
+                        blobs_fetched: 1,
+                        recipes_fetched: 0,
+                    },
+                );
+
+                anyhow::Ok(())
+            }
+        });
+
     let new_recipes = Arc::new(tokio::sync::Mutex::new(vec![]));
     let fetch_recipes_fut = futures::stream::iter(unknown_recipes)
         .map(Ok)
@@ -311,6 +342,15 @@ pub async fn fetch_bake_references(
                     let mut new_recipes = new_recipes.lock().await;
                     new_recipes.push(recipe);
                 }
+
+                brioche.reporter.update_job(
+                    job_id,
+                    crate::reporter::UpdateJob::RegistryFetchAdd {
+                        blobs_fetched: 0,
+                        recipes_fetched: 1,
+                    },
+                );
+
                 anyhow::Ok(())
             }
         });
@@ -321,6 +361,10 @@ pub async fn fetch_bake_references(
     let new_recipes = std::mem::take(&mut *new_recipes);
 
     crate::recipe::save_recipes(&brioche, new_recipes).await?;
+
+    brioche
+        .reporter
+        .update_job(job_id, crate::reporter::UpdateJob::RegistryFetchFinish);
 
     Ok(())
 }
