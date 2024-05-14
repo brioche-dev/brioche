@@ -50,7 +50,12 @@ jobs:
           fi
   test:
     name: Run tests
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        runs_on:
+          - ubuntu-22.04
+          - macos-14
+    runs-on: ${{ matrix.runs_on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
