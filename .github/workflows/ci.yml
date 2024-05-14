@@ -50,7 +50,12 @@ jobs:
           fi
   test:
     name: Run tests
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        runs_on:
+          - ubuntu-22.04
+          - macos-14
+    runs-on: ${{ matrix.runs_on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -60,22 +65,47 @@ jobs:
         run: cargo test --all --release
   build:
     name: Build artifacts
-    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        platform:
+          - name: x86_64-linux
+            runs_on: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            tools_target: x86_64-unknown-linux-musl
+          - name: x86_64-macos
+            runs_on: macos-14
+            target: x86_64-apple-darwin
+            tools_target: x86_64-apple-darwin
+          - name: aarch64-macos
+            runs_on: macos-14
+            target: aarch64-apple-darwin
+            tools_target: aarch64-apple-darwin
+
+    runs-on: ${{ matrix.platform.runs_on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Install Rust targets
+        run: rustup target add "$TARGET" "$TOOLS_TARGET"
+        env:
+          TARGET: ${{ matrix.platform.target }}
+          TOOLS_TARGET: ${{ matrix.platform.tools_target }}
       - name: Install Rust nightly toolchain
         run: |
           rustup toolchain install "$NIGHTLY_TOOLCHAIN" \
-            --target x86_64-unknown-linux-musl \
+            --target "$TOOLS_TARGET" \
             --component rust-src
+        env:
+          TOOLS_TARGET: ${{ matrix.platform.tools_target }}
       - name: Build Brioche
         run: |
             cargo build \
               --all \
               --bin brioche \
               --release \
-              --target=x86_64-unknown-linux-gnu
+              --target="$TARGET"
+        env:
+          TARGET: ${{ matrix.platform.target }}
       - name: Build brioche-pack tools
         run: |
           cargo build \
@@ -83,36 +113,46 @@ jobs:
             --bin brioche-packer \
             --bin brioche-ld \
             --release \
-            --target=x86_64-unknown-linux-musl
+            --target="$TOOLS_TARGET"
 
           cargo +"$NIGHTLY_TOOLCHAIN" build \
             --all \
             --bin brioche-packed-exec \
             --bin brioche-packed-userland-exec \
             --profile=release-tiny \
-            --target=x86_64-unknown-linux-musl \
+            --target="$TOOLS_TARGET" \
             -Z 'build-std=std,panic_abort' \
             -Z 'build-std-features=panic_immediate_abort'
+        env:
+          TOOLS_TARGET: ${{ matrix.platform.tools_target }}
       - name: Prepare artifact
         run: |
-          mkdir -p artifacts/brioche/x86_64-linux/
-          mkdir -p artifacts/brioche-pack/x86_64-linux/
+          mkdir -p "artifacts/brioche/$PLATFORM/"
+          mkdir -p "artifacts/brioche-pack/$PLATFORM/"
           cp \
-            target/x86_64-unknown-linux-gnu/release/brioche \
-            artifacts/brioche/x86_64-linux/
+            "target/$TARGET/release/brioche" \
+            "artifacts/brioche/$PLATFORM/"
           cp \
-            target/x86_64-unknown-linux-musl/release/brioche-packer \
-            target/x86_64-unknown-linux-musl/release/brioche-ld \
-            target/x86_64-unknown-linux-musl/release-tiny/brioche-packed-exec \
-            target/x86_64-unknown-linux-musl/release-tiny/brioche-packed-userland-exec \
-            artifacts/brioche-pack/x86_64-linux/
-          (cd artifacts/brioche-pack/x86_64-linux/ && tar --zstd -cf ../../brioche/x86_64-linux/brioche-pack.tar.zstd .)
-          tree --du -h artifacts/brioche-pack
-          tree --du -h artifacts/brioche
+            "target/$TOOLS_TARGET/release/brioche-packer" \
+            "target/$TOOLS_TARGET/release/brioche-ld" \
+            "target/$TOOLS_TARGET/release-tiny/brioche-packed-exec" \
+            "target/$TOOLS_TARGET/release-tiny/brioche-packed-userland-exec" \
+            "artifacts/brioche-pack/$PLATFORM/"
+          (cd "artifacts/brioche-pack/$PLATFORM/" && tar --zstd -cf "../../brioche/$PLATFORM/brioche-pack.tar.zstd" .)
+
+
+          if command -v tree &> /dev/null; then
+            tree --du -h artifacts/brioche-pack
+            tree --du -h artifacts/brioche
+          fi
+        env:
+          TARGET: ${{ matrix.platform.target }}
+          TOOLS_TARGET: ${{ matrix.platform.tools_target }}
+          PLATFORM: ${{ matrix.platform.name }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: brioche
+          name: brioche-${{ matrix.platform.name }}
           if-no-files-found: error
           path: artifacts/brioche
   push:
@@ -121,10 +161,20 @@ jobs:
     needs: [check, test, build]
     runs-on: ubuntu-22.04
     steps:
-      - name: Download artifacts
+      - name: Download artifacts (x86_64-linux)
         uses: actions/download-artifact@v4
         with:
-          name: brioche
+          name: brioche-x86_64-linux
+          path: artifacts/brioche
+      - name: Download artifacts (x86_64-macos)
+        uses: actions/download-artifact@v4
+        with:
+          name: brioche-x86_64-macos
+          path: artifacts/brioche
+      - name: Download artifacts (aarch64-macos)
+        uses: actions/download-artifact@v4
+        with:
+          name: brioche-aarch64-macos
           path: artifacts/brioche
       # Prepare the upload for the current commit and branch:
       # - The current branch will be uploaded with all artifacts
@@ -141,6 +191,11 @@ jobs:
           cp -r artifacts/brioche/* artifacts/uploads/branch/
 
           rm artifacts/uploads/commit/*/brioche
+
+          if command -v tree &> /dev/null; then
+            tree --du -h artifacts/uploads/commit
+            tree --du -h artifacts/uploads/branch
+          fi
 
           aws s3 sync \
             --endpoint "$S3_ENDPOINT" \

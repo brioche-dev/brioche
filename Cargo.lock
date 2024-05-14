@@ -845,6 +845,7 @@ dependencies = [
  "bincode 2.0.0-rc.3",
  "brioche-pack",
  "bstr 1.8.0",
+ "cfg-if 1.0.0",
  "libc",
  "thiserror",
  "userland-execve",
