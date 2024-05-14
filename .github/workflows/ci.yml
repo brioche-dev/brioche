@@ -139,8 +139,12 @@ jobs:
             "target/$TOOLS_TARGET/release-tiny/brioche-packed-userland-exec" \
             "artifacts/brioche-pack/$PLATFORM/"
           (cd "artifacts/brioche-pack/$PLATFORM/" && tar --zstd -cf "../../brioche/$PLATFORM/brioche-pack.tar.zstd" .)
-          tree --du -h artifacts/brioche-pack
-          tree --du -h artifacts/brioche
+
+
+          if command -v tree &> /dev/null; then
+            tree --du -h artifacts/brioche-pack
+            tree --du -h artifacts/brioche
+          fi
         env:
           TARGET: ${{ matrix.platform.target }}
           TOOLS_TARGET: ${{ matrix.platform.tools_target }}
@@ -192,6 +196,11 @@ jobs:
           cp -r artifacts/brioche/* artifacts/uploads/branch/
 
           rm artifacts/uploads/commit/*/brioche
+
+          if command -v tree &> /dev/null; then
+            tree --du -h artifacts/uploads/commit
+            tree --du -h artifacts/uploads/branch
+          fi
 
           aws s3 sync \
             --endpoint "$S3_ENDPOINT" \
