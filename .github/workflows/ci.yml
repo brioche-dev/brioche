@@ -166,11 +166,6 @@ jobs:
         with:
           name: brioche-x86_64-linux
           path: artifacts/brioche
-      - name: Download artifacts (aarch64-linux)
-        uses: actions/download-artifact@v4
-        with:
-          name: brioche-aarch64-linux
-          path: artifacts/brioche
       - name: Download artifacts (x86_64-macos)
         uses: actions/download-artifact@v4
         with:
