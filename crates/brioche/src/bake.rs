@@ -510,6 +510,10 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
 
             Ok(Artifact::File(file))
         }
+        Recipe::Sync { recipe } => {
+            let result = bake(brioche, *recipe, &scope).await?;
+            Ok(result.value)
+        }
     }
 }
 
