@@ -6,18 +6,18 @@ use futures::TryStreamExt as _;
 use tracing::Instrument;
 
 use crate::{
-    recipe::{Artifact, Directory, File, Meta, UnpackRecipe, WithMeta},
+    recipe::{Artifact, Directory, File, Meta, Unarchive, WithMeta},
     Brioche,
 };
 
-#[tracing::instrument(skip(brioche, unpack), fields(file_recipe = %unpack.file.hash(), archive = ?unpack.archive, compression = ?unpack.compression))]
-pub async fn bake_unpack(
+#[tracing::instrument(skip(brioche, unarchive), fields(file_recipe = %unarchive.file.hash(), archive = ?unarchive.archive, compression = ?unarchive.compression))]
+pub async fn bake_unarchive(
     brioche: &Brioche,
     scope: &super::BakeScope,
     meta: &Arc<Meta>,
-    unpack: UnpackRecipe,
+    unarchive: Unarchive,
 ) -> anyhow::Result<Directory> {
-    let file = super::bake(brioche, *unpack.file, scope).await?;
+    let file = super::bake(brioche, *unarchive.file, scope).await?;
     let Artifact::File(File {
         content_blob: blob_hash,
         ..
@@ -26,16 +26,16 @@ pub async fn bake_unpack(
         anyhow::bail!("expected archive to be a file");
     };
 
-    tracing::debug!(%blob_hash, archive = ?unpack.archive, compression = ?unpack.compression, "starting unpack");
+    tracing::debug!(%blob_hash, archive = ?unarchive.archive, compression = ?unarchive.compression, "starting unarchive");
 
-    let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Unpack);
+    let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Unarchive);
 
     let archive_path = crate::blob::blob_path(brioche, blob_hash).await?;
     let archive_file = tokio::fs::File::open(&archive_path).await?;
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);
 
-    let decompressed_archive_file = unpack.compression.decompress(archive_file);
+    let decompressed_archive_file = unarchive.compression.decompress(archive_file);
 
     let mut archive = tokio_tar::Archive::new(decompressed_archive_file);
     let mut archive_entries = archive.entries()?;
@@ -51,7 +51,7 @@ pub async fn bake_unpack(
             let progress_percent = (estimated_progress * 100.0).min(99.0) as u8;
             brioche.reporter.update_job(
                 job_id,
-                crate::reporter::UpdateJob::Unpack { progress_percent },
+                crate::reporter::UpdateJob::Unarchive { progress_percent },
             );
 
             let entry_artifact = match archive_entry.header().entry_type() {
@@ -130,7 +130,7 @@ pub async fn bake_unpack(
 
         brioche.reporter.update_job(
             job_id,
-            crate::reporter::UpdateJob::Unpack {
+            crate::reporter::UpdateJob::Unarchive {
                 progress_percent: 100,
             },
         );

@@ -14,7 +14,7 @@ use crate::{
     recipe::{
         ArchiveFormat, Artifact, CompleteProcessRecipe, CompleteProcessTemplate,
         CompleteProcessTemplateComponent, CompressionFormat, DownloadRecipe, Meta, ProcessRecipe,
-        ProcessTemplate, ProcessTemplateComponent, Recipe, UnpackRecipe, WithMeta,
+        ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
     },
     sandbox::{
         HostPathMode, SandboxExecutionConfig, SandboxPath, SandboxPathOptions, SandboxTemplate,
@@ -595,7 +595,7 @@ async fn set_up_rootfs(
         link_locals: true,
     };
 
-    let dash = Recipe::Unpack(UnpackRecipe {
+    let dash = Recipe::Unarchive(Unarchive {
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
         file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
@@ -603,7 +603,7 @@ async fn set_up_rootfs(
             hash: crate::Hash::Sha256 { value: hex::decode("ff52ae7e883ee4cbb0878f0e17decc18cd80b364147881fb576440e72e0129b2")? }
         }))),
     });
-    let env = Recipe::Unpack(UnpackRecipe {
+    let env = Recipe::Unarchive(Unarchive {
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
         file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {

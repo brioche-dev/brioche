@@ -46,7 +46,7 @@ pub enum Recipe {
     #[serde(rename_all = "camelCase")]
     Download(DownloadRecipe),
     #[serde(rename_all = "camelCase")]
-    Unpack(UnpackRecipe),
+    Unarchive(Unarchive),
     Process(ProcessRecipe),
     CompleteProcess(CompleteProcessRecipe),
     #[serde(rename_all = "camelCase")]
@@ -137,7 +137,7 @@ impl Recipe {
             Recipe::File { .. }
             | Recipe::Directory(_)
             | Recipe::Symlink { .. }
-            | Recipe::Unpack(_)
+            | Recipe::Unarchive(_)
             | Recipe::Process(_)
             | Recipe::CreateFile { .. }
             | Recipe::CreateDirectory(_)
@@ -491,7 +491,7 @@ pub struct DownloadRecipe {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UnpackRecipe {
+pub struct Unarchive {
     pub file: Box<WithMeta<Recipe>>,
     pub archive: ArchiveFormat,
     #[serde(default)]
@@ -944,7 +944,7 @@ impl TryFrom<Recipe> for Artifact {
             }
             Recipe::Sync { recipe } => recipe.value.try_into(),
             Recipe::Download { .. }
-            | Recipe::Unpack { .. }
+            | Recipe::Unarchive { .. }
             | Recipe::Process { .. }
             | Recipe::CompleteProcess { .. }
             | Recipe::CreateFile { .. }

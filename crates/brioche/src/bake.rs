@@ -20,7 +20,7 @@ use super::{
 
 mod download;
 mod process;
-mod unpack;
+mod unarchive;
 
 #[derive(Debug, Default)]
 pub struct CachedRecipes {
@@ -354,9 +354,9 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             let downloaded = download::bake_download(brioche, download).await?;
             Ok(Artifact::File(downloaded))
         }
-        Recipe::Unpack(unpack) => {
-            let unpacked = unpack::bake_unpack(brioche, &scope, meta, unpack).await?;
-            Ok(Artifact::Directory(unpacked))
+        Recipe::Unarchive(unarchive) => {
+            let unarchived = unarchive::bake_unarchive(brioche, &scope, meta, unarchive).await?;
+            Ok(Artifact::Directory(unarchived))
         }
         Recipe::Process(process) => {
             // We call `bake` recursively here so that two different

@@ -231,7 +231,7 @@ impl ConsoleReporter {
                 NewJob::Download { url } => {
                     eprintln!("Downloading {}", url);
                 }
-                NewJob::Unpack => {}
+                NewJob::Unarchive => {}
                 NewJob::Process { status } => {
                     if let Some(child_id) = status.child_id() {
                         eprintln!("Started process {child_id}");
@@ -301,9 +301,9 @@ impl ConsoleReporter {
                         eprintln!("Finished download");
                     }
                 }
-                UpdateJob::Unpack { progress_percent } => {
+                UpdateJob::Unarchive { progress_percent } => {
                     if progress_percent == 100 {
-                        eprintln!("Unpacked");
+                        eprintln!("Unarchive");
                     }
                 }
                 UpdateJob::Process { mut packet, status } => {
@@ -517,7 +517,7 @@ pub enum NewJob {
     Download {
         url: url::Url,
     },
-    Unpack,
+    Unarchive,
     Process {
         status: ProcessStatus,
     },
@@ -532,7 +532,7 @@ pub enum UpdateJob {
     Download {
         progress_percent: Option<u8>,
     },
-    Unpack {
+    Unarchive {
         progress_percent: u8,
     },
     Process {
@@ -552,7 +552,7 @@ pub enum Job {
         url: url::Url,
         progress_percent: Option<u8>,
     },
-    Unpack {
+    Unarchive {
         progress_percent: u8,
     },
     Process {
@@ -574,7 +574,7 @@ impl Job {
                 url,
                 progress_percent: Some(0),
             },
-            NewJob::Unpack => Self::Unpack {
+            NewJob::Unarchive => Self::Unarchive {
                 progress_percent: 0,
             },
             NewJob::Process { status } => Self::Process {
@@ -606,14 +606,14 @@ impl Job {
                 };
                 *progress_percent = new_progress_percent;
             }
-            UpdateJob::Unpack {
+            UpdateJob::Unarchive {
                 progress_percent: new_progress_percent,
             } => {
-                let Self::Unpack {
+                let Self::Unarchive {
                     progress_percent, ..
                 } = self
                 else {
-                    anyhow::bail!("tried to update a non-unpack job with an unpack update");
+                    anyhow::bail!("tried to update a non-unarchive job with an unarchive update");
                 };
                 *progress_percent = new_progress_percent;
             }
@@ -681,7 +681,7 @@ impl Job {
             Job::Download {
                 progress_percent, ..
             } => progress_percent.map(|p| p >= 100).unwrap_or(false),
-            Job::Unpack { progress_percent } => *progress_percent >= 100,
+            Job::Unarchive { progress_percent } => *progress_percent >= 100,
             Job::Process {
                 status,
                 packet_queue: _,
@@ -699,7 +699,7 @@ impl Job {
     // priority jobs are displayed first.
     fn job_type_priority(&self) -> u8 {
         match self {
-            Job::Unpack { .. } => 0,
+            Job::Unarchive { .. } => 0,
             Job::Download { .. } | Job::RegistryFetch { .. } => 1,
             Job::Process { .. } => 2,
         }
@@ -730,11 +730,11 @@ impl superconsole::Component for Job {
                 };
                 superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
             }
-            Job::Unpack { progress_percent } => {
+            Job::Unarchive { progress_percent } => {
                 let message = if *progress_percent == 100 {
-                    "[100%] Unpacked".to_string()
+                    "[100%] Unarchived".to_string()
                 } else {
-                    format!("[{progress_percent:>3}%] Unpacking")
+                    format!("[{progress_percent:>3}%] Unarchiving")
                 };
                 superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
             }
