@@ -29,6 +29,25 @@ async fn test_project_load_simple() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_project_load_simple_no_definition() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context.write_file("myproject/project.bri", r#""#).await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+
+    let project = projects.project(project_hash).unwrap();
+    assert!(projects
+        .local_paths(project_hash)
+        .unwrap()
+        .contains(&project_dir));
+    assert_eq!(project.dependencies().count(), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test::brioche_test().await;
 
@@ -46,7 +65,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
         .write_file(
             "myworkspace/foo/project.bri",
             r#"
-                export const project = {};
+                // Workspace foo
             "#,
         )
         .await;
@@ -56,8 +75,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
-                    // registry foo
-                    export const project = {};
+                    // Registry foo
                 "#,
             )
             .await
