@@ -88,11 +88,7 @@ impl RegistryClient {
         Ok(response_body)
     }
 
-    pub async fn send_blob(
-        &self,
-        blob_hash: BlobHash,
-        content: impl Into<reqwest::Body>,
-    ) -> anyhow::Result<()> {
+    pub async fn send_blob(&self, blob_hash: BlobHash, content: Vec<u8>) -> anyhow::Result<()> {
         let path = format!("v0/blobs/{blob_hash}");
 
         self.request(reqwest::Method::PUT, &path)?

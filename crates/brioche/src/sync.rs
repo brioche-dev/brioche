@@ -66,11 +66,16 @@ pub async fn sync_bakes(
             async move {
                 tokio::spawn(async move {
                     let blob_path = crate::blob::blob_path(&brioche, blob_hash).await?;
-                    let blob = tokio::fs::File::open(&blob_path)
-                        .await
-                        .with_context(|| format!("failed to open blob {blob_hash}"))?;
 
-                    brioche.registry_client.send_blob(blob_hash, blob).await?;
+                    // TODO: Figure out if we can stream the blob (this
+                    // will error out due to `reqwest-retry`)
+                    let blob_content = tokio::fs::read(&blob_path)
+                        .await
+                        .with_context(|| format!("failed to read blob {blob_hash}"))?;
+                    brioche
+                        .registry_client
+                        .send_blob(blob_hash, blob_content)
+                        .await?;
 
                     anyhow::Ok(())
                 })
