@@ -5,19 +5,19 @@ use clap::Parser;
 #[derive(Debug, Parser)]
 enum Args {
     Pack {
-        #[clap(long)]
+        #[arg(long)]
         packed: PathBuf,
-        #[clap(long)]
+        #[arg(long)]
         output: PathBuf,
-        #[clap(long)]
+        #[arg(long)]
         pack: String,
     },
     Autowrap {
-        #[clap(long)]
+        #[arg(long)]
         packed_exec: PathBuf,
-        #[clap(long)]
+        #[arg(long)]
         sysroot: PathBuf,
-        #[clap(short = 'L', long = "lib-dir")]
+        #[arg(short = 'L', long = "lib-dir")]
         lib_dirs: Vec<PathBuf>,
         programs: Vec<PathBuf>,
     },

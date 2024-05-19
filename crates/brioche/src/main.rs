@@ -13,7 +13,7 @@ enum Args {
 
     Check(CheckArgs),
 
-    #[clap(name = "fmt")]
+    #[command(name = "fmt")]
     Format(FormatArgs),
 
     Publish(PublishArgs),
@@ -106,19 +106,19 @@ fn main() -> anyhow::Result<ExitCode> {
 
 #[derive(Debug, Parser)]
 struct BuildArgs {
-    #[clap(short, long)]
+    #[arg(short, long)]
     project: PathBuf,
-    #[clap(short, long, default_value = "default")]
+    #[arg(short, long, default_value = "default")]
     export: String,
-    #[clap(short, long)]
+    #[arg(short, long)]
     output: Option<PathBuf>,
-    #[clap(long)]
+    #[arg(long)]
     check: bool,
-    #[clap(long)]
+    #[arg(long)]
     replace: bool,
-    #[clap(long)]
+    #[arg(long)]
     keep: bool,
-    #[clap(long)]
+    #[arg(long)]
     sync: bool,
 }
 
@@ -260,7 +260,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 
 #[derive(Debug, Parser)]
 struct CheckArgs {
-    #[clap(short, long)]
+    #[arg(short, long)]
     project: PathBuf,
 }
 
@@ -305,9 +305,9 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
 }
 #[derive(Debug, Parser)]
 struct FormatArgs {
-    #[clap(long)]
+    #[arg(long)]
     check: bool,
-    #[clap(short, long)]
+    #[arg(short, long)]
     project: PathBuf,
 }
 
@@ -357,7 +357,7 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
 
 #[derive(Debug, Parser)]
 struct PublishArgs {
-    #[clap(short, long)]
+    #[arg(short, long)]
     project: PathBuf,
 }
 
@@ -428,7 +428,7 @@ async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
 #[derive(Debug, Parser)]
 struct LspArgs {
     /// Use stdio for LSP transport
-    #[clap(long)]
+    #[arg(long)]
     stdio: bool,
 }
 
@@ -466,7 +466,7 @@ async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
 
 #[derive(Debug, Parser)]
 struct AnalyzeArgs {
-    #[clap(short, long)]
+    #[arg(short, long)]
     project: PathBuf,
 }
 
@@ -479,7 +479,7 @@ async fn analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
 
 #[derive(Debug, Parser)]
 struct ExportProjectArgs {
-    #[clap(short, long)]
+    #[arg(short, long)]
     project: PathBuf,
 }
 
@@ -503,7 +503,7 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
 
 #[derive(Debug, Parser)]
 struct RunSandboxArgs {
-    #[clap(long)]
+    #[arg(long)]
     config: String,
 }
 
