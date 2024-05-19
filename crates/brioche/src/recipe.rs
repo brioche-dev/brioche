@@ -92,6 +92,10 @@ pub enum Recipe {
     },
     #[serde(rename_all = "camelCase")]
     Proxy(ProxyRecipe),
+    #[serde(rename_all = "camelCase")]
+    Sync {
+        recipe: Box<WithMeta<Recipe>>,
+    },
 }
 
 impl Recipe {
@@ -129,7 +133,7 @@ impl Recipe {
 
     pub fn is_expensive_to_bake(&self) -> bool {
         match self {
-            Recipe::Download(_) | Recipe::CompleteProcess(_) => true,
+            Recipe::Download(_) | Recipe::CompleteProcess(_) | Recipe::Sync { .. } => true,
             Recipe::File { .. }
             | Recipe::Directory(_)
             | Recipe::Symlink { .. }
@@ -938,6 +942,7 @@ impl TryFrom<Recipe> for Artifact {
             Recipe::CreateDirectory(directory) if directory.is_empty() => {
                 Ok(Artifact::Directory(Directory::default()))
             }
+            Recipe::Sync { recipe } => recipe.value.try_into(),
             Recipe::Download { .. }
             | Recipe::Unpack { .. }
             | Recipe::Process { .. }
