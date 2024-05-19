@@ -53,7 +53,7 @@ pub fn referenced_blobs(recipe: &Recipe) -> Vec<BlobHash> {
         Recipe::Directory(_)
         | Recipe::Symlink { .. }
         | Recipe::Download(_)
-        | Recipe::Unpack(_)
+        | Recipe::Unarchive(_)
         | Recipe::Process(_)
         | Recipe::CompleteProcess(_)
         | Recipe::CreateFile { .. }
@@ -83,7 +83,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
             .collect(),
         Recipe::Symlink { .. } => vec![],
         Recipe::Download(_) => vec![],
-        Recipe::Unpack(unpack) => referenced_recipes(&unpack.file),
+        Recipe::Unarchive(unarchive) => referenced_recipes(&unarchive.file),
         Recipe::Process(process) => {
             let ProcessRecipe {
                 command,

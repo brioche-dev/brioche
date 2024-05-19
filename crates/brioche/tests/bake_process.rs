@@ -10,7 +10,7 @@ use brioche::{
     platform::current_platform,
     recipe::{
         ArchiveFormat, Artifact, CompressionFormat, Directory, DownloadRecipe, File, ProcessRecipe,
-        ProcessTemplate, ProcessTemplateComponent, Recipe, UnpackRecipe, WithMeta,
+        ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
     },
     Hash,
 };
@@ -85,7 +85,7 @@ fn utils() -> Recipe {
         hash: sha256_hash("eb29ea059fcd9ca457841f5c79151721a74761a31610d694bce61a62f4de6d33"),
     });
 
-    Recipe::Unpack(UnpackRecipe {
+    Recipe::Unarchive(Unarchive {
         file: Box::new(brioche_test::without_meta(utils_download)),
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
