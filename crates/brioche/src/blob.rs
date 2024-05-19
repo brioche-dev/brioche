@@ -427,6 +427,10 @@ pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result
         return Ok(local_path);
     };
 
+    if let Some(local_path_dir) = local_path.parent() {
+        tokio::fs::create_dir_all(&local_path_dir).await?;
+    }
+
     let blob = brioche.registry_client.get_blob(blob_hash).await?;
 
     let temp_dir = brioche.home.join("blobs-temp");
