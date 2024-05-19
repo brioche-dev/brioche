@@ -197,7 +197,8 @@ pub async fn descendent_project_bakes(
 
     // Find all recipes baked by the project (either directly in the
     // `project_resolves` table or indirectly in the `child_resolves` table),
-    // then filter it down to only `complete_process` and `download` recipes.
+    // then filter it down to only `complete_process`, `download`, and `sync`
+    // recipes.
     let project_hash_value = project_hash.to_string();
     let project_descendent_bakes = sqlx::query!(
         r#"
@@ -223,7 +224,11 @@ pub async fn descendent_project_bakes(
                 input_recipes.recipe_hash = bakes.input_hash
             INNER JOIN recipes AS output_artifacts ON
                 output_artifacts.recipe_hash = bakes.output_hash
-            WHERE input_recipes.recipe_json->>'type' IN ('complete_process', 'download');
+            WHERE input_recipes.recipe_json->>'type' IN (
+                'complete_process',
+                'download',
+                'sync'
+            );
         "#,
         project_hash_value,
         export,

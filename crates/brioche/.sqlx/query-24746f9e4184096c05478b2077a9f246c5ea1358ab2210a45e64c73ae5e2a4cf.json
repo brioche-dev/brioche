@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            WITH RECURSIVE project_descendent_bakes (recipe_hash) AS (\n                SELECT project_bakes.recipe_hash\n                FROM project_bakes\n                WHERE project_hash = ? AND export = ?\n                UNION\n                SELECT child_bakes.recipe_hash\n                FROM child_bakes\n                INNER JOIN project_descendent_bakes ON\n                    project_descendent_bakes.recipe_hash = child_bakes.parent_hash\n            )\n            SELECT\n                input_recipes.recipe_hash AS input_hash,\n                input_recipes.recipe_json AS input_json,\n                output_artifacts.recipe_hash AS output_hash,\n                output_artifacts.recipe_json AS output_json\n            FROM project_descendent_bakes\n            INNER JOIN bakes ON\n                bakes.input_hash = project_descendent_bakes.recipe_hash\n            INNER JOIN recipes AS input_recipes ON\n                input_recipes.recipe_hash = bakes.input_hash\n            INNER JOIN recipes AS output_artifacts ON\n                output_artifacts.recipe_hash = bakes.output_hash\n            WHERE input_recipes.recipe_json->>'type' IN (\n                'complete_process',\n                'download',\n                'sync'\n            );\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "input_hash",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "input_json",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "output_hash",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "output_json",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "24746f9e4184096c05478b2077a9f246c5ea1358ab2210a45e64c73ae5e2a4cf"
+}
