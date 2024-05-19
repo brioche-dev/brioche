@@ -9,6 +9,8 @@ use crate::{
     vfs::{FileId, Vfs},
 };
 
+use super::ProjectDefinition;
+
 #[derive(Debug, Clone)]
 pub struct ProjectAnalysis {
     pub definition: super::ProjectDefinition,
@@ -73,26 +75,29 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
         })
     });
 
-    let project_export = project_export
-        .with_context(|| format!("{file}: expected a top-level export named `project`"))?;
-    let line = contents[..project_export.syntax().text_range().start().into()]
+    let project_definition = project_export.map(|project_export| {
+        let line = contents[..project_export.syntax().text_range().start().into()]
         .lines()
         .count();
-    let file_line = format!("{file}:{line}");
-    let project_export_expr = project_export
-        .initializer()
-        .map(|init| {
-            let expr = init.expression().with_context(|| {
-                format!("{file_line}: invalid project export: failed to parse expression")
-            })?;
-            anyhow::Ok(expr.clone())
-        })
-        .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
+        let file_line = format!("{file}:{line}");
+        let project_export_expr = project_export
+            .initializer()
+            .map(|init| {
+                let expr = init.expression().with_context(|| {
+                    format!("{file_line}: invalid project export: failed to parse expression")
+                })?;
+                anyhow::Ok(expr.clone())
+            })
+            .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
 
-    let json = expression_to_json(&project_export_expr)
-        .with_context(|| format!("{file_line}: invalid project export"))?;
-    let project_definition = serde_json::from_value(json)
-        .with_context(|| format!("{file_line}: invalid project definition"))?;
+        let json = expression_to_json(&project_export_expr)
+            .with_context(|| format!("{file_line}: invalid project export"))?;
+        let project_definition: ProjectDefinition = serde_json::from_value(json)
+            .with_context(|| format!("{file_line}: invalid project definition"))?;
+
+        anyhow::Ok(project_definition)
+    }).transpose()?;
+    let project_definition = project_definition.unwrap_or_default();
 
     let mut local_modules = HashMap::new();
     let root_module = analyze_module(
