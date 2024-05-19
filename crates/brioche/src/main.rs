@@ -8,6 +8,7 @@ use joinery::JoinableIterator as _;
 use tracing::Instrument;
 
 #[derive(Debug, Parser)]
+#[command(version)]
 enum Args {
     Build(BuildArgs),
 
