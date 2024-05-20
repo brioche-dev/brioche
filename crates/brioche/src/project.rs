@@ -521,16 +521,20 @@ async fn load_project_inner(
     let mut new_lockfile = Lockfile::default();
     let mut errors = vec![];
 
+    static DEPENDENCY_NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let dependency_name_regex = DEPENDENCY_NAME_REGEX
+        .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
+
+    let dep_depth = depth
+        .checked_sub(1)
+        .context("project dependency depth exceeded")?;
     let mut dependencies = HashMap::new();
     for (name, dependency_def) in &project_analysis.definition.dependencies {
-        static NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        let name_regex = NAME_REGEX
-            .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
-        anyhow::ensure!(name_regex.is_match(name), "invalid dependency name");
+        anyhow::ensure!(
+            dependency_name_regex.is_match(name),
+            "invalid dependency name"
+        );
 
-        let dep_depth = depth
-            .checked_sub(1)
-            .context("project dependency depth exceeded")?;
         let dependency_hash = match dependency_def {
             DependencyDefinition::Path { path: subpath } => {
                 let dep_path = path.join(subpath);
@@ -573,6 +577,48 @@ async fn load_project_inner(
         };
 
         dependencies.insert(name.to_owned(), dependency_hash);
+    }
+
+    for module in project_analysis.local_modules.values() {
+        for import_analysis in module.imports.values() {
+            let analyze::ImportAnalysis::ExternalProject(dep_name) = import_analysis else {
+                continue;
+            };
+
+            anyhow::ensure!(
+                dependency_name_regex.is_match(dep_name),
+                "invalid imported dependency name: {dep_name}",
+            );
+
+            match dependencies.entry(dep_name.clone()) {
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    // Dependency already exists
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    // Dependency not included explicitly, so load it from
+                    // the registry. Equivalent to using a version of `*`
+                    let load_result = try_load_registry_dependency_with_errors(
+                        projects,
+                        brioche,
+                        workspace.as_ref(),
+                        dep_name,
+                        &Version::Any,
+                        lockfile_required,
+                        lockfile.as_ref(),
+                        dep_depth,
+                        &mut new_lockfile,
+                        &mut errors,
+                    )
+                    .await;
+                    let Some(dep_hash) = load_result else {
+                        continue;
+                    };
+
+                    // Add it as a dependency
+                    entry.insert(dep_hash);
+                }
+            }
+        }
     }
 
     let modules = project_analysis
