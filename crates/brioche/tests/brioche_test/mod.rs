@@ -62,6 +62,16 @@ pub async fn load_project(
     Ok((projects, project_hash))
 }
 
+pub async fn load_project_no_validate(
+    brioche: &Brioche,
+    path: &Path,
+) -> anyhow::Result<(Projects, ProjectHash)> {
+    let projects = Projects::default();
+    let project_hash = projects.load(brioche, path, false).await?;
+
+    Ok((projects, project_hash))
+}
+
 pub async fn bake_without_meta(
     brioche: &Brioche,
     recipe: brioche::recipe::Recipe,
