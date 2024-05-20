@@ -531,94 +531,46 @@ async fn load_project_inner(
         let dep_depth = depth
             .checked_sub(1)
             .context("project dependency depth exceeded")?;
-        let (dependency_hash, dep_errors) = match dependency_def {
+        let dependency_hash = match dependency_def {
             DependencyDefinition::Path { path: subpath } => {
                 let dep_path = path.join(subpath);
-                let result =
-                    load_project_inner(projects, brioche, &dep_path, lockfile_required, dep_depth)
-                        .await;
+                let load_result = try_load_path_dependency_with_errors(
+                    projects,
+                    brioche,
+                    name,
+                    &dep_path,
+                    lockfile_required,
+                    dep_depth,
+                    &mut errors,
+                )
+                .await;
+                let Some(dep_hash) = load_result else {
+                    continue;
+                };
 
-                match result {
-                    Ok((dep_hash, _, dep_errors)) => (dep_hash, dep_errors),
-                    Err(err) => {
-                        errors.push(LoadProjectError::FailedToLoadDependency {
-                            name: name.to_owned(),
-                            cause: err.to_string(),
-                        });
-                        continue;
-                    }
-                }
+                dep_hash
             }
             DependencyDefinition::Version(version) => {
-                let resolved_dep_result = resolve_dependency_to_local_path(
+                let load_result = try_load_registry_dependency_with_errors(
+                    projects,
                     brioche,
                     workspace.as_ref(),
                     name,
                     version,
                     lockfile_required,
                     lockfile.as_ref(),
-                )
-                .await;
-                let resolved_dep = match resolved_dep_result {
-                    Ok(resolved_dep) => resolved_dep,
-                    Err(err) => {
-                        errors.push(LoadProjectError::FailedToLoadDependency {
-                            name: name.to_owned(),
-                            cause: err.to_string(),
-                        });
-                        continue;
-                    }
-                };
-
-                let result = load_project_inner(
-                    projects,
-                    brioche,
-                    &resolved_dep.local_path,
-                    resolved_dep.lockfile_required,
                     dep_depth,
+                    &mut new_lockfile,
+                    &mut errors,
                 )
                 .await;
-                let (actual_hash, _, dep_errors) = match result {
-                    Ok(dep) => dep,
-                    Err(err) => {
-                        errors.push(LoadProjectError::FailedToLoadDependency {
-                            name: name.to_owned(),
-                            cause: err.to_string(),
-                        });
-                        continue;
-                    }
+                let Some(dep_hash) = load_result else {
+                    continue;
                 };
 
-                if let Some(expected_hash) = resolved_dep.expected_hash {
-                    if expected_hash != actual_hash {
-                        errors.push(LoadProjectError::FailedToLoadDependency {
-                            name: name.to_owned(),
-                            cause: format!(
-                                "resolved dependency at '{}' did not match expected hash",
-                                resolved_dep.local_path.display()
-                            ),
-                        });
-                    }
-                }
-
-                if let Some(should_lock) = resolved_dep.should_lock {
-                    new_lockfile
-                        .dependencies
-                        .insert(name.to_owned(), should_lock);
-                }
-
-                (actual_hash, dep_errors)
+                dep_hash
             }
         };
-
-        errors.extend(
-            dep_errors
-                .into_iter()
-                .map(|error| LoadProjectError::DependencyError {
-                    name: name.to_owned(),
-                    error: Box::new(error),
-                }),
-        );
 
         dependencies.insert(name.to_owned(), dependency_hash);
     }
@@ -670,6 +622,123 @@ async fn load_project_inner(
     }
 
     Ok((project_hash, project, errors))
+}
+
+async fn try_load_path_dependency_with_errors(
+    projects: &Projects,
+    brioche: &Brioche,
+    name: &str,
+    dep_path: &Path,
+    lockfile_required: bool,
+    dep_depth: usize,
+    errors: &mut Vec<LoadProjectError>,
+) -> Option<ProjectHash> {
+    let result =
+        load_project_inner(projects, brioche, dep_path, lockfile_required, dep_depth).await;
+
+    match result {
+        Ok((dep_hash, _, dep_errors)) => {
+            errors.extend(
+                dep_errors
+                    .into_iter()
+                    .map(|error| LoadProjectError::DependencyError {
+                        name: name.to_owned(),
+                        error: Box::new(error),
+                    }),
+            );
+
+            Some(dep_hash)
+        }
+        Err(err) => {
+            errors.push(LoadProjectError::FailedToLoadDependency {
+                name: name.to_owned(),
+                cause: err.to_string(),
+            });
+            None
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn try_load_registry_dependency_with_errors(
+    projects: &Projects,
+    brioche: &Brioche,
+    workspace: Option<&Workspace>,
+    name: &str,
+    version: &Version,
+    lockfile_required: bool,
+    lockfile: Option<&Lockfile>,
+    dep_depth: usize,
+    new_lockfile: &mut Lockfile,
+    errors: &mut Vec<LoadProjectError>,
+) -> Option<ProjectHash> {
+    let resolved_dep_result = resolve_dependency_to_local_path(
+        brioche,
+        workspace,
+        name,
+        version,
+        lockfile_required,
+        lockfile,
+    )
+    .await;
+    let resolved_dep = match resolved_dep_result {
+        Ok(resolved_dep) => resolved_dep,
+        Err(err) => {
+            errors.push(LoadProjectError::FailedToLoadDependency {
+                name: name.to_owned(),
+                cause: err.to_string(),
+            });
+            return None;
+        }
+    };
+
+    let result = load_project_inner(
+        projects,
+        brioche,
+        &resolved_dep.local_path,
+        resolved_dep.lockfile_required,
+        dep_depth,
+    )
+    .await;
+    let (actual_hash, _, dep_errors) = match result {
+        Ok(dep) => dep,
+        Err(err) => {
+            errors.push(LoadProjectError::FailedToLoadDependency {
+                name: name.to_owned(),
+                cause: err.to_string(),
+            });
+            return None;
+        }
+    };
+
+    if let Some(expected_hash) = resolved_dep.expected_hash {
+        if expected_hash != actual_hash {
+            errors.push(LoadProjectError::FailedToLoadDependency {
+                name: name.to_owned(),
+                cause: format!(
+                    "resolved dependency at '{}' did not match expected hash",
+                    resolved_dep.local_path.display()
+                ),
+            });
+        }
+    }
+
+    errors.extend(
+        dep_errors
+            .into_iter()
+            .map(|error| LoadProjectError::DependencyError {
+                name: name.to_owned(),
+                error: Box::new(error),
+            }),
+    );
+
+    if let Some(should_lock) = resolved_dep.should_lock {
+        new_lockfile
+            .dependencies
+            .insert(name.to_owned(), should_lock);
+    }
+
+    Some(actual_hash)
 }
 
 async fn resolve_dependency_to_local_path(
