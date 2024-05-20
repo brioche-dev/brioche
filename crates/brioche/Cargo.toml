@@ -78,7 +78,7 @@ libmount = "0.1.15"
 unshare = { git = "https://github.com/brioche-dev/unshare.git" }
 
 [[bench]]
-name = "resolve"
+name = "bake"
 harness = false
 
 [lints.clippy]
