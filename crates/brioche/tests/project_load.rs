@@ -353,6 +353,65 @@ async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<(
 }
 
 #[tokio::test]
+async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::Result<()> {
+    let (brioche, mut context) = brioche_test::brioche_test().await;
+
+    let (foo_hash, foo_path) = context
+        .local_registry_project(|path| async move {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    // foo
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    let mock_foo_latest = context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
+        .await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import "./module.bri";
+            "#,
+        )
+        .await;
+    context
+        .write_file(
+            "myproject/module.bri",
+            r#"
+                import "foo";
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let project = projects.project(project_hash).unwrap();
+    assert!(projects
+        .local_paths(project_hash)
+        .unwrap()
+        .contains(&project_dir));
+
+    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep = projects.project(foo_dep_hash).unwrap();
+    assert!(projects
+        .local_paths(foo_dep_hash)
+        .unwrap()
+        .contains(&foo_path));
+    assert_eq!(foo_dep.dependencies().count(), 0);
+
+    mock_foo_latest.assert_async().await;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test::brioche_test().await;
 
