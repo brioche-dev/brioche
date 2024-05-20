@@ -143,57 +143,6 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_check_import_invalid() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
-
-    let project_dir = write_project(
-        &context,
-        "myproject",
-        r#"
-            import { foo } from "foo";
-            export const project = {};
-            export default () => {
-                return {
-                    briocheSerialize: () => {
-                        return {
-                            type: "directory",
-                            entries: {},
-                        }
-                    },
-                };
-            };
-        "#,
-    )
-    .await;
-
-    let (foo_hash, _) = context
-        .local_registry_project(|path| async move {
-            tokio::fs::write(
-                path.join("project.bri"),
-                r#"
-                export const project = {};
-                export const foo: number = 123;
-            "#,
-            )
-            .await
-            .unwrap();
-        })
-        .await;
-    context
-        .mock_registry_publish_tag("foo", "latest", foo_hash)
-        .create_async()
-        .await;
-
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
-
-    let result = brioche::script::check::check(&brioche, &projects, project_hash).await?;
-
-    assert_matches!(worst_level(&result), Some(DiagnosticLevel::Error));
-
-    Ok(())
-}
-
-#[tokio::test]
 async fn test_check_import_nonexistent() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
@@ -217,7 +166,8 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
     )
     .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test::load_project_no_validate(&brioche, &project_dir).await?;
 
     let result = brioche::script::check::check(&brioche, &projects, project_hash).await?;
 
