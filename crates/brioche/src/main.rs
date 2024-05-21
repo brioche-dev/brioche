@@ -395,16 +395,25 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
         command.env("BRIOCHE_PACK_RESOURCES_DIR", resources_dir);
     }
 
-    let result = command.status().context("failed to run process")?;
-    if result.success() {
-        Ok(ExitCode::SUCCESS)
-    } else {
-        let code = result
-            .code()
-            .and_then(|code| u8::try_from(code).ok())
-            .map(ExitCode::from)
-            .unwrap_or(ExitCode::FAILURE);
-        Ok(code)
+    cfg_if::cfg_if! {
+        if #[cfg(unix)] {
+            use std::os::unix::process::CommandExt as _;
+
+            let error = command.exec();
+            Err(error.into())
+        } else {
+            let result = command.status().context("failed to run process")?;
+            if result.success() {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                let code = result
+                    .code()
+                    .and_then(|code| u8::try_from(code).ok())
+                    .map(ExitCode::from)
+                    .unwrap_or(ExitCode::FAILURE);
+                Ok(code)
+            }
+        }
     }
 }
 
