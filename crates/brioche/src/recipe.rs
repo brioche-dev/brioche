@@ -515,6 +515,16 @@ pub struct ProcessRecipe {
     pub output_scaffold: Option<Box<WithMeta<Recipe>>>,
 
     pub platform: Platform,
+
+    #[serde(
+        rename = "unsafe",
+        default,
+        skip_serializing_if = "crate::utils::is_default"
+    )]
+    pub is_unsafe: bool,
+
+    #[serde(default, skip_serializing_if = "crate::utils::is_default")]
+    pub networking: bool,
 }
 
 #[serde_with::serde_as]
@@ -535,6 +545,16 @@ pub struct CompleteProcessRecipe {
     pub output_scaffold: Option<Box<Artifact>>,
 
     pub platform: Platform,
+
+    #[serde(
+        rename = "unsafe",
+        default,
+        skip_serializing_if = "crate::utils::is_default"
+    )]
+    pub is_unsafe: bool,
+
+    #[serde(default, skip_serializing_if = "crate::utils::is_default")]
+    pub networking: bool,
 }
 
 #[serde_with::serde_as]

@@ -62,11 +62,18 @@ pub fn run_sandbox(exec: super::SandboxExecutionConfig) -> anyhow::Result<super:
     command.gid(exec.gid_hint);
     command.deny_setgroups(true);
 
-    command.unshare([
-        &unshare::Namespace::Mount,
-        &unshare::Namespace::Net,
-        &unshare::Namespace::User,
-    ]);
+    // Only unshare the network namespace if networking is disabled
+    let unshare_net = Some(&unshare::Namespace::Net).filter(|_| !exec.networking);
+
+    let unshare_namespaces = [
+        Some(&unshare::Namespace::Mount),
+        Some(&unshare::Namespace::User),
+        unshare_net,
+    ]
+    .into_iter()
+    .flatten();
+
+    command.unshare(unshare_namespaces);
 
     command.pivot_root(&exec.sandbox_root, &sandbox_host_dir, true);
     command.before_chroot({

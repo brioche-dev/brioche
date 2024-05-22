@@ -32,6 +32,20 @@ pub async fn bake_lazy_process_to_process(
     scope: &super::BakeScope,
     process: ProcessRecipe,
 ) -> anyhow::Result<CompleteProcessRecipe> {
+    let unsafe_required = process.networking;
+
+    if unsafe_required {
+        anyhow::ensure!(
+            process.is_unsafe,
+            "to enable networking, `unsafe` must be set to true"
+        );
+    } else {
+        anyhow::ensure!(
+            !process.is_unsafe,
+            "process is marked as unsafe but does not use any unsafe features"
+        );
+    }
+
     let command =
         bake_lazy_process_template_to_process_template(brioche, scope, process.command).await?;
     let args = futures::stream::iter(process.args)
@@ -67,6 +81,8 @@ pub async fn bake_lazy_process_to_process(
         work_dir,
         output_scaffold,
         platform: process.platform,
+        is_unsafe: process.is_unsafe,
+        networking: process.networking,
     })
 }
 
@@ -180,6 +196,25 @@ pub async fn bake_process(
         Vec::<u8>::from_path_buf(guest_pack_dir).expect("failed to build pack dir path");
     tokio::fs::create_dir_all(&host_pack_dir).await?;
 
+    if process.networking {
+        let guest_etc_dir = root_dir.join("etc");
+        tokio::fs::create_dir_all(&guest_etc_dir).await?;
+
+        let resolv_conf_contents = tokio::fs::read("/etc/resolv.conf").await;
+        let resolv_conf_contents = match resolv_conf_contents {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                vec![]
+            }
+            Err(error) => {
+                return Err(error).context("failed to read host /etc/resolv.conf");
+            }
+        };
+        tokio::fs::write(guest_etc_dir.join("resolv.conf"), &resolv_conf_contents)
+            .await
+            .context("failed to write guest /etc/resolv.conf")?;
+    }
+
     let create_work_dir_fut = async {
         crate::output::create_output(
             brioche,
@@ -282,6 +317,7 @@ pub async fn bake_process(
                 guest_path_hint: guest_work_dir.into(),
             },
         },
+        networking: process.networking,
         uid_hint: GUEST_UID_HINT,
         gid_hint: GUEST_GID_HINT,
     };
