@@ -32,6 +32,20 @@ pub async fn bake_lazy_process_to_process(
     scope: &super::BakeScope,
     process: ProcessRecipe,
 ) -> anyhow::Result<CompleteProcessRecipe> {
+    let unsafe_required = process.networking;
+
+    if unsafe_required {
+        anyhow::ensure!(
+            process.is_unsafe,
+            "to enable networking, `unsafe` must be set to true"
+        );
+    } else {
+        anyhow::ensure!(
+            !process.is_unsafe,
+            "process is marked as unsafe but does not use any unsafe features"
+        );
+    }
+
     let command =
         bake_lazy_process_template_to_process_template(brioche, scope, process.command).await?;
     let args = futures::stream::iter(process.args)

@@ -1034,3 +1034,66 @@ async fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let no_unsafety = Recipe::Process(ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
+        env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
+    });
+
+    assert_matches!(bake_without_meta(&brioche, no_unsafety).await, Ok(_));
+
+    let needs_unsafe = Recipe::Process(ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
+        env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: false,
+        networking: true,
+    });
+
+    assert_matches!(bake_without_meta(&brioche, needs_unsafe).await, Err(_));
+
+    let unnecessary_unsafe = Recipe::Process(ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
+        env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: true,
+        networking: false,
+    });
+
+    assert_matches!(
+        bake_without_meta(&brioche, unnecessary_unsafe).await,
+        Err(_)
+    );
+
+    let necessary_unsafe = Recipe::Process(ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
+        env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: true,
+        networking: true,
+    });
+
+    assert_matches!(bake_without_meta(&brioche, necessary_unsafe).await, Ok(_));
+
+    Ok(())
+}
