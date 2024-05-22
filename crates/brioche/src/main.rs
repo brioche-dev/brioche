@@ -284,6 +284,7 @@ struct RunArgs {
     check: bool,
     #[arg(long)]
     keep: bool,
+    #[arg(last = true)]
     args: Vec<std::ffi::OsString>,
 }
 
