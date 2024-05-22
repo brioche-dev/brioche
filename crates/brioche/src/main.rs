@@ -396,6 +396,10 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
 
     let command_path = output.path.join(&args.command);
 
+    if !args.quiet {
+        eprintln!("Running {}", args.command);
+    }
+
     let mut command = std::process::Command::new(command_path);
     command.args(&args.args);
 
