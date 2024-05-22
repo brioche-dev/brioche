@@ -278,6 +278,8 @@ struct RunArgs {
     export: String,
     #[arg(short, long, default_value = "brioche-run")]
     command: String,
+    #[arg(short, long)]
+    quiet: bool,
     #[arg(long)]
     check: bool,
     #[arg(long)]
@@ -286,8 +288,11 @@ struct RunArgs {
 }
 
 async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
-    let (reporter, mut guard) =
-        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+    let (reporter, mut guard) = if args.quiet {
+        brioche::reporter::start_null_reporter()
+    } else {
+        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?
+    };
     reporter.set_is_evaluating(true);
 
     let brioche = brioche::BriocheBuilder::new(reporter.clone())
@@ -350,7 +355,9 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
             1 => "1 job".to_string(),
             n => format!("{n} jobs"),
         };
-        eprintln!("Build finished, completed {jobs_message} in {elapsed}");
+        if !args.quiet {
+            eprintln!("Build finished, completed {jobs_message} in {elapsed}");
+        }
 
         // Validate that the artifact is a directory that contains the
         // command to run before returning
