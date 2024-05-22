@@ -1097,3 +1097,137 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_bake_process_networking_disabled() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let mut server = mockito::Server::new();
+    let hello_endpoint = server
+        .mock("GET", "/file.txt")
+        .with_body("hello")
+        .expect(0)
+        .create();
+
+    let process = Recipe::Process(ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                wget \
+                    --timeout=1 \
+                    -O "$BRIOCHE_OUTPUT" \
+                    "$URL/file.txt" \
+                    > /dev/null 2> /dev/null
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+            ("URL".into(), tpl(server.url())),
+        ]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
+    });
+
+    assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
+
+    hello_endpoint.assert();
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bake_process_networking_enabled() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let mut server = mockito::Server::new();
+    let hello_endpoint = server
+        .mock("GET", "/file.txt")
+        .with_body("hello")
+        .expect(1)
+        .create();
+
+    let process = Recipe::Process(ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                wget \
+                    --timeout=1 \
+                    -O "$BRIOCHE_OUTPUT" \
+                    "$URL/file.txt" \
+                    > /dev/null 2> /dev/null
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+            ("URL".into(), tpl(server.url())),
+        ]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: true,
+        networking: true,
+    });
+
+    assert_eq!(
+        bake_without_meta(&brioche, process).await?,
+        brioche_test::file(brioche_test::blob(&brioche, "hello").await, false),
+    );
+
+    hello_endpoint.assert();
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bake_process_networking_enabled_dns() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let process = Recipe::Process(ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                wget \
+                    --timeout=1 \
+                    -O "$BRIOCHE_OUTPUT" \
+                    "https://gist.githubusercontent.com/kylewlacy/c0f1a43e2641686f377178880fcce6ae/raw/f48155695445aa218e558fba824b61cf718d5e55/lorem-ipsum.txt" \
+                    > /dev/null 2> /dev/null
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+        ]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: true,
+        networking: true,
+    });
+
+    assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+    Ok(())
+}

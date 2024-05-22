@@ -196,6 +196,25 @@ pub async fn bake_process(
         Vec::<u8>::from_path_buf(guest_pack_dir).expect("failed to build pack dir path");
     tokio::fs::create_dir_all(&host_pack_dir).await?;
 
+    if process.networking {
+        let guest_etc_dir = root_dir.join("etc");
+        tokio::fs::create_dir_all(&guest_etc_dir).await?;
+
+        let resolv_conf_contents = tokio::fs::read("/etc/resolv.conf").await;
+        let resolv_conf_contents = match resolv_conf_contents {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                vec![]
+            }
+            Err(error) => {
+                return Err(error).context("failed to read host /etc/resolv.conf");
+            }
+        };
+        tokio::fs::write(guest_etc_dir.join("resolv.conf"), &resolv_conf_contents)
+            .await
+            .context("failed to write guest /etc/resolv.conf")?;
+    }
+
     let create_work_dir_fut = async {
         crate::output::create_output(
             brioche,
@@ -298,6 +317,7 @@ pub async fn bake_process(
                 guest_path_hint: guest_work_dir.into(),
             },
         },
+        networking: process.networking,
         uid_hint: GUEST_UID_HINT,
         gid_hint: GUEST_GID_HINT,
     };

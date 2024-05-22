@@ -17,6 +17,7 @@ pub struct SandboxExecutionConfig {
     #[serde_as(as = "HashMap<TickEncoded, _>")]
     pub env: HashMap<bstr::BString, SandboxTemplate>,
     pub current_dir: SandboxPath,
+    pub networking: bool,
     pub uid_hint: u32,
     pub gid_hint: u32,
 }
