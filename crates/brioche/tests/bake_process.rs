@@ -145,6 +145,8 @@ async fn test_bake_process() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_eq!(
@@ -167,6 +169,8 @@ async fn test_bake_process_fail_on_no_output() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -190,6 +194,8 @@ async fn test_bake_process_scaffold_output() -> anyhow::Result<()> {
             hello_blob, false,
         )))),
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_eq!(
@@ -220,6 +226,8 @@ async fn test_bake_process_scaffold_and_modify_output() -> anyhow::Result<()> {
             brioche_test::lazy_dir_empty(),
         ))),
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_eq!(
@@ -250,6 +258,8 @@ async fn test_bake_process_fail_on_non_zero_exit() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -269,6 +279,8 @@ async fn test_bake_process_command_no_path() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -294,6 +306,8 @@ async fn test_bake_process_command_path() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -319,6 +333,8 @@ async fn test_bake_process_with_utils() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
@@ -353,6 +369,8 @@ async fn test_bake_process_with_readonly_contents() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
@@ -382,6 +400,8 @@ async fn test_bake_process_cached() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     // Even though the process is non-deterministic, the result of the first
@@ -415,6 +435,8 @@ async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     let empty_dir_1_baked = bake_without_meta(&brioche, empty_dir_1.clone()).await?;
@@ -439,6 +461,8 @@ async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     let process_random_2 = Recipe::Process(ProcessRecipe {
@@ -459,6 +483,8 @@ async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     // Both processes are different, but their inputs bake to identical
@@ -491,6 +517,8 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     let empty_dir_1_baked = bake_without_meta(&brioche, empty_dir_1.clone()).await?;
@@ -515,6 +543,8 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     let process_random_2 = Recipe::Process(ProcessRecipe {
@@ -535,6 +565,8 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     });
 
     let process_random_1_proxy =
@@ -607,6 +639,8 @@ async fn test_bake_process_cache_busted() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     };
     let mut process_random_2 = process_random_1.clone();
     process_random_2
@@ -665,6 +699,8 @@ async fn test_bake_process_custom_env_vars() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -703,6 +739,8 @@ async fn test_bake_process_no_default_env_vars() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -742,6 +780,8 @@ async fn test_bake_process_starts_with_work_dir_contents() -> anyhow::Result<()>
         )]))),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -785,6 +825,8 @@ async fn test_bake_process_edit_work_dir_contents() -> anyhow::Result<()> {
         ]))),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -819,6 +861,8 @@ async fn test_bake_process_has_resource_dir() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -894,6 +938,8 @@ async fn test_bake_process_contains_all_resources() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -951,6 +997,8 @@ async fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
         work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: None,
         platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
     };
 
     let result = bake_without_meta(&brioche, Recipe::Process(process)).await?;

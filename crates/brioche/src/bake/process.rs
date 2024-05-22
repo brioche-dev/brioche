@@ -67,6 +67,8 @@ pub async fn bake_lazy_process_to_process(
         work_dir,
         output_scaffold,
         platform: process.platform,
+        is_unsafe: process.is_unsafe,
+        networking: process.networking,
     })
 }
 

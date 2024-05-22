@@ -92,6 +92,8 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 work_dir,
                 output_scaffold,
                 platform: _,
+                is_unsafe: _,
+                networking: _,
             } = process;
 
             let templates = [command].into_iter().chain(args).chain(env.values());
@@ -123,6 +125,8 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 work_dir,
                 output_scaffold,
                 platform: _,
+                is_unsafe: _,
+                networking: _,
             } = process;
 
             let work_dir = Recipe::from(work_dir.clone());
