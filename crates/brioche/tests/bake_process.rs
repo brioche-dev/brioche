@@ -170,6 +170,8 @@ async fn test_bake_process() -> anyhow::Result<()> {
         run_test!(brioche_test, test_bake_process_cache_busted),
         run_test!(brioche_test, test_bake_process_custom_env_vars),
         run_test!(brioche_test, test_bake_process_no_default_env_vars),
+        run_test!(brioche_test, test_bake_process_no_default_path),
+        run_test!(brioche_test, test_bake_process_command_uses_path),
         run_test!(
             brioche_test,
             test_bake_process_starts_with_work_dir_contents
@@ -724,6 +726,62 @@ async fn test_bake_process_no_default_env_vars(
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
+        ]),
+        ..default_process()
+    };
+
+    bake_without_meta(brioche, Recipe::Process(process)).await?;
+
+    Ok(())
+}
+
+async fn test_bake_process_no_default_path(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
+    let process = ProcessRecipe {
+        command: tpl("sh"),
+        args: vec![
+            tpl("-c"),
+            tpl(r#"
+                set -eo pipefail
+                touch "$BRIOCHE_OUTPUT"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            // $PATH not set
+        ]),
+        ..default_process()
+    };
+
+    assert_matches!(
+        bake_without_meta(brioche, Recipe::Process(process)).await,
+        Err(_)
+    );
+
+    Ok(())
+}
+
+async fn test_bake_process_command_uses_path(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
+    let process = ProcessRecipe {
+        command: tpl("sh"),
+        args: vec![
+            tpl("-c"),
+            tpl(r#"
+                set -eo pipefail
+                touch "$BRIOCHE_OUTPUT"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+            ("BRIOCHE_OUTPUT".into(), output_path()),
         ]),
         ..default_process()
     };

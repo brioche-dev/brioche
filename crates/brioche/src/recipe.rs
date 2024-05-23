@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap, HashSet},
     sync::{Arc, OnceLock, RwLock},
 };
@@ -1127,6 +1128,72 @@ impl CompleteProcessTemplate {
         self.components.iter().all(|component| component.is_empty())
     }
 
+    pub fn as_literal(&self) -> Option<Cow<BStr>> {
+        match &*self.components {
+            [CompleteProcessTemplateComponent::Literal { value }] => {
+                Some(Cow::Borrowed(BStr::new(value)))
+            }
+            components => {
+                let mut literal = vec![];
+                for component in components {
+                    let CompleteProcessTemplateComponent::Literal { value } = component else {
+                        return None;
+                    };
+
+                    literal.extend_from_slice(value.as_bytes());
+                }
+
+                Some(Cow::Owned(BString::new(literal)))
+            }
+        }
+    }
+
+    pub fn split_on_literal(&self, splitter: impl AsRef<[u8]>) -> Vec<CompleteProcessTemplate> {
+        let mut result = vec![CompleteProcessTemplate { components: vec![] }];
+        for component in &self.components {
+            match component {
+                CompleteProcessTemplateComponent::Literal { value } => {
+                    let mut splits = value.split_str(splitter.as_ref());
+                    let split_first = splits.next().expect(".split_str() yielded no items");
+
+                    if !split_first.is_empty() {
+                        let current_template = result.last_mut().expect("result is empty");
+                        match current_template.components.last_mut() {
+                            Some(CompleteProcessTemplateComponent::Literal { value }) => {
+                                value.extend_from_slice(split_first.as_bytes());
+                            }
+                            _ => {
+                                current_template.components.push(
+                                    CompleteProcessTemplateComponent::Literal {
+                                        value: split_first.into(),
+                                    },
+                                );
+                            }
+                        }
+                    }
+
+                    result.extend(splits.map(|split| {
+                        let components = if split.is_empty() {
+                            vec![]
+                        } else {
+                            vec![CompleteProcessTemplateComponent::Literal {
+                                value: split.into(),
+                            }]
+                        };
+
+                        CompleteProcessTemplate { components }
+                    }));
+                }
+                component => {
+                    let current_template = result.last_mut().expect("result is empty");
+                    current_template.components.push(component.clone());
+                }
+            }
+        }
+
+        result
+    }
+
     pub fn append_literal(&mut self, literal: impl AsRef<[u8]>) {
         if let Some(CompleteProcessTemplateComponent::Literal { value }) =
             self.components.last_mut()
@@ -1200,5 +1267,156 @@ impl CompressionFormat {
             Self::Xz => Box::new(async_compression::tokio::bufread::XzDecoder::new(input)),
             Self::Zstd => Box::new(async_compression::tokio::bufread::ZstdDecoder::new(input)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CompleteProcessTemplate, CompleteProcessTemplateComponent};
+
+    fn tpl(
+        components: impl IntoIterator<Item = CompleteProcessTemplateComponent>,
+    ) -> CompleteProcessTemplate {
+        CompleteProcessTemplate {
+            components: components.into_iter().collect(),
+        }
+    }
+
+    fn literal(value: impl AsRef<[u8]>) -> CompleteProcessTemplateComponent {
+        CompleteProcessTemplateComponent::Literal {
+            value: value.as_ref().into(),
+        }
+    }
+
+    fn output_path() -> CompleteProcessTemplateComponent {
+        CompleteProcessTemplateComponent::OutputPath
+    }
+
+    fn work_dir() -> CompleteProcessTemplateComponent {
+        CompleteProcessTemplateComponent::WorkDir
+    }
+
+    #[test]
+    fn test_complete_process_template_split() {
+        assert_eq!(tpl([]).split_on_literal(":"), vec![tpl([])]);
+
+        assert_eq!(
+            tpl([literal("hello world")]).split_on_literal(":"),
+            vec![tpl([literal("hello world")])],
+        );
+
+        assert_eq!(
+            tpl([literal("hello:world")]).split_on_literal(":"),
+            vec![tpl([literal("hello")]), tpl([literal("world")])],
+        );
+
+        assert_eq!(
+            tpl([literal("a:b::d")]).split_on_literal(":"),
+            vec![
+                tpl([literal("a")]),
+                tpl([literal("b")]),
+                tpl([]),
+                tpl([literal("d")])
+            ],
+        );
+
+        assert_eq!(
+            tpl([literal("asdf")]).split_on_literal(""),
+            vec![
+                tpl([]),
+                tpl([literal("a")]),
+                tpl([literal("s")]),
+                tpl([literal("d")]),
+                tpl([literal("f")]),
+                tpl([]),
+            ],
+        );
+
+        assert_eq!(
+            tpl([
+                output_path(),
+                literal("/foo:"),
+                output_path(),
+                literal("/bar")
+            ])
+            .split_on_literal(":"),
+            vec![
+                tpl([output_path(), literal("/foo")]),
+                tpl([output_path(), literal("/bar")])
+            ]
+        );
+
+        assert_eq!(
+            tpl([
+                output_path(),
+                literal("/foo:/asdf:"),
+                output_path(),
+                literal("/bar")
+            ])
+            .split_on_literal(":"),
+            vec![
+                tpl([output_path(), literal("/foo")]),
+                tpl([literal("/asdf")]),
+                tpl([output_path(), literal("/bar")]),
+            ]
+        );
+
+        assert_eq!(
+            tpl([
+                output_path(),
+                work_dir(),
+                literal("/foo:/asdf:"),
+                work_dir(),
+                output_path(),
+                literal("/bar")
+            ])
+            .split_on_literal(":"),
+            vec![
+                tpl([output_path(), work_dir(), literal("/foo")]),
+                tpl([literal("/asdf")]),
+                tpl([work_dir(), output_path(), literal("/bar")]),
+            ]
+        );
+
+        assert_eq!(
+            tpl([
+                output_path(),
+                work_dir(),
+                literal("/foo::/asdf:"),
+                work_dir(),
+                output_path(),
+                literal("/bar")
+            ])
+            .split_on_literal(":"),
+            vec![
+                tpl([output_path(), work_dir(), literal("/foo")]),
+                tpl([]),
+                tpl([literal("/asdf")]),
+                tpl([work_dir(), output_path(), literal("/bar")]),
+            ]
+        );
+
+        assert_eq!(
+            tpl([
+                output_path(),
+                work_dir(),
+                literal("foo"),
+                output_path(),
+                work_dir(),
+                literal("bar")
+            ])
+            .split_on_literal(""),
+            vec![
+                tpl([output_path(), work_dir()]),
+                tpl([literal("f")]),
+                tpl([literal("o")]),
+                tpl([literal("o")]),
+                tpl([output_path(), work_dir()]),
+                tpl([literal("b")]),
+                tpl([literal("a")]),
+                tpl([literal("r")]),
+                tpl([]),
+            ]
+        );
     }
 }

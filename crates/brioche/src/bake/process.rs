@@ -13,8 +13,8 @@ use tracing::Instrument as _;
 use crate::{
     recipe::{
         ArchiveFormat, Artifact, CompleteProcessRecipe, CompleteProcessTemplate,
-        CompleteProcessTemplateComponent, CompressionFormat, DownloadRecipe, Meta, ProcessRecipe,
-        ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
+        CompleteProcessTemplateComponent, CompressionFormat, DirectoryError, DownloadRecipe, Meta,
+        ProcessRecipe, ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
     },
     sandbox::{
         HostPathMode, SandboxExecutionConfig, SandboxPath, SandboxPathOptions, SandboxTemplate,
@@ -52,7 +52,7 @@ pub async fn bake_lazy_process_to_process(
         .then(|arg| bake_lazy_process_template_to_process_template(brioche, scope, arg))
         .try_collect()
         .await?;
-    let mut env = futures::stream::iter(process.env)
+    let mut env: BTreeMap<_, _> = futures::stream::iter(process.env)
         .then(|(key, artifact)| async move {
             let template =
                 bake_lazy_process_template_to_process_template(brioche, scope, artifact).await?;
@@ -69,6 +69,9 @@ pub async fn bake_lazy_process_to_process(
         .try_collect()
         .await?;
     append_dependency_envs(brioche, &mut env, dependencies.iter()).await?;
+
+    let env_path = env.get(bstr::BStr::new("PATH"));
+    let command = resolve_command(brioche, command, env_path).await?;
 
     let work_dir = super::bake(brioche, *process.work_dir, scope).await?;
     let crate::recipe::Artifact::Directory(work_dir) = work_dir.value else {
@@ -137,6 +140,103 @@ async fn bake_lazy_process_template_to_process_template(
     }
 
     Ok(result)
+}
+
+/// Try to resolve a command template using a template `$PATH` env var. Returns
+/// either a template that expands to the absolute path of the command, or
+/// the original template if the command could not be explicitly resolved.
+async fn resolve_command(
+    brioche: &Brioche,
+    command: CompleteProcessTemplate,
+    env_path: Option<&CompleteProcessTemplate>,
+) -> anyhow::Result<CompleteProcessTemplate> {
+    // Return the original template if the command is not a literal. In this
+    // case, it will probably expand to an absolute path within an artifact
+    let Some(command_literal) = command.as_literal() else {
+        return Ok(command);
+    };
+
+    // If the command template contains a `/`, assume it might be an
+    // absolute path and use it as-is. This is similar to what Bash does
+    if command_literal.contains(&b'/') {
+        return Ok(command);
+    }
+
+    // Return an error if `$PATH` is not set by this point
+    let Some(env_path) = env_path else {
+        anyhow::bail!("tried to resolve {command_literal:?}, but process $PATH is not set");
+    };
+
+    // Split $PATH by `:`
+    let path_templates = env_path.split_on_literal(":");
+    for path_template in path_templates {
+        // Match a template like std.tpl`${artifact}/foo` (subpath optional)
+        if let [CompleteProcessTemplateComponent::Input { artifact }, rest @ ..] =
+            &*path_template.components
+        {
+            // Ensure the rest of the path is a literal
+            let subpath = CompleteProcessTemplate {
+                components: rest.to_vec(),
+            };
+            let Some(subpath) = subpath.as_literal() else {
+                continue;
+            };
+
+            // Ensure the artifact is a directory
+            let Artifact::Directory(dir) = &artifact.value else {
+                continue;
+            };
+
+            // Get the artifact referred to by the subpath
+            let subpath_artifact = dir.get(brioche, &subpath).await;
+            let subpath_artifact = match &subpath_artifact {
+                Ok(Some(subpath_artifact)) => &subpath_artifact.value,
+                Err(DirectoryError::EmptyPath { .. }) => {
+                    // If the subpath was empty, use the directory itself
+                    &artifact.value
+                }
+                _ => {
+                    continue;
+                }
+            };
+
+            // Ensure the subpath artifact is a directory
+            let Artifact::Directory(subpath_dir) = subpath_artifact else {
+                continue;
+            };
+
+            // Try to get the artifact referred to by the command
+            let command_artifact = subpath_dir.get(brioche, &command_literal).await;
+            let command_artifact = match &command_artifact {
+                Ok(Some(command_artifact)) => &command_artifact.value,
+                _ => {
+                    continue;
+                }
+            };
+
+            // Ensure the command artifact is either an executable file
+            // or symlink
+            match command_artifact {
+                Artifact::File(crate::recipe::File {
+                    executable: true, ..
+                })
+                | Artifact::Symlink { .. } => {}
+                _ => {
+                    continue;
+                }
+            }
+
+            // Create a template with the command name added to the end
+            let mut command_template = path_template.clone();
+            command_template.append_literal("/");
+            command_template.append_literal(&*command_literal);
+
+            return Ok(command_template);
+        }
+    }
+
+    // We didn't find the command, so return an error
+    anyhow::bail!("{command_literal:?} not found in process $PATH");
 }
 
 #[tracing::instrument(skip(brioche, process))]
