@@ -749,6 +749,72 @@ async fn test_bake_process_no_default_env_vars() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_bake_process_no_default_path() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let process = ProcessRecipe {
+        command: tpl("sh"),
+        args: vec![
+            tpl("-c"),
+            tpl(r#"
+                set -eo pipefail
+                touch "$BRIOCHE_OUTPUT"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            // $PATH not set
+        ]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
+    };
+
+    assert_matches!(
+        bake_without_meta(&brioche, Recipe::Process(process)).await,
+        Err(_)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bake_process_uses_path() -> anyhow::Result<()> {
+    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
+    let (brioche, _context) = brioche_test::brioche_test().await;
+
+    let process = ProcessRecipe {
+        command: tpl("sh"),
+        args: vec![
+            tpl("-c"),
+            tpl(r#"
+                set -eo pipefail
+                touch "$BRIOCHE_OUTPUT"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+        ]),
+        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
+    };
+
+    bake_without_meta(&brioche, Recipe::Process(process)).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_bake_process_starts_with_work_dir_contents() -> anyhow::Result<()> {
     let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
     let (brioche, _context) = brioche_test::brioche_test().await;
