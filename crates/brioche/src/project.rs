@@ -1118,6 +1118,27 @@ async fn resolve_static(
                 .context("no parent path for module path")?;
             let input_path = module_dir_path.join(path);
 
+            let canonical_project_root =
+                tokio::fs::canonicalize(project_root)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to canonicalize project root {}",
+                            project_root.display()
+                        )
+                    })?;
+            let canonical_input_path =
+                tokio::fs::canonicalize(&input_path)
+                    .await
+                    .with_context(|| {
+                        format!("failed to canonicalize input path {}", input_path.display())
+                    })?;
+            anyhow::ensure!(
+                canonical_input_path.starts_with(&canonical_project_root),
+                "input path {path:?} escapes project root {}",
+                project_root.display(),
+            );
+
             let artifact = crate::input::create_input(
                 brioche,
                 crate::input::InputOptions {

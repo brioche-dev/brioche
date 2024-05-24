@@ -1,3 +1,4 @@
+use assert_matches::assert_matches;
 use brioche::script::evaluate::evaluate;
 
 mod brioche_test;
