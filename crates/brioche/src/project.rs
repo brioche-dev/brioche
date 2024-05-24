@@ -4,11 +4,12 @@ use std::{
     sync::Arc,
 };
 
+use analyze::StaticQuery;
 use anyhow::Context as _;
-use relative_path::{RelativePath, RelativePathBuf};
+use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 use tokio::io::AsyncWriteExt as _;
 
-use crate::encoding::TickEncoded;
+use crate::{encoding::TickEncoded, recipe::RecipeHash};
 
 use super::{vfs::FileId, Brioche};
 
@@ -24,7 +25,7 @@ impl Projects {
         &self,
         brioche: &Brioche,
         path: &Path,
-        validate: bool,
+        fully_valid: bool,
     ) -> anyhow::Result<ProjectHash> {
         {
             let projects = self
@@ -32,7 +33,7 @@ impl Projects {
                 .read()
                 .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
             if let Some(project_hash) = projects.paths_to_projects.get(path) {
-                if validate {
+                if fully_valid {
                     let errors = &projects.project_load_errors[project_hash];
                     if !errors.is_empty() {
                         anyhow::bail!("project load errors: {errors:?}");
@@ -43,10 +44,16 @@ impl Projects {
             }
         }
 
-        let project_hash =
-            load_project(self.clone(), brioche.clone(), path.to_owned(), 100).await?;
+        let project_hash = load_project(
+            self.clone(),
+            brioche.clone(),
+            path.to_owned(),
+            fully_valid,
+            100,
+        )
+        .await?;
 
-        if validate {
+        if fully_valid {
             let projects = self
                 .inner
                 .read()
@@ -278,6 +285,18 @@ impl Projects {
         Ok(true)
     }
 
+    pub fn get_static(
+        &self,
+        specifier: &super::script::specifier::BriocheModuleSpecifier,
+        static_: &StaticQuery,
+    ) -> anyhow::Result<Option<RecipeHash>> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        projects.get_static(specifier, static_)
+    }
+
     pub fn export_listing(
         &self,
         brioche: &Brioche,
@@ -333,7 +352,7 @@ impl ProjectsInner {
     fn project(&self, project_hash: ProjectHash) -> anyhow::Result<&Arc<Project>> {
         self.projects
             .get(&project_hash)
-            .with_context(|| format!("project not found for hash {}", project_hash))
+            .with_context(|| format!("project not found for hash {project_hash}"))
     }
 
     fn local_paths(&self, project_hash: ProjectHash) -> Option<impl Iterator<Item = &Path> + '_> {
@@ -374,12 +393,12 @@ impl ProjectsInner {
         let project = self
             .projects
             .get(&project_hash)
-            .with_context(|| format!("project not found for hash {}", project_hash))?;
+            .with_context(|| format!("project not found for hash {project_hash}"))?;
         let project_root = self
             .projects_to_paths
             .get(&project_hash)
             .and_then(|paths| paths.first())
-            .with_context(|| format!("project root not found for hash {}", project_hash))?;
+            .with_context(|| format!("project root not found for hash {project_hash}"))?;
 
         let root_relative_path = RelativePath::new("project.bri");
         anyhow::ensure!(
@@ -413,19 +432,18 @@ impl ProjectsInner {
         let project = self
             .projects
             .get(&project_hash)
-            .with_context(|| format!("project not found for hash {}", project_hash))?;
+            .with_context(|| format!("project not found for hash {project_hash}"))?;
         let project_root = self
             .projects_to_paths
             .get(&project_hash)
             .and_then(|paths| paths.first())
-            .with_context(|| format!("project root not found for hash {}", project_hash))?;
+            .with_context(|| format!("project root not found for hash {project_hash}"))?;
 
         let paths = project.modules.keys().map(move |module_path| {
             let path = module_path.to_logical_path(project_root);
             assert!(
                 path.starts_with(project_root),
-                "module path {} escapes project root {}",
-                module_path,
+                "module path {module_path} escapes project root {}",
                 project_root.display()
             );
             path
@@ -443,12 +461,55 @@ impl ProjectsInner {
             .map(|path| super::script::specifier::BriocheModuleSpecifier::File { path });
         Ok(module_specifiers)
     }
+
+    pub fn get_static(
+        &self,
+        specifier: &super::script::specifier::BriocheModuleSpecifier,
+        static_: &StaticQuery,
+    ) -> anyhow::Result<Option<RecipeHash>> {
+        let path = match specifier {
+            super::script::specifier::BriocheModuleSpecifier::File { path } => path,
+            _ => {
+                anyhow::bail!("could not get static for specifier {specifier}");
+            }
+        };
+
+        let project_hash = self
+            .find_containing_project(path)
+            .with_context(|| format!("project not found for specifier {specifier}"))?;
+        let project = self
+            .projects
+            .get(&project_hash)
+            .with_context(|| format!("project not found for hash {project_hash}"))?;
+        let project_root = self
+            .projects_to_paths
+            .get(&project_hash)
+            .and_then(|paths| paths.first())
+            .with_context(|| format!("project root not found for hash {project_hash}"))?;
+
+        let module_path = path.relative_to(project_root).with_context(|| {
+            format!(
+                "failed to get relative path from {} to {}",
+                path.display(),
+                project_root.display()
+            )
+        })?;
+
+        let Some(statics) = project.statics.get(&module_path) else {
+            return Ok(None);
+        };
+        let Some(Some(static_)) = statics.get(static_) else {
+            return Ok(None);
+        };
+        Ok(Some(*static_))
+    }
 }
 
 async fn load_project(
     projects: Projects,
     brioche: Brioche,
     path: PathBuf,
+    fully_valid: bool,
     depth: usize,
 ) -> anyhow::Result<ProjectHash> {
     let rt = tokio::runtime::Handle::current();
@@ -457,7 +518,8 @@ async fn load_project(
         let local_set = tokio::task::LocalSet::new();
 
         local_set.spawn_local(async move {
-            let result = load_project_inner(&projects, &brioche, &path, false, depth).await;
+            let result =
+                load_project_inner(&projects, &brioche, &path, fully_valid, false, depth).await;
             let _ = tx.send(result).inspect_err(|err| {
                 tracing::warn!("failed to send project load result: {err:?}");
             });
@@ -475,6 +537,7 @@ async fn load_project_inner(
     projects: &Projects,
     brioche: &Brioche,
     path: &Path,
+    fully_valid: bool,
     lockfile_required: bool,
     depth: usize,
 ) -> anyhow::Result<(ProjectHash, Arc<Project>, Vec<LoadProjectError>)> {
@@ -543,6 +606,7 @@ async fn load_project_inner(
                     brioche,
                     name,
                     &dep_path,
+                    fully_valid,
                     lockfile_required,
                     dep_depth,
                     &mut errors,
@@ -561,6 +625,7 @@ async fn load_project_inner(
                     workspace.as_ref(),
                     name,
                     version,
+                    fully_valid,
                     lockfile_required,
                     lockfile.as_ref(),
                     dep_depth,
@@ -603,6 +668,7 @@ async fn load_project_inner(
                         workspace.as_ref(),
                         dep_name,
                         &Version::Any,
+                        fully_valid,
                         lockfile_required,
                         lockfile.as_ref(),
                         dep_depth,
@@ -626,11 +692,29 @@ async fn load_project_inner(
         .values()
         .map(|module| (module.project_subpath.clone(), module.file_id))
         .collect();
+    let mut statics = HashMap::new();
+    for module in project_analysis.local_modules.values() {
+        let mut module_statics = BTreeMap::new();
+        for static_ in &module.statics {
+            // Only resolve the static if we need a fully valid project
+            if fully_valid {
+                let recipe_hash = resolve_static(brioche, &path, module, static_).await?;
+                module_statics.insert(static_.clone(), Some(recipe_hash));
+            } else {
+                module_statics.insert(static_.clone(), None);
+            }
+        }
+
+        if !module_statics.is_empty() {
+            statics.insert(module.project_subpath.clone(), module_statics);
+        }
+    }
 
     let project = Project {
         definition: project_analysis.definition,
         dependencies,
         modules,
+        statics,
     };
     let project = Arc::new(project);
     let project_hash = ProjectHash::from_serializable(&project)?;
@@ -670,17 +754,26 @@ async fn load_project_inner(
     Ok((project_hash, project, errors))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn try_load_path_dependency_with_errors(
     projects: &Projects,
     brioche: &Brioche,
     name: &str,
     dep_path: &Path,
+    fully_valid: bool,
     lockfile_required: bool,
     dep_depth: usize,
     errors: &mut Vec<LoadProjectError>,
 ) -> Option<ProjectHash> {
-    let result =
-        load_project_inner(projects, brioche, dep_path, lockfile_required, dep_depth).await;
+    let result = load_project_inner(
+        projects,
+        brioche,
+        dep_path,
+        fully_valid,
+        lockfile_required,
+        dep_depth,
+    )
+    .await;
 
     match result {
         Ok((dep_hash, _, dep_errors)) => {
@@ -712,6 +805,7 @@ async fn try_load_registry_dependency_with_errors(
     workspace: Option<&Workspace>,
     name: &str,
     version: &Version,
+    fully_valid: bool,
     lockfile_required: bool,
     lockfile: Option<&Lockfile>,
     dep_depth: usize,
@@ -742,6 +836,7 @@ async fn try_load_registry_dependency_with_errors(
         projects,
         brioche,
         &resolved_dep.local_path,
+        fully_valid,
         resolved_dep.lockfile_required,
         dep_depth,
     )
@@ -1009,12 +1104,71 @@ async fn find_workspace(project_path: &Path) -> anyhow::Result<Option<Workspace>
     Ok(None)
 }
 
+async fn resolve_static(
+    brioche: &Brioche,
+    project_root: &Path,
+    module: &analyze::ModuleAnalysis,
+    static_: &analyze::StaticQuery,
+) -> anyhow::Result<RecipeHash> {
+    match static_ {
+        analyze::StaticQuery::Get { path } => {
+            let module_path = module.project_subpath.to_path(project_root);
+            let module_dir_path = module_path
+                .parent()
+                .context("no parent path for module path")?;
+            let input_path = module_dir_path.join(path);
+
+            let canonical_project_root =
+                tokio::fs::canonicalize(project_root)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to canonicalize project root {}",
+                            project_root.display()
+                        )
+                    })?;
+            let canonical_input_path =
+                tokio::fs::canonicalize(&input_path)
+                    .await
+                    .with_context(|| {
+                        format!("failed to canonicalize input path {}", input_path.display())
+                    })?;
+            anyhow::ensure!(
+                canonical_input_path.starts_with(&canonical_project_root),
+                "input path {path:?} escapes project root {}",
+                project_root.display(),
+            );
+
+            let artifact = crate::input::create_input(
+                brioche,
+                crate::input::InputOptions {
+                    input_path: &input_path,
+                    meta: &Default::default(),
+                    remove_input: false,
+                    resources_dir: None,
+                },
+            )
+            .await?;
+            let artifact_hash = artifact.hash();
+
+            let recipe = crate::recipe::Recipe::from(artifact.value);
+            crate::recipe::save_recipes(brioche, [&recipe]).await?;
+
+            Ok(artifact_hash)
+        }
+    }
+}
+
+#[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub definition: ProjectDefinition,
     pub dependencies: HashMap<String, ProjectHash>,
     pub modules: HashMap<RelativePathBuf, FileId>,
+    #[serde_as(as = "HashMap<_, Vec<(_, _)>>")]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub statics: HashMap<RelativePathBuf, BTreeMap<StaticQuery, Option<RecipeHash>>>,
 }
 
 impl Project {

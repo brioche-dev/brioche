@@ -9,7 +9,7 @@ use anyhow::Context as _;
 use deno_core::OpState;
 use specifier::BriocheModuleSpecifier;
 
-use crate::bake::BakeScope;
+use crate::{bake::BakeScope, project::analyze::StaticQuery};
 
 use super::{
     blob::BlobHash,
@@ -150,13 +150,16 @@ deno_core::extension!(brioche_rt,
         op_brioche_bake_all,
         op_brioche_create_proxy,
         op_brioche_read_blob,
+        op_brioche_get_static,
     ],
     options = {
         brioche: Brioche,
+        projects: Projects,
         bake_scope: BakeScope,
     },
     state = |state, options| {
         state.put(options.brioche);
+        state.put(options.projects);
         state.put(options.bake_scope);
     },
 );
@@ -226,4 +229,36 @@ pub async fn op_brioche_read_blob(
         .with_context(|| format!("failed to read blob {blob_hash}"))?;
 
     Ok(crate::encoding::TickEncode(bytes))
+}
+
+#[deno_core::op]
+pub async fn op_brioche_get_static(
+    state: Rc<RefCell<OpState>>,
+    url: String,
+    static_: StaticQuery,
+) -> anyhow::Result<Recipe> {
+    let (brioche, projects) = {
+        let state = state.try_borrow()?;
+        let brioche = state
+            .try_borrow::<Brioche>()
+            .context("failed to get brioche instance")?
+            .clone();
+        let projects = state
+            .try_borrow::<Projects>()
+            .context("failed to get projects instance")?
+            .clone();
+        (brioche, projects)
+    };
+
+    let specifier: BriocheModuleSpecifier = url.parse()?;
+
+    let recipe_hash = projects
+        .get_static(&specifier, &static_)?
+        .with_context(|| match static_ {
+            StaticQuery::Get { path } => {
+                format!("failed to resolve Brioche.get({path:?}) from {specifier}, was the path passed in as a string literal?")
+            }
+        })?;
+    let recipe = crate::recipe::get_recipe(&brioche, recipe_hash).await?;
+    Ok(recipe)
 }

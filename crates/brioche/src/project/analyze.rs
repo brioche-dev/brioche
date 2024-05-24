@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::Path,
+};
 
 use anyhow::Context as _;
 use biome_rowan::{AstNode as _, AstNodeList as _, AstSeparatedList as _};
@@ -24,12 +27,20 @@ pub struct ModuleAnalysis {
     pub project_subpath: RelativePathBuf,
     pub specifier: BriocheModuleSpecifier,
     pub imports: HashMap<BriocheImportSpecifier, ImportAnalysis>,
+    pub statics: BTreeSet<StaticQuery>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportAnalysis {
     ExternalProject(String),
     LocalModule(BriocheModuleSpecifier),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum StaticQuery {
+    Get { path: String },
 }
 
 pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<ProjectAnalysis> {
@@ -169,6 +180,7 @@ pub async fn analyze_module(
                 project_subpath,
                 specifier: module_specifier.clone(),
                 imports: HashMap::new(),
+                statics: BTreeSet::new(),
             });
 
             contents
@@ -198,12 +210,14 @@ pub async fn analyze_module(
         }
     };
 
-    let mut imports = HashMap::new();
-
-    let import_specifiers = find_imports(module, |offset| {
+    let display_location = |offset| {
         let line = contents[..offset].lines().count();
         format!("{module_specifier}:{line}")
-    });
+    };
+
+    let mut imports = HashMap::new();
+
+    let import_specifiers = find_imports(module, display_location);
     for import_specifier in import_specifiers {
         let import_specifier = import_specifier?;
 
@@ -236,10 +250,14 @@ pub async fn analyze_module(
         imports.insert(import_specifier, import_analysis);
     }
 
+    let statics =
+        find_statics(module, display_location).collect::<anyhow::Result<BTreeSet<_>>>()?;
+
     let local_module = local_modules
         .get_mut(&module_specifier)
         .expect("module not found in local_modules after analyzing imports");
     local_module.imports = imports;
+    local_module.statics = statics;
 
     Ok(module_specifier)
 }
@@ -302,6 +320,99 @@ where
                 .parse()
                 .with_context(|| format!("{location}: invalid import specifier"))?;
             Ok(Some(import_specifier))
+        })
+        .filter_map(|result| result.transpose())
+}
+
+pub fn find_statics<'a, D>(
+    module: &'a biome_js_syntax::JsModule,
+    mut display_location: impl FnMut(usize) -> D + 'a,
+) -> impl Iterator<Item = anyhow::Result<StaticQuery>> + 'a
+where
+    D: std::fmt::Display,
+{
+    module
+        .syntax()
+        .descendants()
+        .map(move |node| {
+            // Get a call expression (e.g. `Brioche.get(...)`)
+            let Some(call_expr) = biome_js_syntax::JsCallExpression::cast(node) else {
+                return Ok(None);
+            };
+
+            let Ok(callee) = call_expr.callee() else {
+                return Ok(None);
+            };
+            let Some(callee) = callee.as_js_static_member_expression() else {
+                return Ok(None);
+            };
+
+            // Filter down to call expressions accessing a member from `Brioche`
+            let Ok(callee_object) = callee.object() else {
+                return Ok(None);
+            };
+            let Some(callee_object) = callee_object.as_js_identifier_expression() else {
+                return Ok(None);
+            };
+            let Ok(callee_object_name) = callee_object.name() else {
+                return Ok(None);
+            };
+            if !callee_object_name.has_name("Brioche") {
+                return Ok(None);
+            }
+
+            // Filter down to calls to the `.get()` method
+            let Ok(callee_member) = callee.member() else {
+                return Ok(None);
+            };
+            let Some(callee_member) = callee_member.as_js_name() else {
+                return Ok(None);
+            };
+            let Ok(callee_member_text) = callee_member.value_token() else {
+                return Ok(None);
+            };
+            let callee_member_text = callee_member_text.text_trimmed();
+
+            if callee_member_text != "get" {
+                return Ok(None);
+            }
+
+            let location = display_location(call_expr.syntax().text_range().start().into());
+
+            // Get the arguments
+            let args = call_expr.arguments()?.args();
+            let args = args
+                .iter()
+                .map(|arg| {
+                    let arg = arg?;
+                    let arg = arg
+                        .as_any_js_expression()
+                        .context("spread arguments are not supported")?;
+                    let arg = arg
+                        .as_any_js_literal_expression()
+                        .context("argument must be a string literal")?;
+                    let arg = arg
+                        .as_js_string_literal_expression()
+                        .context("argument must be a string literal")?;
+                    let arg = arg
+                        .inner_string_text()
+                        .context("invalid string literal argument")?;
+
+                    anyhow::Ok(arg)
+                })
+                .map(|arg| arg.with_context(|| format!("{location}: invalid arg to Brioche.get")))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
+            let get_path = match &*args {
+                [path] => path.text(),
+                _ => {
+                    anyhow::bail!("{location}: Brioche.get() must take exactly one argument",);
+                }
+            };
+
+            Ok(Some(StaticQuery::Get {
+                path: get_path.to_string(),
+            }))
         })
         .filter_map(|result| result.transpose())
 }

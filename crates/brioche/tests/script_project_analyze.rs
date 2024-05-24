@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use assert_matches::assert_matches;
 use brioche::{
     project::{
-        analyze::{analyze_project, ImportAnalysis, ProjectAnalysis},
+        analyze::{analyze_project, ImportAnalysis, ProjectAnalysis, StaticQuery},
         DependencyDefinition, ProjectDefinition, Version,
     },
     script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier},
@@ -280,6 +280,67 @@ async fn test_analyze_external_dep() -> anyhow::Result<()> {
         foo_module,
         &ImportAnalysis::ExternalProject("foo".to_string())
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_static_brioche_get() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                Brioche.get("foo");
+
+                export function () {
+                    return Brioche.get("bar");
+                }
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    let root_module = &project.local_modules[&project.root_module];
+
+    assert_eq!(
+        root_module.statics,
+        BTreeSet::from_iter([
+            StaticQuery::Get {
+                path: "foo".to_string()
+            },
+            StaticQuery::Get {
+                path: "bar".to_string()
+            },
+        ]),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_static_brioche_get_invalid() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                const x = Brioche.get(`${123}`);
+
+                export function () {
+                    return x;
+                }
+            "#,
+        )
+        .await;
+
+    let result = analyze_project(&brioche.vfs, &project_dir).await;
+    assert_matches!(result, Err(_));
 
     Ok(())
 }

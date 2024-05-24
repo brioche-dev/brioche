@@ -1016,3 +1016,49 @@ async fn test_project_load_dep_implied_not_found() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_project_load_brioche_get_outside_of_project() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    context.write_file("foo", "secret!!!").await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    get: (path) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "get",
+                                        path,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                }
+
+                export default () => {
+                    return Brioche.get("../foo");
+                };
+            "#,
+        )
+        .await;
+
+    let result = brioche_test::load_project(&brioche, &project_dir)
+        .await
+        .map(|_| ());
+
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
