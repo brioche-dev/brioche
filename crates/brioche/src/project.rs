@@ -6,7 +6,7 @@ use std::{
 
 use analyze::StaticAnalysis;
 use anyhow::Context as _;
-use relative_path::{RelativePath, RelativePathBuf};
+use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 use tokio::io::AsyncWriteExt as _;
 
 use crate::{encoding::TickEncoded, recipe::RecipeHash};
@@ -285,6 +285,18 @@ impl Projects {
         Ok(true)
     }
 
+    pub fn get_static(
+        &self,
+        specifier: &super::script::specifier::BriocheModuleSpecifier,
+        static_: &StaticAnalysis,
+    ) -> anyhow::Result<Option<RecipeHash>> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        projects.get_static(specifier, static_)
+    }
+
     pub fn export_listing(
         &self,
         brioche: &Brioche,
@@ -448,6 +460,48 @@ impl ProjectsInner {
         let module_specifiers = module_paths
             .map(|path| super::script::specifier::BriocheModuleSpecifier::File { path });
         Ok(module_specifiers)
+    }
+
+    pub fn get_static(
+        &self,
+        specifier: &super::script::specifier::BriocheModuleSpecifier,
+        static_: &StaticAnalysis,
+    ) -> anyhow::Result<Option<RecipeHash>> {
+        let path = match specifier {
+            super::script::specifier::BriocheModuleSpecifier::File { path } => path,
+            _ => {
+                anyhow::bail!("could not get static for specifier {specifier}");
+            }
+        };
+
+        let project_hash = self
+            .find_containing_project(path)
+            .with_context(|| format!("project not found for specifier {specifier}"))?;
+        let project = self
+            .projects
+            .get(&project_hash)
+            .with_context(|| format!("project not found for hash {project_hash}"))?;
+        let project_root = self
+            .projects_to_paths
+            .get(&project_hash)
+            .and_then(|paths| paths.first())
+            .with_context(|| format!("project root not found for hash {project_hash}"))?;
+
+        let module_path = path.relative_to(project_root).with_context(|| {
+            format!(
+                "failed to get relative path from {} to {}",
+                path.display(),
+                project_root.display()
+            )
+        })?;
+
+        let Some(statics) = project.statics.get(&module_path) else {
+            return Ok(None);
+        };
+        let Some(Some(static_)) = statics.get(static_) else {
+            return Ok(None);
+        };
+        Ok(Some(*static_))
     }
 }
 

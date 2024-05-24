@@ -254,3 +254,53 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_eval_brioche_get() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    let hello_world = "hello world!";
+    let hello_world_blob = brioche_test::blob(&brioche, hello_world).await;
+    context.write_file("myproject/foo", hello_world).await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    get: (path) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "get",
+                                        path,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                }
+
+                export default () => {
+                    return Brioche.get("./foo");
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
+
+    assert_eq!(resolved, brioche_test::file(hello_world_blob, false).into());
+
+    Ok(())
+}
