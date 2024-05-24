@@ -36,7 +36,9 @@ pub enum ImportAnalysis {
     LocalModule(BriocheModuleSpecifier),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
 pub enum StaticAnalysis {
     Get { path: String },
 }
