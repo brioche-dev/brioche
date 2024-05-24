@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use assert_matches::assert_matches;
 use brioche::{
     project::{
-        analyze::{analyze_project, ImportAnalysis, ProjectAnalysis, StaticAnalysis},
+        analyze::{analyze_project, ImportAnalysis, ProjectAnalysis, StaticQuery},
         DependencyDefinition, ProjectDefinition, Version,
     },
     script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier},
@@ -309,10 +309,10 @@ async fn test_analyze_static_brioche_get() -> anyhow::Result<()> {
     assert_eq!(
         root_module.statics,
         BTreeSet::from_iter([
-            StaticAnalysis::Get {
+            StaticQuery::Get {
                 path: "foo".to_string()
             },
-            StaticAnalysis::Get {
+            StaticQuery::Get {
                 path: "bar".to_string()
             },
         ]),

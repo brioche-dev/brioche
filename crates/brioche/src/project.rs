@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use analyze::StaticAnalysis;
+use analyze::StaticQuery;
 use anyhow::Context as _;
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 use tokio::io::AsyncWriteExt as _;
@@ -288,7 +288,7 @@ impl Projects {
     pub fn get_static(
         &self,
         specifier: &super::script::specifier::BriocheModuleSpecifier,
-        static_: &StaticAnalysis,
+        static_: &StaticQuery,
     ) -> anyhow::Result<Option<RecipeHash>> {
         let projects = self
             .inner
@@ -465,7 +465,7 @@ impl ProjectsInner {
     pub fn get_static(
         &self,
         specifier: &super::script::specifier::BriocheModuleSpecifier,
-        static_: &StaticAnalysis,
+        static_: &StaticQuery,
     ) -> anyhow::Result<Option<RecipeHash>> {
         let path = match specifier {
             super::script::specifier::BriocheModuleSpecifier::File { path } => path,
@@ -1108,10 +1108,10 @@ async fn resolve_static(
     brioche: &Brioche,
     project_root: &Path,
     module: &analyze::ModuleAnalysis,
-    static_: &analyze::StaticAnalysis,
+    static_: &analyze::StaticQuery,
 ) -> anyhow::Result<RecipeHash> {
     match static_ {
-        analyze::StaticAnalysis::Get { path } => {
+        analyze::StaticQuery::Get { path } => {
             let module_path = module.project_subpath.to_path(project_root);
             let module_dir_path = module_path
                 .parent()
@@ -1147,7 +1147,7 @@ pub struct Project {
     pub modules: HashMap<RelativePathBuf, FileId>,
     #[serde_as(as = "HashMap<_, Vec<(_, _)>>")]
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub statics: HashMap<RelativePathBuf, BTreeMap<StaticAnalysis, Option<RecipeHash>>>,
+    pub statics: HashMap<RelativePathBuf, BTreeMap<StaticQuery, Option<RecipeHash>>>,
 }
 
 impl Project {

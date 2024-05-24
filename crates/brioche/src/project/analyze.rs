@@ -27,7 +27,7 @@ pub struct ModuleAnalysis {
     pub project_subpath: RelativePathBuf,
     pub specifier: BriocheModuleSpecifier,
     pub imports: HashMap<BriocheImportSpecifier, ImportAnalysis>,
-    pub statics: BTreeSet<StaticAnalysis>,
+    pub statics: BTreeSet<StaticQuery>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,7 +39,7 @@ pub enum ImportAnalysis {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub enum StaticAnalysis {
+pub enum StaticQuery {
     Get { path: String },
 }
 
@@ -327,7 +327,7 @@ where
 pub fn find_statics<'a, D>(
     module: &'a biome_js_syntax::JsModule,
     mut display_location: impl FnMut(usize) -> D + 'a,
-) -> impl Iterator<Item = anyhow::Result<StaticAnalysis>> + 'a
+) -> impl Iterator<Item = anyhow::Result<StaticQuery>> + 'a
 where
     D: std::fmt::Display,
 {
@@ -410,7 +410,7 @@ where
                 }
             };
 
-            Ok(Some(StaticAnalysis::Get {
+            Ok(Some(StaticQuery::Get {
                 path: get_path.to_string(),
             }))
         })

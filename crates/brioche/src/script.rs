@@ -9,7 +9,7 @@ use anyhow::Context as _;
 use deno_core::OpState;
 use specifier::BriocheModuleSpecifier;
 
-use crate::{bake::BakeScope, project::analyze::StaticAnalysis};
+use crate::{bake::BakeScope, project::analyze::StaticQuery};
 
 use super::{
     blob::BlobHash,
@@ -235,7 +235,7 @@ pub async fn op_brioche_read_blob(
 pub async fn op_brioche_get_static(
     state: Rc<RefCell<OpState>>,
     url: String,
-    static_: StaticAnalysis,
+    static_: StaticQuery,
 ) -> anyhow::Result<Recipe> {
     let (brioche, projects) = {
         let state = state.try_borrow()?;
@@ -255,7 +255,7 @@ pub async fn op_brioche_get_static(
     let recipe_hash = projects
         .get_static(&specifier, &static_)?
         .with_context(|| match static_ {
-            StaticAnalysis::Get { path } => {
+            StaticQuery::Get { path } => {
                 format!("failed to resolve Brioche.get({path:?}) from {specifier}, was the path passed in as a string literal?")
             }
         })?;
