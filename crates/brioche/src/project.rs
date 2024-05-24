@@ -340,7 +340,7 @@ impl ProjectsInner {
     fn project(&self, project_hash: ProjectHash) -> anyhow::Result<&Arc<Project>> {
         self.projects
             .get(&project_hash)
-            .with_context(|| format!("project not found for hash {}", project_hash))
+            .with_context(|| format!("project not found for hash {project_hash}"))
     }
 
     fn local_paths(&self, project_hash: ProjectHash) -> Option<impl Iterator<Item = &Path> + '_> {
@@ -381,12 +381,12 @@ impl ProjectsInner {
         let project = self
             .projects
             .get(&project_hash)
-            .with_context(|| format!("project not found for hash {}", project_hash))?;
+            .with_context(|| format!("project not found for hash {project_hash}"))?;
         let project_root = self
             .projects_to_paths
             .get(&project_hash)
             .and_then(|paths| paths.first())
-            .with_context(|| format!("project root not found for hash {}", project_hash))?;
+            .with_context(|| format!("project root not found for hash {project_hash}"))?;
 
         let root_relative_path = RelativePath::new("project.bri");
         anyhow::ensure!(
@@ -420,19 +420,18 @@ impl ProjectsInner {
         let project = self
             .projects
             .get(&project_hash)
-            .with_context(|| format!("project not found for hash {}", project_hash))?;
+            .with_context(|| format!("project not found for hash {project_hash}"))?;
         let project_root = self
             .projects_to_paths
             .get(&project_hash)
             .and_then(|paths| paths.first())
-            .with_context(|| format!("project root not found for hash {}", project_hash))?;
+            .with_context(|| format!("project root not found for hash {project_hash}"))?;
 
         let paths = project.modules.keys().map(move |module_path| {
             let path = module_path.to_logical_path(project_root);
             assert!(
                 path.starts_with(project_root),
-                "module path {} escapes project root {}",
-                module_path,
+                "module path {module_path} escapes project root {}",
                 project_root.display()
             );
             path
