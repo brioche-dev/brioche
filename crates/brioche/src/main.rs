@@ -569,11 +569,7 @@ async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
         }
     }
 
-    let project_listing = projects.export_listing(&brioche, project_hash)?;
-    let response = brioche
-        .registry_client
-        .publish_project(&project_listing)
-        .await?;
+    let response = brioche::publish::publish_project(&brioche, &projects, project_hash).await?;
 
     guard.shutdown_console().await;
 
