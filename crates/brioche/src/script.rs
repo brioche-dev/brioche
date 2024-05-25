@@ -97,6 +97,7 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
             let transpiled = parsed.transpile(&deno_ast::EmitOptions {
                 source_map: true,
                 inline_source_map: false,
+                imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
                 ..deno_ast::EmitOptions::default()
             })?;
 
