@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -943,6 +943,46 @@ async fn fetch_project_from_registry(
 
     for dep_hash in project.dependency_hashes() {
         Box::pin(fetch_project_from_registry(brioche, dep_hash)).await?;
+    }
+
+    let statics_recipes = project
+        .statics
+        .values()
+        .flat_map(|module_statics| module_statics.values().filter_map(|recipe| *recipe))
+        .collect::<HashSet<_>>();
+    crate::registry::fetch_recipes(brioche, &statics_recipes).await?;
+
+    for (module_path, statics) in &project.statics {
+        for (static_, recipe_hash) in statics {
+            let Some(recipe_hash) = recipe_hash else {
+                continue;
+            };
+
+            let module_path = module_path.to_logical_path(&temp_project_path);
+            let module_dir = module_path.parent().context("no parent dir for module")?;
+
+            match static_ {
+                StaticQuery::Include(include) => {
+                    let recipe = crate::recipe::get_recipe(brioche, *recipe_hash).await?;
+                    let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
+                        anyhow::anyhow!("included static recipe is not an artifact")
+                    })?;
+                    let include_path = module_dir.join(include.path());
+                    crate::output::create_output(
+                        brioche,
+                        &artifact,
+                        crate::output::OutputOptions {
+                            link_locals: false,
+                            merge: true,
+                            mtime: None,
+                            output_path: &include_path,
+                            resources_dir: None,
+                        },
+                    )
+                    .await?;
+                }
+            }
+        }
     }
 
     for (module_path, file_id) in &project.modules {

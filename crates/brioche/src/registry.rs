@@ -397,6 +397,59 @@ pub async fn fetch_bake_references(
     Ok(())
 }
 
+#[tracing::instrument(skip(brioche, recipes))]
+pub async fn fetch_recipes(brioche: &Brioche, recipes: &HashSet<RecipeHash>) -> anyhow::Result<()> {
+    let known_recipes = crate::references::local_recipes(brioche, recipes.iter().copied()).await?;
+    let unknown_recipes = recipes
+        .difference(&known_recipes)
+        .copied()
+        .collect::<Vec<_>>();
+
+    let job_id = brioche
+        .reporter
+        .add_job(crate::reporter::NewJob::RegistryFetch {
+            total_blobs: 0,
+            total_recipes: unknown_recipes.len(),
+        });
+
+    let new_recipes = Arc::new(tokio::sync::Mutex::new(vec![]));
+    futures::stream::iter(unknown_recipes)
+        .map(Ok)
+        .try_for_each_concurrent(25, |recipe| {
+            let brioche = brioche.clone();
+            let new_recipes = new_recipes.clone();
+            async move {
+                let recipe = brioche.registry_client.get_recipe(recipe).await;
+                if let Ok(recipe) = recipe {
+                    let mut new_recipes = new_recipes.lock().await;
+                    new_recipes.push(recipe);
+                }
+
+                brioche.reporter.update_job(
+                    job_id,
+                    crate::reporter::UpdateJob::RegistryFetchAdd {
+                        blobs_fetched: 0,
+                        recipes_fetched: 1,
+                    },
+                );
+
+                anyhow::Ok(())
+            }
+        })
+        .await?;
+
+    let mut new_recipes = new_recipes.lock().await;
+    let new_recipes = std::mem::take(&mut *new_recipes);
+
+    crate::recipe::save_recipes(brioche, new_recipes).await?;
+
+    brioche
+        .reporter
+        .update_job(job_id, crate::reporter::UpdateJob::RegistryFetchFinish);
+
+    Ok(())
+}
+
 #[derive(Clone)]
 pub enum RegistryAuthentication {
     Anonymous,
