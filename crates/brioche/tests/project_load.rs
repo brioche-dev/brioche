@@ -570,8 +570,7 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
 
     assert_eq!(bar_project.dependencies.get("foo"), Some(&foo_hash));
 
-    let bar_listing = projects.export_listing(&brioche, bar_hash)?;
-    let bar_mocks = context.mock_registry_listing(&bar_listing);
+    let bar_mocks = context.mock_registry_listing(&projects, bar_hash).await;
     for mock in bar_mocks {
         mock.create_async().await;
     }

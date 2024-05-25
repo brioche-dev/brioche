@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -9,10 +9,7 @@ use anyhow::Context as _;
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 use tokio::io::AsyncWriteExt as _;
 
-use crate::{
-    encoding::TickEncoded,
-    recipe::{Artifact, RecipeHash},
-};
+use crate::recipe::{Artifact, RecipeHash};
 
 use super::{vfs::FileId, Brioche};
 
@@ -298,47 +295,6 @@ impl Projects {
             .read()
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
         projects.get_static(specifier, static_)
-    }
-
-    pub fn export_listing(
-        &self,
-        brioche: &Brioche,
-        project_hash: ProjectHash,
-    ) -> anyhow::Result<ProjectListing> {
-        let mut projects = HashMap::new();
-        let mut files = HashMap::new();
-        let mut subproject_hashes = vec![project_hash];
-
-        while let Some(subproject_hash) = subproject_hashes.pop() {
-            let subproject = self.project(subproject_hash)?;
-
-            match projects.entry(subproject_hash) {
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    entry.insert((*subproject).clone());
-
-                    for (path, file_id) in &subproject.modules {
-                        let file_contents = brioche.vfs.read(*file_id)?.with_context(|| {
-                            format!("file '{path}' not found for project {subproject_hash}")
-                        })?;
-                        files.insert(*file_id, (*file_contents).clone());
-                    }
-
-                    for dep_hash in subproject.dependency_hashes() {
-                        subproject_hashes.push(dep_hash);
-                    }
-                }
-                std::collections::hash_map::Entry::Occupied(_) => {
-                    // Entry exists, which means we've already added it plus
-                    // its dependencies
-                }
-            }
-        }
-
-        Ok(ProjectListing {
-            root_project: project_hash,
-            projects,
-            files,
-        })
     }
 }
 
@@ -1398,111 +1354,7 @@ impl std::fmt::Display for WorkspaceMember {
     }
 }
 
-#[non_exhaustive]
-#[derive(Debug, Clone)]
-pub struct ProjectListing {
-    pub root_project: ProjectHash,
-    pub projects: HashMap<ProjectHash, Project>,
-    pub files: HashMap<FileId, Vec<u8>>,
-}
-
-impl serde::Serialize for ProjectListing {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let unvalidated = ProjectListingUnvalidated::from(self.clone());
-        serde::Serialize::serialize(&unvalidated, serializer)
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for ProjectListing {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let unvalidated: ProjectListingUnvalidated = serde::Deserialize::deserialize(deserializer)?;
-        let validated = ProjectListing::try_from(unvalidated).map_err(serde::de::Error::custom)?;
-        Ok(validated)
-    }
-}
-
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
     pub dependencies: BTreeMap<String, ProjectHash>,
-}
-
-#[serde_with::serde_as]
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProjectListingUnvalidated {
-    root_project: ProjectHash,
-    projects: HashMap<ProjectHash, Project>,
-    #[serde_as(as = "HashMap<_, TickEncoded>")]
-    files: HashMap<FileId, Vec<u8>>,
-}
-
-impl From<ProjectListing> for ProjectListingUnvalidated {
-    fn from(value: ProjectListing) -> Self {
-        Self {
-            files: value.files,
-            projects: value.projects,
-            root_project: value.root_project,
-        }
-    }
-}
-
-impl TryFrom<ProjectListingUnvalidated> for ProjectListing {
-    type Error = anyhow::Error;
-
-    fn try_from(value: ProjectListingUnvalidated) -> Result<Self, Self::Error> {
-        for (project_hash, project) in &value.projects {
-            project_hash.validate_matches(project)?;
-
-            for file_id in project.modules.values() {
-                anyhow::ensure!(value.files.contains_key(file_id));
-            }
-            for dep_hash in project.dependency_hashes() {
-                anyhow::ensure!(value.projects.contains_key(&dep_hash));
-            }
-        }
-        for (file_id, content) in &value.files {
-            let blob_hash = file_id.as_blob_hash()?;
-            blob_hash.validate_matches(content)?;
-        }
-
-        let mut orphan_files = value.files.keys().copied().collect::<HashSet<_>>();
-        let mut orphan_projects = value.projects.keys().copied().collect::<HashSet<_>>();
-        let mut subproject_hashes = vec![value.root_project];
-        while let Some(subproject_hash) = subproject_hashes.pop() {
-            orphan_projects.remove(&subproject_hash);
-
-            let subproject = value
-                .projects
-                .get(&subproject_hash)
-                .context("subproject not found")?;
-
-            for file_id in subproject.modules.values() {
-                orphan_files.remove(file_id);
-            }
-
-            subproject_hashes.extend(subproject.dependency_hashes());
-        }
-
-        if !orphan_files.is_empty() {
-            anyhow::bail!("project listing had orphan files ({})", orphan_files.len());
-        }
-        if !orphan_projects.is_empty() {
-            anyhow::bail!(
-                "project listing had orphan projects ({})",
-                orphan_projects.len()
-            );
-        }
-
-        Ok(Self {
-            root_project: value.root_project,
-            projects: value.projects,
-            files: value.files,
-        })
-    }
 }

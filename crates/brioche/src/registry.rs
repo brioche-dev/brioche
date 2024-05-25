@@ -9,7 +9,7 @@ use tokio::io::AsyncReadExt as _;
 
 use crate::{
     blob::BlobHash,
-    project::{Project, ProjectHash, ProjectListing},
+    project::{Project, ProjectHash},
     recipe::{Artifact, Recipe, RecipeHash},
     Brioche,
 };
@@ -119,6 +119,19 @@ impl RegistryClient {
         Ok(response_body)
     }
 
+    pub async fn create_project_tags(
+        &self,
+        project_tags: &CreateProjectTagsRequest,
+    ) -> anyhow::Result<CreateProjectTagsResponse> {
+        let response = self
+            .request(reqwest::Method::POST, "v0/project-tags")?
+            .json(project_tags)
+            .send()
+            .await?;
+        let response_body = response.error_for_status()?.json().await?;
+        Ok(response_body)
+    }
+
     pub async fn get_project(&self, project_hash: ProjectHash) -> anyhow::Result<Project> {
         let project_hash_component = urlencoding::Encoded::new(project_hash.to_string());
         let response = self
@@ -135,13 +148,13 @@ impl RegistryClient {
         Ok(project)
     }
 
-    pub async fn publish_project(
+    pub async fn create_projects(
         &self,
-        project: &ProjectListing,
-    ) -> anyhow::Result<PublishProjectResponse> {
+        projects: &HashMap<ProjectHash, Arc<Project>>,
+    ) -> anyhow::Result<u64> {
         let response = self
             .request(reqwest::Method::POST, "v0/projects")?
-            .json(project)
+            .json(projects)
             .send()
             .await?;
         let response_body = response.error_for_status()?.json().await?;
@@ -237,6 +250,25 @@ impl RegistryClient {
             all_known_bakes.extend(known_bakes);
         }
         Ok(all_known_bakes)
+    }
+
+    pub async fn known_projects(
+        &self,
+        project_hashes: &[ProjectHash],
+    ) -> anyhow::Result<HashSet<ProjectHash>> {
+        let mut all_known_projects = HashSet::new();
+        for chunk in project_hashes.chunks(1000) {
+            let known_projects: Vec<ProjectHash> = self
+                .request(reqwest::Method::POST, "v0/known-projects")?
+                .json(&chunk)
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            all_known_projects.extend(known_projects);
+        }
+        Ok(all_known_projects)
     }
 
     pub async fn create_bake(
@@ -379,17 +411,22 @@ pub struct GetProjectTagResponse {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PublishProjectResponse {
-    pub root_project: ProjectHash,
-    pub new_files: u64,
-    pub new_projects: u64,
-    pub tags: Vec<UpdatedTag>,
+pub struct CreateProjectTagsRequest {
+    pub tags: Vec<CreateProjectTagsRequestTag>,
 }
 
-impl PublishProjectResponse {
-    pub fn is_no_op(&self) -> bool {
-        self.new_files == 0 && self.new_projects == 0 && self.tags.is_empty()
-    }
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectTagsRequestTag {
+    pub project_name: String,
+    pub tag: String,
+    pub project_hash: ProjectHash,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectTagsResponse {
+    pub tags: Vec<UpdatedTag>,
 }
 
 #[serde_with::serde_as]
