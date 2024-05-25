@@ -1018,7 +1018,7 @@ async fn test_project_load_dep_implied_not_found() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_project_load_brioche_get_outside_of_project() -> anyhow::Result<()> {
+async fn test_project_load_brioche_include_outside_of_project() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -1032,13 +1032,14 @@ async fn test_project_load_brioche_get_outside_of_project() -> anyhow::Result<()
                 export const project = {};
 
                 globalThis.Brioche = {
-                    get: (path) => {
+                    includeFile: (path) => {
                         return {
                             briocheSerialize: async () => {
                                 return Deno.core.ops.op_brioche_get_static(
                                     import.meta.url,
                                     {
-                                        type: "get",
+                                        type: "include",
+                                        include: "file",
                                         path,
                                     },
                                 );
@@ -1048,7 +1049,101 @@ async fn test_project_load_brioche_get_outside_of_project() -> anyhow::Result<()
                 }
 
                 export default () => {
-                    return Brioche.get("../foo");
+                    return Brioche.includeFile("../foo");
+                };
+            "#,
+        )
+        .await;
+
+    let result = brioche_test::load_project(&brioche, &project_dir)
+        .await
+        .map(|_| ());
+
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_project_load_brioche_include_directory_as_file_error() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    context.write_file("myproject/foo/not_a_file", "...").await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    includeFile: (path) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "include",
+                                        include: "file",
+                                        path,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                }
+
+                export default () => {
+                    return Brioche.includeFile("foo");
+                };
+            "#,
+        )
+        .await;
+
+    let result = brioche_test::load_project(&brioche, &project_dir)
+        .await
+        .map(|_| ());
+
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_project_load_brioche_include_file_as_directory_error() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    context.write_file("myproject/foo", "not a directory").await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    includeDirectory: (path) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "include",
+                                        include: "directory",
+                                        path,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                }
+
+                export default () => {
+                    return Brioche.includeDirectory("foo");
                 };
             "#,
         )

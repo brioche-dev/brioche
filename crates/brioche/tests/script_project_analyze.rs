@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use assert_matches::assert_matches;
 use brioche::{
     project::{
-        analyze::{analyze_project, ImportAnalysis, ProjectAnalysis, StaticQuery},
+        analyze::{analyze_project, ImportAnalysis, ProjectAnalysis, StaticInclude, StaticQuery},
         DependencyDefinition, ProjectDefinition, Version,
     },
     script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier},
@@ -285,7 +285,7 @@ async fn test_analyze_external_dep() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_analyze_static_brioche_get() -> anyhow::Result<()> {
+async fn test_analyze_static_brioche_include() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -293,10 +293,10 @@ async fn test_analyze_static_brioche_get() -> anyhow::Result<()> {
         .write_file(
             "myproject/project.bri",
             r#"
-                Brioche.get("foo");
+                Brioche.includeFile("foo");
 
                 export function () {
-                    return Brioche.get("bar");
+                    return Brioche.includeDirectory("bar");
                 }
             "#,
         )
@@ -309,12 +309,12 @@ async fn test_analyze_static_brioche_get() -> anyhow::Result<()> {
     assert_eq!(
         root_module.statics,
         BTreeSet::from_iter([
-            StaticQuery::Get {
+            StaticQuery::Include(StaticInclude::File {
                 path: "foo".to_string()
-            },
-            StaticQuery::Get {
+            }),
+            StaticQuery::Include(StaticInclude::Directory {
                 path: "bar".to_string()
-            },
+            }),
         ]),
     );
 
@@ -322,7 +322,7 @@ async fn test_analyze_static_brioche_get() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_analyze_static_brioche_get_invalid() -> anyhow::Result<()> {
+async fn test_analyze_static_brioche_include_invalid() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -330,7 +330,7 @@ async fn test_analyze_static_brioche_get_invalid() -> anyhow::Result<()> {
         .write_file(
             "myproject/project.bri",
             r#"
-                const x = Brioche.get(`${123}`);
+                const x = Brioche.includeFile(`${123}`);
 
                 export function () {
                     return x;

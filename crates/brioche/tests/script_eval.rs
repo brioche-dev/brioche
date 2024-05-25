@@ -256,7 +256,7 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_eval_brioche_get() -> anyhow::Result<()> {
+async fn test_eval_brioche_include_file() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -272,13 +272,14 @@ async fn test_eval_brioche_get() -> anyhow::Result<()> {
                 export const project = {};
 
                 globalThis.Brioche = {
-                    get: (path) => {
+                    includeFile: (path) => {
                         return {
                             briocheSerialize: async () => {
                                 return Deno.core.ops.op_brioche_get_static(
                                     import.meta.url,
                                     {
-                                        type: "get",
+                                        type: "include",
+                                        include: "file",
                                         path,
                                     },
                                 );
@@ -288,7 +289,7 @@ async fn test_eval_brioche_get() -> anyhow::Result<()> {
                 }
 
                 export default () => {
-                    return Brioche.get("./foo");
+                    return Brioche.includeFile("./foo");
                 };
             "#,
         )
@@ -301,6 +302,67 @@ async fn test_eval_brioche_get() -> anyhow::Result<()> {
         .value;
 
     assert_eq!(resolved, brioche_test::file(hello_world_blob, false).into());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_include_directory() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    let hello_world = "hello world!";
+    let hello_world_blob = brioche_test::blob(&brioche, hello_world).await;
+    context
+        .write_file("myproject/foo/hello.txt", hello_world)
+        .await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    includeDirectory: (path) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "include",
+                                        include: "directory",
+                                        path,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                }
+
+                export default () => {
+                    return Brioche.includeDirectory("./foo");
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
+
+    assert_eq!(
+        resolved,
+        brioche_test::dir(
+            &brioche,
+            [("hello.txt", brioche_test::file(hello_world_blob, false))]
+        )
+        .await
+        .into(),
+    );
 
     Ok(())
 }

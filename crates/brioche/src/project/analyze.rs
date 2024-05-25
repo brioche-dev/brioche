@@ -40,7 +40,24 @@ pub enum ImportAnalysis {
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum StaticQuery {
-    Get { path: String },
+    Include(StaticInclude),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "include")]
+#[serde(rename_all = "snake_case")]
+pub enum StaticInclude {
+    File { path: String },
+    Directory { path: String },
+}
+
+impl StaticInclude {
+    pub fn path(&self) -> &str {
+        match self {
+            StaticInclude::File { path } => path,
+            StaticInclude::Directory { path } => path,
+        }
+    }
 }
 
 pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<ProjectAnalysis> {
@@ -335,7 +352,7 @@ where
         .syntax()
         .descendants()
         .map(move |node| {
-            // Get a call expression (e.g. `Brioche.get(...)`)
+            // Get a call expression (e.g. `Brioche.includeFile(...)`)
             let Some(call_expr) = biome_js_syntax::JsCallExpression::cast(node) else {
                 return Ok(None);
             };
@@ -373,46 +390,64 @@ where
             };
             let callee_member_text = callee_member_text.text_trimmed();
 
-            if callee_member_text != "get" {
-                return Ok(None);
-            }
-
             let location = display_location(call_expr.syntax().text_range().start().into());
+            match callee_member_text {
+                "includeFile" => {
+                    // Get the arguments
+                    let args = call_expr.arguments()?.args();
+                    let args = args
+                        .iter()
+                        .map(arg_to_string_literal)
+                        .map(|arg| {
+                            arg.with_context(|| {
+                                format!("{location}: invalid arg to Brioche.includeFile")
+                            })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
 
-            // Get the arguments
-            let args = call_expr.arguments()?.args();
-            let args = args
-                .iter()
-                .map(|arg| {
-                    let arg = arg?;
-                    let arg = arg
-                        .as_any_js_expression()
-                        .context("spread arguments are not supported")?;
-                    let arg = arg
-                        .as_any_js_literal_expression()
-                        .context("argument must be a string literal")?;
-                    let arg = arg
-                        .as_js_string_literal_expression()
-                        .context("argument must be a string literal")?;
-                    let arg = arg
-                        .inner_string_text()
-                        .context("invalid string literal argument")?;
+                    // Ensure there's exactly one argument
+                    let include_path = match &*args {
+                        [path] => path.text(),
+                        _ => {
+                            anyhow::bail!(
+                                "{location}: Brioche.includeFile() must take exactly one argument",
+                            );
+                        }
+                    };
 
-                    anyhow::Ok(arg)
-                })
-                .map(|arg| arg.with_context(|| format!("{location}: invalid arg to Brioche.get")))
-                .collect::<anyhow::Result<Vec<_>>>()?;
-
-            let get_path = match &*args {
-                [path] => path.text(),
-                _ => {
-                    anyhow::bail!("{location}: Brioche.get() must take exactly one argument",);
+                    Ok(Some(StaticQuery::Include(StaticInclude::File {
+                        path: include_path.to_string(),
+                    })))
                 }
-            };
+                "includeDirectory" => {
+                    // Get the arguments
+                    let args = call_expr.arguments()?.args();
+                    let args = args
+                        .iter()
+                        .map(arg_to_string_literal)
+                        .map(|arg| {
+                            arg.with_context(|| {
+                                format!("{location}: invalid arg to Brioche.includeDirectory")
+                            })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
 
-            Ok(Some(StaticQuery::Get {
-                path: get_path.to_string(),
-            }))
+                    // Ensure there's exactly one argument
+                    let include_path = match &*args {
+                        [path] => path.text(),
+                        _ => {
+                            anyhow::bail!(
+                                "{location}: Brioche.includeDirectory() must take exactly one argument",
+                            );
+                        }
+                    };
+
+                    Ok(Some(StaticQuery::Include(StaticInclude::Directory {
+                        path: include_path.to_string(),
+                    })))
+                }
+                _ => Ok(None),
+            }
         })
         .filter_map(|result| result.transpose())
 }
@@ -519,4 +554,24 @@ fn expression_to_json(
             anyhow::bail!("unsupported expression");
         }
     }
+}
+
+fn arg_to_string_literal(
+    arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
+) -> anyhow::Result<biome_js_syntax::TokenText> {
+    let arg = arg?;
+    let arg = arg
+        .as_any_js_expression()
+        .context("spread arguments are not supported")?;
+    let arg = arg
+        .as_any_js_literal_expression()
+        .context("argument must be a string literal")?;
+    let arg = arg
+        .as_js_string_literal_expression()
+        .context("argument must be a string literal")?;
+    let arg = arg
+        .inner_string_text()
+        .context("invalid string literal argument")?;
+
+    anyhow::Ok(arg)
 }
