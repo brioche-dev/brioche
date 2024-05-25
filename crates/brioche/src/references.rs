@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    sync::Arc,
+};
 
 use anyhow::Context as _;
 use joinery::JoinableIterator as _;
@@ -6,7 +9,7 @@ use sqlx::{Acquire as _, Arguments as _};
 
 use crate::{
     blob::BlobHash,
-    project::ProjectHash,
+    project::{Project, ProjectHash, Projects},
     recipe::{
         Artifact, CompleteProcessRecipe, CompleteProcessTemplateComponent, ProcessRecipe,
         ProcessTemplateComponent, Recipe, RecipeHash,
@@ -43,6 +46,66 @@ pub async fn recipe_references(
 
         references.recipes.extend(recipes);
     }
+
+    Ok(())
+}
+
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProjectReferences {
+    pub recipes: RecipeReferences,
+    pub projects: HashMap<ProjectHash, Arc<Project>>,
+    pub loaded_blobs: HashMap<BlobHash, Arc<Vec<u8>>>,
+}
+
+pub async fn project_references(
+    brioche: &Brioche,
+    projects: &Projects,
+    references: &mut ProjectReferences,
+    project_hashes: impl IntoIterator<Item = ProjectHash>,
+) -> anyhow::Result<()> {
+    let mut unvisited = VecDeque::from_iter(project_hashes);
+    let mut new_recipes = HashSet::<RecipeHash>::new();
+
+    loop {
+        unvisited.retain(|project_hash| !references.projects.contains_key(project_hash));
+
+        let Some(project_hash) = unvisited.pop_front() else {
+            break;
+        };
+
+        let project = projects.project(project_hash)?;
+        let Project {
+            definition: _,
+            dependencies,
+            modules,
+            statics,
+        } = &*project;
+
+        references.projects.insert(project_hash, project.clone());
+        unvisited.extend(dependencies.values().copied());
+
+        for (module_path, module_file_id) in modules {
+            let blob_hash = module_file_id.as_blob_hash()?;
+
+            let contents = brioche
+                .vfs
+                .read(*module_file_id)?
+                .with_context(|| format!("failed to read module file {module_path}"))?;
+
+            references.loaded_blobs.insert(blob_hash, contents);
+        }
+
+        for (module_path, module_statics) in statics {
+            for static_recipe in module_statics.values() {
+                let static_recipe = static_recipe.with_context(|| {
+                    format!("static recipe not loaded for module {module_path}")
+                })?;
+                new_recipes.insert(static_recipe);
+            }
+        }
+    }
+
+    recipe_references(brioche, &mut references.recipes, new_recipes).await?;
 
     Ok(())
 }

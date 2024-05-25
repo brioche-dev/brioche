@@ -18,6 +18,7 @@ pub mod input;
 pub mod output;
 pub mod platform;
 pub mod project;
+pub mod publish;
 pub mod recipe;
 pub mod references;
 pub mod registry;
@@ -213,7 +214,7 @@ impl BriocheBuilder {
         // even if the overall build fails.
         let sync_enabled = self.sync;
         tokio::spawn(async move {
-            let mut sync_results = sync::SyncResults::default();
+            let mut sync_results = sync::SyncBakesResults::default();
 
             while let Some(sync_message) = sync_rx.recv().await {
                 match sync_message {
@@ -274,7 +275,7 @@ pub enum SyncMessage {
         artifact: recipe::Artifact,
     },
     Flush {
-        completed: tokio::sync::oneshot::Sender<sync::SyncResults>,
+        completed: tokio::sync::oneshot::Sender<sync::SyncBakesResults>,
     },
 }
 

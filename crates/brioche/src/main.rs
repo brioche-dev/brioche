@@ -1,10 +1,9 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{collections::HashMap, path::PathBuf, process::ExitCode, sync::Arc};
 
 use anyhow::Context as _;
 use brioche::{fs_utils, reporter::ConsoleReporterKind, sandbox::SandboxExecutionConfig};
 use clap::Parser;
 use human_repr::HumanDuration;
-use joinery::JoinableIterator as _;
 use tracing::Instrument;
 
 #[derive(Debug, Parser)]
@@ -240,7 +239,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                     completed: sync_complete_tx,
                 })
                 .await?;
-            let brioche::sync::SyncResults {
+            let brioche::sync::SyncBakesResults {
                 num_new_blobs,
                 num_new_recipes,
                 num_new_bakes,
@@ -569,27 +568,24 @@ async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
         }
     }
 
-    let project_listing = projects.export_listing(&brioche, project_hash)?;
-    let response = brioche
-        .registry_client
-        .publish_project(&project_listing)
-        .await?;
-
     guard.shutdown_console().await;
 
-    if response.is_no_op() {
+    let response =
+        brioche::publish::publish_project(&brioche, &projects, project_hash, true).await?;
+
+    if response.tags.is_empty() {
         println!("Project already up to date: {} {}", name, version);
     } else {
         println!("🚀 Published project {} {}", name, version);
-        println!("Project hash: {}", project_hash);
-        println!("Uploaded files: {}", response.new_files);
-        println!("Uploaded projects: {}", response.new_projects);
-
-        if response.tags.is_empty() {
-            let tags = response.tags.iter().map(|tag| &tag.name);
-            println!("Updated tags: {}", tags.join_with(", "));
-        } else {
-            println!("No updated tags");
+        println!();
+        println!("Updated tags:");
+        for tag in &response.tags {
+            let status = if tag.previous_hash.is_some() {
+                "updated"
+            } else {
+                "new"
+            };
+            println!("  {} {} ({status})", tag.name, tag.tag);
         }
     }
 
@@ -655,19 +651,39 @@ struct ExportProjectArgs {
 }
 
 async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
+    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ExportedProject {
+        project_hash: brioche::project::ProjectHash,
+        project: Arc<brioche::project::Project>,
+        referenced_projects: HashMap<brioche::project::ProjectHash, Arc<brioche::project::Project>>,
+    }
+
     let (reporter, mut guard) =
         brioche::reporter::start_console_reporter(ConsoleReporterKind::Plain)?;
 
     let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
     let projects = brioche::project::Projects::default();
     let project_hash = projects.load(&brioche, &args.project, true).await?;
-    let project_listing = projects
-        .export_listing(&brioche, project_hash)
-        .context("failed to export listing")?;
+    let project = projects.project(project_hash)?;
+    let mut project_references = brioche::references::ProjectReferences::default();
+    brioche::references::project_references(
+        &brioche,
+        &projects,
+        &mut project_references,
+        [project_hash],
+    )
+    .await?;
+
+    let exported = ExportedProject {
+        project,
+        project_hash,
+        referenced_projects: project_references.projects.clone(),
+    };
+    let serialized = serde_json::to_string_pretty(&exported)?;
 
     guard.shutdown_console().await;
 
-    let serialized = serde_json::to_string_pretty(&project_listing)?;
     println!("{}", serialized);
     Ok(())
 }

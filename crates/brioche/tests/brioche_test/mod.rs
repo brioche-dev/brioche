@@ -8,7 +8,7 @@ use std::{
 
 use brioche::{
     blob::{BlobHash, SaveBlobOptions},
-    project::{self, ProjectHash, ProjectListing, Projects},
+    project::{self, ProjectHash, Projects},
     recipe::{CreateDirectory, Directory, File, WithMeta},
     Brioche, BriocheBuilder,
 };
@@ -310,11 +310,7 @@ impl TestContext {
         Fut: std::future::Future<Output = ()>,
     {
         let (projects, project_hash, _) = self.temp_project(f).await;
-        let project_listing = projects
-            .export_listing(&self.brioche, project_hash)
-            .expect("failed to export project listing");
-
-        let mocks = self.mock_registry_listing(&project_listing);
+        let mocks = self.mock_registry_listing(&projects, project_hash).await;
         for mock in mocks {
             mock.create_async().await;
         }
@@ -339,13 +335,25 @@ impl TestContext {
     }
 
     #[must_use]
-    pub fn mock_registry_listing(
+    pub async fn mock_registry_listing(
         &mut self,
-        project_listing: &ProjectListing,
+        projects: &Projects,
+        project_hash: ProjectHash,
     ) -> Vec<mockito::Mock> {
+        let mut references = brioche::references::ProjectReferences::default();
+        brioche::references::project_references(
+            &self.brioche,
+            projects,
+            &mut references,
+            [project_hash],
+        )
+        .await
+        .unwrap();
+
         let mut mocks = vec![];
 
-        for (subproject_hash, subproject) in &project_listing.projects {
+        for (subproject_hash, subproject) in &references.projects {
+            tracing::info!("mocking subproject {subproject_hash}");
             let mock = self
                 .registry_server
                 .mock("GET", &*format!("/v0/projects/{subproject_hash}"))
@@ -354,13 +362,35 @@ impl TestContext {
 
             mocks.push(mock);
         }
-        for (file_id, file_contents) in &project_listing.files {
-            let file_contents_zstd = zstd::encode_all(&**file_contents, 0).unwrap();
+        for (blob_hash, blob_contents) in &references.loaded_blobs {
+            let blob_contents_zstd = zstd::encode_all(&***blob_contents, 0).unwrap();
             let mock = self
                 .registry_server
-                .mock("GET", &*format!("/v0/blobs/{file_id}.zst"))
+                .mock("GET", &*format!("/v0/blobs/{blob_hash}.zst"))
                 .with_header("Content-Type", "application/octet-stream")
-                .with_body(file_contents_zstd);
+                .with_body(blob_contents_zstd);
+
+            mocks.push(mock);
+        }
+        for blob_hash in &references.recipes.blobs {
+            let blob_path = brioche::blob::local_blob_path(&self.brioche, *blob_hash);
+            let blob_contents = tokio::fs::read(&blob_path).await.unwrap();
+            let blob_contents_zstd = zstd::encode_all(&*blob_contents, 0).unwrap();
+            let mock = self
+                .registry_server
+                .mock("GET", &*format!("/v0/blobs/{blob_hash}.zst"))
+                .with_header("Content-Type", "application/octet-stream")
+                .with_body(blob_contents_zstd);
+
+            mocks.push(mock);
+        }
+        for (recipe_hash, recipe) in &references.recipes.recipes {
+            let recipe_json = serde_json::to_string(recipe).unwrap();
+            let mock = self
+                .registry_server
+                .mock("GET", &*format!("/v0/recipes/{recipe_hash}"))
+                .with_header("Content-Type", "application/json")
+                .with_body(recipe_json);
 
             mocks.push(mock);
         }
