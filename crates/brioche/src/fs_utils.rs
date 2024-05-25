@@ -21,13 +21,16 @@ pub fn logical_path(path: &Path) -> PathBuf {
     PathBuf::from_iter(components)
 }
 
-pub fn logical_path_bytes(path: &[u8]) -> Vec<u8> {
+pub fn logical_path_bytes(path: &[u8]) -> anyhow::Result<Vec<u8>> {
     let mut components = vec![];
     for component in path.split_str("/") {
         match component {
             b"" | b"." => {}
             b".." => {
-                components.pop();
+                let popped = components.pop();
+                if popped.is_none() {
+                    anyhow::bail!("path {:?} escapes top-level", bstr::BStr::new(path));
+                }
             }
             normal => {
                 components.push(normal);
@@ -35,7 +38,7 @@ pub fn logical_path_bytes(path: &[u8]) -> Vec<u8> {
         }
     }
 
-    bstr::join("/", components)
+    Ok(bstr::join("/", components))
 }
 
 pub fn is_subpath(path: &RelativePath) -> bool {

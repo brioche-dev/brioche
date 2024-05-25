@@ -114,7 +114,9 @@ pub async fn bake_unarchive(
             };
 
             let entry_path = crate::fs_utils::logical_path_bytes(&entry_path);
-
+            let Ok(entry_path) = entry_path else {
+                continue;
+            };
             if entry_path.is_empty() {
                 continue;
             }
