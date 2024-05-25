@@ -115,6 +115,21 @@ async fn get(
         .unwrap()
 }
 
+fn default_process() -> ProcessRecipe {
+    ProcessRecipe {
+        command: ProcessTemplate { components: vec![] },
+        args: vec![],
+        env: BTreeMap::new(),
+        work_dir: Box::new(WithMeta::without_meta(Recipe::Directory(
+            Directory::default(),
+        ))),
+        output_scaffold: None,
+        platform: current_platform(),
+        is_unsafe: false,
+        networking: false,
+    }
+}
+
 // HACK: This semaphore is used to ensure only one process test runs at a time.
 // For some reason, running all these tests concurrently causes the method
 // `unshare::run::Command.spawn()` to hang (this happens about 5-10% of the
@@ -142,11 +157,7 @@ async fn test_bake_process() -> anyhow::Result<()> {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_eq!(
@@ -165,12 +176,7 @@ async fn test_bake_process_fail_on_no_output() -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("# ... doing nothing ...")],
-        env: BTreeMap::new(),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -188,14 +194,10 @@ async fn test_bake_process_scaffold_output() -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("# ... doing nothing ...")],
-        env: BTreeMap::new(),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: Some(Box::new(WithMeta::without_meta(brioche_test::lazy_file(
             hello_blob, false,
         )))),
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_eq!(
@@ -221,13 +223,10 @@ async fn test_bake_process_scaffold_and_modify_output() -> anyhow::Result<()> {
             tpl(r#"echo -n hello > "$BRIOCHE_OUTPUT/hi.txt""#),
         ],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
         output_scaffold: Some(Box::new(WithMeta::without_meta(
             brioche_test::lazy_dir_empty(),
         ))),
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_eq!(
@@ -255,11 +254,7 @@ async fn test_bake_process_fail_on_non_zero_exit() -> anyhow::Result<()> {
             tpl("echo -n hello > $BRIOCHE_OUTPUT && exit 1"),
         ],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -276,11 +271,7 @@ async fn test_bake_process_command_no_path() -> anyhow::Result<()> {
         command: tpl("env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -303,11 +294,7 @@ async fn test_bake_process_command_path() -> anyhow::Result<()> {
             ("BRIOCHE_OUTPUT".into(), output_path()),
             ("PATH".into(), tpl("/usr/bin")),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -330,11 +317,7 @@ async fn test_bake_process_with_utils() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
@@ -366,11 +349,7 @@ async fn test_bake_process_with_readonly_contents() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
@@ -397,11 +376,7 @@ async fn test_bake_process_cached() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     // Even though the process is non-deterministic, the result of the first
@@ -432,11 +407,7 @@ async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     let empty_dir_1_baked = bake_without_meta(&brioche, empty_dir_1.clone()).await?;
@@ -458,11 +429,7 @@ async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
             ),
             ("input".into(), template_input(empty_dir_1)),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     let process_random_2 = Recipe::Process(ProcessRecipe {
@@ -480,11 +447,7 @@ async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
             ),
             ("input".into(), template_input(empty_dir_2)),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     // Both processes are different, but their inputs bake to identical
@@ -514,11 +477,7 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     let empty_dir_1_baked = bake_without_meta(&brioche, empty_dir_1.clone()).await?;
@@ -540,11 +499,7 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
             ),
             ("input".into(), template_input(empty_dir_1)),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     let process_random_2 = Recipe::Process(ProcessRecipe {
@@ -562,11 +517,7 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
             ),
             ("input".into(), template_input(empty_dir_2)),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     let process_random_1_proxy =
@@ -636,11 +587,7 @@ async fn test_bake_process_cache_busted() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     };
     let mut process_random_2 = process_random_1.clone();
     process_random_2
@@ -696,11 +643,7 @@ async fn test_bake_process_custom_env_vars() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -736,11 +679,7 @@ async fn test_bake_process_no_default_env_vars() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -778,10 +717,7 @@ async fn test_bake_process_starts_with_work_dir_contents() -> anyhow::Result<()>
             "file.txt",
             brioche_test::lazy_file(hello_blob, false),
         )]))),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -823,10 +759,7 @@ async fn test_bake_process_edit_work_dir_contents() -> anyhow::Result<()> {
                 brioche_test::lazy_dir([("other.txt", brioche_test::lazy_file(hello_blob, false))]),
             ),
         ]))),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -858,11 +791,7 @@ async fn test_bake_process_has_resource_dir() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -935,11 +864,7 @@ async fn test_bake_process_contains_all_resources() -> anyhow::Result<()> {
             ("fizz".into(), template_input(fizz.into())),
             ("buzz".into(), template_input(buzz.into())),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     };
 
     bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -994,11 +919,7 @@ async fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
             ),
             ("dummy_packed".into(), template_input(dummy_packed.into())),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     };
 
     let result = bake_without_meta(&brioche, Recipe::Process(process)).await?;
@@ -1044,11 +965,8 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
         platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, no_unsafety).await, Ok(_));
@@ -1057,11 +975,9 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
         is_unsafe: false,
         networking: true,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, needs_unsafe).await, Err(_));
@@ -1070,11 +986,9 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
         is_unsafe: true,
         networking: false,
+        ..default_process()
     });
 
     assert_matches!(
@@ -1086,11 +1000,9 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
         is_unsafe: true,
         networking: true,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, necessary_unsafe).await, Ok(_));
@@ -1131,11 +1043,9 @@ async fn test_bake_process_networking_disabled() -> anyhow::Result<()> {
             ),
             ("URL".into(), tpl(server.url())),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
         is_unsafe: false,
         networking: false,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
@@ -1178,11 +1088,9 @@ async fn test_bake_process_networking_enabled() -> anyhow::Result<()> {
             ),
             ("URL".into(), tpl(server.url())),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
         is_unsafe: true,
         networking: true,
+        ..default_process()
     });
 
     assert_eq!(
@@ -1220,11 +1128,9 @@ async fn test_bake_process_networking_enabled_dns() -> anyhow::Result<()> {
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
-        output_scaffold: None,
-        platform: current_platform(),
         is_unsafe: true,
         networking: true,
+        ..default_process()
     });
 
     assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
