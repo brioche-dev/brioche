@@ -9,7 +9,10 @@ use anyhow::Context as _;
 use deno_core::OpState;
 use specifier::BriocheModuleSpecifier;
 
-use crate::{bake::BakeScope, project::analyze::StaticQuery};
+use crate::{
+    bake::BakeScope,
+    project::analyze::{StaticInclude, StaticQuery},
+};
 
 use super::{
     blob::BlobHash,
@@ -255,8 +258,11 @@ pub async fn op_brioche_get_static(
     let recipe_hash = projects
         .get_static(&specifier, &static_)?
         .with_context(|| match static_ {
-            StaticQuery::Get { path } => {
-                format!("failed to resolve Brioche.get({path:?}) from {specifier}, was the path passed in as a string literal?")
+            StaticQuery::Include(StaticInclude::File { path }) => {
+                format!("failed to resolve Brioche.includeFile({path:?}) from {specifier}, was the path passed in as a string literal?")
+            }
+            StaticQuery::Include(StaticInclude::Directory { path }) => {
+                format!("failed to resolve Brioche.includeDirectory({path:?}) from {specifier}, was the path passed in as a string literal?")
             }
         })?;
     let recipe = crate::recipe::get_recipe(&brioche, recipe_hash).await?;

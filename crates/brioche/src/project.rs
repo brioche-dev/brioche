@@ -9,7 +9,10 @@ use anyhow::Context as _;
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 use tokio::io::AsyncWriteExt as _;
 
-use crate::{encoding::TickEncoded, recipe::RecipeHash};
+use crate::{
+    encoding::TickEncoded,
+    recipe::{Artifact, RecipeHash},
+};
 
 use super::{vfs::FileId, Brioche};
 
@@ -1111,12 +1114,12 @@ async fn resolve_static(
     static_: &analyze::StaticQuery,
 ) -> anyhow::Result<RecipeHash> {
     match static_ {
-        analyze::StaticQuery::Get { path } => {
+        analyze::StaticQuery::Include(include) => {
             let module_path = module.project_subpath.to_path(project_root);
             let module_dir_path = module_path
                 .parent()
                 .context("no parent path for module path")?;
-            let input_path = module_dir_path.join(path);
+            let input_path = module_dir_path.join(include.path());
 
             let canonical_project_root =
                 tokio::fs::canonicalize(project_root)
@@ -1135,7 +1138,8 @@ async fn resolve_static(
                     })?;
             anyhow::ensure!(
                 canonical_input_path.starts_with(&canonical_project_root),
-                "input path {path:?} escapes project root {}",
+                "input path {} escapes project root {}",
+                include.path(),
                 project_root.display(),
             );
 
@@ -1149,6 +1153,18 @@ async fn resolve_static(
                 },
             )
             .await?;
+            match (&include, &artifact.value) {
+                (analyze::StaticInclude::File { .. }, Artifact::File(_))
+                | (analyze::StaticInclude::Directory { .. }, Artifact::Directory(_)) => {
+                    // Valid
+                }
+                (analyze::StaticInclude::File { path }, _) => {
+                    anyhow::bail!("expected path {path:?} to be a file");
+                }
+                (analyze::StaticInclude::Directory { path }, _) => {
+                    anyhow::bail!("expected path {path:?} to be a directory");
+                }
+            }
             let artifact_hash = artifact.hash();
 
             let recipe = crate::recipe::Recipe::from(artifact.value);
