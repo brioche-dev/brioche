@@ -130,28 +130,86 @@ fn default_process() -> ProcessRecipe {
     }
 }
 
-// HACK: This semaphore is used to ensure only one process test runs at a time.
-// For some reason, running all these tests concurrently causes the method
-// `unshare::run::Command.spawn()` to hang (this happens about 5-10% of the
-// time when running `cargo test 'test_bake_process'`). This is most likely
-// a bug in the `unshare` crate. Using a semaphore at the test level seemed to
-// be the only effective remedy-- even using a semaphore before calling the
-// function that uses `unshare` somehow didn't fix it!
-//
-// In practice, this bug really only affects tests, and possibly only when
-// multiple `Brioche` instances are used concurrently. In binary releases,
-// we only ever have one `Brioche` instance, and we additionally use
-// `unshare` through a child process, so it seems like we're unlikely to hit
-// the same bug.
-static TEST_SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+macro_rules! run_test {
+    ($brioche_test:expr, $test:ident) => {
+        (
+            stringify!($test),
+            $test(&($brioche_test).0, &($brioche_test).1).await,
+        )
+    };
+}
 
+// NOTE: Rather than having each test case be a separate test, we use one
+// test to run lots of test cases. This is for two reasons: first, there's some
+// issue when running multiple processes that causes a deadlock (this would be
+// solvable with a semaphore / mutex, but wouldn't be any faster). Second, many
+// of these tests need to access resources from the internet, and in separate
+// tests these would need to be downloaded separately. Using one test with
+// test cases that all share one `brioche::Brioche` instance speeds up the
+// test cases drastically.
 #[tokio::test]
 async fn test_bake_process() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let brioche_test = brioche_test::brioche_test().await;
+    let results = [
+        run_test!(brioche_test, test_bake_process_simple),
+        run_test!(brioche_test, test_bake_process_fail_on_no_output),
+        run_test!(brioche_test, test_bake_process_scaffold_output),
+        run_test!(brioche_test, test_bake_process_scaffold_and_modify_output),
+        run_test!(brioche_test, test_bake_process_fail_on_non_zero_exit),
+        run_test!(brioche_test, test_bake_process_command_no_path),
+        run_test!(brioche_test, test_bake_process_command_path),
+        run_test!(brioche_test, test_bake_process_with_utils),
+        run_test!(brioche_test, test_bake_process_with_readonly_contents),
+        run_test!(brioche_test, test_bake_process_cached),
+        run_test!(brioche_test, test_bake_process_cached_equivalent_inputs),
+        run_test!(
+            brioche_test,
+            test_bake_process_cached_equivalent_inputs_parallel
+        ),
+        run_test!(brioche_test, test_bake_process_cache_busted),
+        run_test!(brioche_test, test_bake_process_custom_env_vars),
+        run_test!(brioche_test, test_bake_process_no_default_env_vars),
+        run_test!(
+            brioche_test,
+            test_bake_process_starts_with_work_dir_contents
+        ),
+        run_test!(brioche_test, test_bake_process_edit_work_dir_contents),
+        run_test!(brioche_test, test_bake_process_has_resource_dir),
+        run_test!(brioche_test, test_bake_process_contains_all_resources),
+        run_test!(brioche_test, test_bake_process_output_with_resources),
+        run_test!(brioche_test, test_bake_process_unsafe_validation),
+        run_test!(brioche_test, test_bake_process_networking_disabled),
+        run_test!(brioche_test, test_bake_process_networking_enabled),
+        run_test!(brioche_test, test_bake_process_networking_enabled_dns),
+    ];
 
+    let mut failures = 0;
+    for (name, result) in results {
+        match result {
+            Ok(_) => println!("{}: ok", name),
+            Err(err) => {
+                println!("{}: failed: {:#}", name, err);
+                failures += 1;
+            }
+        }
+    }
+
+    if failures > 0 {
+        anyhow::bail!(
+            "{failures} test{s} failed",
+            s = if failures == 1 { "" } else { "s" }
+        );
+    }
+
+    Ok(())
+}
+
+async fn test_bake_process_simple(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
+    let hello_blob = brioche_test::blob(brioche, hello).await;
 
     let hello_process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -161,35 +219,33 @@ async fn test_bake_process() -> anyhow::Result<()> {
     });
 
     assert_eq!(
-        bake_without_meta(&brioche, hello_process).await?,
+        bake_without_meta(brioche, hello_process).await?,
         brioche_test::file(hello_blob, false),
     );
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_fail_on_no_output() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_fail_on_no_output(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("# ... doing nothing ...")],
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
+    assert_matches!(bake_without_meta(brioche, process).await, Err(_));
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_scaffold_output() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
-    let hello_blob = brioche_test::blob(&brioche, "hello").await;
+async fn test_bake_process_scaffold_output(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
+    let hello_blob = brioche_test::blob(brioche, "hello").await;
 
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -201,19 +257,18 @@ async fn test_bake_process_scaffold_output() -> anyhow::Result<()> {
     });
 
     assert_eq!(
-        bake_without_meta(&brioche, process).await?,
+        bake_without_meta(brioche, process).await?,
         brioche_test::file(hello_blob, false)
     );
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_scaffold_and_modify_output() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
-    let hello_blob = brioche_test::blob(&brioche, "hello").await;
+async fn test_bake_process_scaffold_and_modify_output(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
+    let hello_blob = brioche_test::blob(brioche, "hello").await;
 
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -230,9 +285,9 @@ async fn test_bake_process_scaffold_and_modify_output() -> anyhow::Result<()> {
     });
 
     assert_eq!(
-        bake_without_meta(&brioche, process).await?,
+        bake_without_meta(brioche, process).await?,
         brioche_test::dir(
-            &brioche,
+            brioche,
             [("hi.txt", brioche_test::file(hello_blob, false)),]
         )
         .await
@@ -241,11 +296,10 @@ async fn test_bake_process_scaffold_and_modify_output() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_fail_on_non_zero_exit() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_fail_on_non_zero_exit(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![
@@ -257,16 +311,15 @@ async fn test_bake_process_fail_on_non_zero_exit() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
+    assert_matches!(bake_without_meta(brioche, process).await, Err(_));
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_command_no_path() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_command_no_path(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
@@ -274,7 +327,7 @@ async fn test_bake_process_command_no_path() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
+    assert_matches!(bake_without_meta(brioche, process).await, Err(_));
 
     Ok(())
 }
@@ -282,11 +335,10 @@ async fn test_bake_process_command_no_path() -> anyhow::Result<()> {
 // For now, the `command` for a process is not resolved using `$PATH`. This
 // is how `unshare` works, since it uses `execve` to run the command rather
 // than `execvpe`
-#[tokio::test]
-async fn test_bake_process_command_path() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_command_path(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
@@ -297,16 +349,15 @@ async fn test_bake_process_command_path() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
+    assert_matches!(bake_without_meta(brioche, process).await, Err(_));
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_with_utils() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_with_utils(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("touch $BRIOCHE_OUTPUT")],
@@ -320,16 +371,15 @@ async fn test_bake_process_with_utils() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+    assert_matches!(bake_without_meta(brioche, process).await, Ok(_));
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_with_readonly_contents() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_with_readonly_contents(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![
@@ -352,16 +402,15 @@ async fn test_bake_process_with_readonly_contents() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+    assert_matches!(bake_without_meta(brioche, process).await, Ok(_));
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_cached() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_cached(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process_random = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![
@@ -383,19 +432,18 @@ async fn test_bake_process_cached() -> anyhow::Result<()> {
     // execution should be cached. So, even if we re-evaluate the process,
     // the result should be cached.
 
-    let random_1 = bake_without_meta(&brioche, process_random.clone()).await?;
-    let random_2 = bake_without_meta(&brioche, process_random).await?;
+    let random_1 = bake_without_meta(brioche, process_random.clone()).await?;
+    let random_2 = bake_without_meta(brioche, process_random).await?;
 
     assert_eq!(random_1, random_2);
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_cached_equivalent_inputs(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let empty_dir_1 = brioche_test::lazy_dir_empty();
     let empty_dir_2 = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -410,8 +458,8 @@ async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    let empty_dir_1_baked = bake_without_meta(&brioche, empty_dir_1.clone()).await?;
-    let empty_dir_2_baked = bake_without_meta(&brioche, empty_dir_2.clone()).await?;
+    let empty_dir_1_baked = bake_without_meta(brioche, empty_dir_1.clone()).await?;
+    let empty_dir_2_baked = bake_without_meta(brioche, empty_dir_2.clone()).await?;
     assert_eq!(empty_dir_1_baked, empty_dir_2_baked);
 
     let process_random_1 = Recipe::Process(ProcessRecipe {
@@ -453,19 +501,18 @@ async fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
     // Both processes are different, but their inputs bake to identical
     // artifacts, so this should be a cache hit.
 
-    let random_1 = bake_without_meta(&brioche, process_random_1).await?;
-    let random_2 = bake_without_meta(&brioche, process_random_2).await?;
+    let random_1 = bake_without_meta(brioche, process_random_1).await?;
+    let random_2 = bake_without_meta(brioche, process_random_2).await?;
 
     assert_eq!(random_1, random_2);
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_cached_equivalent_inputs_parallel(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let empty_dir_1 = brioche_test::lazy_dir_empty();
     let empty_dir_2 = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -480,8 +527,8 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
         ..default_process()
     });
 
-    let empty_dir_1_baked = bake_without_meta(&brioche, empty_dir_1.clone()).await?;
-    let empty_dir_2_baked = bake_without_meta(&brioche, empty_dir_2.clone()).await?;
+    let empty_dir_1_baked = bake_without_meta(brioche, empty_dir_1.clone()).await?;
+    let empty_dir_2_baked = bake_without_meta(brioche, empty_dir_2.clone()).await?;
     assert_eq!(empty_dir_1_baked, empty_dir_2_baked);
 
     let process_random_1 = Recipe::Process(ProcessRecipe {
@@ -521,9 +568,9 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
     });
 
     let process_random_1_proxy =
-        brioche::bake::create_proxy(&brioche, process_random_1.clone()).await?;
+        brioche::bake::create_proxy(brioche, process_random_1.clone()).await?;
     let process_random_2_proxy =
-        brioche::bake::create_proxy(&brioche, process_random_2.clone()).await?;
+        brioche::bake::create_proxy(brioche, process_random_2.clone()).await?;
     let processes_dir = brioche_test::lazy_dir([
         ("process1.txt", process_random_1.clone()),
         ("process2.txt", process_random_2.clone()),
@@ -542,20 +589,20 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
     // Both processes are different, but their inputs bake to identical
     // artifacts, so this should be a cache hit.
 
-    let baked = bake_without_meta(&brioche, merged).await?;
+    let baked = bake_without_meta(brioche, merged).await?;
     let Artifact::Directory(baked) = baked else {
         panic!("expected directory");
     };
 
-    let baked_a1 = get(&brioche, &baked, "a/process1.txt").await;
-    let baked_a1p = get(&brioche, &baked, "a/process1p.txt").await;
-    let baked_b1 = get(&brioche, &baked, "b/process1.txt").await;
-    let baked_b1p = get(&brioche, &baked, "b/process1p.txt").await;
+    let baked_a1 = get(brioche, &baked, "a/process1.txt").await;
+    let baked_a1p = get(brioche, &baked, "a/process1p.txt").await;
+    let baked_b1 = get(brioche, &baked, "b/process1.txt").await;
+    let baked_b1p = get(brioche, &baked, "b/process1p.txt").await;
 
-    let baked_a2 = get(&brioche, &baked, "a/process2.txt").await;
-    let baked_a2p = get(&brioche, &baked, "a/process2p.txt").await;
-    let baked_b2 = get(&brioche, &baked, "b/process2.txt").await;
-    let baked_b2p = get(&brioche, &baked, "b/process2p.txt").await;
+    let baked_a2 = get(brioche, &baked, "a/process2.txt").await;
+    let baked_a2p = get(brioche, &baked, "a/process2p.txt").await;
+    let baked_b2 = get(brioche, &baked, "b/process2.txt").await;
+    let baked_b2p = get(brioche, &baked, "b/process2p.txt").await;
 
     assert_eq!(baked_a1, baked_a1p);
     assert_eq!(baked_a1, baked_b1);
@@ -568,11 +615,10 @@ async fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_cache_busted() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_cache_busted(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process_random_1 = ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![
@@ -597,19 +643,18 @@ async fn test_bake_process_cache_busted() -> anyhow::Result<()> {
     // Since the process is different due to a new env var, the cached result
     // from the first execution should not be used.
 
-    let random_1 = bake_without_meta(&brioche, Recipe::Process(process_random_1)).await?;
-    let random_2 = bake_without_meta(&brioche, Recipe::Process(process_random_2)).await?;
+    let random_1 = bake_without_meta(brioche, Recipe::Process(process_random_1)).await?;
+    let random_2 = bake_without_meta(brioche, Recipe::Process(process_random_2)).await?;
 
     assert_ne!(random_1, random_2);
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_custom_env_vars() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_custom_env_vars(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![
@@ -646,16 +691,15 @@ async fn test_bake_process_custom_env_vars() -> anyhow::Result<()> {
         ..default_process()
     };
 
-    bake_without_meta(&brioche, Recipe::Process(process)).await?;
+    bake_without_meta(brioche, Recipe::Process(process)).await?;
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_no_default_env_vars() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_no_default_env_vars(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![
@@ -682,17 +726,16 @@ async fn test_bake_process_no_default_env_vars() -> anyhow::Result<()> {
         ..default_process()
     };
 
-    bake_without_meta(&brioche, Recipe::Process(process)).await?;
+    bake_without_meta(brioche, Recipe::Process(process)).await?;
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_starts_with_work_dir_contents() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
-    let hello_blob = brioche_test::blob(&brioche, b"hello").await;
+async fn test_bake_process_starts_with_work_dir_contents(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
+    let hello_blob = brioche_test::blob(brioche, b"hello").await;
 
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -720,17 +763,16 @@ async fn test_bake_process_starts_with_work_dir_contents() -> anyhow::Result<()>
         ..default_process()
     };
 
-    bake_without_meta(&brioche, Recipe::Process(process)).await?;
+    bake_without_meta(brioche, Recipe::Process(process)).await?;
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_edit_work_dir_contents() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
-    let hello_blob = brioche_test::blob(&brioche, b"hello").await;
+async fn test_bake_process_edit_work_dir_contents(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
+    let hello_blob = brioche_test::blob(brioche, b"hello").await;
 
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -762,16 +804,15 @@ async fn test_bake_process_edit_work_dir_contents() -> anyhow::Result<()> {
         ..default_process()
     };
 
-    bake_without_meta(&brioche, Recipe::Process(process)).await?;
+    bake_without_meta(brioche, Recipe::Process(process)).await?;
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_has_resource_dir() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_has_resource_dir(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![
@@ -794,31 +835,27 @@ async fn test_bake_process_has_resource_dir() -> anyhow::Result<()> {
         ..default_process()
     };
 
-    bake_without_meta(&brioche, Recipe::Process(process)).await?;
+    bake_without_meta(brioche, Recipe::Process(process)).await?;
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_contains_all_resources() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_contains_all_resources(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let fizz = brioche_test::dir(
-        &brioche,
+        brioche,
         [(
             "file.txt",
             brioche_test::file_with_resources(
-                brioche_test::blob(&brioche, b"foo").await,
+                brioche_test::blob(brioche, b"foo").await,
                 false,
                 brioche_test::dir_value(
-                    &brioche,
+                    brioche,
                     [(
                         "foo/bar.txt",
-                        brioche_test::file(
-                            brioche_test::blob(&brioche, b"resource a").await,
-                            false,
-                        ),
+                        brioche_test::file(brioche_test::blob(brioche, b"resource a").await, false),
                     )],
                 )
                 .await,
@@ -828,13 +865,13 @@ async fn test_bake_process_contains_all_resources() -> anyhow::Result<()> {
     .await;
 
     let buzz = brioche_test::file_with_resources(
-        brioche_test::blob(&brioche, b"bar").await,
+        brioche_test::blob(brioche, b"bar").await,
         false,
         brioche_test::dir_value(
-            &brioche,
+            brioche,
             [(
                 "foo/baz.txt",
-                brioche_test::file(brioche_test::blob(&brioche, b"resource b").await, false),
+                brioche_test::file(brioche_test::blob(brioche, b"resource b").await, false),
             )],
         )
         .await,
@@ -867,16 +904,15 @@ async fn test_bake_process_contains_all_resources() -> anyhow::Result<()> {
         ..default_process()
     };
 
-    bake_without_meta(&brioche, Recipe::Process(process)).await?;
+    bake_without_meta(brioche, Recipe::Process(process)).await?;
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_output_with_resources(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     // Create a dummy file with pack metadata. This attaches resources
     // to the file when it gets put into the output of a process.
     let dummy_packed_contents = "dummy_packed".to_string();
@@ -892,7 +928,7 @@ async fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
         },
     )?;
 
-    let dummy_packed_blob = brioche_test::blob(&brioche, &dummy_packed_contents).await;
+    let dummy_packed_blob = brioche_test::blob(brioche, &dummy_packed_contents).await;
     let dummy_packed = brioche_test::file(dummy_packed_blob, false);
 
     let process = ProcessRecipe {
@@ -922,12 +958,12 @@ async fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
         ..default_process()
     };
 
-    let result = bake_without_meta(&brioche, Recipe::Process(process)).await?;
+    let result = bake_without_meta(brioche, Recipe::Process(process)).await?;
     let Artifact::Directory(dir) = result else {
         panic!("expected directory");
     };
 
-    let program = get(&brioche, &dir, "bin/program").await;
+    let program = get(brioche, &dir, "bin/program").await;
     let Artifact::File(File { resources, .. }) = &program.value else {
         panic!("expected file");
     };
@@ -935,18 +971,15 @@ async fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
     assert_eq!(
         *resources,
         brioche_test::dir_value(
-            &brioche,
+            brioche,
             [
                 (
                     "program",
-                    brioche_test::file(brioche_test::blob(&brioche, b"dummy_program").await, false)
+                    brioche_test::file(brioche_test::blob(brioche, b"dummy_program").await, false)
                 ),
                 (
                     "ld-linux.so",
-                    brioche_test::file(
-                        brioche_test::blob(&brioche, b"dummy_ld_linux").await,
-                        false
-                    )
+                    brioche_test::file(brioche_test::blob(brioche, b"dummy_ld_linux").await, false)
                 ),
             ]
         )
@@ -956,11 +989,10 @@ async fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_unsafe_validation(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let no_unsafety = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("echo -n hello > $BRIOCHE_OUTPUT")],
@@ -969,7 +1001,7 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, no_unsafety).await, Ok(_));
+    assert_matches!(bake_without_meta(brioche, no_unsafety).await, Ok(_));
 
     let needs_unsafe = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -980,7 +1012,7 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, needs_unsafe).await, Err(_));
+    assert_matches!(bake_without_meta(brioche, needs_unsafe).await, Err(_));
 
     let unnecessary_unsafe = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -991,10 +1023,7 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(
-        bake_without_meta(&brioche, unnecessary_unsafe).await,
-        Err(_)
-    );
+    assert_matches!(bake_without_meta(brioche, unnecessary_unsafe).await, Err(_));
 
     let necessary_unsafe = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -1005,16 +1034,15 @@ async fn test_bake_process_unsafe_validation() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, necessary_unsafe).await, Ok(_));
+    assert_matches!(bake_without_meta(brioche, necessary_unsafe).await, Ok(_));
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_networking_disabled() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_networking_disabled(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let mut server = mockito::Server::new();
     let hello_endpoint = server
         .mock("GET", "/file.txt")
@@ -1048,18 +1076,17 @@ async fn test_bake_process_networking_disabled() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
+    assert_matches!(bake_without_meta(brioche, process).await, Err(_));
 
     hello_endpoint.assert();
 
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_networking_enabled() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_networking_enabled(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let mut server = mockito::Server::new();
     let hello_endpoint = server
         .mock("GET", "/file.txt")
@@ -1094,8 +1121,8 @@ async fn test_bake_process_networking_enabled() -> anyhow::Result<()> {
     });
 
     assert_eq!(
-        bake_without_meta(&brioche, process).await?,
-        brioche_test::file(brioche_test::blob(&brioche, "hello").await, false),
+        bake_without_meta(brioche, process).await?,
+        brioche_test::file(brioche_test::blob(brioche, "hello").await, false),
     );
 
     hello_endpoint.assert();
@@ -1103,11 +1130,10 @@ async fn test_bake_process_networking_enabled() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_bake_process_networking_enabled_dns() -> anyhow::Result<()> {
-    let _guard = TEST_SEMAPHORE.acquire().await.unwrap();
-    let (brioche, _context) = brioche_test::brioche_test().await;
-
+async fn test_bake_process_networking_enabled_dns(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![
@@ -1133,7 +1159,7 @@ async fn test_bake_process_networking_enabled_dns() -> anyhow::Result<()> {
         ..default_process()
     });
 
-    assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+    assert_matches!(bake_without_meta(brioche, process).await, Ok(_));
 
     Ok(())
 }
