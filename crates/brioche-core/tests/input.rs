@@ -1,6 +1,6 @@
 use std::{os::unix::prelude::PermissionsExt as _, path::Path, sync::Arc};
 
-use brioche::{
+use brioche_core::{
     recipe::{Artifact, Meta},
     Brioche,
 };
@@ -13,9 +13,9 @@ async fn create_input(
     input_path: &Path,
     remove_input: bool,
 ) -> anyhow::Result<Artifact> {
-    let artifact = brioche::input::create_input(
+    let artifact = brioche_core::input::create_input(
         brioche,
-        brioche::input::InputOptions {
+        brioche_core::input::InputOptions {
             input_path,
             remove_input,
             resources_dir: None,
@@ -33,9 +33,9 @@ async fn create_input_with_resources(
     resources_dir: &Path,
     remove_input: bool,
 ) -> anyhow::Result<Artifact> {
-    let artifact = brioche::input::create_input(
+    let artifact = brioche_core::input::create_input(
         brioche,
-        brioche::input::InputOptions {
+        brioche_core::input::InputOptions {
             input_path,
             remove_input,
             resources_dir: Some(resources_dir),

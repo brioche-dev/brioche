@@ -31,15 +31,15 @@ jobs:
         run: cargo clippy --all -- -Dwarnings
       - name: Install runtime distribution packages
         run: |
-          cd crates/brioche/runtime
+          cd crates/brioche-core/runtime
           npm install
       - name: Check runtime distribution types
         run: |
-          cd crates/brioche/runtime
+          cd crates/brioche-core/runtime
           npm run check
       - name: Check runtime distribution is up to date
         run: |
-          cd crates/brioche/runtime
+          cd crates/brioche-core/runtime
           npm install
           npm run build
           if [ -n "$(git status --porcelain)" ]; then

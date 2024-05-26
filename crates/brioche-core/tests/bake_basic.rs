@@ -1,4 +1,4 @@
-use brioche::{recipe::Recipe, Brioche};
+use brioche_core::{recipe::Recipe, Brioche};
 
 mod brioche_test;
 

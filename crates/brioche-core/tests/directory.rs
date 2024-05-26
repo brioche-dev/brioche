@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use assert_matches::assert_matches;
-use brioche::recipe::{Artifact, WithMeta};
+use brioche_core::recipe::{Artifact, WithMeta};
 
 mod brioche_test;
 
@@ -9,7 +9,7 @@ mod brioche_test;
 async fn test_directory_create_empty() -> anyhow::Result<()> {
     let (brioche, _) = brioche_test::brioche_test().await;
 
-    let directory = brioche::recipe::Directory::create(&brioche, &BTreeMap::new()).await?;
+    let directory = brioche_core::recipe::Directory::create(&brioche, &BTreeMap::new()).await?;
 
     assert_eq!(Artifact::Directory(directory), brioche_test::dir_empty());
 
@@ -26,7 +26,7 @@ async fn test_directory_create_flat() -> anyhow::Result<()> {
     let blob2 = brioche_test::blob(&brioche, "hi").await;
     let file2 = brioche_test::file(blob2, false);
 
-    let directory = brioche::recipe::Directory::create(
+    let directory = brioche_core::recipe::Directory::create(
         &brioche,
         &BTreeMap::from_iter([
             ("file1.txt".into(), WithMeta::without_meta(file1)),
@@ -60,7 +60,7 @@ async fn test_directory_create_nested() -> anyhow::Result<()> {
     let blob2 = brioche_test::blob(&brioche, "hi").await;
     let file2 = brioche_test::file(blob2, false);
 
-    let inner_directory = brioche::recipe::Directory::create(
+    let inner_directory = brioche_core::recipe::Directory::create(
         &brioche,
         &BTreeMap::from_iter([
             ("file1.txt".into(), WithMeta::without_meta(file1.clone())),
@@ -69,7 +69,7 @@ async fn test_directory_create_nested() -> anyhow::Result<()> {
     )
     .await?;
 
-    let directory = brioche::recipe::Directory::create(
+    let directory = brioche_core::recipe::Directory::create(
         &brioche,
         &BTreeMap::from_iter([
             ("foo.txt".into(), WithMeta::without_meta(file1)),
@@ -118,7 +118,7 @@ async fn test_directory_create_nested_using_paths() -> anyhow::Result<()> {
     let blob2 = brioche_test::blob(&brioche, "hi").await;
     let file2 = brioche_test::file(blob2, false);
 
-    let directory = brioche::recipe::Directory::create(
+    let directory = brioche_core::recipe::Directory::create(
         &brioche,
         &BTreeMap::from_iter([
             ("foo.txt".into(), WithMeta::without_meta(file1.clone())),
@@ -165,14 +165,16 @@ async fn test_directory_create_nested_with_common_empty_dir() -> anyhow::Result<
     let blob2 = brioche_test::blob(&brioche, "hi").await;
     let file2 = brioche_test::file(blob2, false);
 
-    let directory = brioche::recipe::Directory::create(
+    let directory = brioche_core::recipe::Directory::create(
         &brioche,
         &BTreeMap::from_iter([
             ("foo.txt".into(), WithMeta::without_meta(file1.clone())),
             ("bar.txt".into(), WithMeta::without_meta(file2.clone())),
             (
                 "subdir".into(),
-                WithMeta::without_meta(Artifact::Directory(brioche::recipe::Directory::default())),
+                WithMeta::without_meta(Artifact::Directory(
+                    brioche_core::recipe::Directory::default(),
+                )),
             ),
             ("subdir/file1.txt".into(), WithMeta::without_meta(file1)),
             ("subdir/file2.txt".into(), WithMeta::without_meta(file2)),
@@ -216,7 +218,7 @@ async fn test_directory_create_nested_with_common_nonempty_dir_error() -> anyhow
     let blob2 = brioche_test::blob(&brioche, "hi").await;
     let file2 = brioche_test::file(blob2, false);
 
-    let inner_directory = brioche::recipe::Directory::create(
+    let inner_directory = brioche_core::recipe::Directory::create(
         &brioche,
         &BTreeMap::from_iter([
             ("file1.txt".into(), WithMeta::without_meta(file1.clone())),
@@ -225,7 +227,7 @@ async fn test_directory_create_nested_with_common_nonempty_dir_error() -> anyhow
     )
     .await?;
 
-    let result = brioche::recipe::Directory::create(
+    let result = brioche_core::recipe::Directory::create(
         &brioche,
         &BTreeMap::from_iter([
             ("foo.txt".into(), WithMeta::without_meta(file1.clone())),
@@ -255,7 +257,7 @@ async fn test_directory_create_nested_with_common_nondir_error() -> anyhow::Resu
     let blob2 = brioche_test::blob(&brioche, "hi").await;
     let file2 = brioche_test::file(blob2, false);
 
-    let result = brioche::recipe::Directory::create(
+    let result = brioche_core::recipe::Directory::create(
         &brioche,
         &BTreeMap::from_iter([
             ("foo.txt".into(), WithMeta::without_meta(file1.clone())),

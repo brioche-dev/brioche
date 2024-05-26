@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt, path::Path};
 
 use assert_matches::assert_matches;
-use brioche::{output::create_local_output, recipe::Artifact, Brioche};
+use brioche_core::{output::create_local_output, recipe::Artifact, Brioche};
 use pretty_assertions::assert_eq;
 
 mod brioche_test;
@@ -18,10 +18,10 @@ async fn create_output(
     artifact: &Artifact,
     merge: bool,
 ) -> anyhow::Result<()> {
-    brioche::output::create_output(
+    brioche_core::output::create_output(
         brioche,
         artifact,
-        brioche::output::OutputOptions {
+        brioche_core::output::OutputOptions {
             output_path,
             merge,
             resources_dir: None,
@@ -39,10 +39,10 @@ async fn create_output_with_resources(
     artifact: &Artifact,
     merge: bool,
 ) -> anyhow::Result<()> {
-    brioche::output::create_output(
+    brioche_core::output::create_output(
         brioche,
         artifact,
-        brioche::output::OutputOptions {
+        brioche_core::output::OutputOptions {
             output_path,
             merge,
             resources_dir: Some(resources_dir),
@@ -59,10 +59,10 @@ async fn create_output_with_links(
     artifact: &Artifact,
     merge: bool,
 ) -> anyhow::Result<()> {
-    brioche::output::create_output(
+    brioche_core::output::create_output(
         brioche,
         artifact,
-        brioche::output::OutputOptions {
+        brioche_core::output::OutputOptions {
             output_path,
             merge,
             resources_dir: None,
@@ -736,7 +736,7 @@ async fn test_output_with_links() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let hello_blob = brioche_test::blob(&brioche, b"hello").await;
-    let hello_blob_path = brioche::blob::blob_path(&brioche, hello_blob).await?;
+    let hello_blob_path = brioche_core::blob::blob_path(&brioche, hello_blob).await?;
 
     let hello = brioche_test::file(hello_blob, false);
     let hello_exe = brioche_test::file(hello_blob, true);
@@ -966,7 +966,7 @@ async fn assert_mtime_is_brioche_epoch(path: impl AsRef<Path>) {
     let mtime = metadata.modified().expect("failed to get mtime");
     assert_eq!(
         mtime
-            .duration_since(brioche::fs_utils::brioche_epoch())
+            .duration_since(brioche_core::fs_utils::brioche_epoch())
             .expect("mtime is before epoch"),
         std::time::Duration::ZERO,
     );

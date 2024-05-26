@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use assert_matches::assert_matches;
-use brioche::recipe::{Recipe, WithMeta};
+use brioche_core::recipe::{Recipe, WithMeta};
 
 mod brioche_test;
 
@@ -9,15 +9,15 @@ mod brioche_test;
 async fn test_recipe_get_nonexistent() -> anyhow::Result<()> {
     let (brioche, _) = brioche_test::brioche_test().await;
 
-    let file = brioche::recipe::Recipe::CreateFile {
+    let file = brioche_core::recipe::Recipe::CreateFile {
         content: "foo".into(),
         executable: false,
         resources: Box::new(WithMeta::without_meta(
-            brioche::recipe::Directory::default().into(),
+            brioche_core::recipe::Directory::default().into(),
         )),
     };
 
-    let result = brioche::recipe::get_recipe(&brioche, file.hash()).await;
+    let result = brioche_core::recipe::get_recipe(&brioche, file.hash()).await;
     assert_matches!(result, Err(_));
 
     Ok(())
@@ -27,7 +27,7 @@ async fn test_recipe_get_nonexistent() -> anyhow::Result<()> {
 async fn test_recipe_save_none() -> anyhow::Result<()> {
     let (brioche, _) = brioche_test::brioche_test().await;
 
-    let new_artifacts = brioche::recipe::save_recipes(&brioche, [] as [Recipe; 0]).await?;
+    let new_artifacts = brioche_core::recipe::save_recipes(&brioche, [] as [Recipe; 0]).await?;
     assert_eq!(new_artifacts, 0);
 
     Ok(())
@@ -37,18 +37,18 @@ async fn test_recipe_save_none() -> anyhow::Result<()> {
 async fn test_recipe_save_new() -> anyhow::Result<()> {
     let (brioche, _) = brioche_test::brioche_test().await;
 
-    let file = brioche::recipe::Recipe::CreateFile {
+    let file = brioche_core::recipe::Recipe::CreateFile {
         content: "foo".into(),
         executable: false,
         resources: Box::new(WithMeta::without_meta(
-            brioche::recipe::Directory::default().into(),
+            brioche_core::recipe::Directory::default().into(),
         )),
     };
 
-    let new_artifacts = brioche::recipe::save_recipes(&brioche, [file.clone()]).await?;
+    let new_artifacts = brioche_core::recipe::save_recipes(&brioche, [file.clone()]).await?;
     assert_eq!(new_artifacts, 1);
 
-    let result = brioche::recipe::get_recipe(&brioche, file.hash()).await?;
+    let result = brioche_core::recipe::get_recipe(&brioche, file.hash()).await?;
     assert_eq!(file, result);
 
     Ok(())
@@ -58,23 +58,23 @@ async fn test_recipe_save_new() -> anyhow::Result<()> {
 async fn test_recipe_save_repeat() -> anyhow::Result<()> {
     let (brioche, _) = brioche_test::brioche_test().await;
 
-    let file = brioche::recipe::Recipe::CreateFile {
+    let file = brioche_core::recipe::Recipe::CreateFile {
         content: "foo".into(),
         executable: false,
         resources: Box::new(WithMeta::without_meta(
-            brioche::recipe::Directory::default().into(),
+            brioche_core::recipe::Directory::default().into(),
         )),
     };
 
     let new_artifacts =
-        brioche::recipe::save_recipes(&brioche, [file.clone(), file.clone()]).await?;
+        brioche_core::recipe::save_recipes(&brioche, [file.clone(), file.clone()]).await?;
     assert_eq!(new_artifacts, 1);
 
     let new_artifacts =
-        brioche::recipe::save_recipes(&brioche, [file.clone(), file.clone()]).await?;
+        brioche_core::recipe::save_recipes(&brioche, [file.clone(), file.clone()]).await?;
     assert_eq!(new_artifacts, 0);
 
-    let result = brioche::recipe::get_recipe(&brioche, file.hash()).await?;
+    let result = brioche_core::recipe::get_recipe(&brioche, file.hash()).await?;
     assert_eq!(file, result);
 
     Ok(())
@@ -84,40 +84,40 @@ async fn test_recipe_save_repeat() -> anyhow::Result<()> {
 async fn test_recipe_save_multiple() -> anyhow::Result<()> {
     let (brioche, _) = brioche_test::brioche_test().await;
 
-    let file_1 = brioche::recipe::Recipe::CreateFile {
+    let file_1 = brioche_core::recipe::Recipe::CreateFile {
         content: "foo".into(),
         executable: false,
         resources: Box::new(WithMeta::without_meta(
-            brioche::recipe::Directory::default().into(),
+            brioche_core::recipe::Directory::default().into(),
         )),
     };
 
-    let file_2 = brioche::recipe::Recipe::CreateFile {
+    let file_2 = brioche_core::recipe::Recipe::CreateFile {
         content: "bar".into(),
         executable: false,
         resources: Box::new(WithMeta::without_meta(
-            brioche::recipe::Directory::default().into(),
+            brioche_core::recipe::Directory::default().into(),
         )),
     };
 
-    let file_3 = brioche::recipe::Recipe::CreateFile {
+    let file_3 = brioche_core::recipe::Recipe::CreateFile {
         content: "baz".into(),
         executable: false,
         resources: Box::new(WithMeta::without_meta(
-            brioche::recipe::Directory::default().into(),
+            brioche_core::recipe::Directory::default().into(),
         )),
     };
 
     let new_artifacts =
-        brioche::recipe::save_recipes(&brioche, [file_1.clone(), file_2.clone()]).await?;
+        brioche_core::recipe::save_recipes(&brioche, [file_1.clone(), file_2.clone()]).await?;
     assert_eq!(new_artifacts, 2);
 
     let new_artifacts =
-        brioche::recipe::save_recipes(&brioche, [file_2.clone(), file_3.clone()]).await?;
+        brioche_core::recipe::save_recipes(&brioche, [file_2.clone(), file_3.clone()]).await?;
     assert_eq!(new_artifacts, 1);
 
     let results =
-        brioche::recipe::get_recipes(&brioche, [file_1.hash(), file_2.hash(), file_3.hash()])
+        brioche_core::recipe::get_recipes(&brioche, [file_1.hash(), file_2.hash(), file_3.hash()])
             .await?;
 
     assert_eq!(

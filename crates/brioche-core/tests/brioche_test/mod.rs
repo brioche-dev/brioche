@@ -6,7 +6,7 @@ use std::{
     process::Output,
 };
 
-use brioche::{
+use brioche_core::{
     blob::{BlobHash, SaveBlobOptions},
     project::{self, ProjectHash, Projects},
     recipe::{CreateDirectory, Directory, File, WithMeta},
@@ -31,12 +31,12 @@ pub async fn brioche_test_with(
         .await
         .expect("failed to canonicalize brioche home path");
 
-    let (reporter, reporter_guard) = brioche::reporter::start_test_reporter();
+    let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
     let builder = BriocheBuilder::new(reporter)
         .home(brioche_home)
-        .registry_client(brioche::registry::RegistryClient::new(
+        .registry_client(brioche_core::registry::RegistryClient::new(
             registry_server.url().parse().unwrap(),
-            brioche::registry::RegistryAuthentication::Admin {
+            brioche_core::registry::RegistryAuthentication::Admin {
                 password: "admin".to_string(),
             },
         ))
@@ -74,47 +74,47 @@ pub async fn load_project_no_validate(
 
 pub async fn bake_without_meta(
     brioche: &Brioche,
-    recipe: brioche::recipe::Recipe,
-) -> anyhow::Result<brioche::recipe::Artifact> {
-    let artifact = brioche::bake::bake(
+    recipe: brioche_core::recipe::Recipe,
+) -> anyhow::Result<brioche_core::recipe::Artifact> {
+    let artifact = brioche_core::bake::bake(
         brioche,
         without_meta(recipe),
-        &brioche::bake::BakeScope::Anonymous,
+        &brioche_core::bake::BakeScope::Anonymous,
     )
     .await?;
     Ok(artifact.value)
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
-    brioche::blob::save_blob_from_reader(brioche, content.as_ref(), SaveBlobOptions::default())
+    brioche_core::blob::save_blob_from_reader(brioche, content.as_ref(), SaveBlobOptions::default())
         .await
         .unwrap()
 }
 
-pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche::recipe::Recipe {
-    brioche::recipe::Recipe::File {
+pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Recipe {
+    brioche_core::recipe::Recipe::File {
         content_blob: blob,
         executable,
-        resources: Box::new(WithMeta::without_meta(brioche::recipe::Recipe::Directory(
-            Directory::default(),
-        ))),
+        resources: Box::new(WithMeta::without_meta(
+            brioche_core::recipe::Recipe::Directory(Directory::default()),
+        )),
     }
 }
 
 pub fn lazy_file_with_resources(
     blob: BlobHash,
     executable: bool,
-    resources: brioche::recipe::Recipe,
-) -> brioche::recipe::Recipe {
-    brioche::recipe::Recipe::File {
+    resources: brioche_core::recipe::Recipe,
+) -> brioche_core::recipe::Recipe {
+    brioche_core::recipe::Recipe::File {
         content_blob: blob,
         executable,
         resources: Box::new(WithMeta::without_meta(resources)),
     }
 }
 
-pub fn file(blob: BlobHash, executable: bool) -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::File(File {
+pub fn file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::File(File {
         content_blob: blob,
         executable,
         resources: Directory::default(),
@@ -124,9 +124,9 @@ pub fn file(blob: BlobHash, executable: bool) -> brioche::recipe::Artifact {
 pub fn file_with_resources(
     blob: BlobHash,
     executable: bool,
-    resources: brioche::recipe::Directory,
-) -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::File(File {
+    resources: brioche_core::recipe::Directory,
+) -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::File(File {
         content_blob: blob,
         executable,
         resources,
@@ -134,8 +134,8 @@ pub fn file_with_resources(
 }
 
 pub fn lazy_dir_value<K: AsRef<[u8]>>(
-    entries: impl IntoIterator<Item = (K, brioche::recipe::Recipe)>,
-) -> brioche::recipe::CreateDirectory {
+    entries: impl IntoIterator<Item = (K, brioche_core::recipe::Recipe)>,
+) -> brioche_core::recipe::CreateDirectory {
     CreateDirectory {
         entries: entries
             .into_iter()
@@ -145,9 +145,9 @@ pub fn lazy_dir_value<K: AsRef<[u8]>>(
 }
 
 pub fn lazy_dir<K: AsRef<[u8]>>(
-    entries: impl IntoIterator<Item = (K, brioche::recipe::Recipe)>,
-) -> brioche::recipe::Recipe {
-    brioche::recipe::Recipe::CreateDirectory(CreateDirectory {
+    entries: impl IntoIterator<Item = (K, brioche_core::recipe::Recipe)>,
+) -> brioche_core::recipe::Recipe {
+    brioche_core::recipe::Recipe::CreateDirectory(CreateDirectory {
         entries: entries
             .into_iter()
             .map(|(k, v)| (k.as_ref().into(), WithMeta::without_meta(v)))
@@ -155,14 +155,14 @@ pub fn lazy_dir<K: AsRef<[u8]>>(
     })
 }
 
-pub fn empty_dir_value() -> brioche::recipe::Directory {
-    brioche::recipe::Directory::default()
+pub fn empty_dir_value() -> brioche_core::recipe::Directory {
+    brioche_core::recipe::Directory::default()
 }
 
 pub async fn dir_value<K: AsRef<[u8]>>(
     brioche: &Brioche,
-    entries: impl IntoIterator<Item = (K, brioche::recipe::Artifact)>,
-) -> brioche::recipe::Directory {
+    entries: impl IntoIterator<Item = (K, brioche_core::recipe::Artifact)>,
+) -> brioche_core::recipe::Directory {
     let mut directory = Directory::default();
     for (k, v) in entries {
         directory
@@ -176,27 +176,27 @@ pub async fn dir_value<K: AsRef<[u8]>>(
 
 pub async fn dir<K: AsRef<[u8]>>(
     brioche: &Brioche,
-    entries: impl IntoIterator<Item = (K, brioche::recipe::Artifact)>,
-) -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::Directory(dir_value(brioche, entries).await)
+    entries: impl IntoIterator<Item = (K, brioche_core::recipe::Artifact)>,
+) -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::Directory(dir_value(brioche, entries).await)
 }
 
-pub fn lazy_dir_empty() -> brioche::recipe::Recipe {
-    brioche::recipe::Recipe::CreateDirectory(CreateDirectory::default())
+pub fn lazy_dir_empty() -> brioche_core::recipe::Recipe {
+    brioche_core::recipe::Recipe::CreateDirectory(CreateDirectory::default())
 }
 
-pub fn dir_empty() -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::Directory(Directory::default())
+pub fn dir_empty() -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::Directory(Directory::default())
 }
 
-pub fn lazy_symlink(target: impl AsRef<[u8]>) -> brioche::recipe::Recipe {
-    brioche::recipe::Recipe::Symlink {
+pub fn lazy_symlink(target: impl AsRef<[u8]>) -> brioche_core::recipe::Recipe {
+    brioche_core::recipe::Recipe::Symlink {
         target: target.as_ref().into(),
     }
 }
 
-pub fn symlink(target: impl AsRef<[u8]>) -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::Symlink {
+pub fn symlink(target: impl AsRef<[u8]>) -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::Symlink {
         target: target.as_ref().into(),
     }
 }
@@ -205,8 +205,8 @@ pub fn without_meta<T>(value: T) -> WithMeta<T> {
     WithMeta::without_meta(value)
 }
 
-pub fn sha256(value: impl AsRef<[u8]>) -> brioche::Hash {
-    let mut hasher = brioche::Hasher::Sha256(Default::default());
+pub fn sha256(value: impl AsRef<[u8]>) -> brioche_core::Hash {
+    let mut hasher = brioche_core::Hasher::Sha256(Default::default());
     hasher.update(value.as_ref());
     hasher.finish().unwrap()
 }
@@ -215,7 +215,7 @@ pub struct TestContext {
     brioche: Brioche,
     temp: tempdir::TempDir,
     pub registry_server: mockito::ServerGuard,
-    _reporter_guard: brioche::reporter::ReporterGuard,
+    _reporter_guard: brioche_core::reporter::ReporterGuard,
 }
 
 impl TestContext {
@@ -329,8 +329,10 @@ impl TestContext {
             .mock("GET", &*format!("/v0/project-tags/{project_name}/{tag}"))
             .with_header("Content-Type", "application/json")
             .with_body(
-                serde_json::to_string(&brioche::registry::GetProjectTagResponse { project_hash })
-                    .unwrap(),
+                serde_json::to_string(&brioche_core::registry::GetProjectTagResponse {
+                    project_hash,
+                })
+                .unwrap(),
             )
     }
 
@@ -340,8 +342,8 @@ impl TestContext {
         projects: &Projects,
         project_hash: ProjectHash,
     ) -> Vec<mockito::Mock> {
-        let mut references = brioche::references::ProjectReferences::default();
-        brioche::references::project_references(
+        let mut references = brioche_core::references::ProjectReferences::default();
+        brioche_core::references::project_references(
             &self.brioche,
             projects,
             &mut references,
@@ -373,7 +375,7 @@ impl TestContext {
             mocks.push(mock);
         }
         for blob_hash in &references.recipes.blobs {
-            let blob_path = brioche::blob::local_blob_path(&self.brioche, *blob_hash);
+            let blob_path = brioche_core::blob::local_blob_path(&self.brioche, *blob_hash);
             let blob_contents = tokio::fs::read(&blob_path).await.unwrap();
             let blob_contents_zstd = zstd::encode_all(&*blob_contents, 0).unwrap();
             let mock = self

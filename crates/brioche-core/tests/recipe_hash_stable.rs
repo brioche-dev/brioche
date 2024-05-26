@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use brioche::{
+use brioche_core::{
     platform::Platform,
     recipe::{DownloadRecipe, ProcessRecipe, ProcessTemplate, ProcessTemplateComponent, Recipe},
     Hash,

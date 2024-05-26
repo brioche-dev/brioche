@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use brioche::{
+use brioche_core::{
     project::Projects,
     script::specifier::{
         self, read_specifier_contents, BriocheImportSpecifier, BriocheModuleSpecifier,
