@@ -152,6 +152,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 command,
                 args,
                 env,
+                dependencies,
                 work_dir,
                 output_scaffold,
                 platform: _,
@@ -172,6 +173,11 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                     | ProcessTemplateComponent::WorkDir
                     | ProcessTemplateComponent::TempDir => vec![],
                 })
+                .chain(
+                    dependencies
+                        .iter()
+                        .flat_map(|dep| referenced_recipes(&dep.value)),
+                )
                 .chain(referenced_recipes(work_dir))
                 .chain(
                     output_scaffold

@@ -509,6 +509,9 @@ pub struct ProcessRecipe {
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, ProcessTemplate>,
 
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<WithMeta<Recipe>>,
+
     pub work_dir: Box<WithMeta<Recipe>>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1119,6 +1122,25 @@ pub struct CompleteProcessTemplate {
     pub components: Vec<CompleteProcessTemplateComponent>,
 }
 
+impl CompleteProcessTemplate {
+    pub fn is_empty(&self) -> bool {
+        self.components.iter().all(|component| component.is_empty())
+    }
+
+    pub fn append_literal(&mut self, literal: impl AsRef<[u8]>) {
+        if let Some(CompleteProcessTemplateComponent::Literal { value }) =
+            self.components.last_mut()
+        {
+            value.extend_from_slice(literal.as_ref());
+        } else {
+            self.components
+                .push(CompleteProcessTemplateComponent::Literal {
+                    value: literal.as_ref().into(),
+                });
+        }
+    }
+}
+
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
@@ -1136,6 +1158,15 @@ pub enum CompleteProcessTemplateComponent {
     HomeDir,
     WorkDir,
     TempDir,
+}
+
+impl CompleteProcessTemplateComponent {
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Literal { value } => value.is_empty(),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
