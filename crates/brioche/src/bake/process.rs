@@ -156,11 +156,16 @@ async fn resolve_command(
         return Ok(command);
     };
 
-    // If the command template contains a `/`, assume it might be an
-    // absolute path and use it as-is. This is similar to what Bash does
-    if command_literal.contains(&b'/') {
+    // If the command is an absolute path, return it as-is
+    if command_literal.starts_with(b"/") {
         return Ok(command);
     }
+
+    // Otherwise, ensure the command does not look like a path
+    anyhow::ensure!(
+        !command_literal.contains(&b'/'),
+        "command must not contain `/` unless it's an absolute path",
+    );
 
     // Return an error if `$PATH` is not set by this point
     let Some(env_path) = env_path else {
@@ -169,70 +174,102 @@ async fn resolve_command(
 
     // Split $PATH by `:`
     let path_templates = env_path.split_on_literal(":");
-    for path_template in path_templates {
-        // Match a template like std.tpl`${artifact}/foo` (subpath optional)
-        if let [CompleteProcessTemplateComponent::Input { artifact }, rest @ ..] =
-            &*path_template.components
-        {
-            // Ensure the rest of the path is a literal
-            let subpath = CompleteProcessTemplate {
-                components: rest.to_vec(),
-            };
-            let Some(subpath) = subpath.as_literal() else {
-                continue;
-            };
+    let path_parts = path_templates.iter().map(|template| {
+        match &*template.components {
+            [CompleteProcessTemplateComponent::Input { artifact }, rest @ ..] => {
+                // Ensure the rest of the path is a literal
+                let subpath = CompleteProcessTemplate {
+                    components: rest.to_vec(),
+                };
+                let Some(subpath) = subpath.as_literal() else {
+                    anyhow::bail!("cannot resolve command {command:?}: $PATH component must be an artifact followed by a subpath");
+                };
 
-            // Ensure the artifact is a directory
-            let Artifact::Directory(dir) = &artifact.value else {
-                continue;
-            };
+                // Get the subpath without the leading '/'
+                let subpath = match subpath.split_first() {
+                    None => b"",
+                    Some((&b'/', subpath)) => subpath,
+                    _ => {
+                        anyhow::bail!("cannot resolve command {command:?}: invalid subpath {subpath:?}");
+                    }
+                };
+                let subpath = bstr::BString::from(subpath);
 
-            // Get the artifact referred to by the subpath
-            let subpath_artifact = dir.get(brioche, &subpath).await;
-            let subpath_artifact = match &subpath_artifact {
-                Ok(Some(subpath_artifact)) => &subpath_artifact.value,
-                Err(DirectoryError::EmptyPath { .. }) => {
-                    // If the subpath was empty, use the directory itself
-                    &artifact.value
-                }
-                _ => {
-                    continue;
-                }
-            };
-
-            // Ensure the subpath artifact is a directory
-            let Artifact::Directory(subpath_dir) = subpath_artifact else {
-                continue;
-            };
-
-            // Try to get the artifact referred to by the command
-            let command_artifact = subpath_dir.get(brioche, &command_literal).await;
-            let command_artifact = match &command_artifact {
-                Ok(Some(command_artifact)) => &command_artifact.value,
-                _ => {
-                    continue;
-                }
-            };
-
-            // Ensure the command artifact is either an executable file
-            // or symlink
-            match command_artifact {
-                Artifact::File(crate::recipe::File {
-                    executable: true, ..
-                })
-                | Artifact::Symlink { .. } => {}
-                _ => {
-                    continue;
-                }
+                anyhow::Ok((artifact, subpath))
             }
-
-            // Create a template with the command name added to the end
-            let mut command_template = path_template.clone();
-            command_template.append_literal("/");
-            command_template.append_literal(&*command_literal);
-
-            return Ok(command_template);
+            _ => {
+                anyhow::bail!("cannot resolve command {command:?}: $PATH component must be an artifact followed by a subpath");
+            }
         }
+    }).collect::<anyhow::Result<Vec<_>>>()?;
+
+    for (artifact, subpath) in path_parts {
+        // Ensure the artifact is a directory
+        let Artifact::Directory(dir) = &artifact.value else {
+            continue;
+        };
+
+        // Get the artifact referred to by the subpath
+        let subpath_artifact = dir.get(brioche, &subpath).await;
+        let subpath_artifact = match &subpath_artifact {
+            Ok(Some(subpath_artifact)) => &subpath_artifact.value,
+            Err(DirectoryError::EmptyPath { .. }) => {
+                // If the subpath was empty, use the directory itself
+                &artifact.value
+            }
+            _ => {
+                continue;
+            }
+        };
+
+        // Ensure the subpath artifact is a directory
+        let Artifact::Directory(subpath_dir) = subpath_artifact else {
+            continue;
+        };
+
+        // Try to get the artifact referred to by the command
+        let command_artifact = subpath_dir.get(brioche, &command_literal).await;
+        let command_artifact = match &command_artifact {
+            Ok(Some(command_artifact)) => &command_artifact.value,
+            _ => {
+                continue;
+            }
+        };
+
+        // Ensure the command artifact is either an executable file
+        // or symlink
+        match command_artifact {
+            Artifact::File(crate::recipe::File {
+                executable: true, ..
+            })
+            | Artifact::Symlink { .. } => {}
+            _ => {
+                continue;
+            }
+        }
+
+        // Create a template for the command, with the artifact followed by
+        // '/' followed by the subpath to the command
+        let command_subpath = if subpath.is_empty() {
+            bstr::join("", ["/".as_bytes(), &command_literal])
+        } else {
+            bstr::join(
+                "",
+                ["/".as_bytes(), &subpath, "/".as_bytes(), &command_literal],
+            )
+        };
+        let command_template = CompleteProcessTemplate {
+            components: vec![
+                CompleteProcessTemplateComponent::Input {
+                    artifact: artifact.clone(),
+                },
+                CompleteProcessTemplateComponent::Literal {
+                    value: bstr::BString::new(command_subpath),
+                },
+            ],
+        };
+
+        return Ok(command_template);
     }
 
     // We didn't find the command, so return an error
