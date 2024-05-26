@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use brioche::{
+use brioche_core::{
     blob::{BlobHash, SaveBlobOptions},
     recipe::{CreateDirectory, Directory, File, WithMeta},
     Brioche, BriocheBuilder,
@@ -19,7 +19,7 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
         .await
         .expect("failed to create brioche home");
 
-    let (reporter, reporter_guard) = brioche::reporter::start_test_reporter();
+    let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
     let brioche = BriocheBuilder::new(reporter)
         .home(brioche_home)
         .self_exec_processes(false)
@@ -34,23 +34,23 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
-    brioche::blob::save_blob(brioche, content.as_ref(), SaveBlobOptions::default())
+    brioche_core::blob::save_blob(brioche, content.as_ref(), SaveBlobOptions::default())
         .await
         .unwrap()
 }
 
-pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche::recipe::Recipe {
-    brioche::recipe::Recipe::File {
+pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Recipe {
+    brioche_core::recipe::Recipe::File {
         content_blob: blob,
         executable,
-        resources: Box::new(WithMeta::without_meta(brioche::recipe::Recipe::Directory(
-            Directory::default(),
-        ))),
+        resources: Box::new(WithMeta::without_meta(
+            brioche_core::recipe::Recipe::Directory(Directory::default()),
+        )),
     }
 }
 
-pub fn file(blob: BlobHash, executable: bool) -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::File(File {
+pub fn file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::File(File {
         content_blob: blob,
         executable,
         resources: Directory::default(),
@@ -60,9 +60,9 @@ pub fn file(blob: BlobHash, executable: bool) -> brioche::recipe::Artifact {
 pub fn file_with_resources(
     blob: BlobHash,
     executable: bool,
-    resources: brioche::recipe::Directory,
-) -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::File(File {
+    resources: brioche_core::recipe::Directory,
+) -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::File(File {
         content_blob: blob,
         executable,
         resources,
@@ -70,24 +70,26 @@ pub fn file_with_resources(
 }
 
 pub fn lazy_dir<K: AsRef<[u8]>>(
-    entries: impl IntoIterator<Item = (K, brioche::recipe::Recipe)>,
-) -> WithMeta<brioche::recipe::Recipe> {
-    WithMeta::without_meta(brioche::recipe::Recipe::CreateDirectory(CreateDirectory {
-        entries: entries
-            .into_iter()
-            .map(|(k, v)| (k.as_ref().into(), WithMeta::without_meta(v)))
-            .collect(),
-    }))
+    entries: impl IntoIterator<Item = (K, brioche_core::recipe::Recipe)>,
+) -> WithMeta<brioche_core::recipe::Recipe> {
+    WithMeta::without_meta(brioche_core::recipe::Recipe::CreateDirectory(
+        CreateDirectory {
+            entries: entries
+                .into_iter()
+                .map(|(k, v)| (k.as_ref().into(), WithMeta::without_meta(v)))
+                .collect(),
+        },
+    ))
 }
 
-pub fn empty_dir_value() -> brioche::recipe::Directory {
-    brioche::recipe::Directory::default()
+pub fn empty_dir_value() -> brioche_core::recipe::Directory {
+    brioche_core::recipe::Directory::default()
 }
 
 pub async fn dir_value<K: AsRef<[u8]>>(
     brioche: &Brioche,
-    entries: impl IntoIterator<Item = (K, brioche::recipe::Artifact)>,
-) -> brioche::recipe::Directory {
+    entries: impl IntoIterator<Item = (K, brioche_core::recipe::Artifact)>,
+) -> brioche_core::recipe::Directory {
     let mut directory = Directory::default();
     for (k, v) in entries {
         directory
@@ -101,40 +103,40 @@ pub async fn dir_value<K: AsRef<[u8]>>(
 
 pub async fn dir<K: AsRef<[u8]>>(
     brioche: &Brioche,
-    entries: impl IntoIterator<Item = (K, brioche::recipe::Artifact)>,
-) -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::Directory(dir_value(brioche, entries).await)
+    entries: impl IntoIterator<Item = (K, brioche_core::recipe::Artifact)>,
+) -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::Directory(dir_value(brioche, entries).await)
 }
 
-pub fn lazy_dir_empty() -> brioche::recipe::Recipe {
-    brioche::recipe::Recipe::CreateDirectory(CreateDirectory::default())
+pub fn lazy_dir_empty() -> brioche_core::recipe::Recipe {
+    brioche_core::recipe::Recipe::CreateDirectory(CreateDirectory::default())
 }
 
-pub fn dir_empty() -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::Directory(Directory::default())
+pub fn dir_empty() -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::Directory(Directory::default())
 }
 
-pub fn lazy_symlink(target: impl AsRef<[u8]>) -> brioche::recipe::Recipe {
-    brioche::recipe::Recipe::Symlink {
+pub fn lazy_symlink(target: impl AsRef<[u8]>) -> brioche_core::recipe::Recipe {
+    brioche_core::recipe::Recipe::Symlink {
         target: target.as_ref().into(),
     }
 }
 
-pub fn symlink(target: impl AsRef<[u8]>) -> brioche::recipe::Artifact {
-    brioche::recipe::Artifact::Symlink {
+pub fn symlink(target: impl AsRef<[u8]>) -> brioche_core::recipe::Artifact {
+    brioche_core::recipe::Artifact::Symlink {
         target: target.as_ref().into(),
     }
 }
 
-pub fn sha256(value: impl AsRef<[u8]>) -> brioche::Hash {
-    let mut hasher = brioche::Hasher::Sha256(Default::default());
+pub fn sha256(value: impl AsRef<[u8]>) -> brioche_core::Hash {
+    let mut hasher = brioche_core::Hasher::Sha256(Default::default());
     hasher.update(value.as_ref());
     hasher.finish().unwrap()
 }
 
 pub struct TestContext {
     temp: tempdir::TempDir,
-    _reporter_guard: brioche::reporter::ReporterGuard,
+    _reporter_guard: brioche_core::reporter::ReporterGuard,
 }
 
 impl TestContext {

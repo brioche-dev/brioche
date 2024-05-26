@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/brioche", "crates/brioche-ld", "crates/brioche-pack", "crates/brioche-packed-exec", "crates/brioche-packed-userland-exec"]
+members = ["crates/brioche", "crates/brioche-core", "crates/brioche-ld", "crates/brioche-pack", "crates/brioche-packed-exec", "crates/brioche-packed-userland-exec"]
 resolver = "2"
 
 [profile.dev]

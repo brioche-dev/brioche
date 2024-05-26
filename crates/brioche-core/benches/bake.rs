@@ -1,4 +1,4 @@
-use brioche::{
+use brioche_core::{
     recipe::{Directory, Recipe, WithMeta},
     Brioche,
 };
@@ -80,19 +80,19 @@ fn run_bake_benchmark(c: &mut Criterion) {
         let (brioche, context) = brioche_bench::brioche_test().await;
 
         let deep_dir = make_deep_dir(&brioche, "").await;
-        let _deep_dir_result = brioche::bake::bake(
+        let _deep_dir_result = brioche_core::bake::bake(
             &brioche,
             WithMeta::without_meta(Recipe::from(deep_dir.clone())),
-            &brioche::bake::BakeScope::Anonymous,
+            &brioche_core::bake::BakeScope::Anonymous,
         )
         .await
         .unwrap();
 
         let wide_dir = make_wide_dir(&brioche, "").await;
-        let _wide_dir_result = brioche::bake::bake(
+        let _wide_dir_result = brioche_core::bake::bake(
             &brioche,
             WithMeta::without_meta(Recipe::from(wide_dir.clone())),
-            &brioche::bake::BakeScope::Anonymous,
+            &brioche_core::bake::BakeScope::Anonymous,
         )
         .await
         .unwrap();
@@ -140,28 +140,36 @@ fn run_bake_benchmark(c: &mut Criterion) {
     c.bench_function("cached bake deep dir", |b| {
         b.to_async(&runtime).iter(|| async {
             let deep_dir = WithMeta::without_meta(Recipe::from(recipes.deep_dir.clone()));
-            let _ = brioche::bake::bake(&brioche, deep_dir, &brioche::bake::BakeScope::Anonymous)
-                .await
-                .unwrap();
+            let _ = brioche_core::bake::bake(
+                &brioche,
+                deep_dir,
+                &brioche_core::bake::BakeScope::Anonymous,
+            )
+            .await
+            .unwrap();
         })
     });
 
     c.bench_function("cached bake wide dir", |b| {
         b.to_async(&runtime).iter(|| async {
             let wide_dir = WithMeta::without_meta(Recipe::from(recipes.wide_dir.clone()));
-            let _ = brioche::bake::bake(&brioche, wide_dir, &brioche::bake::BakeScope::Anonymous)
-                .await
-                .unwrap();
+            let _ = brioche_core::bake::bake(
+                &brioche,
+                wide_dir,
+                &brioche_core::bake::BakeScope::Anonymous,
+            )
+            .await
+            .unwrap();
         })
     });
 
     c.bench_function("cached bake deep merge", |b| {
         b.to_async(&runtime).iter(|| async {
             let merge_deep_dir = WithMeta::without_meta(recipes.merge_deep_dir.clone());
-            let _ = brioche::bake::bake(
+            let _ = brioche_core::bake::bake(
                 &brioche,
                 merge_deep_dir,
-                &brioche::bake::BakeScope::Anonymous,
+                &brioche_core::bake::BakeScope::Anonymous,
             )
             .await
             .unwrap();
@@ -171,10 +179,10 @@ fn run_bake_benchmark(c: &mut Criterion) {
     c.bench_function("cached bake wide merge", |b| {
         b.to_async(&runtime).iter(|| async {
             let merge_wide_dir = WithMeta::without_meta(recipes.merge_wide_dir.clone());
-            let _ = brioche::bake::bake(
+            let _ = brioche_core::bake::bake(
                 &brioche,
                 merge_wide_dir,
-                &brioche::bake::BakeScope::Anonymous,
+                &brioche_core::bake::BakeScope::Anonymous,
             )
             .await
             .unwrap();

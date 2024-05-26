@@ -54,7 +54,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
     context
         .write_toml(
             "myworkspace/brioche_workspace.toml",
-            &brioche::project::WorkspaceDefinition {
+            &brioche_core::project::WorkspaceDefinition {
                 members: vec!["./foo".parse()?],
             },
         )
@@ -131,7 +131,7 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
     context
         .write_toml(
             "myworkspace/brioche_workspace.toml",
-            &brioche::project::WorkspaceDefinition {
+            &brioche_core::project::WorkspaceDefinition {
                 members: vec!["./foo".parse()?],
             },
         )
@@ -671,7 +671,7 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
     context
         .write_toml(
             "myworkspace/brioche_workspace.toml",
-            &brioche::project::WorkspaceDefinition {
+            &brioche_core::project::WorkspaceDefinition {
                 members: vec!["./foo".parse()?, "./bar".parse()?],
             },
         )
@@ -696,7 +696,7 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
         )
         .await;
 
-    let projects = brioche::project::Projects::default();
+    let projects = brioche_core::project::Projects::default();
     let bar_hash = projects
         .load(&brioche, &bar_dir, true)
         .await
@@ -817,7 +817,7 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
     assert!(tokio::fs::try_exists(&project_lockfile_path).await?);
 
     let project_lockfile_contents = tokio::fs::read_to_string(&project_lockfile_path).await?;
-    let project_lockfile: brioche::project::Lockfile =
+    let project_lockfile: brioche_core::project::Lockfile =
         serde_json::from_str(&project_lockfile_contents)?;
 
     let foo_lockfile_dep_hash = project.dependencies["foo"];

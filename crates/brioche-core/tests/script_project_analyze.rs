@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use assert_matches::assert_matches;
-use brioche::{
+use brioche_core::{
     project::{
         analyze::{analyze_project, ImportAnalysis, ProjectAnalysis, StaticInclude, StaticQuery},
         DependencyDefinition, ProjectDefinition, Version,

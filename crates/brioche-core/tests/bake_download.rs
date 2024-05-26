@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use brioche::recipe::{DownloadRecipe, Recipe};
+use brioche_core::recipe::{DownloadRecipe, Recipe};
 use brioche_test::bake_without_meta;
 
 mod brioche_test;

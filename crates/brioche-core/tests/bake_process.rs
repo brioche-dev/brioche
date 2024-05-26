@@ -6,7 +6,7 @@ use anyhow::Context;
 use assert_matches::assert_matches;
 use pretty_assertions::assert_eq;
 
-use brioche::{
+use brioche_core::{
     platform::current_platform,
     recipe::{
         ArchiveFormat, Artifact, CompressionFormat, Directory, DownloadRecipe, File, ProcessRecipe,
@@ -93,7 +93,7 @@ fn utils() -> Recipe {
 }
 
 async fn try_get(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     dir: &Directory,
     path: impl AsRef<[u8]>,
 ) -> anyhow::Result<Option<WithMeta<Artifact>>> {
@@ -102,7 +102,7 @@ async fn try_get(
 }
 
 async fn get(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     dir: &Directory,
     path: impl AsRef<[u8]>,
 ) -> WithMeta<Artifact> {
@@ -146,7 +146,7 @@ macro_rules! run_test {
 // solvable with a semaphore / mutex, but wouldn't be any faster). Second, many
 // of these tests need to access resources from the internet, and in separate
 // tests these would need to be downloaded separately. Using one test with
-// test cases that all share one `brioche::Brioche` instance speeds up the
+// test cases that all share one `brioche_core::Brioche` instance speeds up the
 // test cases drastically.
 #[tokio::test]
 async fn test_bake_process() -> anyhow::Result<()> {
@@ -211,7 +211,7 @@ async fn test_bake_process() -> anyhow::Result<()> {
 }
 
 async fn test_bake_process_simple(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let hello = "hello";
@@ -233,7 +233,7 @@ async fn test_bake_process_simple(
 }
 
 async fn test_bake_process_fail_on_no_output(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
@@ -248,7 +248,7 @@ async fn test_bake_process_fail_on_no_output(
 }
 
 async fn test_bake_process_scaffold_output(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let hello_blob = brioche_test::blob(brioche, "hello").await;
@@ -271,7 +271,7 @@ async fn test_bake_process_scaffold_output(
 }
 
 async fn test_bake_process_scaffold_and_modify_output(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let hello_blob = brioche_test::blob(brioche, "hello").await;
@@ -303,7 +303,7 @@ async fn test_bake_process_scaffold_and_modify_output(
 }
 
 async fn test_bake_process_fail_on_non_zero_exit(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
@@ -323,7 +323,7 @@ async fn test_bake_process_fail_on_non_zero_exit(
 }
 
 async fn test_bake_process_command_no_path(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
@@ -342,7 +342,7 @@ async fn test_bake_process_command_no_path(
 // is how `unshare` works, since it uses `execve` to run the command rather
 // than `execvpe`
 async fn test_bake_process_command_path(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
@@ -361,7 +361,7 @@ async fn test_bake_process_command_path(
 }
 
 async fn test_bake_process_with_utils(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
@@ -383,7 +383,7 @@ async fn test_bake_process_with_utils(
 }
 
 async fn test_bake_process_with_readonly_contents(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
@@ -414,7 +414,7 @@ async fn test_bake_process_with_readonly_contents(
 }
 
 async fn test_bake_process_cached(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process_random = Recipe::Process(ProcessRecipe {
@@ -447,7 +447,7 @@ async fn test_bake_process_cached(
 }
 
 async fn test_bake_process_cached_equivalent_inputs(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let empty_dir_1 = brioche_test::lazy_dir_empty();
@@ -516,7 +516,7 @@ async fn test_bake_process_cached_equivalent_inputs(
 }
 
 async fn test_bake_process_cached_equivalent_inputs_parallel(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let empty_dir_1 = brioche_test::lazy_dir_empty();
@@ -574,9 +574,9 @@ async fn test_bake_process_cached_equivalent_inputs_parallel(
     });
 
     let process_random_1_proxy =
-        brioche::bake::create_proxy(brioche, process_random_1.clone()).await?;
+        brioche_core::bake::create_proxy(brioche, process_random_1.clone()).await?;
     let process_random_2_proxy =
-        brioche::bake::create_proxy(brioche, process_random_2.clone()).await?;
+        brioche_core::bake::create_proxy(brioche, process_random_2.clone()).await?;
     let processes_dir = brioche_test::lazy_dir([
         ("process1.txt", process_random_1.clone()),
         ("process2.txt", process_random_2.clone()),
@@ -622,7 +622,7 @@ async fn test_bake_process_cached_equivalent_inputs_parallel(
 }
 
 async fn test_bake_process_cache_busted(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process_random_1 = ProcessRecipe {
@@ -658,7 +658,7 @@ async fn test_bake_process_cache_busted(
 }
 
 async fn test_bake_process_custom_env_vars(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
@@ -703,7 +703,7 @@ async fn test_bake_process_custom_env_vars(
 }
 
 async fn test_bake_process_no_default_env_vars(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
@@ -738,7 +738,7 @@ async fn test_bake_process_no_default_env_vars(
 }
 
 async fn test_bake_process_no_default_path(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
@@ -766,7 +766,7 @@ async fn test_bake_process_no_default_path(
 }
 
 async fn test_bake_process_command_ambiguous_error(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     // Using a shorthand for the command ("sh") is only allowed if
@@ -799,7 +799,7 @@ async fn test_bake_process_command_ambiguous_error(
 }
 
 async fn test_bake_process_command_uses_path(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
@@ -827,7 +827,7 @@ async fn test_bake_process_command_uses_path(
 }
 
 async fn test_bake_process_command_uses_dependencies(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
@@ -850,7 +850,7 @@ async fn test_bake_process_command_uses_dependencies(
 }
 
 async fn test_bake_process_starts_with_work_dir_contents(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let hello_blob = brioche_test::blob(brioche, b"hello").await;
@@ -887,7 +887,7 @@ async fn test_bake_process_starts_with_work_dir_contents(
 }
 
 async fn test_bake_process_edit_work_dir_contents(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let hello_blob = brioche_test::blob(brioche, b"hello").await;
@@ -928,7 +928,7 @@ async fn test_bake_process_edit_work_dir_contents(
 }
 
 async fn test_bake_process_has_resource_dir(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
@@ -959,7 +959,7 @@ async fn test_bake_process_has_resource_dir(
 }
 
 async fn test_bake_process_contains_all_resources(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let fizz = brioche_test::dir(
@@ -1028,7 +1028,7 @@ async fn test_bake_process_contains_all_resources(
 }
 
 async fn test_bake_process_output_with_resources(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     // Create a dummy file with pack metadata. This attaches resources
@@ -1108,7 +1108,7 @@ async fn test_bake_process_output_with_resources(
 }
 
 async fn test_bake_process_unsafe_validation(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let no_unsafety = Recipe::Process(ProcessRecipe {
@@ -1158,7 +1158,7 @@ async fn test_bake_process_unsafe_validation(
 }
 
 async fn test_bake_process_networking_disabled(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let mut server = mockito::Server::new();
@@ -1202,7 +1202,7 @@ async fn test_bake_process_networking_disabled(
 }
 
 async fn test_bake_process_networking_enabled(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let mut server = mockito::Server::new();
@@ -1249,7 +1249,7 @@ async fn test_bake_process_networking_enabled(
 }
 
 async fn test_bake_process_networking_enabled_dns(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
@@ -1283,7 +1283,7 @@ async fn test_bake_process_networking_enabled_dns(
 }
 
 async fn test_bake_process_dependencies(
-    brioche: &brioche::Brioche,
+    brioche: &brioche_core::Brioche,
     _context: &brioche_test::TestContext,
 ) -> anyhow::Result<()> {
     let dep1 = brioche_test::dir(

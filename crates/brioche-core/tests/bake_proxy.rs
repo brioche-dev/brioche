@@ -1,4 +1,4 @@
-use brioche::{bake::create_proxy, recipe::Recipe};
+use brioche_core::{bake::create_proxy, recipe::Recipe};
 use brioche_test::bake_without_meta;
 
 mod brioche_test;

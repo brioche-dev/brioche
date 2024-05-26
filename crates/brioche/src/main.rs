@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf, process::ExitCode, sync::Arc};
 
 use anyhow::Context as _;
-use brioche::{fs_utils, reporter::ConsoleReporterKind, sandbox::SandboxExecutionConfig};
+use brioche_core::{fs_utils, reporter::ConsoleReporterKind, sandbox::SandboxExecutionConfig};
 use clap::Parser;
 use human_repr::HumanDuration;
 use tracing::Instrument;
@@ -135,15 +135,15 @@ struct BuildArgs {
 
 async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
-        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
     reporter.set_is_evaluating(true);
 
-    let brioche = brioche::BriocheBuilder::new(reporter.clone())
+    let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep)
         .sync(args.sync)
         .build()
         .await?;
-    let projects = brioche::project::Projects::default();
+    let projects = brioche_core::project::Projects::default();
 
     let build_future = async {
         let project_hash = projects.load(&brioche, &args.project, true).await?;
@@ -154,9 +154,10 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         }
 
         if args.check {
-            let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
+            let checked =
+                brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 
-            let result = checked.ensure_ok(brioche::script::check::DiagnosticLevel::Error);
+            let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
 
             match result {
                 Ok(()) => reporter.emit(superconsole::Lines::from_multiline_string(
@@ -175,15 +176,19 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             }
         }
 
-        let recipe =
-            brioche::script::evaluate::evaluate(&brioche, &projects, project_hash, &args.export)
-                .await?;
+        let recipe = brioche_core::script::evaluate::evaluate(
+            &brioche,
+            &projects,
+            project_hash,
+            &args.export,
+        )
+        .await?;
 
         reporter.set_is_evaluating(false);
-        let artifact = brioche::bake::bake(
+        let artifact = brioche_core::bake::bake(
             &brioche,
             recipe,
-            &brioche::bake::BakeScope::Project {
+            &brioche_core::bake::BakeScope::Project {
                 project_hash,
                 export: args.export.to_string(),
             },
@@ -212,10 +217,10 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             }
 
             println!("Writing output");
-            brioche::output::create_output(
+            brioche_core::output::create_output(
                 &brioche,
                 &artifact.value,
-                brioche::output::OutputOptions {
+                brioche_core::output::OutputOptions {
                     output_path: output,
                     merge: false,
                     resources_dir: None,
@@ -235,11 +240,11 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 
             brioche
                 .sync_tx
-                .send(brioche::SyncMessage::Flush {
+                .send(brioche_core::SyncMessage::Flush {
                     completed: sync_complete_tx,
                 })
                 .await?;
-            let brioche::sync::SyncBakesResults {
+            let brioche_core::sync::SyncBakesResults {
                 num_new_blobs,
                 num_new_recipes,
                 num_new_bakes,
@@ -254,7 +259,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             println!("Syncing project...");
 
             let sync_start = std::time::Instant::now();
-            brioche::sync::sync_project(&brioche, project_hash, &args.export).await?;
+            brioche_core::sync::sync_project(&brioche, project_hash, &args.export).await?;
             let sync_duration = sync_start.elapsed().human_duration();
             println!("Finished sync in {sync_duration}");
         }
@@ -289,17 +294,17 @@ struct RunArgs {
 
 async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = if args.quiet {
-        brioche::reporter::start_null_reporter()
+        brioche_core::reporter::start_null_reporter()
     } else {
-        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?
+        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?
     };
     reporter.set_is_evaluating(true);
 
-    let brioche = brioche::BriocheBuilder::new(reporter.clone())
+    let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep)
         .build()
         .await?;
-    let projects = brioche::project::Projects::default();
+    let projects = brioche_core::project::Projects::default();
 
     let build_future = async {
         let project_hash = projects.load(&brioche, &args.project, true).await?;
@@ -310,9 +315,10 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
         }
 
         if args.check {
-            let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
+            let checked =
+                brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 
-            let result = checked.ensure_ok(brioche::script::check::DiagnosticLevel::Error);
+            let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
 
             match result {
                 Ok(()) => reporter.emit(superconsole::Lines::from_multiline_string(
@@ -331,15 +337,19 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
             }
         }
 
-        let recipe =
-            brioche::script::evaluate::evaluate(&brioche, &projects, project_hash, &args.export)
-                .await?;
+        let recipe = brioche_core::script::evaluate::evaluate(
+            &brioche,
+            &projects,
+            project_hash,
+            &args.export,
+        )
+        .await?;
 
         reporter.set_is_evaluating(false);
-        let artifact = brioche::bake::bake(
+        let artifact = brioche_core::bake::bake(
             &brioche,
             recipe,
-            &brioche::bake::BakeScope::Project {
+            &brioche_core::bake::BakeScope::Project {
                 project_hash,
                 export: args.export.to_string(),
             },
@@ -362,13 +372,13 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
         // Validate that the artifact is a directory that contains the
         // command to run before returning
         let command_artifact = match &artifact.value {
-            brioche::recipe::Artifact::File(_) => {
+            brioche_core::recipe::Artifact::File(_) => {
                 anyhow::bail!("artifact returned a file, expected a directory");
             }
-            brioche::recipe::Artifact::Symlink { .. } => {
+            brioche_core::recipe::Artifact::Symlink { .. } => {
                 anyhow::bail!("artifact returned a symlink, expected a directory");
             }
-            brioche::recipe::Artifact::Directory(dir) => dir
+            brioche_core::recipe::Artifact::Directory(dir) => dir
                 .get(&brioche, args.command.as_bytes())
                 .await
                 .with_context(|| {
@@ -384,7 +394,7 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
             args.command
         );
 
-        let output = brioche::output::create_local_output(&brioche, &artifact.value).await?;
+        let output = brioche_core::output::create_local_output(&brioche, &artifact.value).await?;
 
         Ok(output)
     };
@@ -436,10 +446,10 @@ struct CheckArgs {
 
 async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
-        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
-    let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
-    let projects = brioche::project::Projects::default();
+    let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
+    let projects = brioche_core::project::Projects::default();
 
     let check_future = async {
         let project_hash = projects.load(&brioche, &args.project, true).await?;
@@ -449,11 +459,11 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
             tracing::info!(num_lockfiles_updated, "updated lockfiles");
         }
 
-        let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
+        let checked = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 
         guard.shutdown_console().await;
 
-        let result = checked.ensure_ok(brioche::script::check::DiagnosticLevel::Message);
+        let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Message);
 
         match result {
             Ok(()) => {
@@ -483,17 +493,17 @@ struct FormatArgs {
 
 async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
-        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
-    let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
-    let projects = brioche::project::Projects::default();
+    let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
+    let projects = brioche_core::project::Projects::default();
 
     let format_future = async {
         let project_hash = projects.load(&brioche, &args.project, true).await?;
 
         if args.check {
             let mut unformatted_files =
-                brioche::script::format::check_format(&projects, project_hash).await?;
+                brioche_core::script::format::check_format(&projects, project_hash).await?;
             unformatted_files.sort();
 
             guard.shutdown_console().await;
@@ -510,7 +520,7 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
                 Ok(ExitCode::FAILURE)
             }
         } else {
-            brioche::script::format::format(&projects, project_hash).await?;
+            brioche_core::script::format::format(&projects, project_hash).await?;
 
             guard.shutdown_console().await;
 
@@ -533,10 +543,10 @@ struct PublishArgs {
 
 async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
-        brioche::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
-    let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
-    let projects = brioche::project::Projects::default();
+    let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
+    let projects = brioche_core::project::Projects::default();
     let project_hash = projects.load(&brioche, &args.project, true).await?;
 
     let project = projects.project(project_hash)?;
@@ -556,8 +566,8 @@ async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
         }
     }
 
-    let checked = brioche::script::check::check(&brioche, &projects, project_hash).await?;
-    let check_results = checked.ensure_ok(brioche::script::check::DiagnosticLevel::Warning);
+    let checked = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+    let check_results = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
     match check_results {
         Ok(()) => {
             println!("No errors found 🎉");
@@ -571,7 +581,7 @@ async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     guard.shutdown_console().await;
 
     let response =
-        brioche::publish::publish_project(&brioche, &projects, project_hash, true).await?;
+        brioche_core::publish::publish_project(&brioche, &projects, project_hash, true).await?;
 
     if response.tags.is_empty() {
         println!("Project already up to date: {} {}", name, version);
@@ -608,16 +618,17 @@ async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
     let (service, socket) = tower_lsp::LspService::new(move |client| {
         let local_pool = &local_pool;
         futures::executor::block_on(async move {
-            let (reporter, _guard) = brioche::reporter::start_lsp_reporter(client.clone());
-            let brioche = brioche::BriocheBuilder::new(reporter)
-                .registry_client(brioche::registry::RegistryClient::disabled())
-                .vfs(brioche::vfs::Vfs::mutable())
+            let (reporter, _guard) = brioche_core::reporter::start_lsp_reporter(client.clone());
+            let brioche = brioche_core::BriocheBuilder::new(reporter)
+                .registry_client(brioche_core::registry::RegistryClient::disabled())
+                .vfs(brioche_core::vfs::Vfs::mutable())
                 .build()
                 .await?;
-            let projects = brioche::project::Projects::default();
-            let lsp_server =
-                brioche::script::lsp::BriocheLspServer::new(local_pool, brioche, projects, client)
-                    .await?;
+            let projects = brioche_core::project::Projects::default();
+            let lsp_server = brioche_core::script::lsp::BriocheLspServer::new(
+                local_pool, brioche, projects, client,
+            )
+            .await?;
             anyhow::Ok(lsp_server)
         })
         .expect("failed to build LSP")
@@ -638,8 +649,8 @@ struct AnalyzeArgs {
 }
 
 async fn analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
-    let vfs = brioche::vfs::Vfs::immutable();
-    let project = brioche::project::analyze::analyze_project(&vfs, &args.project).await?;
+    let vfs = brioche_core::vfs::Vfs::immutable();
+    let project = brioche_core::project::analyze::analyze_project(&vfs, &args.project).await?;
     println!("{project:#?}");
     Ok(())
 }
@@ -654,20 +665,21 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
     #[derive(Debug, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct ExportedProject {
-        project_hash: brioche::project::ProjectHash,
-        project: Arc<brioche::project::Project>,
-        referenced_projects: HashMap<brioche::project::ProjectHash, Arc<brioche::project::Project>>,
+        project_hash: brioche_core::project::ProjectHash,
+        project: Arc<brioche_core::project::Project>,
+        referenced_projects:
+            HashMap<brioche_core::project::ProjectHash, Arc<brioche_core::project::Project>>,
     }
 
     let (reporter, mut guard) =
-        brioche::reporter::start_console_reporter(ConsoleReporterKind::Plain)?;
+        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Plain)?;
 
-    let brioche = brioche::BriocheBuilder::new(reporter).build().await?;
-    let projects = brioche::project::Projects::default();
+    let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
+    let projects = brioche_core::project::Projects::default();
     let project_hash = projects.load(&brioche, &args.project, true).await?;
     let project = projects.project(project_hash)?;
-    let mut project_references = brioche::references::ProjectReferences::default();
-    brioche::references::project_references(
+    let mut project_references = brioche_core::references::ProjectReferences::default();
+    brioche_core::references::project_references(
         &brioche,
         &projects,
         &mut project_references,
@@ -703,7 +715,7 @@ fn run_sandbox(args: RunSandboxArgs) -> ExitCode {
         }
     };
 
-    let status = match brioche::sandbox::run_sandbox(config) {
+    let status = match brioche_core::sandbox::run_sandbox(config) {
         Ok(status) => status,
         Err(error) => {
             eprintln!("brioche: failed to run sandbox: {error:#}");

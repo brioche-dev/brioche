@@ -1,4 +1,4 @@
-use brioche::script::evaluate::evaluate;
+use brioche_core::script::evaluate::evaluate;
 
 mod brioche_test;
 
