@@ -41,6 +41,7 @@ pub enum ImportAnalysis {
 #[serde(rename_all = "snake_case")]
 pub enum StaticQuery {
     Include(StaticInclude),
+    Glob { patterns: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -445,6 +446,22 @@ where
                     Ok(Some(StaticQuery::Include(StaticInclude::Directory {
                         path: include_path.to_string(),
                     })))
+                }
+                "glob" => {
+                    // Get the arguments
+                    let args = call_expr.arguments()?.args();
+                    let args = args
+                        .iter()
+                        .map(arg_to_string_literal)
+                        .map(|arg| {
+                            let arg = arg.with_context(|| {
+                                format!("{location}: invalid arg to Brioche.includeDirectory")
+                            })?;
+                            anyhow::Ok(arg.text().to_string())
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
+
+                    Ok(Some(StaticQuery::Glob { patterns: args }))
                 }
                 _ => Ok(None),
             }

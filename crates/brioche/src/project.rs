@@ -6,6 +6,7 @@ use std::{
 
 use analyze::StaticQuery;
 use anyhow::Context as _;
+use futures::{StreamExt as _, TryStreamExt as _};
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 use tokio::io::AsyncWriteExt as _;
 
@@ -981,6 +982,24 @@ async fn fetch_project_from_registry(
                     )
                     .await?;
                 }
+                StaticQuery::Glob { .. } => {
+                    let recipe = crate::recipe::get_recipe(brioche, *recipe_hash).await?;
+                    let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
+                        anyhow::anyhow!("included static recipe is not an artifact")
+                    })?;
+                    crate::output::create_output(
+                        brioche,
+                        &artifact,
+                        crate::output::OutputOptions {
+                            link_locals: false,
+                            merge: true,
+                            mtime: None,
+                            output_path: module_dir,
+                            resources_dir: None,
+                        },
+                    )
+                    .await?;
+                }
             }
         }
     }
@@ -1167,6 +1186,87 @@ async fn resolve_static(
             crate::recipe::save_recipes(brioche, [&recipe]).await?;
 
             Ok(artifact_hash)
+        }
+        analyze::StaticQuery::Glob { patterns } => {
+            let module_path = module.project_subpath.to_path(project_root);
+            let module_dir_path = module_path
+                .parent()
+                .context("no parent path for module path")?;
+
+            let mut glob_set = globset::GlobSetBuilder::new();
+            for pattern in patterns {
+                let glob = globset::GlobBuilder::new(pattern)
+                    .case_insensitive(false)
+                    .literal_separator(true)
+                    .backslash_escape(true)
+                    .empty_alternates(true)
+                    .build()?;
+                glob_set.add(glob);
+            }
+            let glob_set = glob_set.build()?;
+
+            let paths = tokio::task::spawn_blocking({
+                let module_dir_path = module_dir_path.to_owned();
+                move || {
+                    let mut paths = vec![];
+                    for entry in walkdir::WalkDir::new(&module_dir_path) {
+                        let entry =
+                            entry.context("failed to get directory entry while matching globs")?;
+                        let relative_entry_path =
+                            pathdiff::diff_paths(entry.path(), &module_dir_path).with_context(
+                                || {
+                                    format!(
+                                    "failed to resolve matched path {} relative to module path {}",
+                                    entry.path().display(),
+                                    module_dir_path.display(),
+                                )
+                                },
+                            )?;
+                        if glob_set.is_match(&relative_entry_path) {
+                            paths.push((entry.path().to_owned(), relative_entry_path));
+                        }
+                    }
+
+                    anyhow::Ok(paths)
+                }
+            })
+            .await??;
+
+            let artifacts = futures::stream::iter(paths)
+                .then(|(full_path, relative_path)| async move {
+                    let artifact = crate::input::create_input(
+                        brioche,
+                        crate::input::InputOptions {
+                            input_path: &full_path,
+                            meta: &Default::default(),
+                            remove_input: false,
+                            resources_dir: None,
+                        },
+                    )
+                    .await?;
+                    anyhow::Ok((relative_path, artifact))
+                })
+                .try_collect::<Vec<_>>()
+                .await?;
+
+            let mut directory = crate::recipe::Directory::default();
+            for (path, artifact) in artifacts {
+                let path = <Vec<u8> as bstr::ByteVec>::from_os_string(path.as_os_str().to_owned())
+                    .map_err(|_| {
+                        anyhow::anyhow!(
+                            "invalid path name {} that matched glob pattern",
+                            path.display()
+                        )
+                    })?;
+                directory.insert(brioche, &path, Some(artifact)).await?;
+            }
+
+            let recipe = crate::recipe::Recipe::from(directory);
+            let recipe_hash = recipe.hash();
+
+            crate::recipe::save_recipes(brioche, [&recipe]).await?;
+
+            Ok(recipe_hash)
         }
     }
 }
