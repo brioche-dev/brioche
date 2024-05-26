@@ -26,10 +26,12 @@ deno_core = "0.201.0"
 directories = "5.0.1"
 fs_extra = "1.3.0"
 futures = "0.3.29"
+globset = "0.4.14"
 hex = "0.4.3"
 human-repr = "1.1.0"
 joinery = "3.1.0"
 json-canon = "0.1.3"
+lazy_format = "2.0.3"
 nix = { version = "0.27.1", features = ["user"] }
 opentelemetry = "0.21.0"
 opentelemetry-http = { version = "0.10.0", features = ["reqwest"] }
@@ -64,6 +66,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter", "json", "tr
 ulid = "1.1.0"
 url = { version = "2.5.0", features = ["serde"] }
 urlencoding = "2.1.3"
+walkdir = "2.5.0"
 
 [dev-dependencies]
 assert_matches = "1.5.0"

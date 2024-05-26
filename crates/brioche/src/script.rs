@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::Context as _;
 use deno_core::OpState;
+use joinery::JoinableIterator as _;
 use specifier::BriocheModuleSpecifier;
 
 use crate::{
@@ -264,6 +265,10 @@ pub async fn op_brioche_get_static(
             }
             StaticQuery::Include(StaticInclude::Directory { path }) => {
                 format!("failed to resolve Brioche.includeDirectory({path:?}) from {specifier}, was the path passed in as a string literal?")
+            }
+            StaticQuery::Glob { patterns } => {
+                let patterns = patterns.iter().map(|pattern| lazy_format::lazy_format!("{pattern:?}")).join_with(", ");
+                format!("failed to resolve Brioche.glob({patterns}) from {specifier}, were the patterns passed in as string literals?")
             }
         })?;
     let recipe = crate::recipe::get_recipe(&brioche, recipe_hash).await?;

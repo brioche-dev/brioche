@@ -366,3 +366,173 @@ async fn test_eval_brioche_include_directory() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_eval_brioche_glob() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    let hello_world = "hello world!";
+    let hello_world_blob = brioche_test::blob(&brioche, hello_world).await;
+    context
+        .write_file("myproject/foo/hello.txt", hello_world)
+        .await;
+
+    let hi = "hello world!";
+    let hi_blob = brioche_test::blob(&brioche, hi).await;
+    context.write_file("myproject/bar/hi.txt", hi).await;
+
+    context
+        .write_file("myproject/bar/secret.md", "not included!")
+        .await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    glob: (...patterns) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "glob",
+                                        patterns,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                }
+
+                export default () => {
+                    return Brioche.glob("foo", "bar/**/*.txt");
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
+
+    assert_eq!(
+        resolved,
+        brioche_test::dir(
+            &brioche,
+            [
+                (
+                    "foo",
+                    brioche_test::dir(
+                        &brioche,
+                        [("hello.txt", brioche_test::file(hello_world_blob, false))]
+                    )
+                    .await,
+                ),
+                (
+                    "bar",
+                    brioche_test::dir(&brioche, [("hi.txt", brioche_test::file(hi_blob, false))])
+                        .await,
+                ),
+            ],
+        )
+        .await
+        .into(),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_glob_submodule() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    let hello_world = "hello world!";
+    let hello_world_blob = brioche_test::blob(&brioche, hello_world).await;
+    context
+        .write_file("myproject/foo/hello.txt", hello_world)
+        .await;
+    context
+        .write_file("myproject/foo/fizz/buzz.txt", hello_world)
+        .await;
+
+    context
+        .write_file("myproject/bar/hi.txt", "outside of submodule")
+        .await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import { foo } from "./foo";
+
+                export default () => {
+                    return foo();
+                };
+            "#,
+        )
+        .await;
+
+    context
+        .write_file(
+            "myproject/foo/index.bri",
+            r#"
+                globalThis.Brioche = {
+                    glob: (...patterns) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "glob",
+                                        patterns,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                }
+
+                export function foo() {
+                    return Brioche.glob("**/*.txt");
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
+
+    assert_eq!(
+        resolved,
+        brioche_test::dir(
+            &brioche,
+            [
+                ("hello.txt", brioche_test::file(hello_world_blob, false)),
+                (
+                    "fizz",
+                    brioche_test::dir(
+                        &brioche,
+                        [("buzz.txt", brioche_test::file(hello_world_blob, false))]
+                    )
+                    .await,
+                ),
+            ],
+        )
+        .await
+        .into(),
+    );
+
+    Ok(())
+}

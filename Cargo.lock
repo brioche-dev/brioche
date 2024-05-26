@@ -754,10 +754,12 @@ dependencies = [
  "directories",
  "fs_extra",
  "futures",
+ "globset",
  "hex",
  "human-repr",
  "joinery",
  "json-canon",
+ "lazy_format",
  "libmount",
  "mockito",
  "nix 0.27.1",
@@ -797,6 +799,7 @@ dependencies = [
  "unshare",
  "url",
  "urlencoding",
+ "walkdir",
  "zstd",
 ]
 
@@ -2375,6 +2378,12 @@ dependencies = [
  "regex",
  "syn 1.0.109",
 ]
+
+[[package]]
+name = "lazy_format"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e479e99b287d578ed5f6cd4c92cdf48db219088adb9c5b14f7c155b71dfba792"
 
 [[package]]
 name = "lazy_static"
@@ -6045,9 +6054,9 @@ dependencies = [
 
 [[package]]
 name = "walkdir"
-version = "2.4.0"
+version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d71d857dc86794ca4c280d616f7da00d2dbfd8cd788846559a6813e6aa4b54ee"
+checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
