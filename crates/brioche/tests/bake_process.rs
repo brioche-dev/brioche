@@ -120,6 +120,7 @@ fn default_process() -> ProcessRecipe {
         command: ProcessTemplate { components: vec![] },
         args: vec![],
         env: BTreeMap::new(),
+        dependencies: vec![],
         work_dir: Box::new(WithMeta::without_meta(Recipe::Directory(
             Directory::default(),
         ))),
@@ -181,6 +182,7 @@ async fn test_bake_process() -> anyhow::Result<()> {
         run_test!(brioche_test, test_bake_process_networking_disabled),
         run_test!(brioche_test, test_bake_process_networking_enabled),
         run_test!(brioche_test, test_bake_process_networking_enabled_dns),
+        run_test!(brioche_test, test_bake_process_dependencies),
     ];
 
     let mut failures = 0;
@@ -1160,6 +1162,167 @@ async fn test_bake_process_networking_enabled_dns(
     });
 
     assert_matches!(bake_without_meta(brioche, process).await, Ok(_));
+
+    Ok(())
+}
+
+async fn test_bake_process_dependencies(
+    brioche: &brioche::Brioche,
+    _context: &brioche_test::TestContext,
+) -> anyhow::Result<()> {
+    let dep1 = brioche_test::dir(
+        brioche,
+        [
+            ("a", brioche_test::dir_empty()),
+            ("b", brioche_test::dir_empty()),
+            ("c", brioche_test::dir_empty()),
+            ("bin", brioche_test::dir_empty()),
+            (
+                "brioche-env.d",
+                brioche_test::dir(
+                    brioche,
+                    [(
+                        "env",
+                        brioche_test::dir(
+                            brioche,
+                            [
+                                (
+                                    "PATH",
+                                    brioche_test::dir(
+                                        brioche,
+                                        [
+                                            ("a", brioche_test::symlink(b"../../../a")),
+                                            ("b", brioche_test::symlink(b"../../../b")),
+                                        ],
+                                    )
+                                    .await,
+                                ),
+                                (
+                                    "DEP1",
+                                    brioche_test::dir(
+                                        brioche,
+                                        [("a", brioche_test::symlink(b"../../../c"))],
+                                    )
+                                    .await,
+                                ),
+                            ],
+                        )
+                        .await,
+                    )],
+                )
+                .await,
+            ),
+        ],
+    )
+    .await;
+    let dep2 = brioche_test::dir(
+        brioche,
+        [
+            ("d", brioche_test::dir_empty()),
+            ("e", brioche_test::dir_empty()),
+            ("f", brioche_test::dir_empty()),
+            ("bin", brioche_test::dir_empty()),
+            (
+                "brioche-env.d",
+                brioche_test::dir(
+                    brioche,
+                    [(
+                        "env",
+                        brioche_test::dir(
+                            brioche,
+                            [
+                                (
+                                    "PATH",
+                                    brioche_test::dir(
+                                        brioche,
+                                        [
+                                            ("d", brioche_test::symlink(b"../../../d")),
+                                            ("e", brioche_test::symlink(b"../../../e")),
+                                        ],
+                                    )
+                                    .await,
+                                ),
+                                (
+                                    "DEP2",
+                                    brioche_test::dir(
+                                        brioche,
+                                        [("a", brioche_test::symlink(b"../../../f"))],
+                                    )
+                                    .await,
+                                ),
+                            ],
+                        )
+                        .await,
+                    )],
+                )
+                .await,
+            ),
+        ],
+    )
+    .await;
+
+    let process = ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                set -euo pipefail
+
+                test "$PATH" = "$EXPECTED_PATH"
+                test "$DEP1" = "$EXPECTED_DEP1"
+                test "$DEP2" = "$EXPECTED_DEP2"
+
+                touch "$BRIOCHE_OUTPUT"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+            ("DEP1".into(), tpl("hello")),
+            (
+                "EXPECTED_PATH".into(),
+                tpl_join([
+                    template_input(utils()),
+                    tpl("/bin:"),
+                    template_input(dep1.clone().into()),
+                    tpl("/a:"),
+                    template_input(dep1.clone().into()),
+                    tpl("/b:"),
+                    template_input(dep1.clone().into()),
+                    tpl("/bin:"),
+                    template_input(dep2.clone().into()),
+                    tpl("/d:"),
+                    template_input(dep2.clone().into()),
+                    tpl("/e:"),
+                    template_input(dep2.clone().into()),
+                    tpl("/bin"),
+                ]),
+            ),
+            (
+                "EXPECTED_DEP1".into(),
+                tpl_join([
+                    tpl("hello:"),
+                    template_input(dep1.clone().into()),
+                    tpl("/c"),
+                ]),
+            ),
+            (
+                "EXPECTED_DEP2".into(),
+                tpl_join([template_input(dep2.clone().into()), tpl("/f")]),
+            ),
+        ]),
+        dependencies: vec![
+            WithMeta::without_meta(dep1.clone().into()),
+            WithMeta::without_meta(dep2.clone().into()),
+        ],
+        ..default_process()
+    };
+
+    bake_without_meta(brioche, Recipe::Process(process)).await?;
 
     Ok(())
 }

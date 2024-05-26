@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -52,7 +52,7 @@ pub async fn bake_lazy_process_to_process(
         .then(|arg| bake_lazy_process_template_to_process_template(brioche, scope, arg))
         .try_collect()
         .await?;
-    let env = futures::stream::iter(process.env)
+    let mut env = futures::stream::iter(process.env)
         .then(|(key, artifact)| async move {
             let template =
                 bake_lazy_process_template_to_process_template(brioche, scope, artifact).await?;
@@ -60,6 +60,15 @@ pub async fn bake_lazy_process_to_process(
         })
         .try_collect()
         .await?;
+
+    let dependencies: Vec<_> = futures::stream::iter(process.dependencies)
+        .then(|dependency| async move {
+            let dependency = super::bake(brioche, dependency, scope).await?;
+            anyhow::Ok(dependency)
+        })
+        .try_collect()
+        .await?;
+    append_dependency_envs(brioche, &mut env, dependencies.iter()).await?;
 
     let work_dir = super::bake(brioche, *process.work_dir, scope).await?;
     let crate::recipe::Artifact::Directory(work_dir) = work_dir.value else {
@@ -614,6 +623,119 @@ async fn build_process_template(
     }
 
     Ok(result)
+}
+
+async fn append_dependency_envs(
+    brioche: &Brioche,
+    env: &mut BTreeMap<bstr::BString, CompleteProcessTemplate>,
+    dependencies: impl Iterator<Item = &WithMeta<Artifact>>,
+) -> anyhow::Result<()> {
+    // Tuples of env var values to add, where each artifact subpath will
+    // be added to the env var separated by `:`
+    // (env_var_name, artifact, artifact_subpath)
+    let mut env_var_appends: Vec<(bstr::BString, WithMeta<Artifact>, bstr::BString)> = vec![];
+
+    for dependency_artifact in dependencies {
+        // Validate that the dependency is a directory
+        let Artifact::Directory(dependency) = &dependency_artifact.value else {
+            anyhow::bail!("dependency must be a directory recipe");
+        };
+
+        // Get the directory `brioche-env.d/env` if it exists
+        let env_dir = dependency.get(brioche, b"brioche-env.d/env").await?;
+        let env_dir = env_dir.and_then(|env_dir| match env_dir.value {
+            Artifact::Directory(dir) => Some(dir),
+            _ => None,
+        });
+        if let Some(env_dir) = env_dir {
+            // Each entry in the directory should be a directory whose
+            // name is treated as an env var
+            let env_dir_entries = env_dir.entries(brioche).await?;
+
+            for (env_var, env_dir_entry) in env_dir_entries {
+                // Validate the entry is a directory
+                let Artifact::Directory(env_dir_entry) = env_dir_entry.value else {
+                    anyhow::bail!("expected `brioche-env.d/env/{env_var}` to be a directory");
+                };
+                let env_value_entries = env_dir_entry.entries(brioche).await?;
+
+                // Each entry within the env var directory should be a symlink
+                // pointing to a path to append to the env var
+                for (env_value_entry_name, env_value_entry) in env_value_entries {
+                    // Validate it's a symlink
+                    let Artifact::Symlink {
+                        target: env_value_target,
+                    } = env_value_entry.value
+                    else {
+                        anyhow::bail!("expected `brioche-env.d/env/{env_var}/{env_value_entry_name}` to be a symlink");
+                    };
+
+                    // Get the path of the symlink relative to the
+                    // root of the dependency artifact
+                    let dependency_subpath = bstr::join(
+                        "/",
+                        [
+                            "brioche-env.d".as_bytes(),
+                            "env".as_bytes(),
+                            &**env_var,
+                            &*env_value_target,
+                        ]
+                        .into_iter(),
+                    );
+                    let dependency_subpath =
+                        crate::fs_utils::logical_path_bytes(&dependency_subpath)?;
+
+                    // Append the env var
+                    env_var_appends.push((
+                        env_var.clone(),
+                        dependency_artifact.clone(),
+                        bstr::BString::new(dependency_subpath),
+                    ));
+                }
+            }
+        }
+
+        // If the artifact contains a `bin` directory, append that to `$PATH`
+        // automatically
+        let bin_artifact = dependency.get(brioche, b"bin").await?;
+        let bin_artifact = bin_artifact.as_ref().map(|artifact| &artifact.value);
+        if matches!(bin_artifact, Some(Artifact::Directory { .. })) {
+            env_var_appends.push(("PATH".into(), dependency_artifact.clone(), "bin".into()));
+        }
+    }
+
+    // Append to the env vars
+    for (env_var, artifact, mut subpath) in env_var_appends {
+        // Build template components representing either `${artifact}` or
+        // `${artifact}/${subpath}`
+        let append_components = if subpath.is_empty() {
+            vec![CompleteProcessTemplateComponent::Input { artifact }]
+        } else {
+            subpath.insert(0, b'/');
+            vec![
+                CompleteProcessTemplateComponent::Input { artifact },
+                CompleteProcessTemplateComponent::Literal { value: subpath },
+            ]
+        };
+
+        // Get the current env var value
+        let current_value = env
+            .entry(env_var.clone())
+            .or_insert_with(|| CompleteProcessTemplate { components: vec![] });
+
+        // If the current value is empty or unset, set it to the new value.
+        // Otherwise, add a `:` and append the new value
+        if current_value.is_empty() {
+            *current_value = CompleteProcessTemplate {
+                components: append_components,
+            };
+        } else {
+            current_value.append_literal(":");
+            current_value.components.extend(append_components);
+        };
+    }
+
+    Ok(())
 }
 
 #[tracing::instrument(skip(brioche))]
