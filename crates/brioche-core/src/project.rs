@@ -977,7 +977,7 @@ async fn fetch_project_from_registry(
                             merge: true,
                             mtime: None,
                             output_path: &include_path,
-                            resources_dir: None,
+                            resource_dir: None,
                         },
                     )
                     .await?;
@@ -995,7 +995,7 @@ async fn fetch_project_from_registry(
                             merge: true,
                             mtime: None,
                             output_path: module_dir,
-                            resources_dir: None,
+                            resource_dir: None,
                         },
                     )
                     .await?;
@@ -1164,7 +1164,7 @@ async fn resolve_static(
                     input_path: &input_path,
                     meta: &Default::default(),
                     remove_input: false,
-                    resources_dir: None,
+                    resource_dir: None,
                 },
             )
             .await?;
@@ -1240,7 +1240,7 @@ async fn resolve_static(
                             input_path: &full_path,
                             meta: &Default::default(),
                             remove_input: false,
-                            resources_dir: None,
+                            resource_dir: None,
                         },
                     )
                     .await?;

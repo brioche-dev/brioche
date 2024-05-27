@@ -24,7 +24,7 @@ async fn create_output(
         brioche_core::output::OutputOptions {
             output_path,
             merge,
-            resources_dir: None,
+            resource_dir: None,
             mtime: None,
             link_locals: false,
         },
@@ -35,7 +35,7 @@ async fn create_output(
 async fn create_output_with_resources(
     brioche: &Brioche,
     output_path: &Path,
-    resources_dir: &Path,
+    resource_dir: &Path,
     artifact: &Artifact,
     merge: bool,
 ) -> anyhow::Result<()> {
@@ -45,7 +45,7 @@ async fn create_output_with_resources(
         brioche_core::output::OutputOptions {
             output_path,
             merge,
-            resources_dir: Some(resources_dir),
+            resource_dir: Some(resource_dir),
             mtime: None,
             link_locals: false,
         },
@@ -65,7 +65,7 @@ async fn create_output_with_links(
         brioche_core::output::OutputOptions {
             output_path,
             merge,
-            resources_dir: None,
+            resource_dir: None,
             mtime: None,
             link_locals: true,
         },

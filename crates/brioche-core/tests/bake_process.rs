@@ -722,7 +722,7 @@ async fn test_bake_process_no_default_env_vars(
 
                 test -z "$BRIOCHE_OUTPUT"
                 test -z "$HOME"
-                test -z "$BRIOCHE_PACK_RESOURCES_DIR"
+                test -z "$BRIOCHE_RESOURCE_DIR"
                 test -z "$TMPDIR"
 
                 touch "$custom_output"
@@ -874,7 +874,7 @@ async fn test_bake_process_starts_with_work_dir_contents(
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            ("BRIOCHE_PACK_RESOURCES_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -912,7 +912,7 @@ async fn test_bake_process_edit_work_dir_contents(
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            ("BRIOCHE_PACK_RESOURCES_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -944,13 +944,13 @@ async fn test_bake_process_has_resource_dir(
             tpl("-c"),
             tpl(r#"
                 set -euo pipefail
-                test -d "$BRIOCHE_PACK_RESOURCES_DIR"
+                test -d "$BRIOCHE_RESOURCE_DIR"
                 touch "$BRIOCHE_OUTPUT"
             "#),
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            ("BRIOCHE_PACK_RESOURCES_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -1014,7 +1014,7 @@ async fn test_bake_process_contains_all_resources(
                 baz=""
                 oldifs="$IFS"
                 IFS=":"
-                for dir in $BRIOCHE_PACK_INPUT_RESOURCES_DIRS; do
+                for dir in $BRIOCHE_INPUT_RESOURCE_DIRS; do
                     if [ -e "$dir/foo/bar.txt" ]; then
                         bar="$(cat "$dir/foo/bar.txt")"
                     fi
@@ -1031,10 +1031,10 @@ async fn test_bake_process_contains_all_resources(
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
             (
-                "BRIOCHE_PACK_INPUT_RESOURCES_DIRS".into(),
+                "BRIOCHE_INPUT_RESOURCE_DIRS".into(),
                 input_resources_paths(),
             ),
-            ("BRIOCHE_PACK_RESOURCES_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -1081,15 +1081,15 @@ async fn test_bake_process_output_with_resources(
                 set -euo pipefail
                 mkdir -p "$BRIOCHE_OUTPUT/bin"
                 echo -n "dummy_packed" > packed
-                echo -n "dummy_program" > "$BRIOCHE_PACK_RESOURCES_DIR/program"
-                echo -n "dummy_ld_linux" > "$BRIOCHE_PACK_RESOURCES_DIR/ld-linux.so"
+                echo -n "dummy_program" > "$BRIOCHE_RESOURCE_DIR/program"
+                echo -n "dummy_ld_linux" > "$BRIOCHE_RESOURCE_DIR/ld-linux.so"
 
                 cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
             "#),
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            ("BRIOCHE_PACK_RESOURCES_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),

@@ -60,8 +60,8 @@ fn run() -> Result<(), PackerError> {
             programs,
         } => {
             for program in &programs {
-                let resources_dir =
-                    brioche_pack::find_output_resources_dir(program).map_err(|error| {
+                let resource_dir =
+                    brioche_pack::find_output_resource_dir(program).map_err(|error| {
                         PackerError::PackResourceDir {
                             program: program.clone(),
                             error,
@@ -70,7 +70,7 @@ fn run() -> Result<(), PackerError> {
                 brioche_pack::autowrap::autowrap(brioche_pack::autowrap::AutowrapOptions {
                     program_path: program,
                     packed_exec_path: &packed_exec,
-                    resources_dir: &resources_dir,
+                    resource_dir: &resource_dir,
                     library_search_paths: &lib_dirs,
                     input_paths: &[],
                     sysroot: &sysroot,

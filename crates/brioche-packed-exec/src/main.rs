@@ -17,7 +17,7 @@ pub fn main() -> ExitCode {
 
 fn run() -> Result<(), PackedError> {
     let path = std::env::current_exe()?;
-    let resources_dirs = brioche_pack::find_resources_dirs(&path, true)?;
+    let resource_dirs = brioche_pack::find_resource_dirs(&path, true)?;
     let mut program = std::fs::File::open(&path)?;
     let pack = brioche_pack::extract_pack(&mut program)?;
 
@@ -31,7 +31,7 @@ fn run() -> Result<(), PackedError> {
             let interpreter = interpreter
                 .to_path()
                 .map_err(|_| PackedError::InvalidPath)?;
-            let interpreter = brioche_pack::find_in_resources_dirs(&resources_dirs, interpreter)
+            let interpreter = brioche_pack::find_in_resource_dirs(&resource_dirs, interpreter)
                 .ok_or(PackedError::ResourceNotFound)?;
             let mut command = std::process::Command::new(interpreter);
             if !library_paths.is_empty() {
@@ -41,7 +41,7 @@ fn run() -> Result<(), PackedError> {
                         .to_path()
                         .map_err(|_| PackedError::InvalidPath)?;
                     let library_path =
-                        brioche_pack::find_in_resources_dirs(&resources_dirs, library_path)
+                        brioche_pack::find_in_resource_dirs(&resource_dirs, library_path)
                             .ok_or(PackedError::ResourceNotFound)?;
 
                     if n > 0 {
@@ -79,7 +79,7 @@ fn run() -> Result<(), PackedError> {
                 .program
                 .to_path()
                 .map_err(|_| PackedError::InvalidPath)?;
-            let program = brioche_pack::find_in_resources_dirs(&resources_dirs, program)
+            let program = brioche_pack::find_in_resource_dirs(&resource_dirs, program)
                 .ok_or(PackedError::ResourceNotFound)?;
             let program = program.canonicalize()?;
             command.arg(program);

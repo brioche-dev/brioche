@@ -14,7 +14,7 @@ use super::{
 pub struct InputOptions<'a> {
     pub input_path: &'a Path,
     pub remove_input: bool,
-    pub resources_dir: Option<&'a Path>,
+    pub resource_dir: Option<&'a Path>,
     pub meta: &'a Arc<Meta>,
 }
 
@@ -26,8 +26,8 @@ pub async fn create_input(
     // Ensure directories that we will remove are writable and executable
     if options.remove_input {
         set_directory_rwx_recursive(options.input_path).await?;
-        if let Some(resources_dir) = options.resources_dir {
-            set_directory_rwx_recursive(resources_dir).await?;
+        if let Some(resource_dir) = options.resource_dir {
+            set_directory_rwx_recursive(resource_dir).await?;
         }
     }
 
@@ -51,8 +51,8 @@ pub async fn create_input_inner(
         })?;
 
     if metadata.is_file() {
-        let resources = match options.resources_dir {
-            Some(resources_dir) => {
+        let resources = match options.resource_dir {
+            Some(resource_dir) => {
                 let pack = tokio::task::spawn_blocking({
                     let input_path = options.input_path.to_owned();
                     move || {
@@ -72,7 +72,7 @@ pub async fn create_input_inner(
                 let mut resources = Directory::default();
                 while let Some(pack_path) = pack_paths.pop() {
                     let path = pack_path.to_path().context("invalid resource path")?;
-                    let resource_path = resources_dir.join(path);
+                    let resource_path = resource_dir.join(path);
                     let resource_metadata = tokio::fs::symlink_metadata(&resource_path).await;
                     let resource_metadata = match resource_metadata {
                         Ok(metadata) => Some(metadata),
@@ -87,7 +87,7 @@ pub async fn create_input_inner(
                             InputOptions {
                                 input_path: &resource_path,
                                 remove_input: false,
-                                resources_dir: Some(resources_dir),
+                                resource_dir: Some(resource_dir),
                                 meta: options.meta,
                             },
                         )
@@ -107,16 +107,16 @@ pub async fn create_input_inner(
                                     continue;
                                 }
                             };
-                            let canonical_resources_dir =
-                                tokio::fs::canonicalize(&resources_dir).await;
-                            let canonical_resources_dir = match canonical_resources_dir {
+                            let canonical_resource_dir =
+                                tokio::fs::canonicalize(&resource_dir).await;
+                            let canonical_resource_dir = match canonical_resource_dir {
                                 Ok(target) => target,
                                 Err(err) => {
-                                    tracing::warn!(resources_dir = %resources_dir.display(), "failed to canonicalize resources dir: {err}");
+                                    tracing::warn!(resource_dir = %resource_dir.display(), "failed to canonicalize resource dir: {err}");
                                     continue;
                                 }
                             };
-                            let target = match target.strip_prefix(&canonical_resources_dir) {
+                            let target = match target.strip_prefix(&canonical_resource_dir) {
                                 Ok(target) => target,
                                 Err(err) => {
                                     tracing::warn!(resource = %resource_path.display(), "resource symlink target not under resources dir: {err}");

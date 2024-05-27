@@ -9,7 +9,7 @@ use bstr::ByteSlice as _;
 pub struct AutowrapOptions<'a> {
     pub program_path: &'a Path,
     pub packed_exec_path: &'a Path,
-    pub resources_dir: &'a Path,
+    pub resource_dir: &'a Path,
     pub sysroot: &'a Path,
     pub library_search_paths: &'a [PathBuf],
     pub input_paths: &'a [PathBuf],
@@ -37,7 +37,7 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
                 let pack = dynamic_ld_linux_elf_pack(DynamicLdLinuxElfPackOptions {
                     program_path: options.program_path,
                     program_contents: &program_file,
-                    resources_dir: options.resources_dir,
+                    resource_dir: options.resource_dir,
                     interpreter_path: &interpreter_path,
                     library_search_paths: options.library_search_paths,
                     input_paths: options.input_paths,
@@ -67,7 +67,7 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
 struct DynamicLdLinuxElfPackOptions<'a> {
     program_path: &'a Path,
     program_contents: &'a [u8],
-    resources_dir: &'a Path,
+    resource_dir: &'a Path,
     interpreter_path: &'a Path,
     library_search_paths: &'a [PathBuf],
     input_paths: &'a [PathBuf],
@@ -82,7 +82,7 @@ fn dynamic_ld_linux_elf_pack(
         .file_name()
         .ok_or_else(|| AutowrapError::InvalidPath)?;
     let resource_program_path = crate::resources::add_named_blob(
-        options.resources_dir,
+        options.resource_dir,
         std::io::Cursor::new(&options.program_contents),
         is_path_executable(options.program_path)?,
         program_name,
@@ -94,7 +94,7 @@ fn dynamic_ld_linux_elf_pack(
         .ok_or_else(|| AutowrapError::InvalidPath)?;
     let interpreter = std::fs::File::open(options.interpreter_path)?;
     let resource_interpreter_path = crate::resources::add_named_blob(
-        options.resources_dir,
+        options.resource_dir,
         interpreter,
         is_path_executable(options.interpreter_path)?,
         interpreter_name,
@@ -109,7 +109,7 @@ fn dynamic_ld_linux_elf_pack(
 
         let library = std::fs::File::open(&library_path)?;
         let resource_library_path = crate::resources::add_named_blob(
-            options.resources_dir,
+            options.resource_dir,
             library,
             is_path_executable(&library_path)?,
             library_name,

@@ -18,7 +18,7 @@ async fn create_input(
         brioche_core::input::InputOptions {
             input_path,
             remove_input,
-            resources_dir: None,
+            resource_dir: None,
             meta: &Arc::new(Meta::default()),
         },
     )
@@ -30,7 +30,7 @@ async fn create_input(
 async fn create_input_with_resources(
     brioche: &Brioche,
     input_path: &Path,
-    resources_dir: &Path,
+    resource_dir: &Path,
     remove_input: bool,
 ) -> anyhow::Result<Artifact> {
     let artifact = brioche_core::input::create_input(
@@ -38,7 +38,7 @@ async fn create_input_with_resources(
         brioche_core::input::InputOptions {
             input_path,
             remove_input,
-            resources_dir: Some(resources_dir),
+            resource_dir: Some(resource_dir),
             meta: &Arc::new(Meta::default()),
         },
     )
@@ -248,7 +248,7 @@ async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
-    let resources_dir = context.mkdir("resources").await;
+    let resource_dir = context.mkdir("resources").await;
 
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
@@ -262,7 +262,7 @@ async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
     context.write_file("test/hi", &packed_file).await;
     context.write_file("resources/test", b"test").await;
 
-    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resource_dir, false).await?;
 
     assert_eq!(
         artifact,
@@ -296,7 +296,7 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
-    let resources_dir = context.mkdir("resources").await;
+    let resource_dir = context.mkdir("resources").await;
 
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
@@ -311,7 +311,7 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
     context.write_symlink("test_target", "resources/test").await;
     context.write_file("resources/test_target", b"test").await;
 
-    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resource_dir, false).await?;
 
     assert_eq!(
         artifact,
@@ -351,7 +351,7 @@ async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
-    let resources_dir = context.mkdir("resources").await;
+    let resource_dir = context.mkdir("resources").await;
 
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
@@ -365,7 +365,7 @@ async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
     context.write_file("test/hi", &packed_file).await;
     context.write_symlink("test_target", "resources/test").await;
 
-    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resource_dir, false).await?;
 
     assert_eq!(
         artifact,
@@ -396,7 +396,7 @@ async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
-    let resources_dir = context.mkdir("resources").await;
+    let resource_dir = context.mkdir("resources").await;
 
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
@@ -414,7 +414,7 @@ async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
         .await;
     context.write_file("resources/test_target", b"test").await;
 
-    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resource_dir, false).await?;
 
     assert_eq!(
         artifact,
@@ -470,7 +470,7 @@ async fn test_input_dir_omits_unused_resources() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
-    let resources_dir = context.mkdir("resources").await;
+    let resource_dir = context.mkdir("resources").await;
 
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
@@ -487,7 +487,7 @@ async fn test_input_dir_omits_unused_resources() -> anyhow::Result<()> {
     // Not referenced by any pack
     context.write_file("resources/unused.txt", "other").await;
 
-    let artifact = create_input_with_resources(&brioche, &dir_path, &resources_dir, false).await?;
+    let artifact = create_input_with_resources(&brioche, &dir_path, &resource_dir, false).await?;
 
     assert_eq!(
         artifact,

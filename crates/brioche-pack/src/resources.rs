@@ -4,7 +4,7 @@ use std::{
 };
 
 pub fn add_named_blob(
-    resources_dir: &Path,
+    resource_dir: &Path,
     mut contents: impl std::io::Seek + std::io::Read,
     executable: bool,
     name: impl AsRef<Path>,
@@ -18,7 +18,7 @@ pub fn add_named_blob(
 
     contents.seek(std::io::SeekFrom::Start(0))?;
 
-    let blob_dir = resources_dir.join("blobs");
+    let blob_dir = resource_dir.join("blobs");
     let blob_path = blob_dir.join(&blob_name);
     let blob_temp_id = ulid::Ulid::new();
     let blob_temp_path = blob_dir.join(format!("{blob_name}-{blob_temp_id}"));
@@ -34,7 +34,7 @@ pub fn add_named_blob(
     drop(blob_file);
     std::fs::rename(&blob_temp_path, &blob_path)?;
 
-    let alias_dir = resources_dir.join("aliases").join(&blob_name);
+    let alias_dir = resource_dir.join("aliases").join(&blob_name);
     std::fs::create_dir_all(&alias_dir)?;
 
     let alias_path = alias_dir.join(name);
@@ -44,7 +44,7 @@ pub fn add_named_blob(
     std::os::unix::fs::symlink(blob_pack_relative_path, &alias_path)?;
 
     let alias_path = alias_path
-        .strip_prefix(resources_dir)
+        .strip_prefix(resource_dir)
         .expect("alias path is not in resources dir");
     Ok(alias_path.to_owned())
 }
