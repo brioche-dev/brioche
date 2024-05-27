@@ -70,7 +70,7 @@ fn run() -> Result<ExitCode, LdError> {
     let autowrap_mode = match std::env::var("BRIOCHE_LD_AUTOWRAP").as_deref() {
         Ok("false") => Mode::AutowrapDisabled,
         _ => {
-            let resources_dir = brioche_pack::find_resource_dir(&output_path)
+            let resources_dir = brioche_pack::find_output_resources_dir(&output_path)
                 .map_err(LdError::ResourcesDirError)?;
             Mode::AutowrapEnabled { resources_dir }
         }
