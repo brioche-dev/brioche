@@ -411,9 +411,9 @@ pub async fn bake_process(
     for host_input_resource_dir in &host_input_resource_dirs {
         let resource_dir_name = host_input_resource_dir
             .file_name()
-            .context("unexpected input resources dir path")?;
+            .context("unexpected input resource dir path")?;
         let resource_dir_name = <[u8] as bstr::ByteSlice>::from_os_str(resource_dir_name)
-            .context("invalid input resources dir name")?;
+            .context("invalid input resource dir name")?;
         let guest_input_resource_dir: bstr::BString = guest_home_dir
             .iter()
             .copied()

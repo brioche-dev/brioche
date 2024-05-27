@@ -98,7 +98,7 @@ pub async fn create_input_inner(
                             .insert(brioche, &pack_path, Some(resource))
                             .await?;
 
-                        // Add the symlink's target to the resources dir as well
+                        // Add the symlink's target to the resource dir as well
                         if resource_metadata.is_symlink() {
                             let target = match tokio::fs::canonicalize(&resource_path).await {
                                 Ok(target) => target,
@@ -119,7 +119,7 @@ pub async fn create_input_inner(
                             let target = match target.strip_prefix(&canonical_resource_dir) {
                                 Ok(target) => target,
                                 Err(err) => {
-                                    tracing::warn!(resource = %resource_path.display(), "resource symlink target not under resources dir: {err}");
+                                    tracing::warn!(resource = %resource_path.display(), "resource symlink target not under resource dir: {err}");
                                     continue;
                                 }
                             };

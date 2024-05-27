@@ -65,7 +65,7 @@ fn run() -> Result<ExitCode, LdError> {
     }
 
     // Determine whether we will wrap the resulting binary or not. We do this
-    // before running the command so we can bail early if the resources dir
+    // before running the command so we can bail early if the resource dir
     // cannot be found.
     let autowrap_mode = match std::env::var("BRIOCHE_LD_AUTOWRAP").as_deref() {
         Ok("false") => Mode::AutowrapDisabled,
@@ -120,7 +120,7 @@ enum LdError {
     FailedToGetCurrentExe(#[source] std::io::Error),
     #[error("failed to get directory containing current executable")]
     FailedToGetCurrentExeDir,
-    #[error("brioche-ld resources dir not found (expected to be at {0})")]
+    #[error("brioche-ld resource dir not found (expected to be at {0})")]
     LinkerResourceDirNotFound(PathBuf),
     #[error("{0}")]
     IoError(#[from] std::io::Error),

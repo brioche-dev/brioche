@@ -45,7 +45,7 @@ pub fn add_named_blob(
 
     let alias_path = alias_path
         .strip_prefix(resource_dir)
-        .expect("alias path is not in resources dir");
+        .expect("alias path is not in resource dir");
     Ok(alias_path.to_owned())
 }
 
