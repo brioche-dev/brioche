@@ -16,7 +16,7 @@ static LOCAL_OUTPUT_MUTEX: tokio::sync::Mutex<LocalOutputLock> =
 #[derive(Debug, Clone, Copy)]
 pub struct OutputOptions<'a> {
     pub output_path: &'a Path,
-    pub resources_dir: Option<&'a Path>,
+    pub resource_dir: Option<&'a Path>,
     pub merge: bool,
     pub mtime: Option<std::time::SystemTime>,
     pub link_locals: bool,
@@ -116,16 +116,16 @@ async fn create_output_inner<'a: 'async_recursion>(
                     }
                 }
             } else {
-                let Some(resources_dir) = options.resources_dir else {
-                    anyhow::bail!("cannot output file outside of a directory, file has references");
+                let Some(resource_dir) = options.resource_dir else {
+                    anyhow::bail!("cannot output file outside of a directory, file has resources");
                 };
 
                 create_output_inner(
                     brioche,
                     &Artifact::Directory(resources.clone()),
                     OutputOptions {
-                        output_path: resources_dir,
-                        resources_dir: Some(resources_dir),
+                        output_path: resource_dir,
+                        resource_dir: Some(resource_dir),
                         merge: true,
                         mtime: None,
                         link_locals: options.link_locals,
@@ -160,7 +160,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                         &artifact_without_resources,
                         OutputOptions {
                             output_path: options.output_path,
-                            resources_dir: None,
+                            resource_dir: None,
                             merge: options.merge,
                             mtime: options.mtime,
                             link_locals: options.link_locals,
@@ -211,12 +211,12 @@ async fn create_output_inner<'a: 'async_recursion>(
             for (path, entry) in directory.entries(brioche).await? {
                 let path = bytes_to_path_component(path.as_bstr())?;
                 let entry_path = options.output_path.join(path);
-                let resources_dir_buf;
-                let resources_dir = match options.resources_dir {
-                    Some(resources_dir) => resources_dir,
+                let resource_dir_buf;
+                let resource_dir = match options.resource_dir {
+                    Some(resource_dir) => resource_dir,
                     None => {
-                        resources_dir_buf = options.output_path.join("brioche-pack.d");
-                        &resources_dir_buf
+                        resource_dir_buf = options.output_path.join("brioche-resources.d");
+                        &resource_dir_buf
                     }
                 };
 
@@ -227,8 +227,8 @@ async fn create_output_inner<'a: 'async_recursion>(
                                 brioche,
                                 &Artifact::Directory(file.resources.clone()),
                                 OutputOptions {
-                                    output_path: resources_dir,
-                                    resources_dir: Some(resources_dir),
+                                    output_path: resource_dir,
+                                    resource_dir: Some(resource_dir),
                                     merge: true,
                                     mtime: options.mtime,
                                     link_locals: options.link_locals,
@@ -254,7 +254,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                             &entry.value,
                             OutputOptions {
                                 output_path: &entry_path,
-                                resources_dir: Some(resources_dir),
+                                resource_dir: Some(resource_dir),
                                 merge: true,
                                 mtime: options.mtime,
                                 link_locals: options.link_locals,
@@ -301,21 +301,21 @@ async fn create_local_output_inner(
 
     let artifact_hash = artifact.hash();
     let local_path = local_dir.join(artifact_hash.to_string());
-    let local_resources_dir = local_dir.join(format!("{artifact_hash}-pack.d"));
+    let local_resource_dir = local_dir.join(format!("{artifact_hash}-resources.d"));
 
     if !try_exists_and_ensure_local_meta(&local_path).await? {
         let local_temp_dir = brioche.home.join("locals-temp");
         tokio::fs::create_dir_all(&local_temp_dir).await?;
         let temp_id = ulid::Ulid::new();
         let local_temp_path = local_temp_dir.join(temp_id.to_string());
-        let local_temp_resources_dir = local_temp_dir.join(format!("{temp_id}-pack.d"));
+        let local_temp_resource_dir = local_temp_dir.join(format!("{temp_id}-resources.d"));
 
         create_output_inner(
             brioche,
             artifact,
             OutputOptions {
                 output_path: &local_temp_path,
-                resources_dir: Some(&local_temp_resources_dir),
+                resource_dir: Some(&local_temp_resource_dir),
                 merge: false,
                 mtime: None,
                 link_locals: true,
@@ -351,13 +351,13 @@ async fn create_local_output_inner(
             Artifact::Symlink { .. } => {}
         }
 
-        if tokio::fs::try_exists(&local_temp_resources_dir).await? {
-            tokio::fs::rename(&local_temp_resources_dir, &local_resources_dir)
+        if tokio::fs::try_exists(&local_temp_resource_dir).await? {
+            tokio::fs::rename(&local_temp_resource_dir, &local_resource_dir)
                 .await
                 .context("failed to finish saving local output resources")?;
 
             set_directory_permissions(
-                &local_resources_dir,
+                &local_resource_dir,
                 SetDirectoryPermissions { readonly: true },
             )
             .await
@@ -365,21 +365,21 @@ async fn create_local_output_inner(
         }
     }
 
-    let resources_dir = if try_exists_and_ensure_local_meta(&local_resources_dir).await? {
-        Some(local_resources_dir)
+    let resource_dir = if try_exists_and_ensure_local_meta(&local_resource_dir).await? {
+        Some(local_resource_dir)
     } else {
         None
     };
 
     Ok(LocalOutput {
         path: local_path,
-        resources_dir,
+        resource_dir,
     })
 }
 
 pub struct LocalOutput {
     pub path: PathBuf,
-    pub resources_dir: Option<PathBuf>,
+    pub resource_dir: Option<PathBuf>,
 }
 
 /// Check if a path exists, and change the file metadata to ensure it matches

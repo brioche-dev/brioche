@@ -8,7 +8,6 @@ use anyhow::Context as _;
 use bstr::ByteVec as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tracing::Instrument as _;
 
 use crate::{
     recipe::{
@@ -124,9 +123,12 @@ async fn bake_lazy_process_template_to_process_template(
             ProcessTemplateComponent::OutputPath => result
                 .components
                 .push(CompleteProcessTemplateComponent::OutputPath),
-            ProcessTemplateComponent::ResourcesDir => result
+            ProcessTemplateComponent::ResourceDir => result
                 .components
-                .push(CompleteProcessTemplateComponent::ResourcesDir),
+                .push(CompleteProcessTemplateComponent::ResourceDir),
+            ProcessTemplateComponent::InputResourceDirs => result
+                .components
+                .push(CompleteProcessTemplateComponent::InputResourceDirs),
             ProcessTemplateComponent::HomeDir => result
                 .components
                 .push(CompleteProcessTemplateComponent::HomeDir),
@@ -333,14 +335,14 @@ pub async fn bake_process(
         Vec::<u8>::from_path_buf(guest_temp_dir).expect("failed to build tmp dir path");
     tokio::fs::create_dir_all(&host_temp_dir).await?;
 
-    let guest_pack_dir = PathBuf::from("/brioche-pack.d");
-    let relative_pack_dir = guest_pack_dir
+    let guest_resource_dir = PathBuf::from("/brioche-resources.d");
+    let relative_resource_dir = guest_resource_dir
         .strip_prefix("/")
-        .expect("invalid guest pack dir");
-    let host_pack_dir = root_dir.join(relative_pack_dir);
-    let guest_pack_dir =
-        Vec::<u8>::from_path_buf(guest_pack_dir).expect("failed to build pack dir path");
-    tokio::fs::create_dir_all(&host_pack_dir).await?;
+        .expect("invalid guest resource dir");
+    let host_resource_dir = root_dir.join(relative_resource_dir);
+    let guest_resource_dir =
+        Vec::<u8>::from_path_buf(guest_resource_dir).expect("failed to build resource dir path");
+    tokio::fs::create_dir_all(&host_resource_dir).await?;
 
     if process.networking {
         let guest_etc_dir = root_dir.join("etc");
@@ -368,7 +370,7 @@ pub async fn bake_process(
             crate::output::OutputOptions {
                 output_path: &host_work_dir,
                 merge: true,
-                resources_dir: Some(&host_pack_dir),
+                resource_dir: Some(&host_resource_dir),
                 mtime: Some(crate::fs_utils::brioche_epoch()),
                 link_locals: false,
             },
@@ -383,7 +385,7 @@ pub async fn bake_process(
                 crate::output::OutputOptions {
                     output_path: &output_path,
                     merge: false,
-                    resources_dir: Some(&host_pack_dir),
+                    resource_dir: Some(&host_resource_dir),
                     mtime: Some(crate::fs_utils::brioche_epoch()),
                     link_locals: false,
                 },
@@ -395,10 +397,39 @@ pub async fn bake_process(
     };
     tokio::try_join!(create_work_dir_fut, create_output_scaffold_fut)?;
 
+    let templates = [&process.command]
+        .into_iter()
+        .chain(&process.args)
+        .chain(process.env.values());
+    let mut host_input_resource_dirs = vec![];
+    for template in templates {
+        get_process_template_input_resource_dirs(brioche, template, &mut host_input_resource_dirs)
+            .await?;
+    }
+
+    let mut host_guest_input_resource_dirs = vec![];
+    for host_input_resource_dir in &host_input_resource_dirs {
+        let resource_dir_name = host_input_resource_dir
+            .file_name()
+            .context("unexpected input resource dir path")?;
+        let resource_dir_name = <[u8] as bstr::ByteSlice>::from_os_str(resource_dir_name)
+            .context("invalid input resource dir name")?;
+        let guest_input_resource_dir: bstr::BString = guest_home_dir
+            .iter()
+            .copied()
+            .chain(b"/.local/share/brioche/locals".iter().copied())
+            .chain(resource_dir_name.iter().copied())
+            .collect();
+
+        host_guest_input_resource_dirs
+            .push((host_input_resource_dir.to_owned(), guest_input_resource_dir));
+    }
+
     let dirs = ProcessTemplateDirs {
         output_path: &output_path,
-        host_resources_dir: &host_pack_dir,
-        guest_resources_dir: &guest_pack_dir,
+        host_resource_dir: &host_resource_dir,
+        guest_resource_dir: &guest_resource_dir,
+        host_guest_input_resource_dirs: &host_guest_input_resource_dirs,
         host_home_dir: &host_home_dir,
         guest_home_dir: &guest_home_dir,
         host_work_dir: &host_work_dir,
@@ -489,7 +520,8 @@ pub async fn bake_process(
         crate::input::InputOptions {
             input_path: &output_path,
             remove_input: true,
-            resources_dir: Some(&host_pack_dir),
+            resource_dir: Some(&host_resource_dir),
+            input_resource_dirs: &host_input_resource_dirs,
             meta,
         },
     )
@@ -607,14 +639,42 @@ async fn run_sandboxed_self_exec(
 #[derive(Debug, Clone, Copy)]
 struct ProcessTemplateDirs<'a> {
     output_path: &'a Path,
-    host_resources_dir: &'a Path,
-    guest_resources_dir: &'a [u8],
+    host_resource_dir: &'a Path,
+    guest_resource_dir: &'a [u8],
+    host_guest_input_resource_dirs: &'a [(PathBuf, bstr::BString)],
     host_home_dir: &'a Path,
     guest_home_dir: &'a [u8],
     host_work_dir: &'a Path,
     guest_work_dir: &'a [u8],
     host_temp_dir: &'a Path,
     guest_temp_dir: &'a [u8],
+}
+
+async fn get_process_template_input_resource_dirs(
+    brioche: &Brioche,
+    template: &CompleteProcessTemplate,
+    resources: &mut Vec<PathBuf>,
+) -> anyhow::Result<()> {
+    for component in &template.components {
+        match component {
+            CompleteProcessTemplateComponent::Input { artifact } => {
+                let local_output =
+                    crate::output::create_local_output(brioche, &artifact.value).await?;
+                if let Some(resource_dir) = local_output.resource_dir {
+                    resources.push(resource_dir);
+                }
+            }
+            CompleteProcessTemplateComponent::Literal { .. }
+            | CompleteProcessTemplateComponent::OutputPath
+            | CompleteProcessTemplateComponent::ResourceDir
+            | CompleteProcessTemplateComponent::InputResourceDirs
+            | CompleteProcessTemplateComponent::HomeDir
+            | CompleteProcessTemplateComponent::WorkDir
+            | CompleteProcessTemplateComponent::TempDir => {}
+        }
+    }
+
+    Ok(())
 }
 
 async fn build_process_template(
@@ -644,34 +704,6 @@ async fn build_process_template(
             CompleteProcessTemplateComponent::Input { artifact } => {
                 let local_output =
                     crate::output::create_local_output(brioche, &artifact.value).await?;
-
-                if let Some(input_resources_dir) = &local_output.resources_dir {
-                    tokio::task::spawn_blocking({
-                        let input_resources_dir = input_resources_dir.clone();
-                        let resources_dir = dirs.host_resources_dir.to_owned();
-                        move || {
-                            let input_resources_dir = std::fs::read_dir(&input_resources_dir)?;
-                            let input_resources_dir_entries = input_resources_dir
-                                .map(|entry| {
-                                    let entry = entry?;
-                                    let path = entry.path();
-                                    std::io::Result::Ok(path.to_owned())
-                                })
-                                .collect::<std::io::Result<Vec<_>>>()?;
-                            fs_extra::copy_items(
-                                &input_resources_dir_entries,
-                                &resources_dir,
-                                &fs_extra::dir::CopyOptions::new().skip_exist(true),
-                            )
-                        }
-                    })
-                    .instrument(tracing::info_span!(
-                        "copy_input_resouces_dir",
-                        ?input_resources_dir
-                    ))
-                    .await?
-                    .map_err(|e| anyhow::anyhow!("failed to copy resources dir: {}", e))?;
-                }
 
                 // $HOME/.local/share/brioche/locals/$HASH
                 let guest_local_path: bstr::BString = dirs
@@ -712,16 +744,35 @@ async fn build_process_template(
                     },
                 ]);
             }
-            CompleteProcessTemplateComponent::ResourcesDir => {
+            CompleteProcessTemplateComponent::ResourceDir => {
                 result
                     .components
                     .push(SandboxTemplateComponent::Path(SandboxPath {
-                        host_path: dirs.host_resources_dir.to_owned(),
+                        host_path: dirs.host_resource_dir.to_owned(),
                         options: SandboxPathOptions {
                             mode: HostPathMode::ReadWriteCreate,
-                            guest_path_hint: dirs.guest_resources_dir.into(),
+                            guest_path_hint: dirs.guest_resource_dir.into(),
                         },
                     }))
+            }
+            CompleteProcessTemplateComponent::InputResourceDirs => {
+                for (n, (host, guest)) in dirs.host_guest_input_resource_dirs.iter().enumerate() {
+                    if n > 0 {
+                        result
+                            .components
+                            .push(SandboxTemplateComponent::Literal { value: b":".into() });
+                    }
+
+                    result
+                        .components
+                        .push(SandboxTemplateComponent::Path(SandboxPath {
+                            host_path: host.to_owned(),
+                            options: SandboxPathOptions {
+                                mode: HostPathMode::Read,
+                                guest_path_hint: guest.clone(),
+                            },
+                        }))
+                }
             }
             CompleteProcessTemplateComponent::HomeDir => {
                 result
@@ -885,7 +936,7 @@ async fn set_up_rootfs(
     let output_rootfs_options = crate::output::OutputOptions {
         output_path: rootfs_dir,
         merge: true,
-        resources_dir: None,
+        resource_dir: None,
         mtime: None,
         link_locals: true,
     };

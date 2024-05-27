@@ -223,7 +223,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                 brioche_core::output::OutputOptions {
                     output_path: output,
                     merge: false,
-                    resources_dir: None,
+                    resource_dir: None,
                     mtime: Some(std::time::SystemTime::now()),
                     link_locals: false,
                 },
@@ -412,8 +412,8 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let mut command = std::process::Command::new(command_path);
     command.args(&args.args);
 
-    if let Some(resources_dir) = output.resources_dir {
-        command.env("BRIOCHE_PACK_RESOURCES_DIR", resources_dir);
+    if let Some(resource_dir) = output.resource_dir {
+        command.env("BRIOCHE_RESOURCE_DIR", resource_dir);
     }
 
     cfg_if::cfg_if! {

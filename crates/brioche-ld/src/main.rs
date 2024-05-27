@@ -3,7 +3,7 @@ use std::{path::PathBuf, process::ExitCode};
 use bstr::ByteSlice as _;
 
 enum Mode {
-    AutowrapEnabled { resources_dir: PathBuf },
+    AutowrapEnabled { resource_dir: PathBuf },
     AutowrapDisabled,
 }
 
@@ -27,13 +27,13 @@ fn run() -> Result<ExitCode, LdError> {
     let current_exe_parent_dir = current_exe_dir
         .parent()
         .ok_or_else(|| LdError::FailedToGetCurrentExeDir)?;
-    let ld_resources_dir = current_exe_parent_dir.join("libexec").join("brioche-ld");
-    if !ld_resources_dir.is_dir() {
-        return Err(LdError::LinkerResourcesDirNotFound(ld_resources_dir));
+    let ld_resource_dir = current_exe_parent_dir.join("libexec").join("brioche-ld");
+    if !ld_resource_dir.is_dir() {
+        return Err(LdError::LinkerResourceDirNotFound(ld_resource_dir));
     }
 
-    let linker = ld_resources_dir.join("ld");
-    let packed_path = ld_resources_dir.join("brioche-packed");
+    let linker = ld_resource_dir.join("ld");
+    let packed_path = ld_resource_dir.join("brioche-packed");
 
     let mut output_path = PathBuf::from("a.out");
     let mut library_search_paths = vec![];
@@ -65,14 +65,14 @@ fn run() -> Result<ExitCode, LdError> {
     }
 
     // Determine whether we will wrap the resulting binary or not. We do this
-    // before running the command so we can bail early if the resources dir
+    // before running the command so we can bail early if the resource dir
     // cannot be found.
     let autowrap_mode = match std::env::var("BRIOCHE_LD_AUTOWRAP").as_deref() {
         Ok("false") => Mode::AutowrapDisabled,
         _ => {
-            let resources_dir = brioche_pack::find_resource_dir(&output_path)
-                .map_err(LdError::ResourcesDirError)?;
-            Mode::AutowrapEnabled { resources_dir }
+            let resource_dir = brioche_pack::find_output_resource_dir(&output_path)
+                .map_err(LdError::ResourceDirError)?;
+            Mode::AutowrapEnabled { resource_dir }
         }
     };
 
@@ -90,12 +90,12 @@ fn run() -> Result<ExitCode, LdError> {
     }
 
     match autowrap_mode {
-        Mode::AutowrapEnabled { resources_dir } => {
+        Mode::AutowrapEnabled { resource_dir } => {
             brioche_pack::autowrap::autowrap(brioche_pack::autowrap::AutowrapOptions {
                 program_path: &output_path,
                 packed_exec_path: &packed_path,
-                resources_dir: &resources_dir,
-                sysroot: &ld_resources_dir,
+                resource_dir: &resource_dir,
+                sysroot: &ld_resource_dir,
                 library_search_paths: &library_search_paths,
                 input_paths: &input_paths,
             })?;
@@ -120,14 +120,14 @@ enum LdError {
     FailedToGetCurrentExe(#[source] std::io::Error),
     #[error("failed to get directory containing current executable")]
     FailedToGetCurrentExeDir,
-    #[error("brioche-ld resources dir not found (expected to be at {0})")]
-    LinkerResourcesDirNotFound(PathBuf),
+    #[error("brioche-ld resource dir not found (expected to be at {0})")]
+    LinkerResourceDirNotFound(PathBuf),
     #[error("{0}")]
     IoError(#[from] std::io::Error),
     #[error("{0}")]
     GoblinError(#[from] goblin::error::Error),
     #[error("error when finding resource dir")]
-    ResourcesDirError(#[from] brioche_pack::PackResourceDirError),
+    ResourceDirError(#[from] brioche_pack::PackResourceDirError),
     #[error("error writing packed program")]
     InjectPackError(#[from] brioche_pack::InjectPackError),
     #[error("error adding blob: {0}")]

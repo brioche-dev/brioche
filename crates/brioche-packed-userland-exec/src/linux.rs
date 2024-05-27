@@ -51,7 +51,7 @@ pub unsafe fn entrypoint(argc: libc::c_int, argv: *const *const libc::c_char) ->
 
 fn run(args: &[&CStr], env_vars: &[&CStr]) -> Result<(), PackedError> {
     let path = std::env::current_exe()?;
-    let resource_dir = brioche_pack::find_resource_dir(&path)?;
+    let resource_dirs = brioche_pack::find_resource_dirs(&path, true)?;
     let mut program = std::fs::File::open(&path)?;
     let pack = brioche_pack::extract_pack(&mut program)?;
 
@@ -63,13 +63,16 @@ fn run(args: &[&CStr], env_vars: &[&CStr]) -> Result<(), PackedError> {
             let interpreter = interpreter
                 .to_path()
                 .map_err(|_| PackedError::InvalidPath)?;
-            let interpreter = resource_dir.join(interpreter);
+            let interpreter = brioche_pack::find_in_resource_dirs(&resource_dirs, interpreter)
+                .ok_or(PackedError::ResourceNotFound)?;
 
             let program = pack
                 .program
                 .to_path()
                 .map_err(|_| PackedError::InvalidPath)?;
-            let program = resource_dir.join(program).canonicalize()?;
+            let program = brioche_pack::find_in_resource_dirs(&resource_dirs, program)
+                .ok_or(PackedError::ResourceNotFound)?;
+            let program = program.canonicalize()?;
             let mut exec = userland_execve::ExecOptions::new(&interpreter);
 
             let interpreter =
@@ -85,7 +88,9 @@ fn run(args: &[&CStr], env_vars: &[&CStr]) -> Result<(), PackedError> {
                     let library_path = library_path
                         .to_path()
                         .map_err(|_| PackedError::InvalidPath)?;
-                    let library_path = resource_dir.join(library_path);
+                    let library_path =
+                        brioche_pack::find_in_resource_dirs(&resource_dirs, library_path)
+                            .ok_or(PackedError::ResourceNotFound)?;
 
                     if n > 0 {
                         ld_library_path.push(b':');
@@ -140,6 +145,7 @@ enum PackedError {
     ExtractPackError(#[from] brioche_pack::ExtractPackError),
     PackResourceDirError(#[from] brioche_pack::PackResourceDirError),
     InvalidPath,
+    ResourceNotFound,
 }
 
 impl std::fmt::Display for PackedError {
@@ -173,5 +179,6 @@ fn error_summary(error: &PackedError) -> &'static str {
             }
         },
         PackedError::InvalidPath => "invalid path",
+        PackedError::ResourceNotFound => "resource not found",
     }
 }

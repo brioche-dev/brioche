@@ -17,7 +17,7 @@ pub fn main() -> ExitCode {
 
 fn run() -> Result<(), PackedError> {
     let path = std::env::current_exe()?;
-    let resource_dir = brioche_pack::find_resource_dir(&path)?;
+    let resource_dirs = brioche_pack::find_resource_dirs(&path, true)?;
     let mut program = std::fs::File::open(&path)?;
     let pack = brioche_pack::extract_pack(&mut program)?;
 
@@ -31,7 +31,8 @@ fn run() -> Result<(), PackedError> {
             let interpreter = interpreter
                 .to_path()
                 .map_err(|_| PackedError::InvalidPath)?;
-            let interpreter = resource_dir.join(interpreter);
+            let interpreter = brioche_pack::find_in_resource_dirs(&resource_dirs, interpreter)
+                .ok_or(PackedError::ResourceNotFound)?;
             let mut command = std::process::Command::new(interpreter);
             if !library_paths.is_empty() {
                 let mut ld_library_path = bstr::BString::default();
@@ -39,7 +40,9 @@ fn run() -> Result<(), PackedError> {
                     let library_path = library_path
                         .to_path()
                         .map_err(|_| PackedError::InvalidPath)?;
-                    let library_path = resource_dir.join(library_path);
+                    let library_path =
+                        brioche_pack::find_in_resource_dirs(&resource_dirs, library_path)
+                            .ok_or(PackedError::ResourceNotFound)?;
 
                     if n > 0 {
                         ld_library_path.push(b':');
@@ -76,7 +79,9 @@ fn run() -> Result<(), PackedError> {
                 .program
                 .to_path()
                 .map_err(|_| PackedError::InvalidPath)?;
-            let program = resource_dir.join(program).canonicalize()?;
+            let program = brioche_pack::find_in_resource_dirs(&resource_dirs, program)
+                .ok_or(PackedError::ResourceNotFound)?;
+            let program = program.canonicalize()?;
             command.arg(program);
 
             command.args(args);
@@ -95,6 +100,7 @@ enum PackedError {
     IoError(#[from] std::io::Error),
     ExtractPackError(#[from] brioche_pack::ExtractPackError),
     PackResourceDirError(#[from] brioche_pack::PackResourceDirError),
+    ResourceNotFound,
     InvalidPath,
 }
 
@@ -128,6 +134,7 @@ fn error_summary(error: &PackedError) -> &'static str {
                 "error while searching for brioche pack resource dir: io error"
             }
         },
+        PackedError::ResourceNotFound => "resource not found",
         PackedError::InvalidPath => "invalid path",
     }
 }

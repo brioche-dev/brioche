@@ -24,7 +24,7 @@ async fn create_output(
         brioche_core::output::OutputOptions {
             output_path,
             merge,
-            resources_dir: None,
+            resource_dir: None,
             mtime: None,
             link_locals: false,
         },
@@ -35,7 +35,7 @@ async fn create_output(
 async fn create_output_with_resources(
     brioche: &Brioche,
     output_path: &Path,
-    resources_dir: &Path,
+    resource_dir: &Path,
     artifact: &Artifact,
     merge: bool,
 ) -> anyhow::Result<()> {
@@ -45,7 +45,7 @@ async fn create_output_with_resources(
         brioche_core::output::OutputOptions {
             output_path,
             merge,
-            resources_dir: Some(resources_dir),
+            resource_dir: Some(resource_dir),
             mtime: None,
             link_locals: false,
         },
@@ -65,7 +65,7 @@ async fn create_output_with_links(
         brioche_core::output::OutputOptions {
             output_path,
             merge,
-            resources_dir: None,
+            resource_dir: None,
             mtime: None,
             link_locals: true,
         },
@@ -196,7 +196,7 @@ async fn test_output_dir() -> anyhow::Result<()> {
     );
     assert!(dir_is_empty(context.path("output/empty")).await);
 
-    assert!(!context.path("output/brioche-pack.d").is_dir());
+    assert!(!context.path("output/brioche-resources.d").is_dir());
 
     Ok(())
 }
@@ -449,12 +449,14 @@ async fn test_output_dir_with_resources() -> anyhow::Result<()> {
     );
 
     assert_eq!(
-        tokio::fs::read_to_string(context.path("output/brioche-pack.d/hi_ref.txt")).await?,
+        tokio::fs::read_to_string(context.path("output/brioche-resources.d/hi_ref.txt")).await?,
         "reference data",
     );
     assert_eq!(
-        tokio::fs::read_to_string(context.path("output/brioche-pack.d/second_refs/second_ref.txt"))
-            .await?,
+        tokio::fs::read_to_string(
+            context.path("output/brioche-resources.d/second_refs/second_ref.txt")
+        )
+        .await?,
         "T W O",
     );
 
@@ -487,7 +489,7 @@ async fn test_output_dir_with_resources_and_pack_dir() -> anyhow::Result<()> {
                 ),
             ),
             (
-                "brioche-pack.d",
+                "brioche-resources.d",
                 brioche_test::dir(
                     &brioche,
                     [(
@@ -510,11 +512,11 @@ async fn test_output_dir_with_resources_and_pack_dir() -> anyhow::Result<()> {
         "hello",
     );
     assert_eq!(
-        tokio::fs::read_to_string(context.path("output/brioche-pack.d/hi_ref.txt")).await?,
+        tokio::fs::read_to_string(context.path("output/brioche-resources.d/hi_ref.txt")).await?,
         "reference data",
     );
     assert_eq!(
-        tokio::fs::read_to_string(context.path("output/brioche-pack.d/test.txt")).await?,
+        tokio::fs::read_to_string(context.path("output/brioche-resources.d/test.txt")).await?,
         "test",
     );
 
@@ -580,11 +582,12 @@ async fn test_output_dir_with_nested_resources() -> anyhow::Result<()> {
     );
 
     assert_eq!(
-        tokio::fs::read_to_string(context.path("output/brioche-pack.d/hi_ref.txt")).await?,
+        tokio::fs::read_to_string(context.path("output/brioche-resources.d/hi_ref.txt")).await?,
         "reference data",
     );
     assert_eq!(
-        tokio::fs::read_to_string(context.path("output/brioche-pack.d/hi_ref_ref.txt")).await?,
+        tokio::fs::read_to_string(context.path("output/brioche-resources.d/hi_ref_ref.txt"))
+            .await?,
         "reference reference data",
     );
 
@@ -657,7 +660,7 @@ async fn test_output_dir_with_equal_resources() -> anyhow::Result<()> {
     );
 
     assert_eq!(
-        tokio::fs::read_to_string(context.path("output/brioche-pack.d/same.txt")).await?,
+        tokio::fs::read_to_string(context.path("output/brioche-resources.d/same.txt")).await?,
         "a",
     );
 

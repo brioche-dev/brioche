@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use bstr::ByteSlice as _;
 use encoding::TickEncoded;
 
 pub mod autowrap;
@@ -62,11 +63,67 @@ pub enum Interpreter {
     },
 }
 
-pub fn find_resource_dir(program: &Path) -> Result<PathBuf, PackResourceDirError> {
-    if let Some(pack_resource_dir) = std::env::var_os("BRIOCHE_PACK_RESOURCES_DIR") {
-        return Ok(PathBuf::from(pack_resource_dir));
+pub fn find_resource_dirs(
+    program: &Path,
+    include_readonly: bool,
+) -> Result<Vec<PathBuf>, PackResourceDirError> {
+    let mut paths = vec![];
+    if let Some(pack_resource_dir) = std::env::var_os("BRIOCHE_RESOURCE_DIR") {
+        paths.push(PathBuf::from(pack_resource_dir));
     }
 
+    if include_readonly {
+        if let Some(input_resource_dirs) = std::env::var_os("BRIOCHE_INPUT_RESOURCE_DIRS") {
+            if let Some(input_resource_dirs) = <[u8]>::from_os_str(&input_resource_dirs) {
+                for input_resource_dir in input_resource_dirs.split_str(b":") {
+                    if let Ok(path) = input_resource_dir.to_path() {
+                        paths.push(path.to_owned());
+                    }
+                }
+            }
+
+            for input_resource_dir in std::env::split_paths(&input_resource_dirs) {
+                paths.push(input_resource_dir);
+            }
+        }
+    }
+
+    match find_resource_dir_from_program(program) {
+        Ok(pack_resource_dir) => paths.push(pack_resource_dir),
+        Err(PackResourceDirError::NotFound) => {}
+        Err(error) => {
+            return Err(error);
+        }
+    }
+
+    if !paths.is_empty() {
+        Ok(paths)
+    } else {
+        Err(PackResourceDirError::NotFound)
+    }
+}
+
+pub fn find_output_resource_dir(program: &Path) -> Result<PathBuf, PackResourceDirError> {
+    let resource_dirs = find_resource_dirs(program, false)?;
+    let resource_dir = resource_dirs
+        .into_iter()
+        .next()
+        .ok_or(PackResourceDirError::NotFound)?;
+    Ok(resource_dir)
+}
+
+pub fn find_in_resource_dirs(resource_dirs: &[PathBuf], subpath: &Path) -> Option<PathBuf> {
+    for resource_dir in resource_dirs {
+        let path = resource_dir.join(subpath);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn find_resource_dir_from_program(program: &Path) -> Result<PathBuf, PackResourceDirError> {
     let program = std::env::current_dir()?.join(program);
 
     let Some(mut current_dir) = program.parent() else {
@@ -74,7 +131,7 @@ pub fn find_resource_dir(program: &Path) -> Result<PathBuf, PackResourceDirError
     };
 
     for _ in 0..SEARCH_DEPTH_LIMIT {
-        let pack_resource_dir = current_dir.join("brioche-pack.d");
+        let pack_resource_dir = current_dir.join("brioche-resources.d");
         if pack_resource_dir.is_dir() {
             return Ok(pack_resource_dir);
         }
