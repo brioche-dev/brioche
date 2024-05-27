@@ -23,6 +23,12 @@ pub struct InputOptions<'a> {
     pub meta: &'a Arc<Meta>,
 }
 
+impl InputOptions<'_> {
+    fn has_resource_dirs(&self) -> bool {
+        self.resource_dir.is_some() || !self.input_resource_dirs.is_empty()
+    }
+}
+
 #[tracing::instrument(skip(brioche), err)]
 pub async fn create_input(
     brioche: &Brioche,
@@ -56,99 +62,91 @@ pub async fn create_input_inner(
         })?;
 
     if metadata.is_file() {
-        let resources = match options.resource_dir {
-            Some(resource_dir) => {
-                let pack = tokio::task::spawn_blocking({
-                    let input_path = options.input_path.to_owned();
-                    move || {
-                        let input_file = std::fs::File::open(&input_path).with_context(|| {
-                            format!("failed to open file {}", input_path.display())
-                        })?;
-                        let pack = brioche_pack::extract_pack(input_file).ok();
-                        anyhow::Ok(pack)
-                    }
-                })
-                .await?
-                .context("failed to extract resource pack")?;
+        let resources = if options.has_resource_dirs() {
+            let pack = tokio::task::spawn_blocking({
+                let input_path = options.input_path.to_owned();
+                move || {
+                    let input_file = std::fs::File::open(&input_path)
+                        .with_context(|| format!("failed to open file {}", input_path.display()))?;
+                    let pack = brioche_pack::extract_pack(input_file).ok();
+                    anyhow::Ok(pack)
+                }
+            })
+            .await?
+            .context("failed to extract resource pack")?;
 
-                let pack_paths = pack.iter().flat_map(|pack| pack.paths());
+            let pack_paths = pack.iter().flat_map(|pack| pack.paths());
 
-                let mut pack_paths: Vec<_> = pack_paths.collect();
-                let mut resources = Directory::default();
-                while let Some(pack_path) = pack_paths.pop() {
-                    let path = pack_path.to_path().context("invalid resource path")?;
-                    let resource =
-                        find_resource(resource_dir, options.input_resource_dirs, path).await?;
+            let mut pack_paths: Vec<_> = pack_paths.collect();
+            let mut resources = Directory::default();
+            while let Some(pack_path) = pack_paths.pop() {
+                let path = pack_path.to_path().context("invalid resource path")?;
+                let resource =
+                    find_resource(options.resource_dir, options.input_resource_dirs, path).await?;
 
-                    if let Some(resource) = resource {
-                        let resource_artifact = create_input_inner(
-                            brioche,
-                            InputOptions {
-                                input_path: &resource.path,
-                                remove_input: false,
-                                resource_dir: Some(resource_dir),
-                                input_resource_dirs: options.input_resource_dirs,
-                                meta: options.meta,
-                            },
-                        )
+                if let Some(resource) = resource {
+                    let resource_artifact = create_input_inner(
+                        brioche,
+                        InputOptions {
+                            input_path: &resource.path,
+                            remove_input: false,
+                            resource_dir: options.resource_dir,
+                            input_resource_dirs: options.input_resource_dirs,
+                            meta: options.meta,
+                        },
+                    )
+                    .await?;
+
+                    tracing::debug!(resource = %resource.path.display(), "found resource");
+                    resources
+                        .insert(brioche, &pack_path, Some(resource_artifact))
                         .await?;
 
-                        tracing::debug!(resource = %resource.path.display(), "found resource");
-                        resources
-                            .insert(brioche, &pack_path, Some(resource_artifact))
-                            .await?;
+                    // Add the symlink's target to the resource dir as well
+                    if resource.metadata.is_symlink() {
+                        let target = match tokio::fs::canonicalize(&resource.path).await {
+                            Ok(target) => target,
+                            Err(err) => {
+                                tracing::warn!(resource = %resource.path.display(), "invalid resource symlink: {err}");
+                                continue;
+                            }
+                        };
+                        let canonical_resource_dir =
+                            tokio::fs::canonicalize(&resource.resource_dir).await;
+                        let canonical_resource_dir = match canonical_resource_dir {
+                            Ok(target) => target,
+                            Err(err) => {
+                                tracing::warn!(resource_dir = %resource.resource_dir.display(), "failed to canonicalize resource dir: {err}");
+                                continue;
+                            }
+                        };
+                        let target = match target.strip_prefix(&canonical_resource_dir) {
+                            Ok(target) => target,
+                            Err(err) => {
+                                tracing::warn!(resource = %resource.path.display(), "resource symlink target not under resource dir: {err}");
+                                continue;
+                            }
+                        };
 
-                        // Add the symlink's target to the resource dir as well
-                        if resource.metadata.is_symlink() {
-                            let target = match tokio::fs::canonicalize(&resource.path).await {
-                                Ok(target) => target,
-                                Err(err) => {
-                                    tracing::warn!(resource = %resource.path.display(), "invalid resource symlink: {err}");
-                                    continue;
-                                }
-                            };
-                            let canonical_resource_dir =
-                                tokio::fs::canonicalize(&resource.resource_dir).await;
-                            let canonical_resource_dir = match canonical_resource_dir {
-                                Ok(target) => target,
-                                Err(err) => {
-                                    tracing::warn!(resource_dir = %resource.resource_dir.display(), "failed to canonicalize resource dir: {err}");
-                                    continue;
-                                }
-                            };
-                            let target = match target.strip_prefix(&canonical_resource_dir) {
-                                Ok(target) => target,
-                                Err(err) => {
-                                    tracing::warn!(resource = %resource.path.display(), "resource symlink target not under resource dir: {err}");
-                                    continue;
-                                }
-                            };
+                        tracing::debug!(target = %target.display(), "queueing symlink resource target");
 
-                            tracing::debug!(target = %target.display(), "queueing symlink resource target");
+                        let target = Vec::<u8>::from_path_buf(target.to_owned()).map_err(|_| {
+                            anyhow::anyhow!("invalid symlink target at {}", resource.path.display())
+                        })?;
 
-                            let target =
-                                Vec::<u8>::from_path_buf(target.to_owned()).map_err(|_| {
-                                    anyhow::anyhow!(
-                                        "invalid symlink target at {}",
-                                        resource.path.display()
-                                    )
-                                })?;
+                        pack_paths.push(target.into());
+                    } else if resource.metadata.is_dir() {
+                        let mut dir =
+                            tokio::fs::read_dir(&resource.path).await.with_context(|| {
+                                format!("failed to read directory {}", resource.path.display())
+                            })?;
 
-                            pack_paths.push(target.into());
-                        } else if resource.metadata.is_dir() {
-                            let mut dir =
-                                tokio::fs::read_dir(&resource.path).await.with_context(|| {
-                                    format!("failed to read directory {}", resource.path.display())
-                                })?;
+                        tracing::debug!(resource_path = %resource.path.display(), "queueing directory entry resource");
 
-                            tracing::debug!(resource_path = %resource.path.display(), "queueing directory entry resource");
-
-                            while let Some(entry) = dir.next_entry().await.transpose() {
-                                let entry = entry.context("failed to read directory entry")?;
-                                let entry_path = path.join(entry.file_name());
-                                let entry_path = <Vec<u8> as bstr::ByteVec>::from_path_buf(
-                                    entry_path,
-                                )
+                        while let Some(entry) = dir.next_entry().await.transpose() {
+                            let entry = entry.context("failed to read directory entry")?;
+                            let entry_path = path.join(entry.file_name());
+                            let entry_path = <Vec<u8> as bstr::ByteVec>::from_path_buf(entry_path)
                                 .map_err(|_| {
                                     anyhow::anyhow!(
                                         "invalid entry {} in directory {}",
@@ -157,17 +155,17 @@ pub async fn create_input_inner(
                                     )
                                 })?;
 
-                                pack_paths.push(entry_path.into());
-                            }
+                            pack_paths.push(entry_path.into());
                         }
-                    } else {
-                        tracing::warn!("missing resource {}", path.display());
                     }
+                } else {
+                    tracing::warn!("missing resource {}", path.display());
                 }
-
-                resources
             }
-            None => Directory::default(),
+
+            resources
+        } else {
+            Directory::default()
         };
 
         let blob_hash = super::blob::save_blob_from_file(
@@ -276,11 +274,11 @@ pub struct FoundResource<'a> {
 }
 
 async fn find_resource<'a>(
-    resource_dir: &'a Path,
+    resource_dir: Option<&'a Path>,
     input_resource_dirs: &'a [PathBuf],
     subpath: &Path,
 ) -> anyhow::Result<Option<FoundResource<'a>>> {
-    let resource_dirs = [resource_dir]
+    let resource_dirs = resource_dir
         .into_iter()
         .chain(input_resource_dirs.iter().map(|dir| &**dir));
 

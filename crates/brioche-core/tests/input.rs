@@ -305,6 +305,62 @@ async fn test_input_dir_use_input_resource_dir() -> anyhow::Result<()> {
 
     let dir_path = context.mkdir("test").await;
     let resource_dir = context.mkdir("resources").await;
+    let input_resource_dir = context.mkdir("input_resources").await;
+
+    let mut packed_file = b"test".to_vec();
+    brioche_pack::inject_pack(
+        &mut packed_file,
+        &brioche_pack::Pack {
+            program: b"test".into(),
+            interpreter: None,
+        },
+    )?;
+
+    context.write_file("test/hi", &packed_file).await;
+    context.write_file("input_resources/test", b"test").await;
+
+    let artifact = create_input_with_resources(
+        &brioche,
+        &dir_path,
+        Some(&resource_dir),
+        &[input_resource_dir],
+        false,
+    )
+    .await?;
+
+    assert_eq!(
+        artifact,
+        brioche_test::dir(
+            &brioche,
+            [(
+                "hi",
+                brioche_test::file_with_resources(
+                    brioche_test::blob(&brioche, &packed_file).await,
+                    false,
+                    brioche_test::dir_value(
+                        &brioche,
+                        [(
+                            "test",
+                            brioche_test::file(brioche_test::blob(&brioche, b"test").await, false),
+                        )]
+                    )
+                    .await,
+                )
+            ),]
+        )
+        .await
+    );
+    assert!(dir_path.is_dir());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_input_dir_use_only_input_resource_dir() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let dir_path = context.mkdir("test").await;
+    let resource_dir = context.mkdir("resources").await;
 
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
