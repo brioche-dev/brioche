@@ -335,7 +335,7 @@ pub async fn bake_process(
         Vec::<u8>::from_path_buf(guest_temp_dir).expect("failed to build tmp dir path");
     tokio::fs::create_dir_all(&host_temp_dir).await?;
 
-    let guest_resource_dir = PathBuf::from("/brioche-pack.d");
+    let guest_resource_dir = PathBuf::from("/brioche-resources.d");
     let relative_resource_dir = guest_resource_dir
         .strip_prefix("/")
         .expect("invalid guest resource dir");

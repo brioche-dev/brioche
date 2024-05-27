@@ -209,7 +209,7 @@ async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
 
     context.write_file("test/hi", &packed_file).await;
     context
-        .write_file("test/brioche-pack.d/test", b"test")
+        .write_file("test/brioche-resources.d/test", b"test")
         .await;
 
     let artifact = create_input(&brioche, &dir_path, false).await?;
@@ -224,7 +224,7 @@ async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
                     brioche_test::file(brioche_test::blob(&brioche, &packed_file).await, false)
                 ),
                 (
-                    "brioche-pack.d",
+                    "brioche-resources.d",
                     brioche_test::dir(
                         &brioche,
                         [(

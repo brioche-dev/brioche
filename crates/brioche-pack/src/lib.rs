@@ -131,7 +131,7 @@ fn find_resource_dir_from_program(program: &Path) -> Result<PathBuf, PackResourc
     };
 
     for _ in 0..SEARCH_DEPTH_LIMIT {
-        let pack_resource_dir = current_dir.join("brioche-pack.d");
+        let pack_resource_dir = current_dir.join("brioche-resources.d");
         if pack_resource_dir.is_dir() {
             return Ok(pack_resource_dir);
         }

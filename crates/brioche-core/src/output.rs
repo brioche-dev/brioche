@@ -215,7 +215,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                 let resource_dir = match options.resource_dir {
                     Some(resource_dir) => resource_dir,
                     None => {
-                        resource_dir_buf = options.output_path.join("brioche-pack.d");
+                        resource_dir_buf = options.output_path.join("brioche-resources.d");
                         &resource_dir_buf
                     }
                 };
@@ -301,14 +301,14 @@ async fn create_local_output_inner(
 
     let artifact_hash = artifact.hash();
     let local_path = local_dir.join(artifact_hash.to_string());
-    let local_resource_dir = local_dir.join(format!("{artifact_hash}-pack.d"));
+    let local_resource_dir = local_dir.join(format!("{artifact_hash}-resources.d"));
 
     if !try_exists_and_ensure_local_meta(&local_path).await? {
         let local_temp_dir = brioche.home.join("locals-temp");
         tokio::fs::create_dir_all(&local_temp_dir).await?;
         let temp_id = ulid::Ulid::new();
         let local_temp_path = local_temp_dir.join(temp_id.to_string());
-        let local_temp_resource_dir = local_temp_dir.join(format!("{temp_id}-pack.d"));
+        let local_temp_resource_dir = local_temp_dir.join(format!("{temp_id}-resources.d"));
 
         create_output_inner(
             brioche,
