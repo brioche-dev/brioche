@@ -169,6 +169,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                     ProcessTemplateComponent::Literal { .. }
                     | ProcessTemplateComponent::OutputPath
                     | ProcessTemplateComponent::ResourcesDir
+                    | ProcessTemplateComponent::InputResourcesDirs
                     | ProcessTemplateComponent::HomeDir
                     | ProcessTemplateComponent::WorkDir
                     | ProcessTemplateComponent::TempDir => vec![],
@@ -215,6 +216,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                     CompleteProcessTemplateComponent::Literal { .. }
                     | CompleteProcessTemplateComponent::OutputPath
                     | CompleteProcessTemplateComponent::ResourcesDir
+                    | CompleteProcessTemplateComponent::InputResourcesDirs
                     | CompleteProcessTemplateComponent::HomeDir
                     | CompleteProcessTemplateComponent::WorkDir
                     | CompleteProcessTemplateComponent::TempDir => vec![],

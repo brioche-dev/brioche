@@ -44,6 +44,12 @@ fn resources_path() -> ProcessTemplate {
     }
 }
 
+fn input_resources_paths() -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::InputResourcesDirs],
+    }
+}
+
 fn work_dir_path() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::WorkDir],
@@ -1004,13 +1010,30 @@ async fn test_bake_process_contains_all_resources(
                 set -euo pipefail
                 test "$(cat "$fizz/file.txt")" = "foo"
                 test "$(cat "$buzz")" = "bar"
-                test "$(cat "$BRIOCHE_PACK_RESOURCES_DIR/foo/bar.txt")" = "resource a"
-                test "$(cat "$BRIOCHE_PACK_RESOURCES_DIR/foo/baz.txt")" = "resource b"
+                bar=""
+                baz=""
+                oldifs="$IFS"
+                IFS=":"
+                for dir in $BRIOCHE_PACK_INPUT_RESOURCES_DIRS; do
+                    if [ -e "$dir/foo/bar.txt" ]; then
+                        bar="$(cat "$dir/foo/bar.txt")"
+                    fi
+                    if [ -e "$dir/foo/baz.txt" ]; then
+                        baz="$(cat "$dir/foo/baz.txt")"
+                    fi
+                done
+                IFS="$oldifs"
+                test "$bar" = "resource a"
+                test "$baz" = "resource b"
                 touch "$BRIOCHE_OUTPUT"
             "#),
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
+            (
+                "BRIOCHE_PACK_INPUT_RESOURCES_DIRS".into(),
+                input_resources_paths(),
+            ),
             ("BRIOCHE_PACK_RESOURCES_DIR".into(), resources_path()),
             (
                 "PATH".into(),
