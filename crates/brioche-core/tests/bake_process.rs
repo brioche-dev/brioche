@@ -32,31 +32,31 @@ fn output_path() -> ProcessTemplate {
     }
 }
 
-fn home_path() -> ProcessTemplate {
+fn home_dir() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::HomeDir],
     }
 }
 
-fn resources_path() -> ProcessTemplate {
+fn resource_dir() -> ProcessTemplate {
     ProcessTemplate {
-        components: vec![ProcessTemplateComponent::ResourcesDir],
+        components: vec![ProcessTemplateComponent::ResourceDir],
     }
 }
 
-fn input_resources_paths() -> ProcessTemplate {
+fn input_resource_dirs() -> ProcessTemplate {
     ProcessTemplate {
-        components: vec![ProcessTemplateComponent::InputResourcesDirs],
+        components: vec![ProcessTemplateComponent::InputResourceDirs],
     }
 }
 
-fn work_dir_path() -> ProcessTemplate {
+fn work_dir() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::WorkDir],
     }
 }
 
-fn temp_dir_path() -> ProcessTemplate {
+fn temp_dir() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::TempDir],
     }
@@ -691,10 +691,10 @@ async fn test_bake_process_custom_env_vars(
         ],
         env: BTreeMap::from_iter([
             ("custom_output".into(), output_path()),
-            ("custom_home".into(), home_path()),
-            ("custom_resources".into(), resources_path()),
-            ("custom_work_dir".into(), work_dir_path()),
-            ("custom_temp_dir".into(), temp_dir_path()),
+            ("custom_home".into(), home_dir()),
+            ("custom_resources".into(), resource_dir()),
+            ("custom_work_dir".into(), work_dir()),
+            ("custom_temp_dir".into(), temp_dir()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -874,7 +874,7 @@ async fn test_bake_process_starts_with_work_dir_contents(
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -912,7 +912,7 @@ async fn test_bake_process_edit_work_dir_contents(
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -950,7 +950,7 @@ async fn test_bake_process_has_resource_dir(
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -1030,11 +1030,8 @@ async fn test_bake_process_contains_all_resources(
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            (
-                "BRIOCHE_INPUT_RESOURCE_DIRS".into(),
-                input_resources_paths(),
-            ),
-            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
+            ("BRIOCHE_INPUT_RESOURCE_DIRS".into(), input_resource_dirs()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),
@@ -1089,7 +1086,7 @@ async fn test_bake_process_output_with_resources(
         ],
         env: BTreeMap::from_iter([
             ("BRIOCHE_OUTPUT".into(), output_path()),
-            ("BRIOCHE_RESOURCE_DIR".into(), resources_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
             (
                 "PATH".into(),
                 tpl_join([template_input(utils()), tpl("/bin")]),

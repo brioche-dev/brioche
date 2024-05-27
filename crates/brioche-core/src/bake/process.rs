@@ -123,12 +123,12 @@ async fn bake_lazy_process_template_to_process_template(
             ProcessTemplateComponent::OutputPath => result
                 .components
                 .push(CompleteProcessTemplateComponent::OutputPath),
-            ProcessTemplateComponent::ResourcesDir => result
+            ProcessTemplateComponent::ResourceDir => result
                 .components
-                .push(CompleteProcessTemplateComponent::ResourcesDir),
-            ProcessTemplateComponent::InputResourcesDirs => result
+                .push(CompleteProcessTemplateComponent::ResourceDir),
+            ProcessTemplateComponent::InputResourceDirs => result
                 .components
-                .push(CompleteProcessTemplateComponent::InputResourcesDirs),
+                .push(CompleteProcessTemplateComponent::InputResourceDirs),
             ProcessTemplateComponent::HomeDir => result
                 .components
                 .push(CompleteProcessTemplateComponent::HomeDir),
@@ -665,8 +665,8 @@ async fn get_process_template_input_resource_dirs(
             }
             CompleteProcessTemplateComponent::Literal { .. }
             | CompleteProcessTemplateComponent::OutputPath
-            | CompleteProcessTemplateComponent::ResourcesDir
-            | CompleteProcessTemplateComponent::InputResourcesDirs
+            | CompleteProcessTemplateComponent::ResourceDir
+            | CompleteProcessTemplateComponent::InputResourceDirs
             | CompleteProcessTemplateComponent::HomeDir
             | CompleteProcessTemplateComponent::WorkDir
             | CompleteProcessTemplateComponent::TempDir => {}
@@ -743,7 +743,7 @@ async fn build_process_template(
                     },
                 ]);
             }
-            CompleteProcessTemplateComponent::ResourcesDir => {
+            CompleteProcessTemplateComponent::ResourceDir => {
                 result
                     .components
                     .push(SandboxTemplateComponent::Path(SandboxPath {
@@ -754,7 +754,7 @@ async fn build_process_template(
                         },
                     }))
             }
-            CompleteProcessTemplateComponent::InputResourcesDirs => {
+            CompleteProcessTemplateComponent::InputResourceDirs => {
                 for (n, (host, guest)) in dirs.host_guest_input_resource_dirs.iter().enumerate() {
                     if n > 0 {
                         result
