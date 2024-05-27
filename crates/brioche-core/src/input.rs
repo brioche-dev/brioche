@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Context as _;
 use bstr::{ByteSlice as _, ByteVec as _};
@@ -15,6 +19,7 @@ pub struct InputOptions<'a> {
     pub input_path: &'a Path,
     pub remove_input: bool,
     pub resource_dir: Option<&'a Path>,
+    pub input_resource_dirs: &'a [PathBuf],
     pub meta: &'a Arc<Meta>,
 }
 
@@ -72,54 +77,49 @@ pub async fn create_input_inner(
                 let mut resources = Directory::default();
                 while let Some(pack_path) = pack_paths.pop() {
                     let path = pack_path.to_path().context("invalid resource path")?;
-                    let resource_path = resource_dir.join(path);
-                    let resource_metadata = tokio::fs::symlink_metadata(&resource_path).await;
-                    let resource_metadata = match resource_metadata {
-                        Ok(metadata) => Some(metadata),
-                        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
-                        Err(err) => return Err(err).context("failed to get metadata for resource"),
-                    };
-                    let resource_metadata = resource_metadata.as_ref();
+                    let resource =
+                        find_resource(resource_dir, options.input_resource_dirs, path).await?;
 
-                    if let Some(resource_metadata) = resource_metadata {
-                        let resource = create_input_inner(
+                    if let Some(resource) = resource {
+                        let resource_artifact = create_input_inner(
                             brioche,
                             InputOptions {
-                                input_path: &resource_path,
+                                input_path: &resource.path,
                                 remove_input: false,
                                 resource_dir: Some(resource_dir),
+                                input_resource_dirs: options.input_resource_dirs,
                                 meta: options.meta,
                             },
                         )
                         .await?;
 
-                        tracing::debug!(resource = %resource_path.display(), "found resource");
+                        tracing::debug!(resource = %resource.path.display(), "found resource");
                         resources
-                            .insert(brioche, &pack_path, Some(resource))
+                            .insert(brioche, &pack_path, Some(resource_artifact))
                             .await?;
 
                         // Add the symlink's target to the resource dir as well
-                        if resource_metadata.is_symlink() {
-                            let target = match tokio::fs::canonicalize(&resource_path).await {
+                        if resource.metadata.is_symlink() {
+                            let target = match tokio::fs::canonicalize(&resource.path).await {
                                 Ok(target) => target,
                                 Err(err) => {
-                                    tracing::warn!(resource = %resource_path.display(), "invalid resource symlink: {err}");
+                                    tracing::warn!(resource = %resource.path.display(), "invalid resource symlink: {err}");
                                     continue;
                                 }
                             };
                             let canonical_resource_dir =
-                                tokio::fs::canonicalize(&resource_dir).await;
+                                tokio::fs::canonicalize(&resource.resource_dir).await;
                             let canonical_resource_dir = match canonical_resource_dir {
                                 Ok(target) => target,
                                 Err(err) => {
-                                    tracing::warn!(resource_dir = %resource_dir.display(), "failed to canonicalize resource dir: {err}");
+                                    tracing::warn!(resource_dir = %resource.resource_dir.display(), "failed to canonicalize resource dir: {err}");
                                     continue;
                                 }
                             };
                             let target = match target.strip_prefix(&canonical_resource_dir) {
                                 Ok(target) => target,
                                 Err(err) => {
-                                    tracing::warn!(resource = %resource_path.display(), "resource symlink target not under resource dir: {err}");
+                                    tracing::warn!(resource = %resource.path.display(), "resource symlink target not under resource dir: {err}");
                                     continue;
                                 }
                             };
@@ -130,18 +130,18 @@ pub async fn create_input_inner(
                                 Vec::<u8>::from_path_buf(target.to_owned()).map_err(|_| {
                                     anyhow::anyhow!(
                                         "invalid symlink target at {}",
-                                        resource_path.display()
+                                        resource.path.display()
                                     )
                                 })?;
 
                             pack_paths.push(target.into());
-                        } else if resource_metadata.is_dir() {
+                        } else if resource.metadata.is_dir() {
                             let mut dir =
-                                tokio::fs::read_dir(&resource_path).await.with_context(|| {
-                                    format!("failed to read directory {}", resource_path.display())
+                                tokio::fs::read_dir(&resource.path).await.with_context(|| {
+                                    format!("failed to read directory {}", resource.path.display())
                                 })?;
 
-                            tracing::debug!(resource_path = %resource_path.display(), "queueing directory entry resource");
+                            tracing::debug!(resource_path = %resource.path.display(), "queueing directory entry resource");
 
                             while let Some(entry) = dir.next_entry().await.transpose() {
                                 let entry = entry.context("failed to read directory entry")?;
@@ -153,7 +153,7 @@ pub async fn create_input_inner(
                                     anyhow::anyhow!(
                                         "invalid entry {} in directory {}",
                                         entry.file_name().to_string_lossy(),
-                                        resource_path.display()
+                                        resource.path.display()
                                     )
                                 })?;
 
@@ -161,7 +161,7 @@ pub async fn create_input_inner(
                             }
                         }
                     } else {
-                        tracing::warn!("missing resource {}", resource_path.display());
+                        tracing::warn!("missing resource {}", path.display());
                     }
                 }
 
@@ -267,4 +267,40 @@ pub async fn create_input_inner(
             options.input_path.display()
         );
     }
+}
+
+pub struct FoundResource<'a> {
+    pub path: PathBuf,
+    pub metadata: std::fs::Metadata,
+    pub resource_dir: &'a Path,
+}
+
+async fn find_resource<'a>(
+    resource_dir: &'a Path,
+    input_resource_dirs: &'a [PathBuf],
+    subpath: &Path,
+) -> anyhow::Result<Option<FoundResource<'a>>> {
+    let resource_dirs = [resource_dir]
+        .into_iter()
+        .chain(input_resource_dirs.iter().map(|dir| &**dir));
+
+    for resource_dir in resource_dirs {
+        let resource_path = resource_dir.join(subpath);
+        let resource_metadata = tokio::fs::symlink_metadata(&resource_path).await;
+        match resource_metadata {
+            Ok(metadata) => {
+                return Ok(Some(FoundResource {
+                    path: resource_path,
+                    metadata,
+                    resource_dir,
+                }));
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(err).context("failed to get metadata for resource");
+            }
+        }
+    }
+
+    Ok(None)
 }

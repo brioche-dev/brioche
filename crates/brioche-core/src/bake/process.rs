@@ -521,6 +521,7 @@ pub async fn bake_process(
             input_path: &output_path,
             remove_input: true,
             resource_dir: Some(&host_resource_dir),
+            input_resource_dirs: &host_input_resource_dirs,
             meta,
         },
     )

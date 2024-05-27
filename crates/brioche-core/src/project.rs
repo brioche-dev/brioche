@@ -1165,6 +1165,7 @@ async fn resolve_static(
                     meta: &Default::default(),
                     remove_input: false,
                     resource_dir: None,
+                    input_resource_dirs: &[],
                 },
             )
             .await?;
@@ -1241,6 +1242,7 @@ async fn resolve_static(
                             meta: &Default::default(),
                             remove_input: false,
                             resource_dir: None,
+                            input_resource_dirs: &[],
                         },
                     )
                     .await?;
