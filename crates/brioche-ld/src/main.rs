@@ -29,7 +29,7 @@ fn run() -> Result<ExitCode, LdError> {
         .ok_or_else(|| LdError::FailedToGetCurrentExeDir)?;
     let ld_resource_dir = current_exe_parent_dir.join("libexec").join("brioche-ld");
     if !ld_resource_dir.is_dir() {
-        return Err(LdError::LinkerResourcesDirNotFound(ld_resource_dir));
+        return Err(LdError::LinkerResourceDirNotFound(ld_resource_dir));
     }
 
     let linker = ld_resource_dir.join("ld");
@@ -71,7 +71,7 @@ fn run() -> Result<ExitCode, LdError> {
         Ok("false") => Mode::AutowrapDisabled,
         _ => {
             let resource_dir = brioche_pack::find_output_resource_dir(&output_path)
-                .map_err(LdError::ResourcesDirError)?;
+                .map_err(LdError::ResourceDirError)?;
             Mode::AutowrapEnabled { resource_dir }
         }
     };
@@ -121,13 +121,13 @@ enum LdError {
     #[error("failed to get directory containing current executable")]
     FailedToGetCurrentExeDir,
     #[error("brioche-ld resources dir not found (expected to be at {0})")]
-    LinkerResourcesDirNotFound(PathBuf),
+    LinkerResourceDirNotFound(PathBuf),
     #[error("{0}")]
     IoError(#[from] std::io::Error),
     #[error("{0}")]
     GoblinError(#[from] goblin::error::Error),
     #[error("error when finding resource dir")]
-    ResourcesDirError(#[from] brioche_pack::PackResourceDirError),
+    ResourceDirError(#[from] brioche_pack::PackResourceDirError),
     #[error("error writing packed program")]
     InjectPackError(#[from] brioche_pack::InjectPackError),
     #[error("error adding blob: {0}")]

@@ -188,7 +188,7 @@ pub enum AutowrapError {
     #[error("{0}")]
     GoblinError(#[from] goblin::error::Error),
     #[error("error when finding resource dir")]
-    ResourcesDirError(#[from] crate::PackResourceDirError),
+    ResourceDirError(#[from] crate::PackResourceDirError),
     #[error("library not found in search paths: {0}")]
     LibraryNotFound(String),
     #[error("error writing packed program")]
