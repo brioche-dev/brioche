@@ -104,10 +104,14 @@ fn dynamic_ld_linux_elf_pack(
         .into();
 
     let mut resource_library_dirs = vec![];
-    for library_name in &options.elf.libraries {
-        let library_path = find_library(&options, library_name)?;
+    for original_library_name in &options.elf.libraries {
+        let library_path = find_library(&options, original_library_name)?;
 
         let library = std::fs::File::open(&library_path)?;
+        let library_name = std::path::PathBuf::from(original_library_name);
+        let library_name = library_name
+            .file_name()
+            .ok_or_else(|| AutowrapError::InvalidPath)?;
         let resource_library_path = crate::resources::add_named_blob(
             options.resource_dir,
             library,
