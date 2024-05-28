@@ -123,7 +123,7 @@ where
 
     tracing::trace!(temp_path = %temp_path.display(), "saving blob");
 
-    let mut buffer = [0u8; 4096];
+    let mut buffer = vec![0u8; 1024 * 1024];
     let mut total_bytes_read = 0;
     loop {
         let length = input.read(&mut buffer).await.context("failed to read")?;
@@ -218,7 +218,7 @@ pub async fn save_blob_from_file<'a>(
         .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
 
     {
-        let mut buffer = [0u8; 4096];
+        let mut buffer = vec![0u8; 1024 * 1024];
         let mut input_file = tokio::fs::File::open(&input_path)
             .await
             .with_context(|| format!("failed to open input file {}", input_path.display()))?;
