@@ -85,7 +85,7 @@ fn dynamic_ld_linux_elf_pack(
         options.resource_dir,
         std::io::Cursor::new(&options.program_contents),
         is_path_executable(options.program_path)?,
-        program_name,
+        Path::new(program_name),
     )?;
 
     let interpreter_name = options
@@ -97,7 +97,7 @@ fn dynamic_ld_linux_elf_pack(
         options.resource_dir,
         interpreter,
         is_path_executable(options.interpreter_path)?,
-        interpreter_name,
+        Path::new(interpreter_name),
     )?;
     let resource_interpreter_path = <[u8]>::from_path(&resource_interpreter_path)
         .ok_or_else(|| AutowrapError::InvalidPath)?
@@ -116,7 +116,7 @@ fn dynamic_ld_linux_elf_pack(
             options.resource_dir,
             library,
             is_path_executable(&library_path)?,
-            library_name,
+            Path::new(library_name),
         )?;
         let resource_library_dir = resource_library_path
             .parent()
