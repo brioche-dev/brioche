@@ -87,6 +87,9 @@ fn run() -> Result<(), PackedError> {
             let error = command.exec();
             Err(PackedError::IoError(error))
         }
+        brioche_pack::Pack::Static { .. } => {
+            unimplemented!("execution of a static executable");
+        }
     }
 }
 

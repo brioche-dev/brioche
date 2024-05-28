@@ -28,6 +28,11 @@ pub enum Pack {
         #[serde_as(as = "Vec<TickEncoded>")]
         library_dirs: Vec<Vec<u8>>,
     },
+    #[serde(rename_all = "camelCase")]
+    Static {
+        #[serde_as(as = "Vec<TickEncoded>")]
+        library_dirs: Vec<Vec<u8>>,
+    },
 }
 
 impl Pack {
@@ -44,9 +49,24 @@ impl Pack {
                 paths.push(bstr::BString::from(interpreter.clone()));
                 paths.extend(library_dirs.iter().cloned().map(bstr::BString::from));
             }
+            Self::Static { library_dirs } => {
+                paths.extend(library_dirs.iter().cloned().map(bstr::BString::from));
+            }
         }
 
         paths
+    }
+
+    pub fn should_add_to_executable(&self) -> bool {
+        match self {
+            Pack::LdLinux { .. } => true,
+            Pack::Static { library_dirs } => {
+                // If the executable is statically linked but contains no
+                // dynamically-linked libraries, then we have no reason to
+                // add it to the executable
+                !library_dirs.is_empty()
+            }
+        }
     }
 }
 

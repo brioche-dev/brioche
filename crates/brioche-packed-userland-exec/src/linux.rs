@@ -131,6 +131,9 @@ fn run(args: &[&CStr], env_vars: &[&CStr]) -> Result<(), PackedError> {
 
             userland_execve::exec_with_options(exec);
         }
+        brioche_pack::Pack::Static { .. } => {
+            unimplemented!("execution of a static executable");
+        }
     }
 }
 
