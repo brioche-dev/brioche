@@ -16,51 +16,38 @@ type LengthInt = u32;
 
 #[serde_with::serde_as]
 #[derive(Debug, bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Pack {
-    #[serde_as(as = "TickEncoded")]
-    pub program: Vec<u8>,
-    pub interpreter: Option<Interpreter>,
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum Pack {
+    #[serde(rename_all = "camelCase")]
+    LdLinux {
+        #[serde_as(as = "TickEncoded")]
+        program: Vec<u8>,
+        #[serde_as(as = "TickEncoded")]
+        interpreter: Vec<u8>,
+        #[serde_as(as = "Vec<TickEncoded>")]
+        library_dirs: Vec<Vec<u8>>,
+    },
 }
 
 impl Pack {
     pub fn paths(&self) -> Vec<bstr::BString> {
-        let Self {
-            program,
-            interpreter,
-        } = self;
-
         let mut paths = vec![];
 
-        paths.push(bstr::BString::from(program.clone()));
-        if let Some(interpreter) = interpreter {
-            match interpreter {
-                Interpreter::LdLinux {
-                    path,
-                    library_paths,
-                } => {
-                    paths.push(bstr::BString::from(path.clone()));
-                    paths.extend(library_paths.iter().cloned().map(bstr::BString::from));
-                }
+        match self {
+            Self::LdLinux {
+                program,
+                interpreter,
+                library_dirs,
+            } => {
+                paths.push(bstr::BString::from(program.clone()));
+                paths.push(bstr::BString::from(interpreter.clone()));
+                paths.extend(library_dirs.iter().cloned().map(bstr::BString::from));
             }
         }
 
         paths
     }
-}
-
-#[serde_with::serde_as]
-#[derive(Debug, bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
-#[serde(rename_all = "snake_case")]
-pub enum Interpreter {
-    #[serde(rename_all = "camelCase")]
-    LdLinux {
-        #[serde_as(as = "TickEncoded")]
-        path: Vec<u8>,
-        #[serde_as(as = "Vec<TickEncoded>")]
-        library_paths: Vec<Vec<u8>>,
-    },
 }
 
 pub fn find_resource_dirs(

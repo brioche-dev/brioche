@@ -128,16 +128,13 @@ fn dynamic_ld_linux_elf_pack(
         resource_library_dirs.push(resource_library_dir);
     }
 
-    let interpreter = crate::Interpreter::LdLinux {
-        path: resource_interpreter_path,
-        library_paths: resource_library_dirs,
-    };
     let resource_program_path = <[u8]>::from_path(&resource_program_path)
         .ok_or_else(|| AutowrapError::InvalidPath)?
         .into();
-    let pack = crate::Pack {
+    let pack = crate::Pack::LdLinux {
         program: resource_program_path,
-        interpreter: Some(interpreter),
+        interpreter: resource_interpreter_path,
+        library_dirs: resource_library_dirs,
     };
 
     Ok(pack)

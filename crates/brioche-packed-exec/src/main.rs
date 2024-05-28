@@ -21,11 +21,12 @@ fn run() -> Result<(), PackedError> {
     let mut program = std::fs::File::open(&path)?;
     let pack = brioche_pack::extract_pack(&mut program)?;
 
-    match pack.interpreter {
-        Some(brioche_pack::Interpreter::LdLinux {
-            path: interpreter,
-            library_paths,
-        }) => {
+    match pack {
+        brioche_pack::Pack::LdLinux {
+            program,
+            interpreter,
+            library_dirs,
+        } => {
             let mut args = std::env::args_os();
 
             let interpreter = interpreter
@@ -34,14 +35,14 @@ fn run() -> Result<(), PackedError> {
             let interpreter = brioche_pack::find_in_resource_dirs(&resource_dirs, interpreter)
                 .ok_or(PackedError::ResourceNotFound)?;
             let mut command = std::process::Command::new(interpreter);
-            if !library_paths.is_empty() {
+            if !library_dirs.is_empty() {
                 let mut ld_library_path = bstr::BString::default();
-                for (n, library_path) in library_paths.iter().enumerate() {
-                    let library_path = library_path
+                for (n, library_dir) in library_dirs.iter().enumerate() {
+                    let library_dir = library_dir
                         .to_path()
                         .map_err(|_| PackedError::InvalidPath)?;
-                    let library_path =
-                        brioche_pack::find_in_resource_dirs(&resource_dirs, library_path)
+                    let library_dir =
+                        brioche_pack::find_in_resource_dirs(&resource_dirs, library_dir)
                             .ok_or(PackedError::ResourceNotFound)?;
 
                     if n > 0 {
@@ -49,7 +50,7 @@ fn run() -> Result<(), PackedError> {
                     }
 
                     let path =
-                        <[u8]>::from_path(&library_path).ok_or_else(|| PackedError::InvalidPath)?;
+                        <[u8]>::from_path(&library_dir).ok_or_else(|| PackedError::InvalidPath)?;
                     ld_library_path.extend(path);
                 }
 
@@ -75,10 +76,7 @@ fn run() -> Result<(), PackedError> {
                 command.arg(arg0);
             }
 
-            let program = pack
-                .program
-                .to_path()
-                .map_err(|_| PackedError::InvalidPath)?;
+            let program = program.to_path().map_err(|_| PackedError::InvalidPath)?;
             let program = brioche_pack::find_in_resource_dirs(&resource_dirs, program)
                 .ok_or(PackedError::ResourceNotFound)?;
             let program = program.canonicalize()?;
@@ -88,9 +86,6 @@ fn run() -> Result<(), PackedError> {
 
             let error = command.exec();
             Err(PackedError::IoError(error))
-        }
-        None => {
-            unimplemented!("execution without an interpreter");
         }
     }
 }
