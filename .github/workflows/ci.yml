@@ -117,7 +117,7 @@ jobs:
 
           cargo +"$NIGHTLY_TOOLCHAIN" build \
             --all \
-            --bin brioche-packed-exec \
+            --bin brioche-packed-plain-exec \
             --bin brioche-packed-userland-exec \
             --profile=release-tiny \
             --target="$TOOLS_TARGET" \
@@ -135,7 +135,7 @@ jobs:
           cp \
             "target/$TOOLS_TARGET/release/brioche-packer" \
             "target/$TOOLS_TARGET/release/brioche-ld" \
-            "target/$TOOLS_TARGET/release-tiny/brioche-packed-exec" \
+            "target/$TOOLS_TARGET/release-tiny/brioche-packed-plain-exec" \
             "target/$TOOLS_TARGET/release-tiny/brioche-packed-userland-exec" \
             "artifacts/brioche-pack/$PLATFORM/bin/"
           (cd "artifacts/brioche-pack/$PLATFORM/" && tar --zstd -cf "../../brioche/$PLATFORM/brioche-pack.tar.zstd" .)
