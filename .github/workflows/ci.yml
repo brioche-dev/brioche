@@ -128,7 +128,7 @@ jobs:
       - name: Prepare artifact
         run: |
           mkdir -p "artifacts/brioche/$PLATFORM/"
-          mkdir -p "artifacts/brioche-pack/$PLATFORM/"
+          mkdir -p "artifacts/brioche-pack/$PLATFORM/bin/"
           cp \
             "target/$TARGET/release/brioche" \
             "artifacts/brioche/$PLATFORM/"
@@ -137,7 +137,7 @@ jobs:
             "target/$TOOLS_TARGET/release/brioche-ld" \
             "target/$TOOLS_TARGET/release-tiny/brioche-packed-exec" \
             "target/$TOOLS_TARGET/release-tiny/brioche-packed-userland-exec" \
-            "artifacts/brioche-pack/$PLATFORM/"
+            "artifacts/brioche-pack/$PLATFORM/bin/"
           (cd "artifacts/brioche-pack/$PLATFORM/" && tar --zstd -cf "../../brioche/$PLATFORM/brioche-pack.tar.zstd" .)
 
 
