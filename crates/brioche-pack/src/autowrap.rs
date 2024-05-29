@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashSet, VecDeque},
     ffi::OsStr,
     path::{Path, PathBuf},
 };
@@ -10,6 +11,7 @@ pub struct AutowrapOptions<'a> {
     pub program_path: &'a Path,
     pub packed_exec_path: &'a Path,
     pub resource_dir: &'a Path,
+    pub all_resource_dirs: &'a [PathBuf],
     pub sysroot: &'a Path,
     pub library_search_paths: &'a [PathBuf],
     pub input_paths: &'a [PathBuf],
@@ -38,6 +40,7 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
                     program_path: options.program_path,
                     program_contents: &program_file,
                     resource_dir: options.resource_dir,
+                    all_resource_dirs: options.all_resource_dirs,
                     interpreter_path: &interpreter_path,
                     library_search_paths: options.library_search_paths,
                     input_paths: options.input_paths,
@@ -50,7 +53,20 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
 
                 crate::inject_pack(&mut packed_program, &pack)?;
             } else {
-                // Output is statically-linked, nothing to do
+                let pack = static_elf_pack(StaticElfPackOptions {
+                    resource_dir: options.resource_dir,
+                    all_resource_dirs: options.all_resource_dirs,
+                    library_search_paths: options.library_search_paths,
+                    input_paths: options.input_paths,
+                    elf: &elf,
+                })?;
+
+                if pack.should_add_to_executable() {
+                    let mut program = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(options.program_path)?;
+                    crate::inject_pack(&mut program, &pack)?;
+                }
             }
         }
         goblin::Object::Archive(_) => {
@@ -68,6 +84,7 @@ struct DynamicLdLinuxElfPackOptions<'a> {
     program_path: &'a Path,
     program_contents: &'a [u8],
     resource_dir: &'a Path,
+    all_resource_dirs: &'a [PathBuf],
     interpreter_path: &'a Path,
     library_search_paths: &'a [PathBuf],
     input_paths: &'a [PathBuf],
@@ -85,7 +102,7 @@ fn dynamic_ld_linux_elf_pack(
         options.resource_dir,
         std::io::Cursor::new(&options.program_contents),
         is_path_executable(options.program_path)?,
-        program_name,
+        Path::new(program_name),
     )?;
 
     let interpreter_name = options
@@ -97,22 +114,106 @@ fn dynamic_ld_linux_elf_pack(
         options.resource_dir,
         interpreter,
         is_path_executable(options.interpreter_path)?,
-        interpreter_name,
+        Path::new(interpreter_name),
     )?;
     let resource_interpreter_path = <[u8]>::from_path(&resource_interpreter_path)
         .ok_or_else(|| AutowrapError::InvalidPath)?
         .into();
 
+    let find_library_options = FindLibraryOptions {
+        resource_dir: options.resource_dir,
+        all_resource_dirs: options.all_resource_dirs,
+        library_search_paths: options.library_search_paths,
+        input_paths: options.input_paths,
+    };
+
+    let resource_library_dirs = collect_all_library_dirs(&find_library_options, options.elf)?;
+
+    let resource_program_path = <[u8]>::from_path(&resource_program_path)
+        .ok_or_else(|| AutowrapError::InvalidPath)?
+        .into();
+    let pack = crate::Pack::LdLinux {
+        program: resource_program_path,
+        interpreter: resource_interpreter_path,
+        library_dirs: resource_library_dirs,
+    };
+
+    Ok(pack)
+}
+
+struct StaticElfPackOptions<'a> {
+    resource_dir: &'a Path,
+    all_resource_dirs: &'a [PathBuf],
+    library_search_paths: &'a [PathBuf],
+    input_paths: &'a [PathBuf],
+    elf: &'a goblin::elf::Elf<'a>,
+}
+
+fn static_elf_pack(options: StaticElfPackOptions) -> Result<crate::Pack, AutowrapError> {
+    let find_library_options = FindLibraryOptions {
+        resource_dir: options.resource_dir,
+        all_resource_dirs: options.all_resource_dirs,
+        library_search_paths: options.library_search_paths,
+        input_paths: options.input_paths,
+    };
+
+    let resource_library_dirs = collect_all_library_dirs(&find_library_options, options.elf)?;
+
+    let pack = crate::Pack::Static {
+        library_dirs: resource_library_dirs,
+    };
+
+    Ok(pack)
+}
+
+struct FindLibraryOptions<'a> {
+    resource_dir: &'a Path,
+    all_resource_dirs: &'a [PathBuf],
+    library_search_paths: &'a [PathBuf],
+    input_paths: &'a [PathBuf],
+}
+
+fn collect_all_library_dirs(
+    options: &FindLibraryOptions,
+    elf: &goblin::elf::Elf,
+) -> Result<Vec<Vec<u8>>, AutowrapError> {
+    let mut all_search_paths = options.library_search_paths.to_vec();
+
     let mut resource_library_dirs = vec![];
-    for library_name in &options.elf.libraries {
-        let library_path = find_library(&options, library_name)?;
+    let mut needed_libraries = elf
+        .libraries
+        .iter()
+        .map(|lib| lib.to_string())
+        .collect::<VecDeque<_>>();
+    let mut found_libraries = HashSet::new();
+
+    while let Some(original_library_name) = needed_libraries.pop_front() {
+        if found_libraries.contains(&original_library_name) {
+            continue;
+        }
+
+        let library_path = find_library(
+            &FindLibraryOptions {
+                input_paths: options.input_paths,
+                library_search_paths: &all_search_paths,
+                resource_dir: options.resource_dir,
+                all_resource_dirs: options.all_resource_dirs,
+            },
+            &original_library_name,
+        )?;
+        let library_name = std::path::PathBuf::from(&original_library_name);
+        let library_name = library_name
+            .file_name()
+            .ok_or_else(|| AutowrapError::InvalidPath)?;
+
+        found_libraries.insert(original_library_name);
 
         let library = std::fs::File::open(&library_path)?;
         let resource_library_path = crate::resources::add_named_blob(
             options.resource_dir,
             library,
             is_path_executable(&library_path)?,
-            library_name,
+            Path::new(library_name),
         )?;
         let resource_library_dir = resource_library_path
             .parent()
@@ -122,25 +223,49 @@ fn dynamic_ld_linux_elf_pack(
             .into();
 
         resource_library_dirs.push(resource_library_dir);
+
+        // Try to get dynamic dependencies from the library itself
+
+        let Ok(library_file) = std::fs::read(&library_path) else {
+            continue;
+        };
+        let Ok(library_object) = goblin::Object::parse(&library_file) else {
+            continue;
+        };
+
+        // TODO: Support other object files
+        let library_elf = match library_object {
+            goblin::Object::Elf(elf) => elf,
+            _ => continue,
+        };
+        needed_libraries.extend(library_elf.libraries.iter().map(|lib| lib.to_string()));
+
+        if let Ok(library_pack) = crate::extract_pack(&library_file[..]) {
+            let library_dirs = match &library_pack {
+                crate::Pack::LdLinux { library_dirs, .. } => library_dirs,
+                crate::Pack::Static { library_dirs } => library_dirs,
+            };
+
+            for library_dir in library_dirs {
+                let Ok(library_dir) = library_dir.to_path() else {
+                    continue;
+                };
+                let Some(library_dir_path) =
+                    crate::find_in_resource_dirs(options.all_resource_dirs, library_dir)
+                else {
+                    continue;
+                };
+
+                all_search_paths.push(library_dir_path);
+            }
+        }
     }
 
-    let interpreter = crate::Interpreter::LdLinux {
-        path: resource_interpreter_path,
-        library_paths: resource_library_dirs,
-    };
-    let resource_program_path = <[u8]>::from_path(&resource_program_path)
-        .ok_or_else(|| AutowrapError::InvalidPath)?
-        .into();
-    let pack = crate::Pack {
-        program: resource_program_path,
-        interpreter: Some(interpreter),
-    };
-
-    Ok(pack)
+    Ok(resource_library_dirs)
 }
 
 fn find_library(
-    options: &DynamicLdLinuxElfPackOptions,
+    options: &FindLibraryOptions,
     library_name: &str,
 ) -> Result<std::path::PathBuf, AutowrapError> {
     // Search for the library from the search paths passed to `ld`, searching

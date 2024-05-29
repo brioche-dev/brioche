@@ -3,7 +3,10 @@ use std::{path::PathBuf, process::ExitCode};
 use bstr::ByteSlice as _;
 
 enum Mode {
-    AutowrapEnabled { resource_dir: PathBuf },
+    AutowrapEnabled {
+        resource_dir: PathBuf,
+        all_resource_dirs: Vec<PathBuf>,
+    },
     AutowrapDisabled,
 }
 
@@ -72,7 +75,12 @@ fn run() -> Result<ExitCode, LdError> {
         _ => {
             let resource_dir = brioche_pack::find_output_resource_dir(&output_path)
                 .map_err(LdError::ResourceDirError)?;
-            Mode::AutowrapEnabled { resource_dir }
+            let all_resource_dirs = brioche_pack::find_resource_dirs(&current_exe, true)
+                .map_err(LdError::ResourceDirError)?;
+            Mode::AutowrapEnabled {
+                resource_dir,
+                all_resource_dirs,
+            }
         }
     };
 
@@ -90,11 +98,15 @@ fn run() -> Result<ExitCode, LdError> {
     }
 
     match autowrap_mode {
-        Mode::AutowrapEnabled { resource_dir } => {
+        Mode::AutowrapEnabled {
+            resource_dir,
+            all_resource_dirs,
+        } => {
             brioche_pack::autowrap::autowrap(brioche_pack::autowrap::AutowrapOptions {
                 program_path: &output_path,
                 packed_exec_path: &packed_path,
                 resource_dir: &resource_dir,
+                all_resource_dirs: &all_resource_dirs,
                 sysroot: &ld_resource_dir,
                 library_search_paths: &library_search_paths,
                 input_paths: &input_paths,

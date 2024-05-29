@@ -7,7 +7,7 @@ pub fn add_named_blob(
     resource_dir: &Path,
     mut contents: impl std::io::Seek + std::io::Read,
     executable: bool,
-    name: impl AsRef<Path>,
+    name: &Path,
 ) -> Result<PathBuf, AddBlobError> {
     let mut hasher = blake3::Hasher::new();
     std::io::copy(&mut contents, &mut hasher)?;
@@ -34,7 +34,7 @@ pub fn add_named_blob(
     drop(blob_file);
     std::fs::rename(&blob_temp_path, &blob_path)?;
 
-    let alias_dir = resource_dir.join("aliases").join(&blob_name);
+    let alias_dir = resource_dir.join("aliases").join(name).join(&blob_name);
     std::fs::create_dir_all(&alias_dir)?;
 
     let alias_path = alias_dir.join(name);

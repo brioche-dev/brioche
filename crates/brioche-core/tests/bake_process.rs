@@ -1057,12 +1057,10 @@ async fn test_bake_process_output_with_resources(
     let mut dummy_packed_contents = dummy_packed_contents.into_bytes();
     brioche_pack::inject_pack(
         &mut dummy_packed_contents,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: "program".into(),
-            interpreter: Some(brioche_pack::Interpreter::LdLinux {
-                path: "ld-linux.so".into(),
-                library_paths: vec![],
-            }),
+            interpreter: "ld-linux.so".into(),
+            library_dirs: vec![],
         },
     )?;
 

@@ -208,9 +208,10 @@ async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
         &mut packed_file,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: b"test".into(),
-            interpreter: None,
+            interpreter: b"test".into(),
+            library_dirs: vec![],
         },
     )?;
 
@@ -260,9 +261,10 @@ async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
         &mut packed_file,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: b"test".into(),
-            interpreter: None,
+            interpreter: b"test".into(),
+            library_dirs: vec![],
         },
     )?;
 
@@ -310,9 +312,10 @@ async fn test_input_dir_use_input_resource_dir() -> anyhow::Result<()> {
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
         &mut packed_file,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: b"test".into(),
-            interpreter: None,
+            interpreter: b"test".into(),
+            library_dirs: vec![],
         },
     )?;
 
@@ -365,9 +368,10 @@ async fn test_input_dir_use_only_input_resource_dir() -> anyhow::Result<()> {
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
         &mut packed_file,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: b"test".into(),
-            interpreter: None,
+            interpreter: b"test".into(),
+            library_dirs: vec![],
         },
     )?;
 
@@ -414,9 +418,10 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
         &mut packed_file,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: b"test".into(),
-            interpreter: None,
+            interpreter: b"test".into(),
+            library_dirs: vec![],
         },
     )?;
 
@@ -470,9 +475,10 @@ async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
         &mut packed_file,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: b"test".into(),
-            interpreter: None,
+            interpreter: b"test".into(),
+            library_dirs: vec![],
         },
     )?;
 
@@ -516,9 +522,10 @@ async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
         &mut packed_file,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: b"test".into(),
-            interpreter: None,
+            interpreter: b"test".into(),
+            library_dirs: vec![],
         },
     )?;
 
@@ -591,9 +598,10 @@ async fn test_input_dir_omits_unused_resources() -> anyhow::Result<()> {
     let mut packed_file = b"test".to_vec();
     brioche_pack::inject_pack(
         &mut packed_file,
-        &brioche_pack::Pack {
+        &brioche_pack::Pack::LdLinux {
             program: b"test".into(),
-            interpreter: None,
+            interpreter: b"test".into(),
+            library_dirs: vec![],
         },
     )?;
 
