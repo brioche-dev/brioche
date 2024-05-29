@@ -72,14 +72,17 @@ jobs:
             runs_on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             tools_target: x86_64-unknown-linux-musl
+            packed_exec: brioche-packed-userland-exec
           - name: x86_64-macos
             runs_on: macos-14
             target: x86_64-apple-darwin
             tools_target: x86_64-apple-darwin
+            packed_exec: brioche-packed-plain-exec
           - name: aarch64-macos
             runs_on: macos-14
             target: aarch64-apple-darwin
             tools_target: aarch64-apple-darwin
+            packed_exec: brioche-packed-plain-exec
 
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
@@ -138,6 +141,7 @@ jobs:
             "target/$TOOLS_TARGET/release-tiny/brioche-packed-plain-exec" \
             "target/$TOOLS_TARGET/release-tiny/brioche-packed-userland-exec" \
             "artifacts/brioche-pack/$PLATFORM/bin/"
+          cp "artifacts/brioche-pack/$PLATFORM/bin/$PACKED_EXEC" "artifacts/brioche-pack/$PLATFORM/bin/brioche-packed-exec"
           (cd "artifacts/brioche-pack/$PLATFORM/" && tar --zstd -cf "../../brioche/$PLATFORM/brioche-pack.tar.zstd" .)
 
 
@@ -146,9 +150,10 @@ jobs:
             tree --du -h artifacts/brioche
           fi
         env:
+          PLATFORM: ${{ matrix.platform.name }}
           TARGET: ${{ matrix.platform.target }}
           TOOLS_TARGET: ${{ matrix.platform.tools_target }}
-          PLATFORM: ${{ matrix.platform.name }}
+          PACKED_EXEC: ${{ matrix.platform.packed_exec }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
