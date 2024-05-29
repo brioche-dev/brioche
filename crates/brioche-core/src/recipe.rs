@@ -100,7 +100,6 @@ pub enum Recipe {
 }
 
 impl Recipe {
-    #[tracing::instrument(skip_all)]
     pub fn try_hash(&self) -> anyhow::Result<RecipeHash> {
         static HASHES: OnceLock<RwLock<HashMap<Recipe, RecipeHash>>> = OnceLock::new();
         let hashes = HASHES.get_or_init(|| RwLock::new(HashMap::new()));
@@ -590,7 +589,6 @@ pub enum Artifact {
 }
 
 impl Artifact {
-    #[tracing::instrument(skip_all)]
     pub fn try_hash(&self) -> anyhow::Result<RecipeHash> {
         let hash = RecipeHash::from_serializable(self)?;
         Ok(hash)
