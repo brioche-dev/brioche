@@ -60,6 +60,7 @@ fn run(args: &[&CStr], env_vars: &[&CStr]) -> Result<(), PackedError> {
             program,
             interpreter,
             library_dirs,
+            runtime_library_dirs,
         } => {
             let interpreter = interpreter
                 .to_path()

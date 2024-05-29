@@ -1061,6 +1061,7 @@ async fn test_bake_process_output_with_resources(
             program: "program".into(),
             interpreter: "ld-linux.so".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 

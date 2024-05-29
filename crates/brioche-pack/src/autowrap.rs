@@ -17,6 +17,7 @@ pub struct AutowrapOptions<'a> {
     pub input_paths: &'a [PathBuf],
     pub skip_libs: &'a [String],
     pub skip_unknown_libs: bool,
+    pub runtime_library_dirs: &'a [PathBuf],
 }
 
 pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
@@ -49,6 +50,7 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
                     skip_libs: options.skip_libs,
                     skip_unknown_libs: options.skip_unknown_libs,
                     elf: &elf,
+                    runtime_library_dirs: options.runtime_library_dirs,
                 })?;
 
                 let mut packed = std::fs::File::open(options.packed_exec_path)?;
@@ -97,6 +99,7 @@ struct DynamicLdLinuxElfPackOptions<'a> {
     skip_libs: &'a [String],
     skip_unknown_libs: bool,
     elf: &'a goblin::elf::Elf<'a>,
+    runtime_library_dirs: &'a [PathBuf],
 }
 
 fn dynamic_ld_linux_elf_pack(
@@ -142,10 +145,19 @@ fn dynamic_ld_linux_elf_pack(
     let resource_program_path = <[u8]>::from_path(&resource_program_path)
         .ok_or_else(|| AutowrapError::InvalidPath)?
         .into();
+    let runtime_library_dirs = options
+        .runtime_library_dirs
+        .iter()
+        .map(|dir| {
+            let dir = <[u8]>::from_path(dir).ok_or(AutowrapError::InvalidPath)?;
+            Ok::<_, AutowrapError>(dir.to_vec())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let pack = crate::Pack::LdLinux {
         program: resource_program_path,
         interpreter: resource_interpreter_path,
         library_dirs: resource_library_dirs,
+        runtime_library_dirs,
     };
 
     Ok(pack)

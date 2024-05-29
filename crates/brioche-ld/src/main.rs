@@ -116,6 +116,7 @@ fn run() -> Result<ExitCode, LdError> {
                 input_paths: &input_paths,
                 skip_libs: &[],
                 skip_unknown_libs,
+                runtime_library_dirs: &[],
             })?;
         }
         Mode::AutowrapDisabled => {

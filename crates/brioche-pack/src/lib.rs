@@ -27,6 +27,8 @@ pub enum Pack {
         interpreter: Vec<u8>,
         #[serde_as(as = "Vec<TickEncoded>")]
         library_dirs: Vec<Vec<u8>>,
+        #[serde_as(as = "Vec<TickEncoded>")]
+        runtime_library_dirs: Vec<Vec<u8>>,
     },
     #[serde(rename_all = "camelCase")]
     Static {
@@ -44,6 +46,7 @@ impl Pack {
                 program,
                 interpreter,
                 library_dirs,
+                runtime_library_dirs: _,
             } => {
                 paths.push(bstr::BString::from(program.clone()));
                 paths.push(bstr::BString::from(interpreter.clone()));

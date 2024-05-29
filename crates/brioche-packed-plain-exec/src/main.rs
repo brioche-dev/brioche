@@ -26,6 +26,7 @@ fn run() -> Result<(), PackedError> {
             program,
             interpreter,
             library_dirs,
+            runtime_library_dirs,
         } => {
             let mut args = std::env::args_os();
 
