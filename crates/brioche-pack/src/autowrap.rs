@@ -15,6 +15,8 @@ pub struct AutowrapOptions<'a> {
     pub sysroot: &'a Path,
     pub library_search_paths: &'a [PathBuf],
     pub input_paths: &'a [PathBuf],
+    pub skip_libs: &'a [String],
+    pub skip_unknown_libs: bool,
 }
 
 pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
@@ -44,6 +46,8 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
                     interpreter_path: &interpreter_path,
                     library_search_paths: options.library_search_paths,
                     input_paths: options.input_paths,
+                    skip_libs: options.skip_libs,
+                    skip_unknown_libs: options.skip_unknown_libs,
                     elf: &elf,
                 })?;
 
@@ -58,6 +62,8 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
                     all_resource_dirs: options.all_resource_dirs,
                     library_search_paths: options.library_search_paths,
                     input_paths: options.input_paths,
+                    skip_libs: options.skip_libs,
+                    skip_unknown_libs: options.skip_unknown_libs,
                     elf: &elf,
                 })?;
 
@@ -88,6 +94,8 @@ struct DynamicLdLinuxElfPackOptions<'a> {
     interpreter_path: &'a Path,
     library_search_paths: &'a [PathBuf],
     input_paths: &'a [PathBuf],
+    skip_libs: &'a [String],
+    skip_unknown_libs: bool,
     elf: &'a goblin::elf::Elf<'a>,
 }
 
@@ -125,6 +133,8 @@ fn dynamic_ld_linux_elf_pack(
         all_resource_dirs: options.all_resource_dirs,
         library_search_paths: options.library_search_paths,
         input_paths: options.input_paths,
+        skip_libs: options.skip_libs,
+        skip_unknown_libs: options.skip_unknown_libs,
     };
 
     let resource_library_dirs = collect_all_library_dirs(&find_library_options, options.elf)?;
@@ -146,6 +156,8 @@ struct StaticElfPackOptions<'a> {
     all_resource_dirs: &'a [PathBuf],
     library_search_paths: &'a [PathBuf],
     input_paths: &'a [PathBuf],
+    skip_libs: &'a [String],
+    skip_unknown_libs: bool,
     elf: &'a goblin::elf::Elf<'a>,
 }
 
@@ -155,6 +167,8 @@ fn static_elf_pack(options: StaticElfPackOptions) -> Result<crate::Pack, Autowra
         all_resource_dirs: options.all_resource_dirs,
         library_search_paths: options.library_search_paths,
         input_paths: options.input_paths,
+        skip_libs: options.skip_libs,
+        skip_unknown_libs: options.skip_unknown_libs,
     };
 
     let resource_library_dirs = collect_all_library_dirs(&find_library_options, options.elf)?;
@@ -171,6 +185,8 @@ struct FindLibraryOptions<'a> {
     all_resource_dirs: &'a [PathBuf],
     library_search_paths: &'a [PathBuf],
     input_paths: &'a [PathBuf],
+    skip_libs: &'a [String],
+    skip_unknown_libs: bool,
 }
 
 fn collect_all_library_dirs(
@@ -186,21 +202,37 @@ fn collect_all_library_dirs(
         .map(|lib| lib.to_string())
         .collect::<VecDeque<_>>();
     let mut found_libraries = HashSet::new();
+    let skip_libraries = options.skip_libs.iter().collect::<HashSet<_>>();
 
     while let Some(original_library_name) = needed_libraries.pop_front() {
         if found_libraries.contains(&original_library_name) {
             continue;
         }
 
-        let library_path = find_library(
+        if skip_libraries.contains(&original_library_name) {
+            continue;
+        }
+
+        let library_path_result = find_library(
             &FindLibraryOptions {
                 input_paths: options.input_paths,
                 library_search_paths: &all_search_paths,
                 resource_dir: options.resource_dir,
                 all_resource_dirs: options.all_resource_dirs,
+                skip_libs: options.skip_libs,
+                skip_unknown_libs: options.skip_unknown_libs,
             },
             &original_library_name,
-        )?;
+        );
+        let library_path = match library_path_result {
+            Ok(library_path) => library_path,
+            Err(AutowrapError::LibraryNotFound(_)) if options.skip_unknown_libs => {
+                continue;
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        };
         let library_name = std::path::PathBuf::from(&original_library_name);
         let library_name = library_name
             .file_name()

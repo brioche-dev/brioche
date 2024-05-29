@@ -83,6 +83,10 @@ fn run() -> Result<ExitCode, LdError> {
             }
         }
     };
+    let skip_unknown_libs = matches!(
+        std::env::var("BRIOCHE_LD_AUTOWRAP_SKIP_UNKNOWN_LIBS").as_deref(),
+        Ok("true")
+    );
 
     let mut command = std::process::Command::new(linker);
     command.args(std::env::args_os().skip(1));
@@ -110,6 +114,8 @@ fn run() -> Result<ExitCode, LdError> {
                 sysroot: &ld_resource_dir,
                 library_search_paths: &library_search_paths,
                 input_paths: &input_paths,
+                skip_libs: &[],
+                skip_unknown_libs,
             })?;
         }
         Mode::AutowrapDisabled => {
