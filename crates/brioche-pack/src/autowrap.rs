@@ -221,10 +221,6 @@ fn collect_all_library_dirs(
             continue;
         }
 
-        if skip_libraries.contains(&original_library_name) {
-            continue;
-        }
-
         let library_path_result = find_library(
             &FindLibraryOptions {
                 input_paths: options.input_paths,
@@ -250,23 +246,28 @@ fn collect_all_library_dirs(
             .file_name()
             .ok_or_else(|| AutowrapError::InvalidPath)?;
 
-        found_libraries.insert(original_library_name);
+        found_libraries.insert(original_library_name.clone());
 
-        let library = std::fs::File::open(&library_path)?;
-        let resource_library_path = crate::resources::add_named_blob(
-            options.resource_dir,
-            library,
-            is_path_executable(&library_path)?,
-            Path::new(library_name),
-        )?;
-        let resource_library_dir = resource_library_path
-            .parent()
-            .expect("no parent dir for library path");
-        let resource_library_dir = <[u8]>::from_path(resource_library_dir)
-            .ok_or_else(|| AutowrapError::InvalidPath)?
-            .into();
+        // Don't add the library if it's been skipped. We still do everything
+        // else so we can add transitive dependencies even if a library has
+        // been skipped.
+        if !skip_libraries.contains(&original_library_name) {
+            let library = std::fs::File::open(&library_path)?;
+            let resource_library_path = crate::resources::add_named_blob(
+                options.resource_dir,
+                library,
+                is_path_executable(&library_path)?,
+                Path::new(library_name),
+            )?;
+            let resource_library_dir = resource_library_path
+                .parent()
+                .expect("no parent dir for library path");
+            let resource_library_dir = <[u8]>::from_path(resource_library_dir)
+                .ok_or_else(|| AutowrapError::InvalidPath)?
+                .into();
 
-        resource_library_dirs.push(resource_library_dir);
+            resource_library_dirs.push(resource_library_dir);
+        }
 
         // Try to get dynamic dependencies from the library itself
 
