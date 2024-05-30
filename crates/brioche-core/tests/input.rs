@@ -212,6 +212,7 @@ async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
             program: b"test".into(),
             interpreter: b"test".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 
@@ -265,6 +266,7 @@ async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
             program: b"test".into(),
             interpreter: b"test".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 
@@ -316,6 +318,7 @@ async fn test_input_dir_use_input_resource_dir() -> anyhow::Result<()> {
             program: b"test".into(),
             interpreter: b"test".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 
@@ -372,6 +375,7 @@ async fn test_input_dir_use_only_input_resource_dir() -> anyhow::Result<()> {
             program: b"test".into(),
             interpreter: b"test".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 
@@ -422,6 +426,7 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
             program: b"test".into(),
             interpreter: b"test".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 
@@ -479,6 +484,7 @@ async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
             program: b"test".into(),
             interpreter: b"test".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 
@@ -526,6 +532,7 @@ async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
             program: b"test".into(),
             interpreter: b"test".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 
@@ -602,6 +609,7 @@ async fn test_input_dir_omits_unused_resources() -> anyhow::Result<()> {
             program: b"test".into(),
             interpreter: b"test".into(),
             library_dirs: vec![],
+            runtime_library_dirs: vec![],
         },
     )?;
 

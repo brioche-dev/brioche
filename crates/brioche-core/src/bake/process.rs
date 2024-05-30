@@ -417,7 +417,7 @@ pub async fn bake_process(
         let guest_input_resource_dir: bstr::BString = guest_home_dir
             .iter()
             .copied()
-            .chain(b"/.local/share/brioche/locals".iter().copied())
+            .chain(b"/.local/share/brioche/locals/".iter().copied())
             .chain(resource_dir_name.iter().copied())
             .collect();
 

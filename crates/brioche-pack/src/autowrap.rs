@@ -15,6 +15,9 @@ pub struct AutowrapOptions<'a> {
     pub sysroot: &'a Path,
     pub library_search_paths: &'a [PathBuf],
     pub input_paths: &'a [PathBuf],
+    pub skip_libs: &'a [String],
+    pub skip_unknown_libs: bool,
+    pub runtime_library_dirs: &'a [PathBuf],
 }
 
 pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
@@ -44,7 +47,10 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
                     interpreter_path: &interpreter_path,
                     library_search_paths: options.library_search_paths,
                     input_paths: options.input_paths,
+                    skip_libs: options.skip_libs,
+                    skip_unknown_libs: options.skip_unknown_libs,
                     elf: &elf,
+                    runtime_library_dirs: options.runtime_library_dirs,
                 })?;
 
                 let mut packed = std::fs::File::open(options.packed_exec_path)?;
@@ -58,6 +64,8 @@ pub fn autowrap(options: AutowrapOptions) -> Result<(), AutowrapError> {
                     all_resource_dirs: options.all_resource_dirs,
                     library_search_paths: options.library_search_paths,
                     input_paths: options.input_paths,
+                    skip_libs: options.skip_libs,
+                    skip_unknown_libs: options.skip_unknown_libs,
                     elf: &elf,
                 })?;
 
@@ -88,7 +96,10 @@ struct DynamicLdLinuxElfPackOptions<'a> {
     interpreter_path: &'a Path,
     library_search_paths: &'a [PathBuf],
     input_paths: &'a [PathBuf],
+    skip_libs: &'a [String],
+    skip_unknown_libs: bool,
     elf: &'a goblin::elf::Elf<'a>,
+    runtime_library_dirs: &'a [PathBuf],
 }
 
 fn dynamic_ld_linux_elf_pack(
@@ -125,6 +136,8 @@ fn dynamic_ld_linux_elf_pack(
         all_resource_dirs: options.all_resource_dirs,
         library_search_paths: options.library_search_paths,
         input_paths: options.input_paths,
+        skip_libs: options.skip_libs,
+        skip_unknown_libs: options.skip_unknown_libs,
     };
 
     let resource_library_dirs = collect_all_library_dirs(&find_library_options, options.elf)?;
@@ -132,10 +145,19 @@ fn dynamic_ld_linux_elf_pack(
     let resource_program_path = <[u8]>::from_path(&resource_program_path)
         .ok_or_else(|| AutowrapError::InvalidPath)?
         .into();
+    let runtime_library_dirs = options
+        .runtime_library_dirs
+        .iter()
+        .map(|dir| {
+            let dir = <[u8]>::from_path(dir).ok_or(AutowrapError::InvalidPath)?;
+            Ok::<_, AutowrapError>(dir.to_vec())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let pack = crate::Pack::LdLinux {
         program: resource_program_path,
         interpreter: resource_interpreter_path,
         library_dirs: resource_library_dirs,
+        runtime_library_dirs,
     };
 
     Ok(pack)
@@ -146,6 +168,8 @@ struct StaticElfPackOptions<'a> {
     all_resource_dirs: &'a [PathBuf],
     library_search_paths: &'a [PathBuf],
     input_paths: &'a [PathBuf],
+    skip_libs: &'a [String],
+    skip_unknown_libs: bool,
     elf: &'a goblin::elf::Elf<'a>,
 }
 
@@ -155,6 +179,8 @@ fn static_elf_pack(options: StaticElfPackOptions) -> Result<crate::Pack, Autowra
         all_resource_dirs: options.all_resource_dirs,
         library_search_paths: options.library_search_paths,
         input_paths: options.input_paths,
+        skip_libs: options.skip_libs,
+        skip_unknown_libs: options.skip_unknown_libs,
     };
 
     let resource_library_dirs = collect_all_library_dirs(&find_library_options, options.elf)?;
@@ -171,6 +197,8 @@ struct FindLibraryOptions<'a> {
     all_resource_dirs: &'a [PathBuf],
     library_search_paths: &'a [PathBuf],
     input_paths: &'a [PathBuf],
+    skip_libs: &'a [String],
+    skip_unknown_libs: bool,
 }
 
 fn collect_all_library_dirs(
@@ -186,43 +214,60 @@ fn collect_all_library_dirs(
         .map(|lib| lib.to_string())
         .collect::<VecDeque<_>>();
     let mut found_libraries = HashSet::new();
+    let skip_libraries = options.skip_libs.iter().collect::<HashSet<_>>();
 
     while let Some(original_library_name) = needed_libraries.pop_front() {
         if found_libraries.contains(&original_library_name) {
             continue;
         }
 
-        let library_path = find_library(
+        let library_path_result = find_library(
             &FindLibraryOptions {
                 input_paths: options.input_paths,
                 library_search_paths: &all_search_paths,
                 resource_dir: options.resource_dir,
                 all_resource_dirs: options.all_resource_dirs,
+                skip_libs: options.skip_libs,
+                skip_unknown_libs: options.skip_unknown_libs,
             },
             &original_library_name,
-        )?;
+        );
+        let library_path = match library_path_result {
+            Ok(library_path) => library_path,
+            Err(AutowrapError::LibraryNotFound(_)) if options.skip_unknown_libs => {
+                continue;
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        };
         let library_name = std::path::PathBuf::from(&original_library_name);
         let library_name = library_name
             .file_name()
             .ok_or_else(|| AutowrapError::InvalidPath)?;
 
-        found_libraries.insert(original_library_name);
+        found_libraries.insert(original_library_name.clone());
 
-        let library = std::fs::File::open(&library_path)?;
-        let resource_library_path = crate::resources::add_named_blob(
-            options.resource_dir,
-            library,
-            is_path_executable(&library_path)?,
-            Path::new(library_name),
-        )?;
-        let resource_library_dir = resource_library_path
-            .parent()
-            .expect("no parent dir for library path");
-        let resource_library_dir = <[u8]>::from_path(resource_library_dir)
-            .ok_or_else(|| AutowrapError::InvalidPath)?
-            .into();
+        // Don't add the library if it's been skipped. We still do everything
+        // else so we can add transitive dependencies even if a library has
+        // been skipped.
+        if !skip_libraries.contains(&original_library_name) {
+            let library = std::fs::File::open(&library_path)?;
+            let resource_library_path = crate::resources::add_named_blob(
+                options.resource_dir,
+                library,
+                is_path_executable(&library_path)?,
+                Path::new(library_name),
+            )?;
+            let resource_library_dir = resource_library_path
+                .parent()
+                .expect("no parent dir for library path");
+            let resource_library_dir = <[u8]>::from_path(resource_library_dir)
+                .ok_or_else(|| AutowrapError::InvalidPath)?
+                .into();
 
-        resource_library_dirs.push(resource_library_dir);
+            resource_library_dirs.push(resource_library_dir);
+        }
 
         // Try to get dynamic dependencies from the library itself
 

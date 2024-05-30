@@ -1,5 +1,5 @@
 [package]
-name = "brioche-packed-exec"
+name = "brioche-packed-plain-exec"
 version = "0.1.0"
 edition = "2021"
 

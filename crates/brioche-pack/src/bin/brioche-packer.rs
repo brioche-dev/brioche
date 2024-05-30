@@ -19,6 +19,12 @@ enum Args {
         sysroot: PathBuf,
         #[arg(short = 'L', long = "lib-dir")]
         lib_dirs: Vec<PathBuf>,
+        #[arg(long)]
+        skip_lib: Vec<String>,
+        #[arg(long)]
+        skip_unknown_libs: bool,
+        #[arg(long)]
+        runtime_lib_dir: Vec<PathBuf>,
         programs: Vec<PathBuf>,
     },
     Read {
@@ -58,6 +64,9 @@ fn run() -> Result<(), PackerError> {
             sysroot,
             lib_dirs,
             programs,
+            skip_lib,
+            skip_unknown_libs,
+            runtime_lib_dir,
         } => {
             for program in &programs {
                 let resource_dir =
@@ -82,6 +91,9 @@ fn run() -> Result<(), PackerError> {
                     library_search_paths: &lib_dirs,
                     input_paths: &[],
                     sysroot: &sysroot,
+                    skip_libs: &skip_lib,
+                    skip_unknown_libs,
+                    runtime_library_dirs: &runtime_lib_dir,
                 })
                 .map_err(|error| PackerError::Autowrap {
                     program: program.clone(),

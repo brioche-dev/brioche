@@ -838,7 +838,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "brioche-packed-exec"
+name = "brioche-packed-plain-exec"
 version = "0.1.0"
 dependencies = [
  "brioche-pack",
