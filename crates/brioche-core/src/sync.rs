@@ -218,24 +218,43 @@ pub async fn sync_project_references(
 ) -> anyhow::Result<SyncProjectReferencesResult> {
     // Sync referenced blobs and recipes
 
+    println!("[DBG] about to sync recipe references...");
+
     let recipe_result = sync_recipe_references(brioche, &references.recipes, verbose).await?;
 
+    println!("[DBG] finished syncing recipe references");
+
     // Sync loaded blobs
+
+    println!("[DBG] about to sync loaded blobs...");
 
     let start_blobs = std::time::Instant::now();
 
     let all_blobs = references.loaded_blobs.keys().cloned().collect::<Vec<_>>();
+    println!(
+        "[DBG] got all_blobs by {}",
+        start_blobs.elapsed().human_duration()
+    );
     let known_blobs = brioche.registry_client.known_blobs(&all_blobs).await?;
+    println!(
+        "[DBG] got known_blobs by {}",
+        start_blobs.elapsed().human_duration()
+    );
     let num_new_blobs = all_blobs.len() - known_blobs.len();
     let new_blobs = references
         .loaded_blobs
         .clone()
         .into_iter()
         .filter(|(blob_hash, _)| !known_blobs.contains(blob_hash));
+    println!(
+        "[DBG] got new_blobs by {}",
+        start_blobs.elapsed().human_duration()
+    );
 
     futures::stream::iter(new_blobs)
         .map(Ok)
         .try_for_each_concurrent(Some(25), |(blob_hash, blob_content)| {
+            println!("[DBG] sending blob");
             let brioche = brioche.clone();
             async move {
                 tokio::spawn(async move {
@@ -252,6 +271,8 @@ pub async fn sync_project_references(
             }
         })
         .await?;
+
+    println!("[DBG] finished all blobs");
 
     let num_total_blobs = references.loaded_blobs.len();
     if verbose {
