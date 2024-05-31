@@ -37,11 +37,12 @@ pub fn add_named_blob(
     let alias_dir = resource_dir.join("aliases").join(name).join(&blob_name);
     std::fs::create_dir_all(&alias_dir)?;
 
+    let temp_alias_path = alias_dir.join(format!("{}-{blob_temp_id}", name.display()));
     let alias_path = alias_dir.join(name);
-    let _ = std::fs::remove_file(&alias_path);
     let blob_pack_relative_path = pathdiff::diff_paths(&blob_path, &alias_dir)
         .expect("blob path is not a prefix of alias path");
-    std::os::unix::fs::symlink(blob_pack_relative_path, &alias_path)?;
+    std::os::unix::fs::symlink(blob_pack_relative_path, &temp_alias_path)?;
+    std::fs::rename(&temp_alias_path, &alias_path)?;
 
     let alias_path = alias_path
         .strip_prefix(resource_dir)
