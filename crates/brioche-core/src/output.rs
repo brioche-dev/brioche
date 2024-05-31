@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context as _;
 use bstr::ByteSlice;
@@ -37,6 +40,10 @@ pub async fn create_output(
         None
     };
 
+    // Fetch all blobs before creating the output
+    fetch_descendent_artifact_blobs(brioche, artifact).await?;
+
+    // Create the output
     create_output_inner(brioche, artifact, options, lock.as_ref()).await?;
     Ok(())
 }
@@ -66,7 +73,13 @@ async fn create_output_inner<'a: 'async_recursion>(
             resources,
         }) => {
             if resources.is_empty() {
-                let blob_path = super::blob::blob_path(brioche, *content_blob).await?;
+                let blob_path = super::blob::local_blob_path(brioche, *content_blob);
+
+                anyhow::ensure!(
+                    tokio::fs::try_exists(&blob_path).await?,
+                    "blob not found: {}",
+                    blob_path.display(),
+                );
 
                 if options.link_locals && !*executable {
                     crate::fs_utils::try_remove(options.output_path).await?;
@@ -286,6 +299,10 @@ pub async fn create_local_output(
     // TODO: Make this function parallelizable
     let lock = LOCAL_OUTPUT_MUTEX.lock().await;
 
+    // Fetch all blobs before creating the output
+    fetch_descendent_artifact_blobs(brioche, artifact).await?;
+
+    // Create the output
     let result = create_local_output_inner(brioche, artifact, &lock).await?;
 
     Ok(result)
@@ -380,6 +397,26 @@ async fn create_local_output_inner(
 pub struct LocalOutput {
     pub path: PathBuf,
     pub resource_dir: Option<PathBuf>,
+}
+
+async fn fetch_descendent_artifact_blobs(
+    brioche: &Brioche,
+    artifact: &Artifact,
+) -> anyhow::Result<()> {
+    // Find artifact blobs
+    let mut blobs = HashSet::new();
+    crate::references::descendent_artifact_blobs(brioche, [artifact.clone()], &mut blobs).await?;
+
+    std::fs::write(
+        "./descendents.json",
+        serde_json::to_string_pretty(&blobs).unwrap(),
+    )
+    .unwrap();
+
+    // Fetch all referenced blobs
+    crate::registry::fetch_blobs(brioche.clone(), &blobs).await?;
+
+    Ok(())
 }
 
 /// Check if a path exists, and change the file metadata to ensure it matches

@@ -450,6 +450,57 @@ pub async fn fetch_recipes(brioche: &Brioche, recipes: &HashSet<RecipeHash>) -> 
     Ok(())
 }
 
+#[tracing::instrument(skip(brioche, blobs))]
+pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow::Result<()> {
+    let unknown_blobs = futures::stream::iter(blobs)
+        .filter({
+            let brioche = brioche.clone();
+            move |&&blob_hash| {
+                let brioche = brioche.clone();
+                async move {
+                    let blob_path = super::blob::local_blob_path(&brioche, blob_hash);
+                    !matches!(tokio::fs::try_exists(&blob_path).await, Ok(true))
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .map(anyhow::Ok)
+        .await?;
+
+    let job_id = brioche
+        .reporter
+        .add_job(crate::reporter::NewJob::RegistryFetch {
+            total_blobs: unknown_blobs.len(),
+            total_recipes: 0,
+        });
+
+    futures::stream::iter(unknown_blobs)
+        .map(Ok)
+        .try_for_each_concurrent(25, |blob| {
+            let brioche = brioche.clone();
+            async move {
+                super::blob::blob_path(&brioche, blob).await?;
+
+                brioche.reporter.update_job(
+                    job_id,
+                    crate::reporter::UpdateJob::RegistryFetchAdd {
+                        blobs_fetched: 1,
+                        recipes_fetched: 0,
+                    },
+                );
+
+                anyhow::Ok(())
+            }
+        })
+        .await?;
+
+    brioche
+        .reporter
+        .update_job(job_id, crate::reporter::UpdateJob::RegistryFetchFinish);
+
+    Ok(())
+}
+
 #[derive(Clone)]
 pub enum RegistryAuthentication {
     Anonymous,

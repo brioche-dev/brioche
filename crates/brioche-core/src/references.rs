@@ -262,6 +262,40 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
     }
 }
 
+pub async fn descendent_artifact_blobs(
+    brioche: &Brioche,
+    artifacts: impl IntoIterator<Item = Artifact>,
+    blobs: &mut HashSet<BlobHash>,
+) -> anyhow::Result<()> {
+    let mut visited = HashSet::new();
+    let mut unvisited = VecDeque::from_iter(artifacts);
+
+    while let Some(artifact) = unvisited.pop_front() {
+        let not_visited = visited.insert(artifact.hash());
+        if !not_visited {
+            continue;
+        }
+
+        match artifact {
+            Artifact::File(crate::recipe::File {
+                content_blob,
+                executable: _,
+                resources,
+            }) => {
+                blobs.insert(content_blob);
+                unvisited.push_back(Artifact::Directory(resources));
+            }
+            Artifact::Symlink { .. } => {}
+            Artifact::Directory(directory) => {
+                let entries = directory.entries(brioche).await?;
+                unvisited.extend(entries.into_values().map(|entry| entry.value));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn descendent_project_bakes(
     brioche: &Brioche,
     project_hash: ProjectHash,
