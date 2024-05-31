@@ -317,7 +317,7 @@ pub async fn fetch_bake_references(
                 let brioche = brioche.clone();
                 async move {
                     let blob_path = super::blob::local_blob_path(&brioche, blob_hash);
-                    matches!(tokio::fs::try_exists(&blob_path).await, Ok(true))
+                    !matches!(tokio::fs::try_exists(&blob_path).await, Ok(true))
                 }
             }
         })
