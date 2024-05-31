@@ -72,7 +72,7 @@ pub async fn sync_bakes(
 
     futures::stream::iter(new_bakes)
         .map(Ok)
-        .try_for_each_concurrent(Some(100), |(input_hash, output_hash)| {
+        .try_for_each_concurrent(Some(25), |(input_hash, output_hash)| {
             let brioche = brioche.clone();
             async move {
                 tokio::spawn(async move {
@@ -134,7 +134,7 @@ pub async fn sync_recipe_references(
 
     futures::stream::iter(new_blobs)
         .map(Ok)
-        .try_for_each_concurrent(Some(100), |blob_hash| {
+        .try_for_each_concurrent(Some(25), |blob_hash| {
             let brioche = brioche.clone();
             async move {
                 tokio::spawn(async move {
@@ -235,7 +235,7 @@ pub async fn sync_project_references(
 
     futures::stream::iter(new_blobs)
         .map(Ok)
-        .try_for_each_concurrent(Some(100), |(blob_hash, blob_content)| {
+        .try_for_each_concurrent(Some(25), |(blob_hash, blob_content)| {
             let brioche = brioche.clone();
             async move {
                 tokio::spawn(async move {
