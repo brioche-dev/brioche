@@ -14,6 +14,9 @@ use crate::{
     Brioche,
 };
 
+const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 #[derive(Clone)]
 pub enum RegistryClient {
     Enabled {
@@ -35,7 +38,10 @@ impl RegistryClient {
         let retry_middleware =
             reqwest_retry::RetryTransientMiddleware::new_with_policy(retry_policy);
 
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .expect("failed to build reqwest client");
         let client = reqwest_middleware::ClientBuilder::new(client)
             .with(retry_middleware)
             .build();
@@ -67,6 +73,7 @@ impl RegistryClient {
     }
 
     pub async fn get_blob(&self, blob_hash: BlobHash) -> anyhow::Result<Vec<u8>> {
+        // No timeout for blobs, since they can take a while to download
         let response = self
             .request(reqwest::Method::GET, &format!("v0/blobs/{blob_hash}.zst"))?
             .send()
@@ -113,6 +120,7 @@ impl RegistryClient {
                 reqwest::Method::GET,
                 &format!("v0/project-tags/{project_name_component}/{tag_component}"),
             )?
+            .timeout(GET_TIMEOUT)
             .send()
             .await?;
         let response_body = response.error_for_status()?.json().await?;
@@ -139,6 +147,7 @@ impl RegistryClient {
                 reqwest::Method::GET,
                 &format!("v0/projects/{project_hash_component}"),
             )?
+            .timeout(GET_TIMEOUT)
             .send()
             .await?;
         let project = response.error_for_status()?.json().await?;
@@ -164,6 +173,7 @@ impl RegistryClient {
     pub async fn get_recipe(&self, recipe_hash: RecipeHash) -> anyhow::Result<Recipe> {
         let response = self
             .request(reqwest::Method::GET, &format!("v0/recipes/{recipe_hash}"))?
+            .timeout(GET_TIMEOUT)
             .send()
             .await?;
         let response_body = response.error_for_status()?.json().await?;
@@ -206,6 +216,7 @@ impl RegistryClient {
         for chunk in recipe_hashes.chunks(1000) {
             let known_recipes: Vec<RecipeHash> = self
                 .request(reqwest::Method::POST, "v0/known-recipes")?
+                .timeout(GET_TIMEOUT)
                 .json(&chunk)
                 .send()
                 .await?
@@ -222,6 +233,7 @@ impl RegistryClient {
         for chunk in blobs.chunks(1000) {
             let known_blobs: Vec<BlobHash> = self
                 .request(reqwest::Method::POST, "v0/known-blobs")?
+                .timeout(GET_TIMEOUT)
                 .json(&chunk)
                 .send()
                 .await?
@@ -241,6 +253,7 @@ impl RegistryClient {
         for chunk in bakes.chunks(1000) {
             let known_bakes: Vec<(RecipeHash, RecipeHash)> = self
                 .request(reqwest::Method::POST, "v0/known-bakes")?
+                .timeout(GET_TIMEOUT)
                 .json(&chunk)
                 .send()
                 .await?
@@ -260,6 +273,7 @@ impl RegistryClient {
         for chunk in project_hashes.chunks(1000) {
             let known_projects: Vec<ProjectHash> = self
                 .request(reqwest::Method::POST, "v0/known-projects")?
+                .timeout(GET_TIMEOUT)
                 .json(&chunk)
                 .send()
                 .await?
@@ -298,6 +312,7 @@ impl RegistryClient {
                 reqwest::Method::GET,
                 &format!("v0/recipes/{input_hash}/bake"),
             )?
+            .timeout(GET_TIMEOUT)
             .send()
             .await?;
         let response_body = response.error_for_status()?.json().await?;
