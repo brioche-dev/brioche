@@ -332,6 +332,11 @@ pub async fn fetch_bake_references(
         .copied()
         .collect::<Vec<_>>();
 
+    // Short-circuit if we have nothing to fetch
+    if unknown_blobs.is_empty() && unknown_recipes.is_empty() {
+        return Ok(());
+    }
+
     let job_id = brioche
         .reporter
         .add_job(crate::reporter::NewJob::RegistryFetch {
@@ -405,6 +410,11 @@ pub async fn fetch_recipes(brioche: &Brioche, recipes: &HashSet<RecipeHash>) -> 
         .copied()
         .collect::<Vec<_>>();
 
+    // Short-circuit if we have nothing to fetch
+    if unknown_recipes.is_empty() {
+        return Ok(());
+    }
+
     let job_id = brioche
         .reporter
         .add_job(crate::reporter::NewJob::RegistryFetch {
@@ -466,6 +476,11 @@ pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow:
         .collect::<Vec<_>>()
         .map(anyhow::Ok)
         .await?;
+
+    // Short-circuit if we have nothing to fetch
+    if unknown_blobs.is_empty() {
+        return Ok(());
+    }
 
     let job_id = brioche
         .reporter
