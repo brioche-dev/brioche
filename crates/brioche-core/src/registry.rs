@@ -17,6 +17,7 @@ use crate::{
 
 const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Clone)]
 pub enum RegistryClient {
@@ -42,6 +43,7 @@ impl RegistryClient {
         let client = reqwest::Client::builder()
             .user_agent(crate::USER_AGENT)
             .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(READ_TIMEOUT)
             .build()
             .expect("failed to build reqwest client");
         let client = reqwest_middleware::ClientBuilder::new(client)
