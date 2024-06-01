@@ -16,6 +16,7 @@ mod lsp;
 mod publish;
 mod run;
 mod run_sandbox;
+mod self_update;
 
 #[derive(Debug, Parser)]
 #[command(version)]
@@ -34,6 +35,8 @@ enum Args {
     Publish(publish::PublishArgs),
 
     Lsp(lsp::LspArgs),
+
+    SelfUpdate(self_update::SelfUpdateArgs),
 
     Analyze(AnalyzeArgs),
 
@@ -108,6 +111,19 @@ fn main() -> anyhow::Result<ExitCode> {
             rt.block_on(lsp::lsp(args))?;
 
             Ok(ExitCode::SUCCESS)
+        }
+        Args::SelfUpdate(args) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            let updated = rt.block_on(self_update::self_update(args))?;
+
+            if updated {
+                Ok(ExitCode::SUCCESS)
+            } else {
+                Ok(ExitCode::FAILURE)
+            }
         }
         Args::Analyze(args) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
