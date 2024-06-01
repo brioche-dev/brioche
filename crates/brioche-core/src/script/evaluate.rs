@@ -11,7 +11,7 @@ use crate::{
 
 use super::BriocheModuleLoader;
 
-#[tracing::instrument(skip(brioche, projects), err)]
+#[tracing::instrument(skip(brioche, projects, project_hash), fields(%project_hash), err)]
 pub async fn evaluate(
     brioche: &Brioche,
     projects: &Projects,

@@ -294,7 +294,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     };
 
     let exit_code = build_future
-        .instrument(tracing::info_span!("build", args = ?args))
+        .instrument(tracing::info_span!("build"))
         .await?;
 
     Ok(exit_code)
@@ -434,7 +434,7 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     };
 
     let output = build_future
-        .instrument(tracing::info_span!("run_build", args = ?args))
+        .instrument(tracing::info_span!("run_build"))
         .await?;
 
     let command_path = output.path.join(&args.command);
@@ -620,7 +620,7 @@ async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
     };
 
     let exit_code = install_future
-        .instrument(tracing::info_span!("run_install", args = ?args))
+        .instrument(tracing::info_span!("run_install"))
         .await?;
 
     Ok(exit_code)
@@ -674,7 +674,7 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
     };
 
     let exit_code = check_future
-        .instrument(tracing::info_span!("check", args = ?args))
+        .instrument(tracing::info_span!("check"))
         .await?;
 
     Ok(exit_code)
@@ -725,7 +725,7 @@ async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     };
 
     let exit_code = format_future
-        .instrument(tracing::info_span!("format", args = ?args))
+        .instrument(tracing::info_span!("format"))
         .await?;
 
     Ok(exit_code)
