@@ -225,7 +225,12 @@ pub async fn sync_project_references(
     let start_blobs = std::time::Instant::now();
 
     let all_blobs = references.loaded_blobs.keys().cloned().collect::<Vec<_>>();
+
+    // TODO: For some reason, this API call often times out (or hangs forever
+    // if one isn't set), but will work very quickly after retrying. We should
+    // figure out why this is happening
     let known_blobs = brioche.registry_client.known_blobs(&all_blobs).await?;
+
     let num_new_blobs = all_blobs.len() - known_blobs.len();
     let new_blobs = references
         .loaded_blobs
