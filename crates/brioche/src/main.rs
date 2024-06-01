@@ -130,7 +130,7 @@ struct BuildArgs {
     #[arg(long)]
     merge: bool,
     #[arg(long)]
-    keep: bool,
+    keep_temps: bool,
     #[arg(long)]
     sync: bool,
 }
@@ -141,7 +141,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     reporter.set_is_evaluating(true);
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
-        .keep_temps(args.keep)
+        .keep_temps(args.keep_temps)
         .sync(args.sync)
         .build()
         .await?;
