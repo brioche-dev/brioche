@@ -33,6 +33,8 @@ const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
 const DEFAULT_REGISTRY_URL: &str = "https://registry.brioche.dev/";
+pub const USER_AGENT: &str = concat!("brioche/", env!("CARGO_PKG_VERSION"));
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone)]
 pub struct Brioche {
@@ -189,7 +191,8 @@ impl BriocheBuilder {
             .build_with_max_retries(5);
         let download_retry_middleware =
             reqwest_retry::RetryTransientMiddleware::new_with_policy(download_retry_policy);
-        let download_client = reqwest_middleware::ClientBuilder::new(reqwest::Client::new())
+        let download_client = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
+        let download_client = reqwest_middleware::ClientBuilder::new(download_client)
             .with(download_retry_middleware)
             .build();
 

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    env,
     sync::Arc,
 };
 
@@ -39,6 +40,7 @@ impl RegistryClient {
             reqwest_retry::RetryTransientMiddleware::new_with_policy(retry_policy);
 
         let client = reqwest::Client::builder()
+            .user_agent(crate::USER_AGENT)
             .connect_timeout(CONNECT_TIMEOUT)
             .build()
             .expect("failed to build reqwest client");
@@ -62,7 +64,9 @@ impl RegistryClient {
             return Err(anyhow::anyhow!("registry client is disabled"));
         };
         let endpoint_url = url.join(path).context("failed to construct registry URL")?;
-        let request = client.request(method, endpoint_url);
+        let request = client
+            .request(method, endpoint_url)
+            .query(&[("brioche", env!("CARGO_PKG_VERSION"))]);
         let request = match auth {
             RegistryAuthentication::Anonymous => request,
             RegistryAuthentication::Admin { password } => {

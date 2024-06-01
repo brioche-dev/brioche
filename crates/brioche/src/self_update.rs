@@ -19,11 +19,14 @@ const MANIFEST_URL: &str = "https://releases.brioche.dev/updates/update-manifest
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
+    let client = reqwest::Client::builder()
+        .user_agent(brioche_core::USER_AGENT)
+        .build()?;
     let brioche_path = std::env::current_exe().context("failed to get current executable path")?;
     let brioche_path_temp = brioche_path.with_extension(format!("{}.tmp", ulid::Ulid::new()));
 
     let platform = brioche_core::platform::current_platform();
-    let update_manifest = get_update_platform_manifest(platform).await?;
+    let update_manifest = get_update_platform_manifest(&client, platform).await?;
 
     let Some(update_manifest) = update_manifest else {
         println!("No updates available for {}", CURRENT_VERSION);
@@ -50,7 +53,10 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
 
     println!("Downloading update...");
 
-    let new_update = reqwest::get(&update_manifest.url)
+    let new_update = client
+        .get(&update_manifest.url)
+        .query(&[("brioche", brioche_core::VERSION)])
+        .send()
         .await?
         .error_for_status()?
         .bytes()
@@ -83,9 +89,10 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     Ok(true)
 }
 
-async fn get_update_version_manifest() -> anyhow::Result<Option<SelfUpdateVersionManifest>> {
+async fn get_update_version_manifest(
+    client: &reqwest::Client,
+) -> anyhow::Result<Option<SelfUpdateVersionManifest>> {
     // Download the manifest
-    let client = reqwest::Client::new();
     let response = client
         .get(MANIFEST_URL)
         .timeout(std::time::Duration::from_secs(10))
@@ -110,9 +117,10 @@ async fn get_update_version_manifest() -> anyhow::Result<Option<SelfUpdateVersio
 }
 
 async fn get_update_platform_manifest(
+    client: &reqwest::Client,
     platform: brioche_core::platform::Platform,
 ) -> anyhow::Result<Option<SelfUpdatePlatformManifest>> {
-    let update_manifest = get_update_version_manifest().await?;
+    let update_manifest = get_update_version_manifest(client).await?;
     let Some(update_manifest) = update_manifest else {
         return Ok(None);
     };

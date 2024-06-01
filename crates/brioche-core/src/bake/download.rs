@@ -19,7 +19,11 @@ pub async fn bake_download(brioche: &Brioche, download: DownloadRecipe) -> anyho
         url: download.url.clone(),
     });
 
-    let response = reqwest::get(download.url.clone()).await?;
+    let response = brioche
+        .download_client
+        .get(download.url.clone())
+        .send()
+        .await?;
     let response = response.error_for_status()?;
 
     let content_length = response.content_length().or_else(|| {
