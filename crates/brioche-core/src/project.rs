@@ -93,6 +93,30 @@ impl Projects {
         anyhow::bail!("could not find project root for path {}", path.display());
     }
 
+    pub async fn load_from_registry(
+        &self,
+        brioche: &Brioche,
+        project_name: &str,
+        version: &Version,
+    ) -> anyhow::Result<ProjectHash> {
+        let project_hash = resolve_project_from_registry(brioche, project_name, version)
+            .await
+            .with_context(|| format!("failed to resolve '{project_name}' from registry"))?;
+        let local_path = fetch_project_from_registry(brioche, project_hash)
+            .await
+            .with_context(|| format!("failed to fetch '{project_name}' from registry"))?;
+
+        let loaded_project_hash = self.load(brioche, &local_path, true).await?;
+
+        anyhow::ensure!(
+            loaded_project_hash == project_hash,
+            "expected {project_name} {version} to have hash {project_hash}, but got {loaded_project_hash} (loaded from {})",
+            local_path.display(),
+        );
+
+        Ok(loaded_project_hash)
+    }
+
     pub async fn clear(&self, project_hash: ProjectHash) -> anyhow::Result<bool> {
         let mut projects = self
             .inner

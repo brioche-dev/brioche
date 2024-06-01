@@ -727,14 +727,19 @@ dependencies = [
  "cfg-if 1.0.0",
  "clap",
  "futures",
+ "hex",
  "human-repr",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.8",
  "superconsole",
  "tokio",
  "tokio-util",
  "tower-lsp",
  "tracing",
+ "ulid",
+ "url",
 ]
 
 [[package]]
@@ -5664,7 +5669,7 @@ dependencies = [
  "tracing-core",
  "tracing-log",
  "tracing-subscriber",
- "web-time",
+ "web-time 0.2.3",
 ]
 
 [[package]]
@@ -5734,11 +5739,13 @@ checksum = "ed646292ffc8188ef8ea4d1e0e0150fb15a5c2e12ad9b8fc191ae7a8a7f3c4b9"
 
 [[package]]
 name = "ulid"
-version = "1.1.0"
+version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e37c4b6cbcc59a8dcd09a6429fbc7890286bcbb79215cea7b38a3c4c0921d93"
+checksum = "34778c17965aa2a08913b57e1f34db9b4a63f5de31768b55bf20d2795f921259"
 dependencies = [
+ "getrandom",
  "rand 0.8.5",
+ "web-time 1.1.0",
 ]
 
 [[package]]
@@ -6041,6 +6048,16 @@ name = "web-time"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57099a701fb3a8043f993e8228dc24229c7b942e2b009a1b962e54489ba1d3bf"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
