@@ -1,4 +1,9 @@
-use std::{collections::HashMap, path::PathBuf, process::ExitCode, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    process::ExitCode,
+    sync::Arc,
+};
 
 use anyhow::Context as _;
 use brioche_core::{fs_utils, reporter::ConsoleReporterKind, sandbox::SandboxExecutionConfig};
@@ -118,7 +123,9 @@ fn main() -> anyhow::Result<ExitCode> {
 #[derive(Debug, Parser)]
 struct BuildArgs {
     #[arg(short, long)]
-    project: PathBuf,
+    project: Option<PathBuf>,
+    #[arg(short, long)]
+    registry: Option<String>,
     #[arg(short, long, default_value = "default")]
     export: String,
     #[arg(short, long)]
@@ -148,7 +155,13 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche_core::project::Projects::default();
 
     let build_future = async {
-        let project_hash = projects.load(&brioche, &args.project, true).await?;
+        let project_hash = load_project(
+            &brioche,
+            &projects,
+            args.project.as_deref(),
+            args.registry.as_deref(),
+        )
+        .await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {
@@ -279,7 +292,9 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 #[derive(Debug, Parser)]
 struct RunArgs {
     #[arg(short, long)]
-    project: PathBuf,
+    project: Option<PathBuf>,
+    #[arg(short, long)]
+    registry: Option<String>,
     #[arg(short, long, default_value = "default")]
     export: String,
     #[arg(short, long, default_value = "brioche-run")]
@@ -309,7 +324,13 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche_core::project::Projects::default();
 
     let build_future = async {
-        let project_hash = projects.load(&brioche, &args.project, true).await?;
+        let project_hash = load_project(
+            &brioche,
+            &projects,
+            args.project.as_deref(),
+            args.registry.as_deref(),
+        )
+        .await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {
@@ -443,7 +464,9 @@ async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
 #[derive(Debug, Parser)]
 struct CheckArgs {
     #[arg(short, long)]
-    project: PathBuf,
+    project: Option<PathBuf>,
+    #[arg(short, long)]
+    registry: Option<String>,
 }
 
 async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
@@ -454,7 +477,13 @@ async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche_core::project::Projects::default();
 
     let check_future = async {
-        let project_hash = projects.load(&brioche, &args.project, true).await?;
+        let project_hash = load_project(
+            &brioche,
+            &projects,
+            args.project.as_deref(),
+            args.registry.as_deref(),
+        )
+        .await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {
@@ -738,4 +767,30 @@ fn run_sandbox(args: RunSandboxArgs) -> ExitCode {
                 ExitCode::FAILURE
             }
         })
+}
+
+async fn load_project(
+    brioche: &brioche_core::Brioche,
+    projects: &brioche_core::project::Projects,
+    project_arg: Option<&Path>,
+    registry_arg: Option<&str>,
+) -> anyhow::Result<brioche_core::project::ProjectHash> {
+    let project_hash = match (project_arg, registry_arg) {
+        (Some(project), None) => projects.load(brioche, project, true).await?,
+        (None, Some(registry)) => {
+            projects
+                .load_from_registry(brioche, registry, &brioche_core::project::Version::Any)
+                .await?
+        }
+        (None, None) => {
+            // Default to the current directory if a project path
+            // is not specified
+            projects.load(brioche, &PathBuf::from("."), true).await?
+        }
+        (Some(_), Some(_)) => {
+            anyhow::bail!("cannot specify both --project and --registry");
+        }
+    };
+
+    Ok(project_hash)
 }
