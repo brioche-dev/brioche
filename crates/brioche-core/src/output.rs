@@ -407,12 +407,6 @@ async fn fetch_descendent_artifact_blobs(
     let mut blobs = HashSet::new();
     crate::references::descendent_artifact_blobs(brioche, [artifact.clone()], &mut blobs).await?;
 
-    std::fs::write(
-        "./descendents.json",
-        serde_json::to_string_pretty(&blobs).unwrap(),
-    )
-    .unwrap();
-
     // Fetch all referenced blobs
     crate::registry::fetch_blobs(brioche.clone(), &blobs).await?;
 
