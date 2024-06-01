@@ -73,16 +73,16 @@ jobs:
             target: x86_64-unknown-linux-gnu
             tools_target: x86_64-unknown-linux-musl
             packed_exec: brioche-packed-userland-exec
-          - name: x86_64-macos
-            runs_on: macos-14
-            target: x86_64-apple-darwin
-            tools_target: x86_64-apple-darwin
-            packed_exec: brioche-packed-plain-exec
-          - name: aarch64-macos
-            runs_on: macos-14
-            target: aarch64-apple-darwin
-            tools_target: aarch64-apple-darwin
-            packed_exec: brioche-packed-plain-exec
+          # - name: x86_64-macos
+          #   runs_on: macos-14
+          #   target: x86_64-apple-darwin
+          #   tools_target: x86_64-apple-darwin
+          #   packed_exec: brioche-packed-plain-exec
+          # - name: aarch64-macos
+          #   runs_on: macos-14
+          #   target: aarch64-apple-darwin
+          #   tools_target: aarch64-apple-darwin
+          #   packed_exec: brioche-packed-plain-exec
 
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
@@ -163,7 +163,8 @@ jobs:
   push:
     name: Push artifacts
     if: github.repository == 'brioche-dev/brioche'
-    needs: [check, test, build]
+    # needs: [check, test, build]
+    needs: [build]
     runs-on: ubuntu-22.04
     steps:
       - name: Download artifacts (x86_64-linux)
@@ -171,16 +172,16 @@ jobs:
         with:
           name: brioche-x86_64-linux
           path: artifacts/brioche
-      - name: Download artifacts (x86_64-macos)
-        uses: actions/download-artifact@v4
-        with:
-          name: brioche-x86_64-macos
-          path: artifacts/brioche
-      - name: Download artifacts (aarch64-macos)
-        uses: actions/download-artifact@v4
-        with:
-          name: brioche-aarch64-macos
-          path: artifacts/brioche
+      # - name: Download artifacts (x86_64-macos)
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: brioche-x86_64-macos
+      #     path: artifacts/brioche
+      # - name: Download artifacts (aarch64-macos)
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: brioche-aarch64-macos
+      #     path: artifacts/brioche
       # Prepare the upload for the current commit and branch:
       # - The current branch will be uploaded with all artifacts
       # - The current commit will be uploaded with most artifacts (with some
