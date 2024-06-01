@@ -81,7 +81,7 @@ async fn test_bake_download_rerun_after_failure() -> anyhow::Result<()> {
     let hello = "hello";
     let hello_blob = brioche_test::blob(&brioche, hello).await;
     let hello_hash = brioche_test::sha256(hello);
-    let hello_endpoint = server.mock("GET", "/file.txt").with_status(500).create();
+    let hello_endpoint = server.mock("GET", "/file.txt").with_status(404).create();
 
     let hello_download = Recipe::Download(DownloadRecipe {
         hash: hello_hash.clone(),
