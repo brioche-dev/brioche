@@ -22,7 +22,13 @@ async fn test_registry_client_get_project() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/v0/projects/{project_hash}"))
+        .mock(
+            "GET",
+            &*format!(
+                "/v0/projects/{project_hash}?brioche={}",
+                brioche_core::VERSION
+            ),
+        )
         .with_header("Content-Type", "application/json")
         .with_body(serde_json::to_string(&project).unwrap())
         .create();
@@ -58,7 +64,13 @@ async fn test_registry_client_get_project_invalid_hash() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/v0/projects/{project_hash}"))
+        .mock(
+            "GET",
+            &*format!(
+                "/v0/projects/{project_hash}?brioche={}",
+                brioche_core::VERSION
+            ),
+        )
         .with_header("Content-Type", "application/json")
         .with_body(serde_json::to_string(&changed_project).unwrap())
         .create();
@@ -82,7 +94,10 @@ async fn test_registry_client_get_blob() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/v0/blobs/{file_id}.zst"))
+        .mock(
+            "GET",
+            &*format!("/v0/blobs/{file_id}.zst?brioche={}", brioche_core::VERSION),
+        )
         .with_header("Content-Type", "application/octet-stream")
         .with_body(&*contents_zstd)
         .create();
@@ -105,7 +120,10 @@ async fn test_registry_client_get_blob_invalid_hash() -> anyhow::Result<()> {
 
     let mock = context
         .registry_server
-        .mock("GET", &*format!("/v0/blobs/{file_id}.zst"))
+        .mock(
+            "GET",
+            &*format!("/v0/blobs/{file_id}.zst?brioche={}", brioche_core::VERSION),
+        )
         .with_header("Content-Type", "application/octet-stream")
         .with_body("evil")
         .create();

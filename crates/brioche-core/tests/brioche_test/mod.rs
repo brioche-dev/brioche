@@ -326,7 +326,13 @@ impl TestContext {
         project_hash: ProjectHash,
     ) -> mockito::Mock {
         self.registry_server
-            .mock("GET", &*format!("/v0/project-tags/{project_name}/{tag}"))
+            .mock(
+                "GET",
+                &*format!(
+                    "/v0/project-tags/{project_name}/{tag}?brioche={}",
+                    brioche_core::VERSION
+                ),
+            )
             .with_header("Content-Type", "application/json")
             .with_body(
                 serde_json::to_string(&brioche_core::registry::GetProjectTagResponse {
@@ -358,7 +364,13 @@ impl TestContext {
             tracing::info!("mocking subproject {subproject_hash}");
             let mock = self
                 .registry_server
-                .mock("GET", &*format!("/v0/projects/{subproject_hash}"))
+                .mock(
+                    "GET",
+                    &*format!(
+                        "/v0/projects/{subproject_hash}?brioche={}",
+                        brioche_core::VERSION
+                    ),
+                )
                 .with_header("Content-Type", "application/json")
                 .with_body(serde_json::to_string(subproject).unwrap());
 
@@ -368,7 +380,13 @@ impl TestContext {
             let blob_contents_zstd = zstd::encode_all(&***blob_contents, 0).unwrap();
             let mock = self
                 .registry_server
-                .mock("GET", &*format!("/v0/blobs/{blob_hash}.zst"))
+                .mock(
+                    "GET",
+                    &*format!(
+                        "/v0/blobs/{blob_hash}.zst?brioche={}",
+                        brioche_core::VERSION
+                    ),
+                )
                 .with_header("Content-Type", "application/octet-stream")
                 .with_body(blob_contents_zstd);
 
@@ -380,7 +398,13 @@ impl TestContext {
             let blob_contents_zstd = zstd::encode_all(&*blob_contents, 0).unwrap();
             let mock = self
                 .registry_server
-                .mock("GET", &*format!("/v0/blobs/{blob_hash}.zst"))
+                .mock(
+                    "GET",
+                    &*format!(
+                        "/v0/blobs/{blob_hash}.zst?brioche={}",
+                        brioche_core::VERSION
+                    ),
+                )
                 .with_header("Content-Type", "application/octet-stream")
                 .with_body(blob_contents_zstd);
 
@@ -390,7 +414,13 @@ impl TestContext {
             let recipe_json = serde_json::to_string(recipe).unwrap();
             let mock = self
                 .registry_server
-                .mock("GET", &*format!("/v0/recipes/{recipe_hash}"))
+                .mock(
+                    "GET",
+                    &*format!(
+                        "/v0/recipes/{recipe_hash}?brioche={}",
+                        brioche_core::VERSION
+                    ),
+                )
                 .with_header("Content-Type", "application/json")
                 .with_body(recipe_json);
 
