@@ -128,6 +128,8 @@ struct BuildArgs {
     #[arg(long)]
     replace: bool,
     #[arg(long)]
+    merge: bool,
+    #[arg(long)]
     keep: bool,
     #[arg(long)]
     sync: bool,
@@ -222,7 +224,7 @@ async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                 &artifact.value,
                 brioche_core::output::OutputOptions {
                     output_path: output,
-                    merge: false,
+                    merge: args.merge,
                     resource_dir: None,
                     mtime: Some(std::time::SystemTime::now()),
                     link_locals: false,
