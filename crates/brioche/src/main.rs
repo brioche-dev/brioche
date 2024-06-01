@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    process::ExitCode,
-    sync::Arc,
-};
+use std::{collections::HashMap, path::PathBuf, process::ExitCode, sync::Arc};
 
 use brioche_core::reporter::ConsoleReporterKind;
 use clap::Parser;
@@ -21,27 +16,41 @@ mod self_update;
 #[derive(Debug, Parser)]
 #[command(version)]
 enum Args {
+    /// Build a project
     Build(build::BuildArgs),
 
+    /// Build a project, then run the result
     Run(run::RunArgs),
 
+    /// Build a project, then install it globally
     Install(install::InstallArgs),
 
+    /// Check a project for type errors
     Check(check::CheckArgs),
 
+    /// Format the Brioche files in a project
     #[command(name = "fmt")]
     Format(format::FormatArgs),
 
+    /// Publish a project to a registry
     Publish(publish::PublishArgs),
 
+    /// Start the Language Server Protocol server
     Lsp(lsp::LspArgs),
 
+    /// Update Brioche itself
     SelfUpdate(self_update::SelfUpdateArgs),
 
+    /// Internal tool: analyze a project
+    #[command(hide = true)]
     Analyze(AnalyzeArgs),
 
+    /// Internal tool: serialize an entire project as JSON
+    #[command(hide = true)]
     ExportProject(ExportProjectArgs),
 
+    /// Used by Brioche itself to run a sandboxed process
+    #[command(hide = true)]
     RunSandbox(run_sandbox::RunSandboxArgs),
 }
 
@@ -209,13 +218,23 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Debug, clap::Args)]
+struct ProjectArgs {
+    /// The path of the project directory to build [default: .]
+    #[clap(short, long)]
+    project: Option<PathBuf>,
+
+    /// The name of a registry project to build
+    #[clap(short, long)]
+    registry: Option<String>,
+}
+
 async fn load_project(
     brioche: &brioche_core::Brioche,
     projects: &brioche_core::project::Projects,
-    project_arg: Option<&Path>,
-    registry_arg: Option<&str>,
+    args: &ProjectArgs,
 ) -> anyhow::Result<brioche_core::project::ProjectHash> {
-    let project_hash = match (project_arg, registry_arg) {
+    let project_hash = match (&args.project, &args.registry) {
         (Some(project), None) => projects.load(brioche, project, true).await?,
         (None, Some(registry)) => {
             projects

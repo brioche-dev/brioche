@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::process::ExitCode;
 
 use anyhow::Context as _;
 use brioche_core::reporter::ConsoleReporterKind;
@@ -8,12 +8,14 @@ use tracing::Instrument;
 
 #[derive(Debug, Parser)]
 pub struct InstallArgs {
-    #[arg(short, long)]
-    project: Option<PathBuf>,
-    #[arg(short, long)]
-    registry: Option<String>,
+    #[command(flatten)]
+    project: super::ProjectArgs,
+
+    /// Which TypeScript export to build
     #[arg(short, long, default_value = "default")]
     export: String,
+
+    /// Check the project before buiilding
     #[arg(long)]
     check: bool,
 }
@@ -29,13 +31,7 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche_core::project::Projects::default();
 
     let install_future = async {
-        let project_hash = super::load_project(
-            &brioche,
-            &projects,
-            args.project.as_deref(),
-            args.registry.as_deref(),
-        )
-        .await?;
+        let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {

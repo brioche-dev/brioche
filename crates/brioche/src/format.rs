@@ -6,10 +6,13 @@ use tracing::Instrument;
 
 #[derive(Debug, Parser)]
 pub struct FormatArgs {
-    #[arg(long)]
-    check: bool,
+    /// The path to the project directory to format
     #[arg(short, long)]
     project: PathBuf,
+
+    /// Check formatting without writing changes
+    #[arg(long)]
+    check: bool,
 }
 
 pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {

@@ -8,22 +8,35 @@ use tracing::Instrument;
 
 #[derive(Debug, Parser)]
 pub struct BuildArgs {
-    #[arg(short, long)]
-    project: Option<PathBuf>,
-    #[arg(short, long)]
-    registry: Option<String>,
+    #[command(flatten)]
+    project: super::ProjectArgs,
+
+    /// Which TypeScript export to build
     #[arg(short, long, default_value = "default")]
     export: String,
+
+    /// The path to write the output to. The build result will not be
+    /// saved if not specified
     #[arg(short, long)]
     output: Option<PathBuf>,
+
+    /// Check the project before buiilding
     #[arg(long)]
     check: bool,
+
+    /// Replace the output path if it already exists
     #[arg(long)]
     replace: bool,
+
+    /// Merge the output path if it already exists
     #[arg(long)]
     merge: bool,
+
+    /// Keep temporary build files. Useful for debugging build failures
     #[arg(long)]
     keep_temps: bool,
+
+    /// Sync / cache baked recipes to the registry during the build
     #[arg(long)]
     sync: bool,
 }
@@ -41,13 +54,7 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche_core::project::Projects::default();
 
     let build_future = async {
-        let project_hash = super::load_project(
-            &brioche,
-            &projects,
-            args.project.as_deref(),
-            args.registry.as_deref(),
-        )
-        .await?;
+        let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {

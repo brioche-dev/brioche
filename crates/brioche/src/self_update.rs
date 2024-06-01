@@ -9,6 +9,7 @@ use sha2::Digest as _;
 
 #[derive(Debug, Parser)]
 pub struct SelfUpdateArgs {
+    /// Confirm the update without prompting
     #[arg(short = 'y', long)]
     confirm: bool,
 }

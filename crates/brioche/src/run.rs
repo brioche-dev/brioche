@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::process::ExitCode;
 
 use anyhow::Context as _;
 use brioche_core::reporter::ConsoleReporterKind;
@@ -8,20 +8,30 @@ use tracing::Instrument;
 
 #[derive(Debug, Parser)]
 pub struct RunArgs {
-    #[arg(short, long)]
-    project: Option<PathBuf>,
-    #[arg(short, long)]
-    registry: Option<String>,
+    #[command(flatten)]
+    project: super::ProjectArgs,
+
+    /// Which TypeScript export to build
     #[arg(short, long, default_value = "default")]
     export: String,
+
+    /// The path within the build artifact to execute
     #[arg(short, long, default_value = "brioche-run")]
     command: String,
+
+    /// Suppress Brioche's output
     #[arg(short, long)]
     quiet: bool,
+
+    /// Check the project before buiilding
     #[arg(long)]
     check: bool,
+
+    /// Keep temporary build files. Useful for debugging build failures
     #[arg(long)]
-    keep: bool,
+    keep_temps: bool,
+
+    /// Arguments to pass to the command
     #[arg(last = true)]
     args: Vec<std::ffi::OsString>,
 }
@@ -35,19 +45,13 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     reporter.set_is_evaluating(true);
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
-        .keep_temps(args.keep)
+        .keep_temps(args.keep_temps)
         .build()
         .await?;
     let projects = brioche_core::project::Projects::default();
 
     let build_future = async {
-        let project_hash = super::load_project(
-            &brioche,
-            &projects,
-            args.project.as_deref(),
-            args.registry.as_deref(),
-        )
-        .await?;
+        let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {

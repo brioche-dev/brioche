@@ -5,6 +5,7 @@ use clap::Parser;
 
 #[derive(Debug, Parser)]
 pub struct PublishArgs {
+    /// The path to the project directory to publish
     #[arg(short, long)]
     project: PathBuf,
 }

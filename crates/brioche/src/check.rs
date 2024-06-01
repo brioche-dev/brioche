@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::process::ExitCode;
 
 use brioche_core::reporter::ConsoleReporterKind;
 use clap::Parser;
@@ -6,10 +6,8 @@ use tracing::Instrument;
 
 #[derive(Debug, Parser)]
 pub struct CheckArgs {
-    #[arg(short, long)]
-    project: Option<PathBuf>,
-    #[arg(short, long)]
-    registry: Option<String>,
+    #[command(flatten)]
+    project: super::ProjectArgs,
 }
 
 pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
@@ -20,13 +18,7 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche_core::project::Projects::default();
 
     let check_future = async {
-        let project_hash = super::load_project(
-            &brioche,
-            &projects,
-            args.project.as_deref(),
-            args.registry.as_deref(),
-        )
-        .await?;
+        let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {
