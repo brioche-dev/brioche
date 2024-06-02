@@ -309,8 +309,18 @@ impl TestContext {
         F: FnOnce(PathBuf) -> Fut,
         Fut: std::future::Future<Output = ()>,
     {
-        let (projects, project_hash, _) = self.temp_project(f).await;
-        let mocks = self.mock_registry_listing(&projects, project_hash).await;
+        // Create a temporary test context so the project does not get
+        // loaded into the current context. We still use the current context
+        // to create the mocks
+        let (brioche, context) = brioche_test_with(|builder| {
+            builder.registry_client(self.brioche.registry_client.clone())
+        })
+        .await;
+
+        let (projects, project_hash, _) = context.temp_project(f).await;
+        let mocks = self
+            .mock_registry_listing(&brioche, &projects, project_hash)
+            .await;
         for mock in mocks {
             mock.create_async().await;
         }
@@ -345,12 +355,13 @@ impl TestContext {
     #[must_use]
     pub async fn mock_registry_listing(
         &mut self,
+        brioche: &Brioche,
         projects: &Projects,
         project_hash: ProjectHash,
     ) -> Vec<mockito::Mock> {
         let mut references = brioche_core::references::ProjectReferences::default();
         brioche_core::references::project_references(
-            &self.brioche,
+            brioche,
             projects,
             &mut references,
             [project_hash],
@@ -393,7 +404,7 @@ impl TestContext {
             mocks.push(mock);
         }
         for blob_hash in &references.recipes.blobs {
-            let blob_path = brioche_core::blob::local_blob_path(&self.brioche, *blob_hash);
+            let blob_path = brioche_core::blob::local_blob_path(brioche, *blob_hash);
             let blob_contents = tokio::fs::read(&blob_path).await.unwrap();
             let blob_contents_zstd = zstd::encode_all(&*blob_contents, 0).unwrap();
             let mock = self

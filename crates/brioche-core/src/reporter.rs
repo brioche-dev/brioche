@@ -336,6 +336,7 @@ impl ConsoleReporter {
                     }
                 }
                 UpdateJob::RegistryFetchAdd { .. } => {}
+                UpdateJob::RegistryFetchUpdate { .. } => {}
                 UpdateJob::RegistryFetchFinish => {
                     eprintln!("Finished fetching from registry");
                 }
@@ -543,6 +544,12 @@ pub enum UpdateJob {
         blobs_fetched: usize,
         recipes_fetched: usize,
     },
+    RegistryFetchUpdate {
+        total_blobs: Option<usize>,
+        total_recipes: Option<usize>,
+        complete_blobs: Option<usize>,
+        complete_recipes: Option<usize>,
+    },
     RegistryFetchFinish,
 }
 
@@ -654,6 +661,37 @@ impl Job {
 
                 *complete_blobs += blobs_fetched;
                 *complete_recipes += recipes_fetched;
+            }
+            UpdateJob::RegistryFetchUpdate {
+                total_blobs: new_total_blobs,
+                total_recipes: new_total_recipes,
+                complete_blobs: new_complete_blobs,
+                complete_recipes: new_complete_recipes,
+            } => {
+                let Self::RegistryFetch {
+                    total_blobs,
+                    total_recipes,
+                    complete_blobs,
+                    complete_recipes,
+                } = self
+                else {
+                    anyhow::bail!(
+                        "tried to update a non-registry-fetch job with a registry-fetch update"
+                    );
+                };
+
+                if let Some(new_total_blobs) = new_total_blobs {
+                    *total_blobs = new_total_blobs;
+                }
+                if let Some(new_total_recipes) = new_total_recipes {
+                    *total_recipes = new_total_recipes;
+                }
+                if let Some(new_complete_blobs) = new_complete_blobs {
+                    *complete_blobs = new_complete_blobs;
+                }
+                if let Some(new_complete_recipes) = new_complete_recipes {
+                    *complete_recipes = new_complete_recipes;
+                }
             }
             UpdateJob::RegistryFetchFinish => {
                 let Self::RegistryFetch {
