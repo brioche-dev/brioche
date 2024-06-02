@@ -483,15 +483,29 @@ pub async fn fetch_recipes(brioche: &Brioche, recipes: &HashSet<RecipeHash>) -> 
 
 #[tracing::instrument(skip(brioche, blobs))]
 pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow::Result<()> {
-    let unknown_blobs = futures::stream::iter(blobs)
-        .filter({
+    let unknown_blobs = futures::stream::iter(blobs.clone())
+        .map(|blob_hash| {
             let brioche = brioche.clone();
-            move |&&blob_hash| {
-                let brioche = brioche.clone();
-                async move {
-                    let blob_path = super::blob::local_blob_path(&brioche, blob_hash);
-                    !matches!(tokio::fs::try_exists(&blob_path).await, Ok(true))
-                }
+            // Create a future to map to the hash plus a result indicating
+            // whether it exists on disk already. We do this instead of
+            // filtering so we can do the checks in parallel.
+            // See this discussion:
+            // https://github.com/alexpusch/rust-magic-patterns/blob/master/rust-stream-visualized/Readme.md
+            async move {
+                let blob_path = super::blob::local_blob_path(&brioche, blob_hash);
+
+                let try_exists = tokio::fs::try_exists(&blob_path).await;
+
+                (blob_hash, try_exists)
+            }
+        })
+        .buffer_unordered(25)
+        .filter_map(|(blob_hash, try_exists)| async move {
+            // Filter to blobs that don't exist
+            if matches!(try_exists, Ok(true)) {
+                None
+            } else {
+                Some(blob_hash)
             }
         })
         .collect::<Vec<_>>()
