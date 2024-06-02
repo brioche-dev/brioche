@@ -819,7 +819,7 @@ impl superconsole::Component for Job {
                 } else {
                     100.0
                 };
-                let total_percent = (recipe_percent * 0.9 + blob_percent * 0.1) as u8;
+                let total_percent = (recipe_percent * 0.2 + blob_percent * 0.8) as u8;
                 let verb = if self.is_complete() {
                     "Fetched"
                 } else {
