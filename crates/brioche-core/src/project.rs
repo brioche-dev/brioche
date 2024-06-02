@@ -772,10 +772,10 @@ async fn try_load_path_dependency_with_errors(
 
             Some(dep_hash)
         }
-        Err(err) => {
+        Err(error) => {
             errors.push(LoadProjectError::FailedToLoadDependency {
                 name: name.to_owned(),
-                cause: err.to_string(),
+                cause: format!("{error:#}"),
             });
             None
         }
@@ -807,10 +807,10 @@ async fn try_load_registry_dependency_with_errors(
     .await;
     let resolved_dep = match resolved_dep_result {
         Ok(resolved_dep) => resolved_dep,
-        Err(err) => {
+        Err(error) => {
             errors.push(LoadProjectError::FailedToLoadDependency {
                 name: name.to_owned(),
-                cause: err.to_string(),
+                cause: format!("{error:#}"),
             });
             return None;
         }
@@ -827,10 +827,10 @@ async fn try_load_registry_dependency_with_errors(
     .await;
     let (actual_hash, _, dep_errors) = match result {
         Ok(dep) => dep,
-        Err(err) => {
+        Err(error) => {
             errors.push(LoadProjectError::FailedToLoadDependency {
                 name: name.to_owned(),
-                cause: err.to_string(),
+                cause: format!("{error:#}"),
             });
             return None;
         }
