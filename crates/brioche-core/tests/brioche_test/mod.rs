@@ -86,9 +86,15 @@ pub async fn bake_without_meta(
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
-    brioche_core::blob::save_blob_from_reader(brioche, content.as_ref(), SaveBlobOptions::default())
-        .await
-        .unwrap()
+    let permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
+    brioche_core::blob::save_blob_from_reader(
+        brioche,
+        permit,
+        content.as_ref(),
+        SaveBlobOptions::default(),
+    )
+    .await
+    .unwrap()
 }
 
 pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Recipe {

@@ -370,7 +370,8 @@ pub async fn fetch_bake_references(
         .try_for_each_concurrent(25, |blob| {
             let brioche = brioche.clone();
             async move {
-                super::blob::blob_path(&brioche, blob).await?;
+                let permit = crate::blob::get_save_blob_permit().await?;
+                super::blob::blob_path(&brioche, permit, blob).await?;
 
                 brioche.reporter.update_job(
                     job_id,
@@ -563,7 +564,8 @@ pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow:
         .try_for_each_concurrent(25, |blob| {
             let brioche = brioche.clone();
             async move {
-                super::blob::blob_path(&brioche, blob).await?;
+                let permit = crate::blob::get_save_blob_permit().await?;
+                super::blob::blob_path(&brioche, permit, blob).await?;
 
                 brioche.reporter.update_job(
                     job_id,
