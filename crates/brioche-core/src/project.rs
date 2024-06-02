@@ -975,7 +975,7 @@ async fn fetch_project_from_registry(
         .values()
         .flat_map(|module_statics| module_statics.values().filter_map(|recipe| *recipe))
         .collect::<HashSet<_>>();
-    crate::registry::fetch_recipes(brioche, &statics_recipes).await?;
+    crate::registry::fetch_recipes_deep(brioche, statics_recipes).await?;
 
     for (module_path, statics) in &project.statics {
         for (static_, recipe_hash) in statics {

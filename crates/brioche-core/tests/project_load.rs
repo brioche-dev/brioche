@@ -531,8 +531,10 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
     let foo_hash = context
         .remote_registry_project(|path| async move {
             tokio::fs::write(path.join("fizz"), "fizz!").await.unwrap();
-            tokio::fs::create_dir_all(path.join("buzz")).await.unwrap();
-            tokio::fs::write(path.join("buzz/hello.txt"), "buzz!")
+            tokio::fs::create_dir_all(path.join("buzz/hello"))
+                .await
+                .unwrap();
+            tokio::fs::write(path.join("buzz/hello/world.txt"), "buzz!")
                 .await
                 .unwrap();
             tokio::fs::write(
@@ -586,6 +588,12 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
     assert_eq!(foo_dep.dependencies().count(), 0);
 
     mock_foo_latest.assert_async().await;
+
+    let fizz_path = foo_path.join("fizz");
+    let buzz_hello_world_path = foo_path.join("buzz/hello/world.txt");
+
+    assert!(tokio::fs::try_exists(&fizz_path).await?);
+    assert!(tokio::fs::try_exists(&buzz_hello_world_path).await?);
 
     Ok(())
 }
@@ -710,7 +718,9 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
 
     assert_eq!(bar_project.dependencies.get("foo"), Some(&foo_hash));
 
-    let bar_mocks = context.mock_registry_listing(&projects, bar_hash).await;
+    let bar_mocks = context
+        .mock_registry_listing(&brioche, &projects, bar_hash)
+        .await;
     for mock in bar_mocks {
         mock.create_async().await;
     }
@@ -784,8 +794,6 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
         })
         .await;
 
-    mock_bar_latest.assert_async().await;
-    mock_bar_latest.remove_async().await;
     let mock_foo_latest = context
         .mock_registry_publish_tag("foo", "latest", foo_hash)
         .create_async()
@@ -828,6 +836,9 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
     assert!(project_lockfile.dependencies.contains_key("foo"));
 
     mock_foo_latest.assert_async().await;
+
+    // `bar` may have been fetched multiple times while publishing `foo`
+    mock_bar_latest.expect_at_least(1).assert_async().await;
 
     Ok(())
 }

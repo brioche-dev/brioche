@@ -424,55 +424,89 @@ pub async fn fetch_bake_references(
 }
 
 #[tracing::instrument(skip(brioche, recipes))]
-pub async fn fetch_recipes(brioche: &Brioche, recipes: &HashSet<RecipeHash>) -> anyhow::Result<()> {
-    let known_recipes = crate::references::local_recipes(brioche, recipes.iter().copied()).await?;
-    let unknown_recipes = recipes
-        .difference(&known_recipes)
-        .copied()
-        .collect::<Vec<_>>();
-
-    // Short-circuit if we have nothing to fetch
-    if unknown_recipes.is_empty() {
-        return Ok(());
-    }
+pub async fn fetch_recipes_deep(
+    brioche: &Brioche,
+    recipes: HashSet<RecipeHash>,
+) -> anyhow::Result<()> {
+    let mut pending_recipes = recipes;
+    let mut checked_recipes = HashSet::new();
 
     let job_id = brioche
         .reporter
         .add_job(crate::reporter::NewJob::RegistryFetch {
             total_blobs: 0,
-            total_recipes: unknown_recipes.len(),
+            total_recipes: 0,
         });
 
-    let new_recipes = Arc::new(tokio::sync::Mutex::new(vec![]));
-    futures::stream::iter(unknown_recipes)
-        .map(Ok)
-        .try_for_each_concurrent(25, |recipe| {
-            let brioche = brioche.clone();
-            let new_recipes = new_recipes.clone();
-            async move {
-                let recipe = brioche.registry_client.get_recipe(recipe).await;
-                if let Ok(recipe) = recipe {
-                    let mut new_recipes = new_recipes.lock().await;
-                    new_recipes.push(recipe);
+    let mut total_to_fetch = 0;
+
+    loop {
+        let needed_recipes: HashSet<_> = pending_recipes
+            .difference(&checked_recipes)
+            .copied()
+            .collect();
+        let known_recipes =
+            crate::references::local_recipes(brioche, needed_recipes.iter().copied()).await?;
+        let unknown_recipes = needed_recipes
+            .difference(&known_recipes)
+            .copied()
+            .collect::<Vec<_>>();
+
+        total_to_fetch += unknown_recipes.len();
+        brioche.reporter.update_job(
+            job_id,
+            crate::reporter::UpdateJob::RegistryFetchUpdate {
+                complete_blobs: None,
+                complete_recipes: None,
+                total_blobs: None,
+                total_recipes: Some(total_to_fetch),
+            },
+        );
+
+        // If we have no recipes to fetch, we're done
+        if unknown_recipes.is_empty() {
+            break;
+        }
+
+        let new_recipes = Arc::new(tokio::sync::Mutex::new(vec![]));
+        futures::stream::iter(unknown_recipes)
+            .map(Ok)
+            .try_for_each_concurrent(25, |recipe| {
+                let brioche = brioche.clone();
+                let new_recipes = new_recipes.clone();
+                async move {
+                    let recipe = brioche.registry_client.get_recipe(recipe).await;
+                    if let Ok(recipe) = recipe {
+                        let mut new_recipes = new_recipes.lock().await;
+                        new_recipes.push(recipe);
+                    }
+
+                    brioche.reporter.update_job(
+                        job_id,
+                        crate::reporter::UpdateJob::RegistryFetchAdd {
+                            blobs_fetched: 0,
+                            recipes_fetched: 1,
+                        },
+                    );
+
+                    anyhow::Ok(())
                 }
+            })
+            .await?;
 
-                brioche.reporter.update_job(
-                    job_id,
-                    crate::reporter::UpdateJob::RegistryFetchAdd {
-                        blobs_fetched: 0,
-                        recipes_fetched: 1,
-                    },
-                );
+        checked_recipes.extend(pending_recipes.iter().copied());
 
-                anyhow::Ok(())
-            }
-        })
-        .await?;
+        let mut new_recipes = new_recipes.lock().await;
+        let new_recipes = std::mem::take(&mut *new_recipes);
 
-    let mut new_recipes = new_recipes.lock().await;
-    let new_recipes = std::mem::take(&mut *new_recipes);
+        for recipe in &new_recipes {
+            let referenced_recipes = crate::references::referenced_recipes(recipe);
+            pending_recipes.extend(referenced_recipes);
+        }
 
-    crate::recipe::save_recipes(brioche, new_recipes).await?;
+        checked_recipes.extend(new_recipes.iter().map(|recipe| recipe.hash()));
+        crate::recipe::save_recipes(brioche, new_recipes).await?;
+    }
 
     brioche
         .reporter
