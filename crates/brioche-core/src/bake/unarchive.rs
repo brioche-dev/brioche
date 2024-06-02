@@ -30,7 +30,10 @@ pub async fn bake_unarchive(
 
     let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Unarchive);
 
-    let archive_path = crate::blob::blob_path(brioche, blob_hash).await?;
+    let archive_path = {
+        let permit = crate::blob::get_save_blob_permit().await?;
+        crate::blob::blob_path(brioche, permit, blob_hash).await?
+    };
     let archive_file = tokio::fs::File::open(&archive_path).await?;
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);
@@ -56,8 +59,10 @@ pub async fn bake_unarchive(
 
             let entry_artifact = match archive_entry.header().entry_type() {
                 tokio_tar::EntryType::Regular => {
+                    let permit = crate::blob::get_save_blob_permit().await?;
                     let entry_blob_hash = crate::blob::save_blob_from_reader(
                         brioche,
+                        permit,
                         archive_entry,
                         crate::blob::SaveBlobOptions::new(),
                     )

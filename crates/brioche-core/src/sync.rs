@@ -138,7 +138,10 @@ pub async fn sync_recipe_references(
             let brioche = brioche.clone();
             async move {
                 tokio::spawn(async move {
-                    let blob_path = crate::blob::blob_path(&brioche, blob_hash).await?;
+                    let blob_path = {
+                        let permit = crate::blob::get_save_blob_permit().await?;
+                        crate::blob::blob_path(&brioche, permit, blob_hash).await?
+                    };
 
                     // TODO: Figure out if we can stream the blob (this
                     // will error out due to `reqwest-retry`)

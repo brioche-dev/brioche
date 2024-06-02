@@ -228,7 +228,8 @@ pub async fn op_brioche_read_blob(
             .clone()
     };
 
-    let path = crate::blob::blob_path(&brioche, blob_hash).await?;
+    let permit = crate::blob::get_save_blob_permit().await?;
+    let path = crate::blob::blob_path(&brioche, permit, blob_hash).await?;
     let bytes = tokio::fs::read(path)
         .await
         .with_context(|| format!("failed to read blob {blob_hash}"))?;

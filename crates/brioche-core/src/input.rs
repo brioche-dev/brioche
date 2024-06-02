@@ -171,12 +171,16 @@ pub async fn create_input_inner(
             Directory::default()
         };
 
-        let blob_hash = super::blob::save_blob_from_file(
-            brioche,
-            options.input_path,
-            super::blob::SaveBlobOptions::default().remove_input(options.remove_input),
-        )
-        .await?;
+        let blob_hash = {
+            let permit = super::blob::get_save_blob_permit().await?;
+            super::blob::save_blob_from_file(
+                brioche,
+                permit,
+                options.input_path,
+                super::blob::SaveBlobOptions::default().remove_input(options.remove_input),
+            )
+            .await
+        }?;
         let permissions = metadata.permissions();
         let executable = is_executable(&permissions);
 

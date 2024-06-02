@@ -380,9 +380,16 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             executable,
             resources,
         } => {
-            let blob_hash =
-                super::blob::save_blob(brioche, &content, super::blob::SaveBlobOptions::default())
-                    .await?;
+            let blob_hash = {
+                let permit = super::blob::get_save_blob_permit().await?;
+                super::blob::save_blob(
+                    brioche,
+                    permit,
+                    &content,
+                    super::blob::SaveBlobOptions::default(),
+                )
+                .await?
+            };
 
             let resources = bake(brioche, *resources, &scope).await?;
             let Artifact::Directory(resources) = resources.value else {

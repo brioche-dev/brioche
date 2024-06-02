@@ -34,9 +34,15 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
-    brioche_core::blob::save_blob(brioche, content.as_ref(), SaveBlobOptions::default())
-        .await
-        .unwrap()
+    let permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
+    brioche_core::blob::save_blob(
+        brioche,
+        permit,
+        content.as_ref(),
+        SaveBlobOptions::default(),
+    )
+    .await
+    .unwrap()
 }
 
 pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Recipe {

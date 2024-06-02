@@ -9,9 +9,27 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use super::{Brioche, Hash};
 
-#[tracing::instrument(skip(brioche, options), err)]
+pub struct SaveBlobPermit<'a> {
+    _permit: tokio::sync::SemaphorePermit<'a>,
+}
+
+pub const MAX_CONCURRENT_BLOB_SAVES: usize = 10;
+
+static SAVE_BLOB_SEMAPHORE: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(MAX_CONCURRENT_BLOB_SAVES);
+
+pub async fn get_save_blob_permit<'a>() -> anyhow::Result<SaveBlobPermit<'a>> {
+    let permit = SAVE_BLOB_SEMAPHORE
+        .acquire()
+        .await
+        .context("failed to acquire permit to save blob")?;
+    Ok(SaveBlobPermit { _permit: permit })
+}
+
+#[tracing::instrument(skip_all, err)]
 pub async fn save_blob<'a>(
     brioche: &Brioche,
+    _permit: SaveBlobPermit<'_>,
     bytes: &[u8],
     options: SaveBlobOptions<'a>,
 ) -> anyhow::Result<BlobHash> {
@@ -97,9 +115,10 @@ pub async fn save_blob<'a>(
     Ok(blob_hash)
 }
 
-#[tracing::instrument(skip(brioche, input, options))]
+#[tracing::instrument(skip_all)]
 pub async fn save_blob_from_reader<'a, R>(
     brioche: &Brioche,
+    _permit: SaveBlobPermit<'_>,
     mut input: R,
     mut options: SaveBlobOptions<'a>,
 ) -> anyhow::Result<BlobHash>
@@ -205,9 +224,10 @@ where
     Ok(blob_hash)
 }
 
-#[tracing::instrument(skip(brioche, options), err)]
+#[tracing::instrument(skip(brioche, _permit, options), err)]
 pub async fn save_blob_from_file<'a>(
     brioche: &Brioche,
+    _permit: SaveBlobPermit<'_>,
     input_path: &Path,
     options: SaveBlobOptions<'a>,
 ) -> anyhow::Result<BlobHash> {
@@ -420,7 +440,11 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
     }
 }
 
-pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result<PathBuf> {
+pub async fn blob_path(
+    brioche: &Brioche,
+    _permit: SaveBlobPermit<'_>,
+    blob_hash: BlobHash,
+) -> anyhow::Result<PathBuf> {
     let local_path = local_blob_path(brioche, blob_hash);
 
     if tokio::fs::try_exists(&local_path).await? {

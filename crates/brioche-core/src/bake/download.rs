@@ -9,8 +9,12 @@ use crate::{
 
 #[tracing::instrument(skip(brioche, download), fields(url = %download.url))]
 pub async fn bake_download(brioche: &Brioche, download: DownloadRecipe) -> anyhow::Result<File> {
+    // Acquire a permit to save the blob
+    let save_blob_permit = crate::blob::get_save_blob_permit().await?;
+
+    // Acquire a permit to download
     tracing::debug!("acquiring download semaphore permit");
-    let _permit = brioche.download_semaphore.acquire().await;
+    let _permit = brioche.download_semaphore.acquire().await?;
     tracing::debug!("acquired download semaphore permit");
 
     tracing::debug!(url = %download.url, "starting download");
@@ -60,9 +64,14 @@ pub async fn bake_download(brioche: &Brioche, download: DownloadRecipe) -> anyho
             Ok(())
         });
 
-    let blob_hash = crate::blob::save_blob_from_reader(brioche, download_stream, save_blob_options)
-        .await
-        .context("failed to save blob")?;
+    let blob_hash = crate::blob::save_blob_from_reader(
+        brioche,
+        save_blob_permit,
+        download_stream,
+        save_blob_options,
+    )
+    .await
+    .context("failed to save blob")?;
 
     brioche.reporter.update_job(
         job_id,
