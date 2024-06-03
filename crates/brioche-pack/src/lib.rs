@@ -35,6 +35,14 @@ pub enum Pack {
         #[serde_as(as = "Vec<TickEncoded>")]
         library_dirs: Vec<Vec<u8>>,
     },
+    #[serde(rename_all = "camelCase")]
+    Metadata {
+        #[serde_as(as = "Vec<TickEncoded>")]
+        resource_paths: Vec<Vec<u8>>,
+        format: String,
+        #[serde_as(as = "TickEncoded")]
+        metadata: Vec<u8>,
+    },
 }
 
 impl Pack {
@@ -55,6 +63,9 @@ impl Pack {
             Self::Static { library_dirs } => {
                 paths.extend(library_dirs.iter().cloned().map(bstr::BString::from));
             }
+            Self::Metadata { resource_paths, .. } => {
+                paths.extend(resource_paths.iter().cloned().map(bstr::BString::from));
+            }
         }
 
         paths
@@ -69,6 +80,7 @@ impl Pack {
                 // add it to the executable
                 !library_dirs.is_empty()
             }
+            Pack::Metadata { .. } => true,
         }
     }
 }

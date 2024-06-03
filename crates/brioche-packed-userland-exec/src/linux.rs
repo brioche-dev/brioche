@@ -148,6 +148,9 @@ fn run(args: &[&CStr], env_vars: &[&CStr]) -> Result<(), PackedError> {
         brioche_pack::Pack::Static { .. } => {
             unimplemented!("execution of a static executable");
         }
+        brioche_pack::Pack::Metadata { .. } => {
+            unimplemented!("execution of a metadata pack");
+        }
     }
 }
 
