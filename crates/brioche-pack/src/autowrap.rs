@@ -287,8 +287,9 @@ fn collect_all_library_dirs(
 
         if let Ok(library_pack) = crate::extract_pack(&library_file[..]) {
             let library_dirs = match &library_pack {
-                crate::Pack::LdLinux { library_dirs, .. } => library_dirs,
-                crate::Pack::Static { library_dirs } => library_dirs,
+                crate::Pack::LdLinux { library_dirs, .. } => &library_dirs[..],
+                crate::Pack::Static { library_dirs } => &library_dirs[..],
+                crate::Pack::Metadata { .. } => &[],
             };
 
             for library_dir in library_dirs {
