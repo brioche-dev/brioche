@@ -298,8 +298,10 @@ pub async fn bake_process(
     let output_dir = bake_dir.path().join("outputs");
     tokio::fs::create_dir(&output_dir).await?;
     let output_path = output_dir.join(format!("output-{hash}"));
-    let stdout_file = tokio::fs::File::create(bake_dir.path().join("stdout.log")).await?;
-    let stderr_file = tokio::fs::File::create(bake_dir.path().join("stderr.log")).await?;
+    let stdout_path = bake_dir.path().join("stdout.log");
+    let stderr_path = bake_dir.path().join("stderr.log");
+    let stdout_file = tokio::fs::File::create(&stdout_path).await?;
+    let stderr_file = tokio::fs::File::create(&stderr_path).await?;
     let status_path = bake_dir.path().join("status.txt");
 
     // Generate a username and home directory in the sandbox based on
@@ -511,7 +513,13 @@ pub async fn bake_process(
             tokio::fs::write(&status_path, error.to_string())
                 .await
                 .context("failed to write process status")?;
-            return Err(error);
+            return Err(error).with_context(|| {
+                format!(
+                    "process failed, view full output from these paths:\n- {}\n- {}",
+                    stdout_path.display(),
+                    stderr_path.display()
+                )
+            });
         }
     }
 
