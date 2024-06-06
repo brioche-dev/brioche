@@ -2,6 +2,7 @@ name: CI
 
 on:
   - push
+  - pull_request
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -65,6 +66,7 @@ jobs:
         run: cargo test --all --release
   build:
     name: Build artifacts
+    if: github.event_name == 'push'
     strategy:
       matrix:
         platform:
@@ -162,7 +164,7 @@ jobs:
           path: artifacts/brioche
   push:
     name: Push artifacts
-    if: github.repository == 'brioche-dev/brioche'
+    if: github.event_name == 'push' && github.repository == 'brioche-dev/brioche'
     needs: [check, test, build]
     runs-on: ubuntu-22.04
     steps:
