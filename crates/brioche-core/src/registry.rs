@@ -15,9 +15,9 @@ use crate::{
     Brioche,
 };
 
-const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 #[derive(Clone)]
 pub enum RegistryClient {
