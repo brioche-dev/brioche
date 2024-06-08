@@ -10,74 +10,16 @@ use brioche_core::{
     platform::current_platform,
     recipe::{
         ArchiveFormat, Artifact, CompressionFormat, Directory, DownloadRecipe, File, ProcessRecipe,
-        ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
+        Recipe, Unarchive, WithMeta,
     },
     Hash,
 };
-use brioche_test::bake_without_meta;
+use brioche_test::{
+    bake_without_meta, default_process, home_dir, input_resource_dirs, output_path, resource_dir,
+    temp_dir, template_input, tpl, tpl_join, work_dir,
+};
 
 mod brioche_test;
-
-fn tpl(s: impl AsRef<[u8]>) -> ProcessTemplate {
-    ProcessTemplate {
-        components: vec![ProcessTemplateComponent::Literal {
-            value: s.as_ref().into(),
-        }],
-    }
-}
-
-fn output_path() -> ProcessTemplate {
-    ProcessTemplate {
-        components: vec![ProcessTemplateComponent::OutputPath],
-    }
-}
-
-fn home_dir() -> ProcessTemplate {
-    ProcessTemplate {
-        components: vec![ProcessTemplateComponent::HomeDir],
-    }
-}
-
-fn resource_dir() -> ProcessTemplate {
-    ProcessTemplate {
-        components: vec![ProcessTemplateComponent::ResourceDir],
-    }
-}
-
-fn input_resource_dirs() -> ProcessTemplate {
-    ProcessTemplate {
-        components: vec![ProcessTemplateComponent::InputResourceDirs],
-    }
-}
-
-fn work_dir() -> ProcessTemplate {
-    ProcessTemplate {
-        components: vec![ProcessTemplateComponent::WorkDir],
-    }
-}
-
-fn temp_dir() -> ProcessTemplate {
-    ProcessTemplate {
-        components: vec![ProcessTemplateComponent::TempDir],
-    }
-}
-
-fn template_input(input: Recipe) -> ProcessTemplate {
-    ProcessTemplate {
-        components: vec![ProcessTemplateComponent::Input {
-            recipe: brioche_test::without_meta(input),
-        }],
-    }
-}
-
-fn tpl_join(templates: impl IntoIterator<Item = ProcessTemplate>) -> ProcessTemplate {
-    ProcessTemplate {
-        components: templates
-            .into_iter()
-            .flat_map(|template| template.components)
-            .collect(),
-    }
-}
 
 fn sha256_hash(hash: &str) -> Hash {
     Hash::Sha256 {
@@ -119,22 +61,6 @@ async fn get(
         .unwrap()
         .with_context(|| format!("no artifact found for path {path:?}"))
         .unwrap()
-}
-
-fn default_process() -> ProcessRecipe {
-    ProcessRecipe {
-        command: ProcessTemplate { components: vec![] },
-        args: vec![],
-        env: BTreeMap::new(),
-        dependencies: vec![],
-        work_dir: Box::new(WithMeta::without_meta(Recipe::Directory(
-            Directory::default(),
-        ))),
-        output_scaffold: None,
-        platform: current_platform(),
-        is_unsafe: false,
-        networking: false,
-    }
 }
 
 macro_rules! run_test {

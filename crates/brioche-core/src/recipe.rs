@@ -133,12 +133,14 @@ impl Recipe {
 
     pub fn is_expensive_to_bake(&self) -> bool {
         match self {
-            Recipe::Download(_) | Recipe::CompleteProcess(_) | Recipe::Sync { .. } => true,
+            Recipe::Download(_)
+            | Recipe::Process(_)
+            | Recipe::CompleteProcess(_)
+            | Recipe::Sync { .. } => true,
             Recipe::File { .. }
             | Recipe::Directory(_)
             | Recipe::Symlink { .. }
             | Recipe::Unarchive(_)
-            | Recipe::Process(_)
             | Recipe::CreateFile { .. }
             | Recipe::CreateDirectory(_)
             | Recipe::Cast { .. }
@@ -558,6 +560,54 @@ pub struct CompleteProcessRecipe {
 
     #[serde(default, skip_serializing_if = "crate::utils::is_default")]
     pub networking: bool,
+}
+
+impl TryFrom<ProcessRecipe> for CompleteProcessRecipe {
+    type Error = anyhow::Error;
+
+    fn try_from(recipe: ProcessRecipe) -> anyhow::Result<Self> {
+        let ProcessRecipe {
+            command,
+            args,
+            env,
+            dependencies,
+            work_dir,
+            output_scaffold,
+            platform,
+            is_unsafe,
+            networking,
+        } = recipe;
+
+        anyhow::ensure!(
+            dependencies.is_empty(),
+            "tried to convert process recipe to complete process recipe, but it has dependencies"
+        );
+
+        let work_dir = work_dir.value.try_into()?;
+        let output_scaffold = output_scaffold
+            .map(|output_scaffold| {
+                let artifact: Artifact = output_scaffold.value.try_into()?;
+                anyhow::Ok(Box::new(artifact))
+            })
+            .transpose()?;
+
+        Ok(Self {
+            command: command.try_into()?,
+            args: args
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, RecipeIncomplete>>()?,
+            env: env
+                .into_iter()
+                .map(|(key, value)| Ok((key, value.try_into()?)))
+                .collect::<anyhow::Result<_>>()?,
+            work_dir,
+            output_scaffold,
+            platform,
+            is_unsafe,
+            networking,
+        })
+    }
 }
 
 #[serde_with::serde_as]
@@ -1033,6 +1083,8 @@ impl ProxyRecipe {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+#[error("tried to convert a non-artifact recipe into an artifact")]
 pub struct RecipeIncomplete;
 
 #[derive(Debug, thiserror::Error)]
@@ -1207,6 +1259,19 @@ impl CompleteProcessTemplate {
     }
 }
 
+impl TryFrom<ProcessTemplate> for CompleteProcessTemplate {
+    type Error = RecipeIncomplete;
+
+    fn try_from(value: ProcessTemplate) -> Result<Self, RecipeIncomplete> {
+        let components = value
+            .components
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, RecipeIncomplete>>()?;
+        Ok(Self { components })
+    }
+}
+
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
@@ -1232,6 +1297,27 @@ impl CompleteProcessTemplateComponent {
         match self {
             Self::Literal { value } => value.is_empty(),
             _ => false,
+        }
+    }
+}
+
+impl TryFrom<ProcessTemplateComponent> for CompleteProcessTemplateComponent {
+    type Error = RecipeIncomplete;
+
+    fn try_from(value: ProcessTemplateComponent) -> Result<Self, Self::Error> {
+        match value {
+            ProcessTemplateComponent::Literal { value } => Ok(Self::Literal { value }),
+            ProcessTemplateComponent::Input { recipe } => {
+                let artifact = recipe.value.try_into()?;
+                let artifact = WithMeta::new(artifact, recipe.meta);
+                Ok(Self::Input { artifact })
+            }
+            ProcessTemplateComponent::OutputPath => Ok(Self::OutputPath),
+            ProcessTemplateComponent::ResourceDir => Ok(Self::ResourceDir),
+            ProcessTemplateComponent::InputResourceDirs => Ok(Self::InputResourceDirs),
+            ProcessTemplateComponent::HomeDir => Ok(Self::HomeDir),
+            ProcessTemplateComponent::WorkDir => Ok(Self::WorkDir),
+            ProcessTemplateComponent::TempDir => Ok(Self::TempDir),
         }
     }
 }

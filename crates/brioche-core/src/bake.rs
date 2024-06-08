@@ -270,40 +270,15 @@ async fn bake_inner(
 
     // Write the baked recipe to the database on success
     if let Ok(artifact) = &result_artifact {
-        let mut db_conn = brioche.db_conn.lock().await;
-        let mut db_transaction = db_conn.begin().await?;
-        let input_hash = recipe_hash.to_string();
-        let output_json = serde_json::to_string(&artifact)?;
-        let output_hash = artifact.hash().to_string();
-        sqlx::query!(
-            r#"
-                INSERT INTO recipes (recipe_hash, recipe_json)
-                VALUES
-                    (?, ?),
-                    (?, ?)
-                ON CONFLICT (recipe_hash) DO NOTHING
-            "#,
-            input_hash,
-            input_json,
-            output_hash,
-            output_json,
+        let output_json = serde_json::to_string(artifact)?;
+        save_bake_result(
+            brioche,
+            recipe_hash,
+            &input_json,
+            artifact.hash(),
+            &output_json,
         )
-        .execute(&mut *db_transaction)
         .await?;
-        sqlx::query!(
-            r#"
-                INSERT INTO bakes (input_hash, output_hash)
-                VALUES (?, ?)
-                ON CONFLICT (input_hash, output_hash) DO NOTHING
-            "#,
-            input_hash,
-            output_hash,
-        )
-        .execute(&mut *db_transaction)
-        .await?;
-        db_transaction.commit().await?;
-
-        tracing::trace!(%recipe_hash, result_hash = %output_hash, "saved bake result to database");
     }
 
     // Remove the active bake watcher
@@ -522,6 +497,64 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             Ok(result.value)
         }
     }
+}
+
+/// Save the bake result for a recipe to the database. `input_json` should
+/// be the JSON serialization of the input recipe, and `output_json` should
+/// be the JSON serialization of the output artifact.
+pub async fn save_bake_result(
+    brioche: &Brioche,
+    input_hash: RecipeHash,
+    input_json: &str,
+    output_hash: RecipeHash,
+    output_json: &str,
+) -> anyhow::Result<bool> {
+    let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
+    let input_hash_string = input_hash.to_string();
+    let output_hash_string = output_hash.to_string();
+
+    // Make sure the recipes have been saved first
+    sqlx::query!(
+        r#"
+            INSERT INTO recipes (recipe_hash, recipe_json)
+            VALUES
+                (?, ?),
+                (?, ?)
+            ON CONFLICT (recipe_hash) DO NOTHING
+        "#,
+        input_hash_string,
+        input_json,
+        output_hash_string,
+        output_json,
+    )
+    .execute(&mut *db_transaction)
+    .await?;
+
+    // Save the bake result
+    let result = sqlx::query!(
+        r#"
+            INSERT INTO bakes (input_hash, output_hash)
+            VALUES (?, ?)
+            ON CONFLICT (input_hash, output_hash) DO NOTHING
+        "#,
+        input_hash_string,
+        output_hash_string,
+    )
+    .execute(&mut *db_transaction)
+    .await?;
+    db_transaction.commit().await?;
+
+    // Return true if the bake result was inserted
+    let did_insert_bake = result.rows_affected() >= 1;
+
+    if did_insert_bake {
+        tracing::trace!(%input_hash, %output_hash, "saved bake result to database");
+    } else {
+        tracing::trace!(%input_hash, %output_hash, "did not insert bake to database");
+    }
+
+    Ok(did_insert_bake)
 }
 
 pub async fn create_proxy(brioche: &Brioche, recipe: Recipe) -> anyhow::Result<Recipe> {

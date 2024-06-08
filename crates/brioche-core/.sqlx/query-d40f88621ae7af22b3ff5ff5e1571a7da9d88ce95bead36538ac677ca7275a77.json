@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO recipes (recipe_hash, recipe_json)\n            VALUES\n                (?, ?),\n                (?, ?)\n            ON CONFLICT (recipe_hash) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "d40f88621ae7af22b3ff5ff5e1571a7da9d88ce95bead36538ac677ca7275a77"
+}

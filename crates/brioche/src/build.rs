@@ -144,19 +144,11 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             println!("Waiting for in-progress syncs to finish...");
             let wait_start = std::time::Instant::now();
 
-            let (sync_complete_tx, sync_complete_rx) = tokio::sync::oneshot::channel();
-
-            brioche
-                .sync_tx
-                .send(brioche_core::SyncMessage::Flush {
-                    completed: sync_complete_tx,
-                })
-                .await?;
             let brioche_core::sync::SyncBakesResults {
                 num_new_blobs,
                 num_new_recipes,
                 num_new_bakes,
-            } = sync_complete_rx.await?;
+            } = brioche_core::sync::wait_for_in_progress_syncs(&brioche).await?;
 
             let wait_duration = wait_start.elapsed().human_duration();
             println!("In-progress sync waited for {wait_duration} and synced:");
