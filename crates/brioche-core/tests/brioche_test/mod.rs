@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     process::Output,
 };
@@ -9,7 +9,10 @@ use std::{
 use brioche_core::{
     blob::{BlobHash, SaveBlobOptions},
     project::{self, ProjectHash, Projects},
-    recipe::{CreateDirectory, Directory, File, WithMeta},
+    recipe::{
+        CreateDirectory, Directory, File, ProcessRecipe, ProcessTemplate, ProcessTemplateComponent,
+        Recipe, WithMeta,
+    },
     Brioche, BriocheBuilder,
 };
 
@@ -83,6 +86,26 @@ pub async fn bake_without_meta(
     )
     .await?;
     Ok(artifact.value)
+}
+
+pub async fn mock_bake(
+    brioche: &Brioche,
+    input: &brioche_core::recipe::Recipe,
+    output: &brioche_core::recipe::Artifact,
+) {
+    let input_json = serde_json::to_string(input).expect("failed to serialize input recipe");
+    let output_json = serde_json::to_string(output).expect("failed to serialize output artifact");
+    let did_insert = brioche_core::bake::save_bake_result(
+        brioche,
+        input.hash(),
+        &input_json,
+        output.hash(),
+        &output_json,
+    )
+    .await
+    .expect("failed to save bake result");
+
+    assert!(did_insert, "failed to stub bake result: already exists");
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
@@ -215,6 +238,83 @@ pub fn sha256(value: impl AsRef<[u8]>) -> brioche_core::Hash {
     let mut hasher = brioche_core::Hasher::Sha256(Default::default());
     hasher.update(value.as_ref());
     hasher.finish().unwrap()
+}
+
+pub fn default_process() -> ProcessRecipe {
+    ProcessRecipe {
+        command: ProcessTemplate { components: vec![] },
+        args: vec![],
+        env: BTreeMap::new(),
+        dependencies: vec![],
+        work_dir: Box::new(WithMeta::without_meta(Recipe::Directory(
+            Directory::default(),
+        ))),
+        output_scaffold: None,
+        platform: brioche_core::platform::current_platform(),
+        is_unsafe: false,
+        networking: false,
+    }
+}
+
+pub fn tpl(s: impl AsRef<[u8]>) -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::Literal {
+            value: s.as_ref().into(),
+        }],
+    }
+}
+
+pub fn output_path() -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::OutputPath],
+    }
+}
+
+pub fn home_dir() -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::HomeDir],
+    }
+}
+
+pub fn resource_dir() -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::ResourceDir],
+    }
+}
+
+pub fn input_resource_dirs() -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::InputResourceDirs],
+    }
+}
+
+pub fn work_dir() -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::WorkDir],
+    }
+}
+
+pub fn temp_dir() -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::TempDir],
+    }
+}
+
+pub fn template_input(input: brioche_core::recipe::Recipe) -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::Input {
+            recipe: without_meta(input),
+        }],
+    }
+}
+
+pub fn tpl_join(templates: impl IntoIterator<Item = ProcessTemplate>) -> ProcessTemplate {
+    ProcessTemplate {
+        components: templates
+            .into_iter()
+            .flat_map(|template| template.components)
+            .collect(),
+    }
 }
 
 pub struct TestContext {
