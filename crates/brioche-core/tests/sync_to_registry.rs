@@ -100,8 +100,26 @@ async fn test_sync_to_registry_process_and_complete_process() -> anyhow::Result<
             .create(),
     );
 
-    // Create a mock to ensure that the result for complete_process
-    // gets created
+    // Create a mock to ensure that the result for process and complete_process
+    // get created
+    registry_mocks.push(
+        context
+            .registry_server
+            .mock(
+                "POST",
+                &*format!(
+                    "/v0/recipes/{}/bake?brioche={}",
+                    process_recipe_hash,
+                    brioche_core::VERSION
+                ),
+            )
+            .with_body(serde_json::to_string(
+                &brioche_core::registry::CreateBakeResponse {
+                    canonical_output_hash: mocked_output.hash(),
+                },
+            )?)
+            .create(),
+    );
     registry_mocks.push(
         context
             .registry_server

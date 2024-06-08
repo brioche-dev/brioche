@@ -133,12 +133,14 @@ impl Recipe {
 
     pub fn is_expensive_to_bake(&self) -> bool {
         match self {
-            Recipe::Download(_) | Recipe::CompleteProcess(_) | Recipe::Sync { .. } => true,
+            Recipe::Download(_)
+            | Recipe::Process(_)
+            | Recipe::CompleteProcess(_)
+            | Recipe::Sync { .. } => true,
             Recipe::File { .. }
             | Recipe::Directory(_)
             | Recipe::Symlink { .. }
             | Recipe::Unarchive(_)
-            | Recipe::Process(_)
             | Recipe::CreateFile { .. }
             | Recipe::CreateDirectory(_)
             | Recipe::Cast { .. }

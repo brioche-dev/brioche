@@ -334,6 +334,7 @@ pub async fn descendent_project_bakes(
             INNER JOIN recipes AS output_artifacts ON
                 output_artifacts.recipe_hash = bakes.output_hash
             WHERE input_recipes.recipe_json->>'type' IN (
+                'process',
                 'complete_process',
                 'download',
                 'sync'
