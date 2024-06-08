@@ -24,7 +24,7 @@ export default () => {
 
 - **Caching** - All build artifacts are saved and re-used between builds, saving you time when only a part of your project changes. You can even share the cache between machines using a self-hosted registry
 - **Lockfiles** - All of your dependencies are automatically saved in a lockfile, making your builds super reliable for everyone on your team
-- **TypeScript** - Build scripts are written in TypeScript, giving you the flexibility of a familiar full programming langauge (with great type checking and editor completions!)
+- **TypeScript** - Build scripts are written in TypeScript, giving you the flexibility of a familiar full programming language (with great type checking and editor completions!)
 - **Cross-ecosystem** - Build your project regardless of language, and easily mix different languages and ecosystems in one project
 - **Cross-compilation** (work in progress) - Easily build your project from any platform, to any platform
 - **Dev environments** (work in progress) - Set up a suite of tools to help onboard new team members quickly
