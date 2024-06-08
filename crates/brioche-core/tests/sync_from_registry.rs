@@ -17,7 +17,7 @@ async fn test_sync_from_registry_complete_process() -> anyhow::Result<()> {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("dummy_recipe")],
         platform: brioche_core::platform::Platform::X86_64Linux,
-        ..brioche_test::default_process()
+        ..brioche_test::default_process_x86_64_linux()
     };
     let complete_process_recipe: brioche_core::recipe::CompleteProcessRecipe =
         process_recipe.clone().try_into()?;
@@ -81,7 +81,7 @@ async fn test_sync_from_registry_process() -> anyhow::Result<()> {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("dummy_recipe")],
         platform: brioche_core::platform::Platform::X86_64Linux,
-        ..brioche_test::default_process()
+        ..brioche_test::default_process_x86_64_linux()
     };
     let process_recipe_hash = Recipe::Process(process_recipe.clone()).hash();
 

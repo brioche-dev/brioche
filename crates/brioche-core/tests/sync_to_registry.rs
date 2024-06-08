@@ -15,7 +15,7 @@ async fn test_sync_to_registry_process_and_complete_process() -> anyhow::Result<
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("dummy_recipe")],
         platform: brioche_core::platform::Platform::X86_64Linux,
-        ..brioche_test::default_process()
+        ..brioche_test::default_process_x86_64_linux()
     };
     let process_recipe_hash = Recipe::Process(process_recipe.clone()).hash();
     let complete_process_recipe: brioche_core::recipe::CompleteProcessRecipe =

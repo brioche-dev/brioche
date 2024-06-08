@@ -240,6 +240,22 @@ pub fn sha256(value: impl AsRef<[u8]>) -> brioche_core::Hash {
     hasher.finish().unwrap()
 }
 
+pub fn default_process_x86_64_linux() -> ProcessRecipe {
+    ProcessRecipe {
+        command: ProcessTemplate { components: vec![] },
+        args: vec![],
+        env: BTreeMap::new(),
+        dependencies: vec![],
+        work_dir: Box::new(WithMeta::without_meta(Recipe::Directory(
+            Directory::default(),
+        ))),
+        output_scaffold: None,
+        platform: brioche_core::platform::Platform::X86_64Linux,
+        is_unsafe: false,
+        networking: false,
+    }
+}
+
 pub fn default_process() -> ProcessRecipe {
     ProcessRecipe {
         command: ProcessTemplate { components: vec![] },
