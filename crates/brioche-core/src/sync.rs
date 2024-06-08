@@ -8,6 +8,23 @@ use crate::{
     Brioche,
 };
 
+pub async fn wait_for_in_progress_syncs(brioche: &Brioche) -> anyhow::Result<SyncBakesResults> {
+    let (sync_complete_tx, sync_complete_rx) = tokio::sync::oneshot::channel();
+
+    brioche
+        .sync_tx
+        .send(crate::SyncMessage::Flush {
+            completed: sync_complete_tx,
+        })
+        .await
+        .context("failed to send flush sync message")?;
+    let result = sync_complete_rx
+        .await
+        .context("failed to receive flush sync response")?;
+
+    Ok(result)
+}
+
 pub async fn sync_project(
     brioche: &Brioche,
     project_hash: ProjectHash,
