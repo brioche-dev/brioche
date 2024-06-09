@@ -18,6 +18,7 @@ use super::{
     Brioche,
 };
 
+mod collect_references;
 mod download;
 mod process;
 mod unarchive;
@@ -491,6 +492,16 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             }
 
             Ok(Artifact::File(file))
+        }
+        Recipe::CollectReferences { recipe } => {
+            let artifact = bake(brioche, *recipe, &scope).await?;
+            let Artifact::Directory(directory) = artifact.value else {
+                anyhow::bail!("tried collecting references for non-directory artifact");
+            };
+
+            let directory = collect_references::bake_collect_references(brioche, directory).await?;
+
+            Ok(Artifact::Directory(directory))
         }
         Recipe::Sync { recipe } => {
             let result = bake(brioche, *recipe, &scope).await?;
