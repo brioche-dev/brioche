@@ -128,6 +128,7 @@ pub fn referenced_blobs(recipe: &Recipe) -> Vec<BlobHash> {
         | Recipe::Insert { .. }
         | Recipe::SetPermissions { .. }
         | Recipe::Proxy(_)
+        | Recipe::CollectReferences { .. }
         | Recipe::Sync { .. } => vec![],
     }
 }
@@ -258,6 +259,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
             executable: _,
         } => referenced_recipes(file),
         Recipe::Proxy(proxy) => vec![proxy.recipe],
+        Recipe::CollectReferences { recipe } => referenced_recipes(recipe),
         Recipe::Sync { recipe } => referenced_recipes(recipe),
     }
 }

@@ -91,6 +91,9 @@ pub enum Recipe {
         file: Box<WithMeta<Recipe>>,
         executable: Option<bool>,
     },
+    CollectReferences {
+        recipe: Box<WithMeta<Recipe>>,
+    },
     #[serde(rename_all = "camelCase")]
     Proxy(ProxyRecipe),
     #[serde(rename_all = "camelCase")]
@@ -149,6 +152,7 @@ impl Recipe {
             | Recipe::Get { .. }
             | Recipe::Insert { .. }
             | Recipe::SetPermissions { .. }
+            | Recipe::CollectReferences { .. }
             | Recipe::Proxy(_) => false,
         }
     }
@@ -1027,6 +1031,7 @@ impl TryFrom<Recipe> for Artifact {
             | Recipe::Get { .. }
             | Recipe::Insert { .. }
             | Recipe::SetPermissions { .. }
+            | Recipe::CollectReferences { .. }
             | Recipe::Proxy { .. } => Err(RecipeIncomplete),
         }
     }
