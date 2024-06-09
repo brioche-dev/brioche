@@ -966,9 +966,16 @@ async fn fetch_project_from_registry(
         .await
         .context("failed to get project metadata from registry")?;
 
-    for dep_hash in project.dependency_hashes() {
-        Box::pin(fetch_project_from_registry(brioche, dep_hash)).await?;
-    }
+    futures::stream::iter(project.dependency_hashes())
+        .map(Ok)
+        .try_for_each_concurrent(Some(25), |dep_hash| {
+            let brioche = brioche.clone();
+            async move {
+                fetch_project_from_registry(&brioche, dep_hash).await?;
+                anyhow::Ok(())
+            }
+        })
+        .await?;
 
     let statics_recipes = project
         .statics
@@ -1028,6 +1035,13 @@ async fn fetch_project_from_registry(
         }
     }
 
+    let blobs = project
+        .modules
+        .values()
+        .map(|file_id| file_id.as_blob_hash())
+        .collect::<anyhow::Result<HashSet<_>>>()?;
+    crate::registry::fetch_blobs(brioche.clone(), &blobs).await?;
+
     for (module_path, file_id) in &project.modules {
         anyhow::ensure!(
             module_path != "brioche.lock",
@@ -1041,19 +1055,15 @@ async fn fetch_project_from_registry(
         );
 
         let blob_hash = file_id.as_blob_hash()?;
-        let module_content = brioche
-            .registry_client
-            .get_blob(blob_hash)
-            .await
-            .context("failed to get blob from registry")?;
+        let module_blob_path = crate::blob::local_blob_path(brioche, blob_hash);
         if let Some(temp_module_dir) = temp_module_path.parent() {
             tokio::fs::create_dir_all(temp_module_dir)
                 .await
                 .context("failed to create temporary module directory")?;
         }
-        tokio::fs::write(&temp_module_path, &module_content)
+        tokio::fs::copy(&module_blob_path, &temp_module_path)
             .await
-            .context("failed to write blob")?;
+            .context("failed to copy blob")?;
     }
 
     let lockfile = Lockfile {
