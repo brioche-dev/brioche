@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [v0.1.1] - 2024-06-09
+
 ### Added
 
 - **Add new TypeScript runtime op to get the version of Brioche** ([#59](https://github.com/brioche-dev/brioche/pull/59)). This will allow for updating packages to take advantage of new features without breaking backwards compatibility
@@ -19,5 +21,6 @@
 
 - **Initial release!**
 
-[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.1...HEAD
+[v0.1.1]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.0
