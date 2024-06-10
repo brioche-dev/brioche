@@ -6,6 +6,7 @@ use crate::recipe::StackFrame;
 deno_core::extension!(
     brioche_js,
     ops = [
+        op_brioche_version,
         op_brioche_console,
         op_brioche_stack_frames_from_exception,
         op_brioche_utf8_encode,
@@ -23,6 +24,11 @@ pub enum ConsoleLevel {
     Info,
     Warn,
     Error,
+}
+
+#[deno_core::op]
+fn op_brioche_version() -> &'static str {
+    crate::VERSION
 }
 
 #[deno_core::op]
