@@ -26,9 +26,10 @@ pub enum ConsoleLevel {
     Error,
 }
 
-#[deno_core::op]
-fn op_brioche_version() -> &'static str {
-    crate::VERSION
+#[deno_core::op2]
+#[string]
+fn op_brioche_version() -> String {
+    crate::VERSION.to_string()
 }
 
 #[deno_core::op]
