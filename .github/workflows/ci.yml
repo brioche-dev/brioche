@@ -149,6 +149,9 @@ jobs:
           cp "artifacts/brioche-pack/$PLATFORM/bin/$PACKED_EXEC" "artifacts/brioche-pack/$PLATFORM/bin/brioche-packed-exec"
           (cd "artifacts/brioche-pack/$PLATFORM/" && tar --zstd -cf "../../brioche/$PLATFORM/brioche-pack.tar.zstd" .)
 
+          if command -v sha256sum &> /dev/null; then
+            find artifacts/ -type f | xargs sha256sum
+          fi
 
           if command -v tree &> /dev/null; then
             tree --du -h artifacts/brioche-pack
