@@ -10,9 +10,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
-env:
-  NIGHTLY_TOOLCHAIN: nightly-2023-12-30
-
 jobs:
   check:
     name: Run checks
@@ -76,35 +73,20 @@ jobs:
           - name: x86_64-linux
             runs_on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            tools_target: x86_64-unknown-linux-musl
-            packed_exec: brioche-packed-userland-exec
           - name: x86_64-macos
             runs_on: macos-14
             target: x86_64-apple-darwin
-            tools_target: x86_64-apple-darwin
-            packed_exec: brioche-packed-plain-exec
           - name: aarch64-macos
             runs_on: macos-14
             target: aarch64-apple-darwin
-            tools_target: aarch64-apple-darwin
-            packed_exec: brioche-packed-plain-exec
-
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Install Rust targets
-        run: rustup target add "$TARGET" "$TOOLS_TARGET"
+        run: rustup target add "$TARGET"
         env:
           TARGET: ${{ matrix.platform.target }}
-          TOOLS_TARGET: ${{ matrix.platform.tools_target }}
-      - name: Install Rust nightly toolchain
-        run: |
-          rustup toolchain install "$NIGHTLY_TOOLCHAIN" \
-            --target "$TOOLS_TARGET" \
-            --component rust-src
-        env:
-          TOOLS_TARGET: ${{ matrix.platform.tools_target }}
       - name: Build Brioche
         run: |
             cargo build \
@@ -114,54 +96,23 @@ jobs:
               --target="$TARGET"
         env:
           TARGET: ${{ matrix.platform.target }}
-      - name: Build brioche-pack tools
-        run: |
-          cargo build \
-            --all \
-            --bin brioche-packer \
-            --bin brioche-ld \
-            --release \
-            --target="$TOOLS_TARGET"
-
-          cargo +"$NIGHTLY_TOOLCHAIN" build \
-            --all \
-            --bin brioche-packed-plain-exec \
-            --bin brioche-packed-userland-exec \
-            --profile=release-tiny \
-            --target="$TOOLS_TARGET" \
-            -Z 'build-std=std,panic_abort' \
-            -Z 'build-std-features=panic_immediate_abort'
-        env:
-          TOOLS_TARGET: ${{ matrix.platform.tools_target }}
       - name: Prepare artifact
         run: |
           mkdir -p "artifacts/brioche/$PLATFORM/"
-          mkdir -p "artifacts/brioche-pack/$PLATFORM/bin/"
           cp \
             "target/$TARGET/release/brioche" \
             "artifacts/brioche/$PLATFORM/"
-          cp \
-            "target/$TOOLS_TARGET/release/brioche-packer" \
-            "target/$TOOLS_TARGET/release/brioche-ld" \
-            "target/$TOOLS_TARGET/release-tiny/brioche-packed-plain-exec" \
-            "target/$TOOLS_TARGET/release-tiny/brioche-packed-userland-exec" \
-            "artifacts/brioche-pack/$PLATFORM/bin/"
-          cp "artifacts/brioche-pack/$PLATFORM/bin/$PACKED_EXEC" "artifacts/brioche-pack/$PLATFORM/bin/brioche-packed-exec"
-          (cd "artifacts/brioche-pack/$PLATFORM/" && tar --zstd -cf "../../brioche/$PLATFORM/brioche-pack.tar.zstd" .)
 
           if command -v sha256sum &> /dev/null; then
             find artifacts/ -type f | xargs sha256sum
           fi
 
           if command -v tree &> /dev/null; then
-            tree --du -h artifacts/brioche-pack
             tree --du -h artifacts/brioche
           fi
         env:
           PLATFORM: ${{ matrix.platform.name }}
           TARGET: ${{ matrix.platform.target }}
-          TOOLS_TARGET: ${{ matrix.platform.tools_target }}
-          PACKED_EXEC: ${{ matrix.platform.packed_exec }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -189,31 +140,15 @@ jobs:
         with:
           name: brioche-aarch64-macos
           path: artifacts/brioche
-      # Prepare the upload for the current commit and branch:
-      # - The current branch will be uploaded with all artifacts
-      # - The current commit will be uploaded with most artifacts (with some
-      #   exceptions to avoid wasting space)
-      # - The current files from the bucket will be downloaded first,
-      #   so that existing files are not overwritten. This is so that file
-      #   hashes never change under the commit e.g. if the GitHub Actions
-      #   workflow is re-run
+      # Upload the Brioche build for the current branch
       - name: Prepare upload
         run: |
-          mkdir -p artifacts/uploads/commit artifacts/uploads/branch
-          cp -r artifacts/brioche/* artifacts/uploads/commit/
+          mkdir -p artifacts/uploads/branch
           cp -r artifacts/brioche/* artifacts/uploads/branch/
 
-          rm artifacts/uploads/commit/*/brioche
-
           if command -v tree &> /dev/null; then
-            tree --du -h artifacts/uploads/commit
             tree --du -h artifacts/uploads/branch
           fi
-
-          aws s3 sync \
-            --endpoint "$S3_ENDPOINT" \
-            "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/commits/$GITHUB_SHA/" \
-            artifacts/uploads/commit/
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
@@ -226,11 +161,6 @@ jobs:
             --delete \
             artifacts/uploads/branch/ \
             "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/branches/$GITHUB_REF_NAME/"
-          aws s3 sync \
-            --endpoint "$S3_ENDPOINT" \
-            --delete \
-            artifacts/uploads/commit/ \
-            "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/commits/$GITHUB_SHA/"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
