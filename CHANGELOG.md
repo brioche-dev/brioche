@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Removed
+
+- Some executables that were originally included as part of this repo have been removed from this repo and instead moved into [`brioche-runtime-utils`](https://github.com/brioche-dev/brioche-runtime-utils) instead ([#62](https://github.com/brioche-dev/brioche/pull/62)). The moved executables include:
+    - `brioche-ld`
+    - `brioche-packed-plain-exec`
+    - `brioche-packed-userland-exec`
+    - `brioche-packer`
+
 ## [v0.1.1] - 2024-06-09
 
 ### Added
