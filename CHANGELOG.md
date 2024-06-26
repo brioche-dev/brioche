@@ -9,6 +9,7 @@
     - `brioche-packed-plain-exec`
     - `brioche-packed-userland-exec`
     - `brioche-packer`
+- Several utility functions that were previously exported from `brioche-pack` have instead been moved into the new crates `brioche-resources` and `brioche-autowrap` in the [`brioche-runtime-utils`](https://github.com/brioche-dev/brioche-runtime-utils) repo ([#63](https://github.com/brioche-dev/brioche/pull/63))
 
 ## [v0.1.1] - 2024-06-09
 
