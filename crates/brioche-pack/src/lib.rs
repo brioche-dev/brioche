@@ -1,15 +1,8 @@
-use std::path::{Path, PathBuf};
-
-use bstr::ByteSlice as _;
 use encoding::TickEncoded;
 
-pub mod autowrap;
 mod encoding;
-pub mod resources;
 
 const MARKER: &[u8; 32] = b"brioche_pack_v0                 ";
-
-const SEARCH_DEPTH_LIMIT: u32 = 64;
 
 const LENGTH_BYTES: usize = 4;
 type LengthInt = u32;
@@ -85,89 +78,6 @@ impl Pack {
     }
 }
 
-pub fn find_resource_dirs(
-    program: &Path,
-    include_readonly: bool,
-) -> Result<Vec<PathBuf>, PackResourceDirError> {
-    let mut paths = vec![];
-    if let Some(pack_resource_dir) = std::env::var_os("BRIOCHE_RESOURCE_DIR") {
-        paths.push(PathBuf::from(pack_resource_dir));
-    }
-
-    if include_readonly {
-        if let Some(input_resource_dirs) = std::env::var_os("BRIOCHE_INPUT_RESOURCE_DIRS") {
-            if let Some(input_resource_dirs) = <[u8]>::from_os_str(&input_resource_dirs) {
-                for input_resource_dir in input_resource_dirs.split_str(b":") {
-                    if let Ok(path) = input_resource_dir.to_path() {
-                        paths.push(path.to_owned());
-                    }
-                }
-            }
-
-            for input_resource_dir in std::env::split_paths(&input_resource_dirs) {
-                paths.push(input_resource_dir);
-            }
-        }
-    }
-
-    match find_resource_dir_from_program(program) {
-        Ok(pack_resource_dir) => paths.push(pack_resource_dir),
-        Err(PackResourceDirError::NotFound) => {}
-        Err(error) => {
-            return Err(error);
-        }
-    }
-
-    if !paths.is_empty() {
-        Ok(paths)
-    } else {
-        Err(PackResourceDirError::NotFound)
-    }
-}
-
-pub fn find_output_resource_dir(program: &Path) -> Result<PathBuf, PackResourceDirError> {
-    let resource_dirs = find_resource_dirs(program, false)?;
-    let resource_dir = resource_dirs
-        .into_iter()
-        .next()
-        .ok_or(PackResourceDirError::NotFound)?;
-    Ok(resource_dir)
-}
-
-pub fn find_in_resource_dirs(resource_dirs: &[PathBuf], subpath: &Path) -> Option<PathBuf> {
-    for resource_dir in resource_dirs {
-        let path = resource_dir.join(subpath);
-        if path.exists() {
-            return Some(path);
-        }
-    }
-
-    None
-}
-
-fn find_resource_dir_from_program(program: &Path) -> Result<PathBuf, PackResourceDirError> {
-    let program = std::env::current_dir()?.join(program);
-
-    let Some(mut current_dir) = program.parent() else {
-        return Err(PackResourceDirError::NotFound);
-    };
-
-    for _ in 0..SEARCH_DEPTH_LIMIT {
-        let pack_resource_dir = current_dir.join("brioche-resources.d");
-        if pack_resource_dir.is_dir() {
-            return Ok(pack_resource_dir);
-        }
-
-        let Some(parent) = current_dir.parent() else {
-            return Err(PackResourceDirError::NotFound);
-        };
-
-        current_dir = parent;
-    }
-
-    Err(PackResourceDirError::DepthLimitReached)
-}
-
 pub fn inject_pack(mut writer: impl std::io::Write, pack: &Pack) -> Result<(), InjectPackError> {
     let pack_bytes = bincode::encode_to_vec(pack, bincode::config::standard())
         .map_err(InjectPackError::SerializeError)?;
@@ -216,16 +126,6 @@ pub fn extract_pack(mut reader: impl std::io::Read) -> Result<Pack, ExtractPackE
         .map_err(ExtractPackError::InvalidPack)?;
 
     Ok(pack)
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PackResourceDirError {
-    #[error("brioche pack resource dir not found")]
-    NotFound,
-    #[error("error while searching for brioche pack resource dir: {0}")]
-    IoError(#[from] std::io::Error),
-    #[error("reached depth limit while searching for brioche pack resource dir")]
-    DepthLimitReached,
 }
 
 #[derive(Debug, thiserror::Error)]
