@@ -68,7 +68,8 @@ pub async fn create_input_inner(
                 move || {
                     let input_file = std::fs::File::open(&input_path)
                         .with_context(|| format!("failed to open file {}", input_path.display()))?;
-                    let pack = brioche_pack::extract_pack(input_file).ok();
+                    let extracted = brioche_pack::extract_pack(input_file).ok();
+                    let pack = extracted.map(|extracted| extracted.pack);
                     anyhow::Ok(pack)
                 }
             })
