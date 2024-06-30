@@ -1,5 +1,9 @@
 # Changelog
 
+All notable changes to Brioche will be documented in this file.
+
+Note that the individual Rust crates within this repo are not considered stable and changes will not be documented in the changelog.
+
 ## [Unreleased]
 
 ### Removed
