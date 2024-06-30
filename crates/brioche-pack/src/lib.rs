@@ -80,7 +80,7 @@ impl Pack {
     }
 }
 
-pub fn inject_pack(mut writer: impl std::io::Write, pack: &Pack) -> Result<(), InjectPackError> {
+pub fn inject_pack(mut writer: impl std::io::Write, pack: &Pack) -> Result<usize, InjectPackError> {
     // Encode the pack
     let pack_bytes = bincode::encode_to_vec(pack, bincode::config::standard())
         .map_err(InjectPackError::SerializeError)?;
@@ -102,7 +102,9 @@ pub fn inject_pack(mut writer: impl std::io::Write, pack: &Pack) -> Result<(), I
     writer.write_all(&length_bytes)?;
     writer.write_all(MARKER)?;
 
-    Ok(())
+    // Return the total length of the marker, length, and pack data appended
+    let pack_length = (MARKER.len() + LENGTH_BYTES) * 2 + pack_bytes.len();
+    Ok(pack_length)
 }
 
 pub struct ExtractedPack {
