@@ -1,3 +1,5 @@
+use std::io::SeekFrom;
+
 use encoding::TickEncoded;
 
 mod encoding;
@@ -79,14 +81,21 @@ impl Pack {
 }
 
 pub fn inject_pack(mut writer: impl std::io::Write, pack: &Pack) -> Result<(), InjectPackError> {
+    // Encode the pack
     let pack_bytes = bincode::encode_to_vec(pack, bincode::config::standard())
         .map_err(InjectPackError::SerializeError)?;
+
+    // Get the encoded length as a little-endian array of bytes
     let pack_length: LengthInt = pack_bytes
         .len()
         .try_into()
         .map_err(|_| InjectPackError::PackTooLarge)?;
     let length_bytes = pack_length.to_le_bytes();
 
+    // Write the marker, length, pack, length, and marker. Writing the marker
+    // at each end makes it possible to detect the marker both by reading from
+    // a stream where we know the unpacked size, and by seeking to the end
+    // and reading backwards when we don't know the unpacked size
     writer.write_all(MARKER)?;
     writer.write_all(&length_bytes)?;
     writer.write_all(&pack_bytes)?;
@@ -96,36 +105,94 @@ pub fn inject_pack(mut writer: impl std::io::Write, pack: &Pack) -> Result<(), I
     Ok(())
 }
 
-pub fn extract_pack(mut reader: impl std::io::Read) -> Result<Pack, ExtractPackError> {
-    let mut program = vec![];
-    reader
-        .read_to_end(&mut program)
+pub struct ExtractedPack {
+    pub pack: Pack,
+    pub unpacked_len: usize,
+}
+
+pub fn extract_pack(
+    mut reader: impl std::io::Read + std::io::Seek,
+) -> Result<ExtractedPack, ExtractPackError> {
+    // Save the stream position
+    let initial_position = reader
+        .stream_position()
         .map_err(ExtractPackError::ReadPackedProgramError)?;
 
-    let program = program
-        .strip_suffix(MARKER)
-        .ok_or_else(|| ExtractPackError::MarkerNotFound)?;
-    let (program, length_bytes) = program.split_at(program.len().wrapping_sub(LENGTH_BYTES));
-    let length_bytes: [u8; LENGTH_BYTES] = length_bytes
+    // Get the total length of the reader. We use `.seek()` instead of
+    // `.stream_len()` to avoid unnecessary seeks
+    let packed_len = reader
+        .seek(SeekFrom::End(0))
+        .map_err(ExtractPackError::ReadPackedProgramError)?;
+
+    // Rewind to read the marker and length from the reader
+    let end_marker_with_length_start = packed_len
+        .checked_sub((MARKER.len() + LENGTH_BYTES).try_into()?)
+        .ok_or(ExtractPackError::MarkerNotFound)?;
+    reader
+        .seek(SeekFrom::Start(end_marker_with_length_start))
+        .map_err(ExtractPackError::ReadPackedProgramError)?;
+    let mut end_marker_with_length = [0u8; MARKER.len() + LENGTH_BYTES];
+    reader
+        .read_exact(&mut end_marker_with_length)
+        .map_err(ExtractPackError::ReadPackedProgramError)?;
+
+    let (end_length_bytes, end_marker) = end_marker_with_length.split_at(LENGTH_BYTES);
+
+    // Validate the marker matches the expected value
+    if end_marker != MARKER {
+        return Err(ExtractPackError::MarkerNotFound);
+    }
+
+    // Parse the length bytes
+    let end_length_bytes: [u8; LENGTH_BYTES] = end_length_bytes
         .try_into()
         .map_err(|_| ExtractPackError::MalformedMarker)?;
-    let length = LengthInt::from_le_bytes(length_bytes);
-    let length: usize = length
-        .try_into()
-        .map_err(|_| ExtractPackError::MalformedMarker)?;
+    let end_length = LengthInt::from_le_bytes(end_length_bytes);
+    let pack_length: usize = end_length.try_into()?;
 
-    let (program, pack) = program.split_at(program.len().wrapping_sub(length));
-    let program = program
-        .strip_suffix(&length_bytes)
-        .ok_or_else(|| ExtractPackError::MalformedMarker)?;
-    let _program = program
-        .strip_suffix(MARKER)
-        .ok_or_else(|| ExtractPackError::MalformedMarker)?;
+    // Calculate where the pack starts and where the unpacked data ends
+    let pack_start = end_marker_with_length_start
+        .checked_sub(end_length.into())
+        .ok_or(ExtractPackError::MalformedMarker)?;
+    let unpacked_end = pack_start
+        .checked_sub((MARKER.len() + LENGTH_BYTES).try_into()?)
+        .ok_or(ExtractPackError::MalformedMarker)?;
 
-    let (pack, _) = bincode::decode_from_slice(pack, bincode::config::standard())
+    // Rewind to read the pack data plus the other marker / length into a vector
+    reader
+        .seek(SeekFrom::Start(unpacked_end))
+        .map_err(ExtractPackError::ReadPackedProgramError)?;
+    let mut pack_bytes_with_marker_and_length =
+        vec![0u8; pack_length + MARKER.len() + LENGTH_BYTES];
+    reader
+        .read_exact(&mut pack_bytes_with_marker_and_length)
+        .map_err(ExtractPackError::ReadPackedProgramError)?;
+
+    // Separate the marker, length, and pack data
+    let (start_marker_with_length, pack_bytes) =
+        pack_bytes_with_marker_and_length.split_at_mut(MARKER.len() + LENGTH_BYTES);
+    let (start_marker, start_length_bytes) = start_marker_with_length.split_at_mut(MARKER.len());
+
+    // Validate the other marker and length match the original marker and length
+    if start_marker != MARKER {
+        return Err(ExtractPackError::MalformedMarker);
+    }
+    if end_length_bytes != start_length_bytes {
+        return Err(ExtractPackError::MalformedMarker);
+    }
+
+    // Restore the stream position
+    reader
+        .seek(SeekFrom::Start(initial_position))
+        .map_err(ExtractPackError::ReadPackedProgramError)?;
+
+    // Deserialize the pack data
+    let (pack, _) = bincode::decode_from_slice(pack_bytes, bincode::config::standard())
         .map_err(ExtractPackError::InvalidPack)?;
 
-    Ok(pack)
+    // Return the extracted pack and the length of the unpacked data
+    let unpacked_len = unpacked_end.try_into()?;
+    Ok(ExtractedPack { pack, unpacked_len })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -148,4 +215,6 @@ pub enum ExtractPackError {
     MalformedMarker,
     #[error("failed to parse pack: {0}")]
     InvalidPack(#[source] bincode::error::DecodeError),
+    #[error(transparent)]
+    TryFromIntError(#[from] std::num::TryFromIntError),
 }
