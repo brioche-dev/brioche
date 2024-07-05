@@ -15,7 +15,7 @@ pub struct InstallArgs {
     #[arg(short, long, default_value = "default")]
     export: String,
 
-    /// Check the project before buiilding
+    /// Check the project before building
     #[arg(long)]
     check: bool,
 }

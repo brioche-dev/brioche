@@ -20,7 +20,7 @@ pub struct BuildArgs {
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Check the project before buiilding
+    /// Check the project before building
     #[arg(long)]
     check: bool,
 
