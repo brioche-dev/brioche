@@ -116,16 +116,31 @@ async fn create_output_inner<'a: 'async_recursion>(
                         },
                     )
                     .await
-                    .context("failed to set output file permissions")?;
+                    .with_context(|| {
+                        format!(
+                            "failed to set output file permissions of {}",
+                            options.output_path.display()
+                        )
+                    })?;
 
                     if let Some(mtime) = options.mtime {
                         crate::fs_utils::set_mtime(options.output_path, mtime)
                             .await
-                            .context("failed to set output file modified time")?;
+                            .with_context(|| {
+                                format!(
+                                    "failed to set output file modified time of {}",
+                                    options.output_path.display()
+                                )
+                            })?;
                     } else if options.link_locals {
                         crate::fs_utils::set_mtime_to_brioche_epoch(options.output_path)
                             .await
-                            .context("failed to set output file modified time")?;
+                            .with_context(|| {
+                                format!(
+                                    "failed to set output file modified time of {}",
+                                    options.output_path.display()
+                                )
+                            })?;
                     }
                 }
             } else {
