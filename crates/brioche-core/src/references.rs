@@ -391,38 +391,44 @@ pub async fn local_recipes(
     brioche: &Brioche,
     recipes: impl IntoIterator<Item = RecipeHash>,
 ) -> anyhow::Result<HashSet<RecipeHash>> {
+    let recipes = recipes.into_iter().collect::<Vec<_>>();
+
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
 
-    let mut arguments = sqlx::sqlite::SqliteArguments::default();
-    let mut num_recipe_hashes = 0;
-    for recipe_hash in recipes {
-        arguments.add(recipe_hash.to_string());
-        num_recipe_hashes += 1;
+    // Fetch recipes in batches to avoid hitting the maximum number of
+    // SQLite variables per query
+    let mut known_recipes = HashSet::new();
+    for recipe_batch in recipes.chunks(900) {
+        let mut arguments = sqlx::sqlite::SqliteArguments::default();
+        for recipe_hash in recipe_batch {
+            arguments.add(recipe_hash.to_string());
+        }
+
+        let placeholders = std::iter::repeat("?")
+            .take(recipe_batch.len())
+            .join_with(", ");
+
+        let batch_known_recipes = sqlx::query_as_with::<_, (String,), _>(
+            &format!(
+                r#"
+                    SELECT recipe_hash
+                    FROM recipes
+                    WHERE recipe_hash IN ({placeholders})
+                "#,
+            ),
+            arguments,
+        )
+        .fetch_all(&mut *db_transaction)
+        .await?;
+
+        for (recipe_hash,) in batch_known_recipes {
+            let recipe_hash = recipe_hash.parse()?;
+            known_recipes.insert(recipe_hash);
+        }
     }
-
-    let placeholders = std::iter::repeat("?")
-        .take(num_recipe_hashes)
-        .join_with(", ");
-
-    let known_recipes = sqlx::query_as_with::<_, (String,), _>(
-        &format!(
-            r#"
-                SELECT recipe_hash
-                FROM recipes
-                WHERE recipe_hash IN ({placeholders})
-            "#,
-        ),
-        arguments,
-    )
-    .fetch_all(&mut *db_transaction)
-    .await?;
 
     db_transaction.commit().await?;
 
-    let known_recipes = known_recipes
-        .into_iter()
-        .map(|(recipe_hash,)| recipe_hash.parse())
-        .collect::<anyhow::Result<HashSet<RecipeHash>>>()?;
     Ok(known_recipes)
 }
