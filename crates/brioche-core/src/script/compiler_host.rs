@@ -162,7 +162,7 @@ impl BriocheCompilerHost {
                         doc.version += 1;
 
                         let doc_contents = Arc::make_mut(&mut doc.contents);
-                        *doc_contents = contents.to_owned();
+                        contents.clone_into(doc_contents);
                     }
                 })
                 .or_insert_with(|| {
