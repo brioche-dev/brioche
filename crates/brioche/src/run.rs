@@ -23,7 +23,7 @@ pub struct RunArgs {
     #[arg(short, long)]
     quiet: bool,
 
-    /// Check the project before buiilding
+    /// Check the project before building
     #[arg(long)]
     check: bool,
 
