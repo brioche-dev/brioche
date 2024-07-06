@@ -166,7 +166,6 @@ pub async fn get_recipes(
 
     let cached_recipes = brioche.cached_recipes.read().await;
     let mut uncached_recipes = HashSet::new();
-    let mut arguments = sqlx::sqlite::SqliteArguments::default();
 
     for recipe_hash in recipe_hashes {
         match cached_recipes.recipes_by_hash.get(&recipe_hash) {
@@ -174,12 +173,7 @@ pub async fn get_recipes(
                 recipes.insert(recipe_hash, recipe.clone());
             }
             None => {
-                let is_new = uncached_recipes.insert(recipe_hash);
-
-                // Add as SQL argument unless we've added it before
-                if is_new {
-                    arguments.add(recipe_hash.to_string());
-                }
+                uncached_recipes.insert(recipe_hash);
             }
         }
     }
@@ -192,25 +186,42 @@ pub async fn get_recipes(
         return Ok(recipes);
     }
 
-    let placeholders = std::iter::repeat("?")
-        .take(uncached_recipes.len())
-        .join_with(", ");
-
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
 
-    let records = sqlx::query_as_with::<_, (String, String), _>(
-        &format!(
-            r#"
-                SELECT recipe_hash, recipe_json
-                FROM recipes
-                WHERE recipe_hash IN ({placeholders})
-            "#,
-        ),
-        arguments,
-    )
-    .fetch_all(&mut *db_transaction)
-    .await?;
+    let mut records = vec![];
+    {
+        let uncached_recipes = uncached_recipes.iter().copied().collect::<Vec<_>>();
+
+        // Fetch recipes in batches to avoid hitting the maximum number of
+        // SQLite variables per query
+        for uncached_recipe_batch in uncached_recipes.chunks(900) {
+            let mut arguments = sqlx::sqlite::SqliteArguments::default();
+
+            for recipe_hash in uncached_recipe_batch {
+                arguments.add(recipe_hash.to_string());
+            }
+
+            let placeholders = std::iter::repeat("?")
+                .take(uncached_recipe_batch.len())
+                .join_with(", ");
+
+            let batch_records = sqlx::query_as_with::<_, (String, String), _>(
+                &format!(
+                    r#"
+                        SELECT recipe_hash, recipe_json
+                        FROM recipes
+                        WHERE recipe_hash IN ({placeholders})
+                    "#,
+                ),
+                arguments,
+            )
+            .fetch_all(&mut *db_transaction)
+            .await?;
+
+            records.extend(batch_records);
+        }
+    }
 
     db_transaction.commit().await?;
     drop(db_conn);
@@ -276,8 +287,8 @@ where
     let mut db_conn = brioche.db_conn.lock().await;
     let mut db_transaction = db_conn.begin().await?;
 
-    // Save each recipe to the database (in batches, so we limit the maximum
-    // number of variables used per query)
+    // Save each recipe to the database in batches, so we don't hit the
+    // maximum number of variables per query
     let mut num_rows_affected = 0;
     for recipe_batch in uncached_recipes.chunks(400) {
         let mut arguments = sqlx::sqlite::SqliteArguments::default();
