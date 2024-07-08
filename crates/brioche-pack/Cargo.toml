@@ -5,12 +5,8 @@ edition = "2021"
 
 [dependencies]
 bincode = { version = "2.0.0-rc.3" }
-blake3 = "1.5.0"
 bstr = { version = "1.8.0", features = ["serde"] }
-goblin = "0.7.1"
-pathdiff = "0.2.1"
 serde = { version = "1.0.193", features = ["derive"] }
 serde_with = { version = "3.4.0" }
 thiserror = "1.0.51"
 tick-encoding = "0.1.2"
-ulid = "1.1.0"
