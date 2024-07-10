@@ -8,7 +8,7 @@ use tracing::Instrument;
 pub struct FormatArgs {
     /// The path to the project directory to format
     #[arg(short, long)]
-    project: PathBuf,
+    project: Vec<PathBuf>,
 
     /// Check formatting without writing changes
     #[arg(long)]
@@ -20,41 +20,56 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
         brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
     let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
-    let projects = brioche_core::project::Projects::default();
 
-    let format_future = async {
-        let project_hash = projects.load(&brioche, &args.project, true).await?;
+    let format_futures = args
+        .project
+        .into_iter()
+        .map(|project_path| {
+            let projects = brioche_core::project::Projects::default();
 
-        if args.check {
-            let mut unformatted_files =
-                brioche_core::script::format::check_format(&projects, project_hash).await?;
-            unformatted_files.sort();
+            async { project_format(projects, brioche.clone(), project_path, args.check).await }
+        })
+        .map(|project_path| project_path.instrument(tracing::info_span!("format")))
+        .collect::<Vec<_>>();
 
-            guard.shutdown_console().await;
+    let mut unformatted_files = Vec::new();
+    for future in format_futures {
+        unformatted_files.append(&mut future.await?);
+    }
+    unformatted_files.sort();
 
-            if unformatted_files.is_empty() {
-                println!("All files formatted");
-                Ok(ExitCode::SUCCESS)
-            } else {
-                println!("The following files are not formatted:");
-                for file in unformatted_files {
-                    println!("- {}", file.display());
-                }
-
-                Ok(ExitCode::FAILURE)
-            }
-        } else {
-            brioche_core::script::format::format(&projects, project_hash).await?;
-
-            guard.shutdown_console().await;
-
-            anyhow::Ok(ExitCode::SUCCESS)
+    let exit_code = if !args.check {
+        ExitCode::SUCCESS
+    } else if unformatted_files.is_empty() {
+        println!("All files formatted");
+        ExitCode::SUCCESS
+    } else {
+        println!("The following files are not formatted:");
+        for file in unformatted_files {
+            println!("- {}", file.display());
         }
+
+        ExitCode::FAILURE
     };
 
-    let exit_code = format_future
-        .instrument(tracing::info_span!("format"))
-        .await?;
+    guard.shutdown_console().await;
 
     Ok(exit_code)
+}
+
+async fn project_format(
+    projects: brioche_core::project::Projects,
+    brioche: brioche_core::Brioche,
+    project_path: PathBuf,
+    check: bool,
+) -> Result<Vec<PathBuf>, anyhow::Error> {
+    let project_hash = projects.load(&brioche, &project_path, true).await?;
+
+    if check {
+        Ok(brioche_core::script::format::check_format(&projects, project_hash).await?)
+    } else {
+        brioche_core::script::format::format(&projects, project_hash).await?;
+
+        Ok(vec![])
+    }
 }
