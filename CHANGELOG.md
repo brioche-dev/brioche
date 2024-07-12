@@ -6,6 +6,10 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+### Changed
+
+- Update `brioche fmt` command to take the `-p` option more than once, allowing for formatting multiple projects at a time ([#84](https://github.com/brioche-dev/brioche/pull/84) by [@jaudiger](https://github.com/jaudiger))
+
 ### Removed
 
 - Some executables that were originally included as part of this repo have been removed from this repo and instead moved into [`brioche-runtime-utils`](https://github.com/brioche-dev/brioche-runtime-utils) instead ([#62](https://github.com/brioche-dev/brioche/pull/62)). The moved executables include:
