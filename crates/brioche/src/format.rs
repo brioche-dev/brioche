@@ -1,6 +1,9 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
-use brioche_core::reporter::ConsoleReporterKind;
+use brioche_core::reporter::{ConsoleReporterKind, Reporter};
 use clap::Parser;
 use tracing::Instrument;
 
@@ -19,57 +22,97 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
         brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
-    let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
+    let mut error_result = Option::None;
+    for project_path in args.project {
+        match project_format(&reporter, &project_path, args.check).await {
+            Err(err) => {
+                println!(
+                    "Error occurred while formatting project '{project_path}': {err}",
+                    project_path = project_path.display(),
+                    err = err
+                );
 
-    let format_futures = args
-        .project
-        .into_iter()
-        .map(|project_path| {
-            let projects = brioche_core::project::Projects::default();
-
-            async { project_format(projects, brioche.clone(), project_path, args.check).await }
-        })
-        .map(|project_path| project_path.instrument(tracing::info_span!("format")))
-        .collect::<Vec<_>>();
-
-    let mut unformatted_files = Vec::new();
-    for future in format_futures {
-        unformatted_files.append(&mut future.await?);
-    }
-    unformatted_files.sort();
-
-    let exit_code = if !args.check {
-        ExitCode::SUCCESS
-    } else if unformatted_files.is_empty() {
-        println!("All files formatted");
-        ExitCode::SUCCESS
-    } else {
-        println!("The following files are not formatted:");
-        for file in unformatted_files {
-            println!("- {}", file.display());
+                error_result = Some(());
+            }
+            Ok(false) => {
+                error_result = Some(());
+            }
+            _ => {}
         }
-
-        ExitCode::FAILURE
-    };
+    }
 
     guard.shutdown_console().await;
+
+    let exit_code = if error_result.is_some() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    };
 
     Ok(exit_code)
 }
 
 async fn project_format(
-    projects: brioche_core::project::Projects,
-    brioche: brioche_core::Brioche,
-    project_path: PathBuf,
+    reporter: &Reporter,
+    project_path: &Path,
     check: bool,
-) -> Result<Vec<PathBuf>, anyhow::Error> {
-    let project_hash = projects.load(&brioche, &project_path, true).await?;
+) -> Result<bool, anyhow::Error> {
+    let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
+        .build()
+        .await?;
+    let projects = brioche_core::project::Projects::default();
 
-    if check {
-        Ok(brioche_core::script::format::check_format(&projects, project_hash).await?)
-    } else {
-        brioche_core::script::format::format(&projects, project_hash).await?;
+    let project_hash = projects.load(&brioche, project_path, true).await?;
 
-        Ok(vec![])
+    let result = async {
+        if check {
+            brioche_core::script::format::check_format(&projects, project_hash).await
+        } else {
+            brioche_core::script::format::format(&projects, project_hash).await
+        }
+    }
+    .instrument(tracing::info_span!("format"))
+    .await;
+
+    match result {
+        Err(err) => Err(err),
+        Ok(mut files) => {
+            files.sort();
+
+            if !check {
+                if !files.is_empty() {
+                    println!(
+                        "The following files of project '{project_path}' have been formatted:\n{files}",
+                        project_path = project_path.display(),
+                        files = files
+                            .iter()
+                            .map(|file| format!("- {}", file.display()))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+                }
+
+                Ok(true)
+            } else if files.is_empty() {
+                println!(
+                    "All files of project '{project_path}' are formatted",
+                    project_path = project_path.display()
+                );
+
+                Ok(true)
+            } else {
+                println!(
+                    "The following files of project '{project_path}' are not formatted:\n{files}",
+                    project_path = project_path.display(),
+                    files = files
+                        .iter()
+                        .map(|file| format!("- {}", file.display()))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                );
+
+                Ok(false)
+            }
+        }
     }
 }
