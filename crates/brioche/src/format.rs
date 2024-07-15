@@ -26,11 +26,17 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     for project_path in args.project {
         match project_format(&reporter, &project_path, args.check).await {
             Err(err) => {
-                println!(
-                    "Error occurred while formatting project '{project_path}': {err}",
-                    project_path = project_path.display(),
-                    err = err
-                );
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &format!(
+                        "Error occurred while formatting project '{project_path}': {err}",
+                        project_path = project_path.display(),
+                        err = err
+                    ),
+                    superconsole::style::ContentStyle {
+                        foreground_color: Some(superconsole::style::Color::Red),
+                        ..superconsole::style::ContentStyle::default()
+                    },
+                ));
 
                 error_result = Some(());
             }
@@ -81,35 +87,44 @@ async fn project_format(
 
             if !check {
                 if !files.is_empty() {
-                    println!(
-                        "The following files of project '{project_path}' have been formatted:\n{files}",
+                    reporter.emit(superconsole::Lines::from_multiline_string(
+                        &format!(
+                            "The following files of project '{project_path}' have been formatted:\n{files}",
+                            project_path = project_path.display(),
+                            files = files
+                                .iter()
+                                .map(|file| format!("- {}", file.display()))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        ),
+                        superconsole::style::ContentStyle::default(),
+                    ));
+                }
+
+                Ok(true)
+            } else if files.is_empty() {
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &format!(
+                        "All files of project '{project_path}' are formatted",
+                        project_path = project_path.display()
+                    ),
+                    superconsole::style::ContentStyle::default(),
+                ));
+
+                Ok(true)
+            } else {
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &format!(
+                        "The following files of project '{project_path}' are not formatted:\n{files}",
                         project_path = project_path.display(),
                         files = files
                             .iter()
                             .map(|file| format!("- {}", file.display()))
                             .collect::<Vec<_>>()
                             .join("\n")
-                    );
-                }
-
-                Ok(true)
-            } else if files.is_empty() {
-                println!(
-                    "All files of project '{project_path}' are formatted",
-                    project_path = project_path.display()
-                );
-
-                Ok(true)
-            } else {
-                println!(
-                    "The following files of project '{project_path}' are not formatted:\n{files}",
-                    project_path = project_path.display(),
-                    files = files
-                        .iter()
-                        .map(|file| format!("- {}", file.display()))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                );
+                    ),
+                    superconsole::style::ContentStyle::default(),
+                ));
 
                 Ok(false)
             }
