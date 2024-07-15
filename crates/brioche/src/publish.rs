@@ -36,6 +36,9 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     }
 
     let checked = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+
+    guard.shutdown_console().await;
+
     let check_results = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
     match check_results {
         Ok(()) => {
