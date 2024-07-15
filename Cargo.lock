@@ -245,6 +245,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "atomic"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c59bdb34bc650a32731b31bd8f0829cc15d24a708ee31559e0bb34f2bc320cba"
+
+[[package]]
 name = "auto_impl"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -657,6 +663,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "87e8604d34b02180a58af1dbdaac166f1805f27f5370934142a3246f83870952"
 
 [[package]]
+name = "bit-set"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0700ddab506f33b20a03b13996eccd309a48e5ff77d0d95926aa0210fb4e95f1"
+dependencies = [
+ "bit-vec",
+]
+
+[[package]]
+name = "bit-vec"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "349f9b6a179ed607305526ca489b34ad0a41aed5f7980fa90eb03160b69598fb"
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -798,7 +819,7 @@ dependencies = [
  "strum",
  "superconsole",
  "tempdir",
- "termwiz 0.20.0",
+ "termwiz 0.22.0",
  "thiserror",
  "tick-encoding",
  "tokio",
@@ -917,6 +938,12 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "cfg_aliases"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
 name = "cfg_aliases"
@@ -1652,10 +1679,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "euclid"
+version = "0.22.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0f0eb73b934648cd7a4a61f1b15391cd95dab0b4da6e2e66c2a072c144b4a20"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "event-listener"
 version = "2.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0206175f82b8d6bf6652ff7d71a1e27fd2e4efde587fd368662814d6ec1d9ce0"
+
+[[package]]
+name = "fancy-regex"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b95f7c0680e4142284cf8b22c14a476e87d61b004a3a0861872b32ef7ead40a2"
+dependencies = [
+ "bit-set",
+ "regex",
+]
 
 [[package]]
 name = "fastrand"
@@ -2517,6 +2563,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mac_address"
+version = "1.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8836fae9d0d4be2c8b4efcdd79e828a2faa058a90d005abf42f91cac5493a08e"
+dependencies = [
+ "nix 0.28.0",
+ "winapi",
+]
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2687,13 +2743,26 @@ dependencies = [
 
 [[package]]
 name = "nix"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab2156c4fce2f8df6c499cc1c763e4394b7482525bf2a9701c9d79d215f519e4"
+dependencies = [
+ "bitflags 2.4.1",
+ "cfg-if 1.0.0",
+ "cfg_aliases 0.1.1",
+ "libc",
+ "memoffset 0.9.0",
+]
+
+[[package]]
+name = "nix"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71e2746dc3a24dd78b3cfcb7be93368c6de9963d30f43a6a73998a9cf4b17b46"
 dependencies = [
  "bitflags 2.4.1",
  "cfg-if 1.0.0",
- "cfg_aliases",
+ "cfg_aliases 0.2.1",
  "libc",
 ]
 
@@ -5063,6 +5132,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminfo"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "666cd3a6681775d22b200409aad3b089c5b99fb11ecdd8a204d9d62f8148498f"
+dependencies = [
+ "dirs 4.0.0",
+ "fnv",
+ "nom 7.1.3",
+ "phf 0.11.2",
+ "phf_codegen",
+]
+
+[[package]]
 name = "termios"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5101,27 +5183,28 @@ dependencies = [
  "sha2 0.9.9",
  "signal-hook 0.1.17",
  "siphasher",
- "terminfo",
+ "terminfo 0.7.5",
  "termios",
  "thiserror",
  "ucd-trie",
  "unicode-segmentation",
  "vtparse",
  "wezterm-bidi",
- "wezterm-color-types",
- "wezterm-dynamic",
+ "wezterm-color-types 0.2.0",
+ "wezterm-dynamic 0.1.0",
  "winapi",
 ]
 
 [[package]]
 name = "termwiz"
-version = "0.20.0"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9509a978a10fcbace4991deae486ae10885e0f4c2c465123e08c9714a90648fa"
+checksum = "5a75313e21da5d4406ea31402035b3b97aa74c04356bdfafa5d1043ab4e551d1"
 dependencies = [
  "anyhow",
  "base64 0.21.5",
- "bitflags 1.3.2",
+ "bitflags 2.4.1",
+ "fancy-regex",
  "filedescriptor",
  "finl_unicode",
  "fixedbitset",
@@ -5130,27 +5213,29 @@ dependencies = [
  "libc",
  "log",
  "memmem",
- "nix 0.24.3",
+ "nix 0.26.4",
  "num-derive",
  "num-traits",
- "ordered-float 3.9.2",
+ "ordered-float 4.2.0",
  "pest",
  "pest_derive",
- "phf 0.10.1",
- "regex",
+ "phf 0.11.2",
  "semver 0.11.0",
- "sha2 0.9.9",
- "signal-hook 0.1.17",
+ "sha2 0.10.8",
+ "signal-hook 0.3.17",
  "siphasher",
- "terminfo",
+ "tempfile",
+ "terminfo 0.8.0",
  "termios",
  "thiserror",
  "ucd-trie",
  "unicode-segmentation",
  "vtparse",
  "wezterm-bidi",
- "wezterm-color-types",
- "wezterm-dynamic",
+ "wezterm-blob-leases",
+ "wezterm-color-types 0.3.0",
+ "wezterm-dynamic 0.2.0",
+ "wezterm-input-types",
  "winapi",
 ]
 
@@ -5745,6 +5830,10 @@ name = "uuid"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e395fcf16a7a3d8127ec99782007af141946b4795001f876d54fb0d55978560"
+dependencies = [
+ "atomic",
+ "getrandom",
+]
 
 [[package]]
 name = "v8"
@@ -5968,7 +6057,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1560382cf39b0fa92473eae4d5b3772f88c63202cbf5a72c35db72ba99e66c36"
 dependencies = [
  "log",
- "wezterm-dynamic",
+ "wezterm-dynamic 0.1.0",
+]
+
+[[package]]
+name = "wezterm-blob-leases"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e5a5e0adf7eed68976410def849a4bdab6f6e9f6163f152de9cb89deea9e60b"
+dependencies = [
+ "getrandom",
+ "mac_address",
+ "once_cell",
+ "sha2 0.10.8",
+ "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -5980,7 +6083,19 @@ dependencies = [
  "csscolorparser",
  "deltae",
  "lazy_static",
- "wezterm-dynamic",
+ "wezterm-dynamic 0.1.0",
+]
+
+[[package]]
+name = "wezterm-color-types"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7de81ef35c9010270d63772bebef2f2d6d1f2d20a983d27505ac850b8c4b4296"
+dependencies = [
+ "csscolorparser",
+ "deltae",
+ "lazy_static",
+ "wezterm-dynamic 0.2.0",
 ]
 
 [[package]]
@@ -5997,6 +6112,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "wezterm-dynamic"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfb128bacfa86734e07681fb6068e34c144698e84ee022d6e009145d1abb77b5"
+dependencies = [
+ "log",
+ "ordered-float 4.2.0",
+ "strsim",
+ "thiserror",
+ "wezterm-dynamic-derive",
+]
+
+[[package]]
 name = "wezterm-dynamic-derive"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6005,6 +6133,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "wezterm-input-types"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7012add459f951456ec9d6c7e6fc340b1ce15d6fc9629f8c42853412c029e57e"
+dependencies = [
+ "bitflags 1.3.2",
+ "euclid",
+ "lazy_static",
+ "wezterm-dynamic 0.2.0",
 ]
 
 [[package]]
