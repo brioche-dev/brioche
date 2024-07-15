@@ -40,36 +40,35 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     guard.shutdown_console().await;
 
     let check_results = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
-    match check_results {
+    Ok(match check_results {
         Ok(()) => {
             println!("No errors found 🎉");
+
+            let response =
+                brioche_core::publish::publish_project(&brioche, &projects, project_hash, true)
+                    .await?;
+
+            if response.tags.is_empty() {
+                println!("Project already up to date: {} {}", name, version);
+            } else {
+                println!("🚀 Published project {} {}", name, version);
+                println!();
+                println!("Updated tags:");
+                for tag in &response.tags {
+                    let status = if tag.previous_hash.is_some() {
+                        "updated"
+                    } else {
+                        "new"
+                    };
+                    println!("  {} {} ({status})", tag.name, tag.tag);
+                }
+            }
+
+            ExitCode::SUCCESS
         }
         Err(diagnostics) => {
             diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
-            return Ok(ExitCode::FAILURE);
+            ExitCode::FAILURE
         }
-    }
-
-    guard.shutdown_console().await;
-
-    let response =
-        brioche_core::publish::publish_project(&brioche, &projects, project_hash, true).await?;
-
-    if response.tags.is_empty() {
-        println!("Project already up to date: {} {}", name, version);
-    } else {
-        println!("🚀 Published project {} {}", name, version);
-        println!();
-        println!("Updated tags:");
-        for tag in &response.tags {
-            let status = if tag.previous_hash.is_some() {
-                "updated"
-            } else {
-                "new"
-            };
-            println!("  {} {} ({status})", tag.name, tag.tag);
-        }
-    }
-
-    Ok(ExitCode::SUCCESS)
+    })
 }
