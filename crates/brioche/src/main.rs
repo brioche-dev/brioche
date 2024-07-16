@@ -267,13 +267,20 @@ async fn load_project(
 }
 
 fn consolidate_result(
+    reporter: &brioche_core::reporter::Reporter,
     project_name: &String,
     result: Result<bool, anyhow::Error>,
     error_result: &mut Option<()>,
 ) {
     match result {
         Err(err) => {
-            println!("Error occurred with {project_name}: {err}",);
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &format!("Error occurred with {project_name}: {err}", err = err),
+                superconsole::style::ContentStyle {
+                    foreground_color: Some(superconsole::style::Color::Red),
+                    ..superconsole::style::ContentStyle::default()
+                },
+            ));
 
             *error_result = Some(());
         }

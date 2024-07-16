@@ -5,6 +5,7 @@ use std::vec;
 use brioche_core::project::ProjectHash;
 use brioche_core::project::Projects;
 use brioche_core::reporter::ConsoleReporterKind;
+use brioche_core::reporter::Reporter;
 use brioche_core::Brioche;
 use clap::Parser;
 use tracing::Instrument;
@@ -41,11 +42,12 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
 
         match projects.load(&brioche, &project_path, true).await {
             Ok(project_hash) => {
-                let result = run_check(&brioche, &projects, project_hash, &project_name).await;
-                consolidate_result(&project_name, result, &mut error_result);
+                let result =
+                    run_check(&reporter, &brioche, &projects, project_hash, &project_name).await;
+                consolidate_result(&reporter, &project_name, result, &mut error_result);
             }
             Err(e) => {
-                consolidate_result(&project_name, Err(e), &mut error_result);
+                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
             }
         }
     }
@@ -59,11 +61,12 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
             .await
         {
             Ok(project_hash) => {
-                let result = run_check(&brioche, &projects, project_hash, &registry_name).await;
-                consolidate_result(&registry_name, result, &mut error_result);
+                let result =
+                    run_check(&reporter, &brioche, &projects, project_hash, &registry_name).await;
+                consolidate_result(&reporter, &registry_name, result, &mut error_result);
             }
             Err(e) => {
-                consolidate_result(&registry_name, Err(e), &mut error_result);
+                consolidate_result(&reporter, &registry_name, Err(e), &mut error_result);
             }
         }
     }
@@ -80,6 +83,7 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
 }
 
 async fn run_check(
+    reporter: &Reporter,
     brioche: &Brioche,
     projects: &Projects,
     project_hash: ProjectHash,
@@ -98,11 +102,22 @@ async fn run_check(
 
     match result {
         Ok(()) => {
-            println!("No errors found on {project_name} 🎉");
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &format!("No errors found on {project_name} 🎉",),
+                superconsole::style::ContentStyle::default(),
+            ));
+
             Ok(true)
         }
         Err(diagnostics) => {
-            diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
+            let mut output = Vec::new();
+            diagnostics.write(&brioche.vfs, &mut output)?;
+
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &String::from_utf8(output)?,
+                superconsole::style::ContentStyle::default(),
+            ));
+
             Ok(false)
         }
     }
