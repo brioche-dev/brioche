@@ -6,10 +6,12 @@ use std::{
     },
 };
 
+use opentelemetry::trace::TracerProvider;
 use bstr::ByteSlice;
 use debug_ignore::DebugIgnore;
 use human_repr::HumanDuration as _;
 use joinery::JoinableIterator as _;
+use opentelemetry_otlp::WithExportConfig;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
 const DEFAULT_TRACING_LEVEL: &str = "brioche=info";
@@ -115,15 +117,20 @@ pub fn start_console_reporter(
 
     let opentelemetry_layer = brioche_jaeger_endpoint
         .map(|jaeger_endpoint| {
-            opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
-            let tracer = opentelemetry_jaeger::new_agent_pipeline()
-                .with_service_name("brioche")
-                .with_endpoint(jaeger_endpoint)
+            opentelemetry::global::set_text_map_propagator(opentelemetry_sdk::propagation::TraceContextPropagator::new());
+            let provider = opentelemetry_otlp::new_pipeline()
+                .tracing()
+                .with_exporter(
+                    opentelemetry_otlp::new_exporter()
+                        .tonic()
+                        .with_endpoint(jaeger_endpoint)
+                        .with_protocol(opentelemetry_otlp::Protocol::Grpc),
+                )
                 .install_simple()?;
 
             anyhow::Ok(
                 tracing_opentelemetry::layer()
-                    .with_tracer(tracer)
+                    .with_tracer(provider.tracer("brioche"))
                     .with_filter(tracing_debug_filter()),
             )
         })
