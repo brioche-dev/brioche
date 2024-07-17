@@ -88,33 +88,41 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
                 .context("failed to parse module contents as UTF-8 string")?;
 
             let parsed = deno_ast::parse_module(deno_ast::ParseParams {
-                specifier: module_specifier.to_string(),
-                text_info: deno_ast::SourceTextInfo::from_string(code.to_string()),
+                specifier: module_specifier.clone().into(),
+                text: code.into(),
                 media_type: deno_ast::MediaType::TypeScript,
                 capture_tokens: false,
                 scope_analysis: false,
                 maybe_syntax: None,
             })?;
-            let transpiled = parsed.transpile(&deno_ast::EmitOptions {
-                source_map: true,
-                inline_source_map: false,
-                imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
-                ..deno_ast::EmitOptions::default()
-            })?;
+            let transpiled = parsed.transpile(
+                &deno_ast::TranspileOptions {
+                    imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
+                    ..Default::default()
+                },
+                &deno_ast::EmitOptions {
+                    source_map: deno_ast::SourceMapOption::Separate,
+                    ..Default::default()
+                },
+            )?;
 
             let mut sources = sources.borrow_mut();
             if let Entry::Vacant(entry) = sources.entry(module_specifier.clone()) {
-                let source_map = transpiled.source_map.context("source map not generated")?;
+                let source_map = transpiled
+                    .clone()
+                    .into_source()
+                    .source_map
+                    .context("source map not generated")?;
                 entry.insert(ModuleSource {
-                    source_map: source_map.into_bytes(),
                     source_contents: contents.clone(),
+                    source_map,
                 });
             }
 
             let module_specifier: deno_core::ModuleSpecifier = module_specifier.into();
             Ok(deno_core::ModuleSource::new(
                 deno_core::ModuleType::JavaScript,
-                transpiled.text.into(),
+                transpiled.into_source().into_string()?.text.into(),
                 &module_specifier,
             ))
         };
