@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::vec;
 
 use brioche_core::project::ProjectHash;
 use brioche_core::project::Projects;
