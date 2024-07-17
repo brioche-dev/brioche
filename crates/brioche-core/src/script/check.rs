@@ -24,8 +24,7 @@ pub async fn check(
     compiler_host.load_document(&specifier).await?;
 
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
-        module_loader: Some(Rc::new(module_loader.clone())),
-        source_map_getter: Some(Box::new(module_loader.clone())),
+        module_loader: Some(Rc::new(module_loader)),
         extensions: vec![
             super::compiler_host::brioche_compiler_host::init_ops(compiler_host),
             super::js::brioche_js::init_ops(),
@@ -37,9 +36,11 @@ pub async fn check(
 
     tracing::debug!(%specifier, %main_module, "evaluating module");
 
-    let module_id = js_runtime.load_main_module(&main_module, None).await?;
+    let module_id = js_runtime.load_main_es_module(&main_module).await?;
     let result = js_runtime.mod_evaluate(module_id);
-    js_runtime.run_event_loop(false).await?;
+    js_runtime
+        .run_event_loop(deno_core::PollEventLoopOptions::default())
+        .await?;
     result.await?;
 
     let module_namespace = js_runtime.get_module_namespace(module_id)?;

@@ -46,6 +46,62 @@ impl BriocheModuleLoader {
             sources: Rc::new(RefCell::new(HashMap::new())),
         }
     }
+
+    fn load_module_source(
+        &self,
+        module_specifier: &deno_core::ModuleSpecifier,
+    ) -> Result<deno_core::ModuleSource, anyhow::Error> {
+        let brioche_module_specifier = module_specifier.try_into()?;
+        let contents =
+            specifier::read_specifier_contents(&self.brioche.vfs, &brioche_module_specifier)?;
+
+        let code = std::str::from_utf8(&contents)
+            .context("failed to parse module contents as UTF-8 string")?;
+
+        let parsed = deno_ast::parse_module(deno_ast::ParseParams {
+            specifier: brioche_module_specifier.clone().into(),
+            text: code.into(),
+            media_type: deno_ast::MediaType::TypeScript,
+            capture_tokens: false,
+            scope_analysis: false,
+            maybe_syntax: None,
+        })?;
+        let transpiled = parsed.transpile(
+            &deno_ast::TranspileOptions {
+                imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
+                ..Default::default()
+            },
+            &deno_ast::EmitOptions {
+                source_map: deno_ast::SourceMapOption::Separate,
+                ..Default::default()
+            },
+        )?;
+
+        if let Entry::Vacant(entry) = self
+            .sources
+            .borrow_mut()
+            .entry(brioche_module_specifier.clone())
+        {
+            let source_map = transpiled
+                .clone()
+                .into_source()
+                .source_map
+                .context("source map not generated")?;
+            entry.insert(ModuleSource {
+                source_contents: contents.clone(),
+                source_map,
+            });
+        }
+
+        Ok(deno_core::ModuleSource::new(
+            deno_core::ModuleType::JavaScript,
+            deno_core::ModuleSourceCode::Bytes(
+                transpiled.into_source().source.into_boxed_slice().into(),
+            ),
+            module_specifier,
+            None,
+        ))
+    }
 }
 
 impl deno_core::ModuleLoader for BriocheModuleLoader {
@@ -76,62 +132,11 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         module_specifier: &deno_core::ModuleSpecifier,
         _maybe_referrer: Option<&deno_core::ModuleSpecifier>,
         _is_dyn_import: bool,
-    ) -> std::pin::Pin<Box<deno_core::ModuleSourceFuture>> {
-        let module_specifier: Result<BriocheModuleSpecifier, _> = module_specifier.try_into();
-        let sources = self.sources.clone();
-        let vfs = self.brioche.vfs.clone();
-        let future = async move {
-            let module_specifier = module_specifier?;
-            let contents = specifier::read_specifier_contents(&vfs, &module_specifier)?;
-
-            let code = std::str::from_utf8(&contents)
-                .context("failed to parse module contents as UTF-8 string")?;
-
-            let parsed = deno_ast::parse_module(deno_ast::ParseParams {
-                specifier: module_specifier.clone().into(),
-                text: code.into(),
-                media_type: deno_ast::MediaType::TypeScript,
-                capture_tokens: false,
-                scope_analysis: false,
-                maybe_syntax: None,
-            })?;
-            let transpiled = parsed.transpile(
-                &deno_ast::TranspileOptions {
-                    imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
-                    ..Default::default()
-                },
-                &deno_ast::EmitOptions {
-                    source_map: deno_ast::SourceMapOption::Separate,
-                    ..Default::default()
-                },
-            )?;
-
-            let mut sources = sources.borrow_mut();
-            if let Entry::Vacant(entry) = sources.entry(module_specifier.clone()) {
-                let source_map = transpiled
-                    .clone()
-                    .into_source()
-                    .source_map
-                    .context("source map not generated")?;
-                entry.insert(ModuleSource {
-                    source_contents: contents.clone(),
-                    source_map,
-                });
-            }
-
-            let module_specifier: deno_core::ModuleSpecifier = module_specifier.into();
-            Ok(deno_core::ModuleSource::new(
-                deno_core::ModuleType::JavaScript,
-                transpiled.into_source().into_string()?.text.into(),
-                &module_specifier,
-            ))
-        };
-
-        Box::pin(future)
+        _requested_module_type: deno_core::RequestedModuleType,
+    ) -> deno_core::ModuleLoadResponse {
+        deno_core::ModuleLoadResponse::Sync(self.load_module_source(module_specifier))
     }
-}
 
-impl deno_core::SourceMapGetter for BriocheModuleLoader {
     fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
         let sources = self.sources.borrow();
         let specifier: BriocheModuleSpecifier = file_name.parse().ok()?;
@@ -139,7 +144,7 @@ impl deno_core::SourceMapGetter for BriocheModuleLoader {
         Some(code.source_map.clone())
     }
 
-    fn get_source_line(&self, file_name: &str, line_number: usize) -> Option<String> {
+    fn get_source_mapped_source_line(&self, file_name: &str, line_number: usize) -> Option<String> {
         let sources = self.sources.borrow();
         let specifier: BriocheModuleSpecifier = file_name.parse().ok()?;
         let source = sources.get(&specifier)?;

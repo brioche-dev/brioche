@@ -24,8 +24,7 @@ pub async fn evaluate(
         export: export.to_string(),
     };
     let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
-        module_loader: Some(Rc::new(module_loader.clone())),
-        source_map_getter: Some(Box::new(module_loader.clone())),
+        module_loader: Some(Rc::new(module_loader)),
         extensions: vec![
             super::brioche_rt::init_ops(brioche.clone(), projects.clone(), bake_scope),
             super::js::brioche_js::init_ops(),
@@ -38,9 +37,11 @@ pub async fn evaluate(
 
     tracing::debug!(%main_module, "evaluating module");
 
-    let module_id = js_runtime.load_main_module(&main_module, None).await?;
+    let module_id = js_runtime.load_main_es_module(&main_module).await?;
     let result = js_runtime.mod_evaluate(module_id);
-    js_runtime.run_event_loop(false).await?;
+    js_runtime
+        .run_event_loop(deno_core::PollEventLoopOptions::default())
+        .await?;
     result.await?;
 
     let module_namespace = js_runtime.get_module_namespace(module_id)?;
@@ -80,7 +81,7 @@ pub async fn evaluate(
         deno_core::v8::Global::new(&mut js_scope, result)
     };
 
-    let resolved_result = js_runtime.resolve_value(result).await?;
+    let resolved_result = js_runtime.resolve(result).await?;
 
     let serialized_result = {
         let mut js_scope = js_runtime.handle_scope();
@@ -117,7 +118,7 @@ pub async fn evaluate(
         deno_core::v8::Global::new(&mut js_scope, serialized_result)
     };
 
-    let serialized_resolved_result = js_runtime.resolve_value(serialized_result).await?;
+    let serialized_resolved_result = js_runtime.resolve(serialized_result).await?;
 
     let mut js_scope = js_runtime.handle_scope();
 
