@@ -36,37 +36,39 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     }
 
     let checked = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
-    let check_results = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
-    match check_results {
-        Ok(()) => {
-            println!("No errors found 🎉");
-        }
-        Err(diagnostics) => {
-            diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
-            return Ok(ExitCode::FAILURE);
-        }
-    }
 
     guard.shutdown_console().await;
 
-    let response =
-        brioche_core::publish::publish_project(&brioche, &projects, project_hash, true).await?;
+    let check_results = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
+    Ok(match check_results {
+        Ok(()) => {
+            println!("No errors found 🎉");
 
-    if response.tags.is_empty() {
-        println!("Project already up to date: {} {}", name, version);
-    } else {
-        println!("🚀 Published project {} {}", name, version);
-        println!();
-        println!("Updated tags:");
-        for tag in &response.tags {
-            let status = if tag.previous_hash.is_some() {
-                "updated"
+            let response =
+                brioche_core::publish::publish_project(&brioche, &projects, project_hash, true)
+                    .await?;
+
+            if response.tags.is_empty() {
+                println!("Project already up to date: {} {}", name, version);
             } else {
-                "new"
-            };
-            println!("  {} {} ({status})", tag.name, tag.tag);
-        }
-    }
+                println!("🚀 Published project {} {}", name, version);
+                println!();
+                println!("Updated tags:");
+                for tag in &response.tags {
+                    let status = if tag.previous_hash.is_some() {
+                        "updated"
+                    } else {
+                        "new"
+                    };
+                    println!("  {} {} ({status})", tag.name, tag.tag);
+                }
+            }
 
-    Ok(ExitCode::SUCCESS)
+            ExitCode::SUCCESS
+        }
+        Err(diagnostics) => {
+            diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
+            ExitCode::FAILURE
+        }
+    })
 }
