@@ -18,8 +18,8 @@ bstr = { version = "1.8.0", features = ["serde"] }
 cfg-if = "1.0.0"
 console-subscriber = "0.3.0"
 debug-ignore = "1.0.5"
-deno_ast = { version = "0.28.0", features = ["transpiling"] }
-deno_core = "0.201.0"
+deno_ast = { version = "0.32.1", features = ["transpiling"] }
+deno_core = "0.237.0"
 directories = "5.0.1"
 futures = "0.3.29"
 globset = "0.4.14"
@@ -40,7 +40,7 @@ reqwest-retry = "0.6.0"
 rust-embed = { version = "8.1.0", features = ["debug-embed", "interpolate-folder-path", "include-exclude"] }
 serde = { version = "1.0.193", features = ["derive"] }
 serde_json = "1.0.108"
-serde_v8 = "0.112.0"
+serde_v8 = "0.146.0"
 serde_with = { version = "3.4.0", features = ["hex"] }
 sha2 = "0.10.8"
 sqlx = { version = "0.7.3", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "json"] }
