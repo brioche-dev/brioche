@@ -30,11 +30,12 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
     let mut error_result = Option::None;
 
     // Handle the case where no projects and no registries are specified
-    let projects_path = if args.project.project.is_empty() && args.project.registry.is_empty() {
-        vec![PathBuf::from(".")]
-    } else {
-        args.project.project
-    };
+    let projects_path =
+        if args.project.project.is_empty() && args.project.registry_project.is_empty() {
+            vec![PathBuf::from(".")]
+        } else {
+            args.project.project
+        };
 
     // Loop over the projects
     for project_path in projects_path {
@@ -52,21 +53,25 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
         }
     }
 
-    // Loop over the registries
-    for registry in args.project.registry {
-        let registry_name = format!("registry '{registry}'");
+    // Loop over the registry projects
+    for registry_project in args.project.registry_project {
+        let project_name = format!("registry project '{registry_project}'");
 
         match projects
-            .load_from_registry(&brioche, &registry, &brioche_core::project::Version::Any)
+            .load_from_registry(
+                &brioche,
+                &registry_project,
+                &brioche_core::project::Version::Any,
+            )
             .await
         {
             Ok(project_hash) => {
                 let result =
-                    run_check(&reporter, &brioche, &projects, project_hash, &registry_name).await;
-                consolidate_result(&reporter, &registry_name, result, &mut error_result);
+                    run_check(&reporter, &brioche, &projects, project_hash, &project_name).await;
+                consolidate_result(&reporter, &project_name, result, &mut error_result);
             }
             Err(e) => {
-                consolidate_result(&reporter, &registry_name, Err(e), &mut error_result);
+                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
             }
         }
     }
@@ -103,7 +108,7 @@ async fn run_check(
     match result {
         Ok(()) => {
             reporter.emit(superconsole::Lines::from_multiline_string(
-                &format!("No errors found on {project_name} 🎉",),
+                &format!("No errors found in {project_name} 🎉",),
                 superconsole::style::ContentStyle::default(),
             ));
 

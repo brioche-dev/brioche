@@ -237,8 +237,8 @@ struct MultipleProjectArgs {
     project: Vec<PathBuf>,
 
     /// The name of a registry project to build
-    #[clap(short, long)]
-    registry: Vec<String>,
+    #[clap(id = "registry", short, long)]
+    registry_project: Vec<String>,
 }
 
 async fn load_project(
