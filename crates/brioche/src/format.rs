@@ -1,11 +1,13 @@
-use std::{
-    path::{Path, PathBuf},
-    process::ExitCode,
-};
+use std::{path::PathBuf, process::ExitCode};
 
-use brioche_core::reporter::{ConsoleReporterKind, Reporter};
+use brioche_core::{
+    project::{ProjectHash, Projects},
+    reporter::{ConsoleReporterKind, Reporter},
+};
 use clap::Parser;
 use tracing::Instrument;
+
+use crate::consolidate_result;
 
 #[derive(Debug, Parser)]
 pub struct FormatArgs {
@@ -22,28 +24,32 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
         brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
-    let mut error_result = Option::None;
-    for project_path in args.project {
-        match project_format(&reporter, &project_path, args.check).await {
-            Err(err) => {
-                reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!(
-                        "Error occurred while formatting project '{project_path}': {err}",
-                        project_path = project_path.display(),
-                        err = err
-                    ),
-                    superconsole::style::ContentStyle {
-                        foreground_color: Some(superconsole::style::Color::Red),
-                        ..superconsole::style::ContentStyle::default()
-                    },
-                ));
+    let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
+        .build()
+        .await?;
+    let projects = brioche_core::project::Projects::default();
 
-                error_result = Some(());
+    let mut error_result = Option::None;
+
+    // Loop over the projects
+    for project_path in args.project {
+        let project_name = format!("project '{name}'", name = project_path.display());
+
+        match projects.load(&brioche, &project_path, true).await {
+            Ok(project_hash) => {
+                let result = run_format(
+                    &reporter,
+                    &projects,
+                    project_hash,
+                    &project_name,
+                    args.check,
+                )
+                .await;
+                consolidate_result(&reporter, &project_name, result, &mut error_result);
             }
-            Ok(false) => {
-                error_result = Some(());
+            Err(e) => {
+                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
             }
-            _ => {}
         }
     }
 
@@ -58,23 +64,18 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     Ok(exit_code)
 }
 
-async fn project_format(
+async fn run_format(
     reporter: &Reporter,
-    project_path: &Path,
+    projects: &Projects,
+    project_hash: ProjectHash,
+    project_name: &String,
     check: bool,
 ) -> Result<bool, anyhow::Error> {
-    let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
-        .build()
-        .await?;
-    let projects = brioche_core::project::Projects::default();
-
-    let project_hash = projects.load(&brioche, project_path, true).await?;
-
     let result = async {
         if check {
-            brioche_core::script::format::check_format(&projects, project_hash).await
+            brioche_core::script::format::check_format(projects, project_hash).await
         } else {
-            brioche_core::script::format::format(&projects, project_hash).await
+            brioche_core::script::format::format(projects, project_hash).await
         }
     }
     .instrument(tracing::info_span!("format"))
@@ -89,8 +90,7 @@ async fn project_format(
                 if !files.is_empty() {
                     reporter.emit(superconsole::Lines::from_multiline_string(
                         &format!(
-                            "The following files of project '{project_path}' have been formatted:\n{files}",
-                            project_path = project_path.display(),
+                            "The following files of {project_name} have been formatted:\n{files}",
                             files = files
                                 .iter()
                                 .map(|file| format!("- {}", file.display()))
@@ -104,10 +104,7 @@ async fn project_format(
                 Ok(true)
             } else if files.is_empty() {
                 reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!(
-                        "All files of project '{project_path}' are formatted",
-                        project_path = project_path.display()
-                    ),
+                    &format!("All files of {project_name} are formatted",),
                     superconsole::style::ContentStyle::default(),
                 ));
 
@@ -115,8 +112,7 @@ async fn project_format(
             } else {
                 reporter.emit(superconsole::Lines::from_multiline_string(
                     &format!(
-                        "The following files of project '{project_path}' are not formatted:\n{files}",
-                        project_path = project_path.display(),
+                        "The following files of {project_name} are not formatted:\n{files}",
                         files = files
                             .iter()
                             .map(|file| format!("- {}", file.display()))

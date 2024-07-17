@@ -229,6 +229,18 @@ struct ProjectArgs {
     registry: Option<String>,
 }
 
+#[derive(Debug, clap::Args)]
+#[group(required = false, multiple = false)]
+struct MultipleProjectArgs {
+    /// The path of the project directory to build [default: .]
+    #[clap(short, long)]
+    project: Vec<PathBuf>,
+
+    /// The name of a registry project to build
+    #[clap(id = "registry", short, long)]
+    registry_project: Vec<String>,
+}
+
 async fn load_project(
     brioche: &brioche_core::Brioche,
     projects: &brioche_core::project::Projects,
@@ -252,4 +264,29 @@ async fn load_project(
     };
 
     Ok(project_hash)
+}
+
+fn consolidate_result(
+    reporter: &brioche_core::reporter::Reporter,
+    project_name: &String,
+    result: Result<bool, anyhow::Error>,
+    error_result: &mut Option<()>,
+) {
+    match result {
+        Err(err) => {
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &format!("Error occurred with {project_name}: {err}", err = err),
+                superconsole::style::ContentStyle {
+                    foreground_color: Some(superconsole::style::Color::Red),
+                    ..superconsole::style::ContentStyle::default()
+                },
+            ));
+
+            *error_result = Some(());
+        }
+        Ok(false) => {
+            *error_result = Some(());
+        }
+        _ => {}
+    }
 }
