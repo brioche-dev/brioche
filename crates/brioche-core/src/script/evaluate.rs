@@ -33,14 +33,6 @@ pub async fn evaluate(
         ..Default::default()
     });
 
-    js_runtime.execute_script_static(
-        "[brioche_init]",
-        r#"
-            // Use Deno's stack trace routine, which resolves sourcemaps
-            Error.prepareStackTrace = Deno.core.prepareStackTrace;
-        "#,
-    )?;
-
     let main_module = projects.project_root_module_specifier(project_hash)?;
     let main_module: deno_core::ModuleSpecifier = main_module.into();
 
