@@ -271,12 +271,11 @@ fn brioche_compiler_host_state(state: Rc<RefCell<OpState>>) -> anyhow::Result<Br
     Ok(compiler_host)
 }
 
-#[deno_core::op2]
-#[serde]
+#[deno_core::op]
 pub fn op_brioche_file_read(
     state: Rc<RefCell<OpState>>,
-    #[string] path: &str,
-) -> Result<Option<Arc<String>>, deno_core::error::AnyError> {
+    path: &str,
+) -> anyhow::Result<Option<Arc<String>>> {
     let compiler_host = brioche_compiler_host_state(state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
@@ -285,11 +284,8 @@ pub fn op_brioche_file_read(
     Ok(contents)
 }
 
-#[deno_core::op2(fast)]
-pub fn op_brioche_file_exists(
-    state: Rc<RefCell<OpState>>,
-    #[string] path: &str,
-) -> Result<bool, deno_core::error::AnyError> {
+#[deno_core::op]
+pub fn op_brioche_file_exists(state: Rc<RefCell<OpState>>, path: &str) -> anyhow::Result<bool> {
     let compiler_host = brioche_compiler_host_state(state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
@@ -298,12 +294,11 @@ pub fn op_brioche_file_exists(
     Ok(result.is_some())
 }
 
-#[deno_core::op2]
-#[bigint]
+#[deno_core::op]
 pub fn op_brioche_file_version(
     state: Rc<RefCell<OpState>>,
-    #[string] path: &str,
-) -> Result<Option<u64>, deno_core::error::AnyError> {
+    path: &str,
+) -> anyhow::Result<Option<u64>> {
     let compiler_host = brioche_compiler_host_state(state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
@@ -312,12 +307,11 @@ pub fn op_brioche_file_version(
     Ok(version)
 }
 
-#[deno_core::op2]
-#[string]
+#[deno_core::op]
 pub fn op_brioche_resolve_module(
     state: Rc<RefCell<OpState>>,
-    #[string] specifier: &str,
-    #[string] referrer: &str,
+    specifier: &str,
+    referrer: &str,
 ) -> Option<String> {
     let compiler_host = brioche_compiler_host_state(state).ok()?;
 
