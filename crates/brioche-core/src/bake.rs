@@ -427,6 +427,10 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
         Recipe::Peel { directory, depth } => {
             let mut result = bake(brioche, *directory, &scope).await?;
 
+            if depth == 0 {
+                anyhow::bail!("must peel at least 1 layer");
+            }
+
             for _ in 0..depth {
                 let Artifact::Directory(dir) = result.value else {
                     anyhow::bail!("tried peeling non-directory artifact");
