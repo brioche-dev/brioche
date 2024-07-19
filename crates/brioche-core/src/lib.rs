@@ -12,6 +12,7 @@ use tokio::{
 
 pub mod bake;
 pub mod blob;
+pub mod download;
 pub mod encoding;
 pub mod fs_utils;
 pub mod input;
