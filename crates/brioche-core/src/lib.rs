@@ -313,6 +313,10 @@ pub enum Hasher {
 }
 
 impl Hasher {
+    pub fn new_sha256() -> Self {
+        Self::Sha256(sha2::Sha256::new())
+    }
+
     pub fn for_hash(hash: &Hash) -> Self {
         match hash {
             Hash::Sha256 { .. } => Self::Sha256(sha2::Sha256::new()),

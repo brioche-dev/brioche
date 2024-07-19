@@ -536,3 +536,80 @@ async fn test_eval_brioche_glob_submodule() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_eval_brioche_download() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let mut server = mockito::Server::new();
+    let server_url = server.url();
+
+    let hello = "hello";
+    let hello_blob = brioche_test::blob(&brioche, hello).await;
+    let hello_hash = brioche_test::sha256(hello);
+    let hello_endpoint = server
+        .mock("GET", "/file.txt")
+        .with_body(hello)
+        .expect(1)
+        .create();
+
+    let download_url = format!("{server_url}/file.txt");
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                globalThis.Brioche = {
+                    download: (url) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "download",
+                                        url,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                }
+
+                export default () => {
+                    return Brioche.download("<DOWNLOAD_URL>");
+                };
+            "#
+            .replace("<DOWNLOAD_URL>", &download_url),
+        )
+        .await;
+
+    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(&brioche, &projects, project_hash, "default")
+        .await?
+        .value;
+
+    assert_eq!(
+        resolved,
+        brioche_core::recipe::Recipe::Download(brioche_core::recipe::DownloadRecipe {
+            url: download_url.parse().unwrap(),
+            hash: hello_hash,
+        })
+    );
+
+    // Bake the download, which ensures that the download was cached
+    let baked = brioche_test::bake_without_meta(&brioche, resolved).await?;
+    assert_eq!(
+        baked,
+        brioche_core::recipe::Artifact::File(brioche_core::recipe::File {
+            content_blob: hello_blob,
+            executable: false,
+            resources: Default::default(),
+        })
+    );
+
+    hello_endpoint.assert_async().await;
+
+    Ok(())
+}

@@ -275,6 +275,10 @@ pub async fn op_brioche_get_static(
                 let patterns = patterns.iter().map(|pattern| lazy_format::lazy_format!("{pattern:?}")).join_with(", ");
                 format!("failed to resolve Brioche.glob({patterns}) from {specifier}, were the patterns passed in as string literals?")
             }
+            StaticQuery::Download { url } => {
+                format!("failed to resolve Brioche.download({url:?}) from {specifier}, was the URL passed in as a string literal?")
+            }
+
         })?;
     let recipe = crate::recipe::get_recipe(&brioche, recipe_hash).await?;
     Ok(recipe)
