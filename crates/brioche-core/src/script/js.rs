@@ -43,7 +43,7 @@ fn op_brioche_console(#[serde] level: ConsoleLevel, #[string] message: String) {
     }
 }
 
-#[deno_core::op2]
+#[deno_core::op2(reentrant)]
 #[serde]
 fn op_brioche_stack_frames_from_exception(
     scope: &mut v8::HandleScope,
