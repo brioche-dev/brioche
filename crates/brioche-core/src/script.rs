@@ -169,11 +169,12 @@ deno_core::extension!(brioche_rt,
     },
 );
 
-#[deno_core::op]
+#[deno_core::op2(async)]
+#[serde]
 pub async fn op_brioche_bake_all(
     state: Rc<RefCell<OpState>>,
-    recipes: Vec<WithMeta<Recipe>>,
-) -> anyhow::Result<Vec<Artifact>> {
+    #[serde] recipes: Vec<WithMeta<Recipe>>,
+) -> Result<Vec<Artifact>, deno_core::error::AnyError> {
     let brioche = {
         let state = state.try_borrow()?;
         state
@@ -197,11 +198,12 @@ pub async fn op_brioche_bake_all(
     Ok(results)
 }
 
-#[deno_core::op]
+#[deno_core::op2(async)]
+#[serde]
 pub async fn op_brioche_create_proxy(
     state: Rc<RefCell<OpState>>,
-    recipe: Recipe,
-) -> anyhow::Result<Recipe> {
+    #[serde] recipe: Recipe,
+) -> Result<Recipe, deno_core::error::AnyError> {
     let brioche = {
         let state = state.try_borrow()?;
         state
@@ -215,11 +217,12 @@ pub async fn op_brioche_create_proxy(
 }
 
 // TODO: Return a Uint8Array instead of tick-encoding
-#[deno_core::op]
+#[deno_core::op2(async)]
+#[serde]
 pub async fn op_brioche_read_blob(
     state: Rc<RefCell<OpState>>,
-    blob_hash: BlobHash,
-) -> anyhow::Result<crate::encoding::TickEncode<Vec<u8>>> {
+    #[serde] blob_hash: BlobHash,
+) -> Result<crate::encoding::TickEncode<Vec<u8>>, deno_core::error::AnyError> {
     let brioche = {
         let state = state.try_borrow()?;
         state
@@ -237,12 +240,13 @@ pub async fn op_brioche_read_blob(
     Ok(crate::encoding::TickEncode(bytes))
 }
 
-#[deno_core::op]
+#[deno_core::op2(async)]
+#[serde]
 pub async fn op_brioche_get_static(
     state: Rc<RefCell<OpState>>,
-    url: String,
-    static_: StaticQuery,
-) -> anyhow::Result<Recipe> {
+    #[string] url: String,
+    #[serde] static_: StaticQuery,
+) -> Result<Recipe, deno_core::error::AnyError> {
     let (brioche, projects) = {
         let state = state.try_borrow()?;
         let brioche = state

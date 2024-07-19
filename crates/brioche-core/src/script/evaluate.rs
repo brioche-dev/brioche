@@ -49,7 +49,7 @@ pub async fn evaluate(
     let module_id = js_runtime.load_main_module(&main_module, None).await?;
     let result = js_runtime.mod_evaluate(module_id);
     js_runtime.run_event_loop(false).await?;
-    result.await??;
+    result.await?;
 
     let module_namespace = js_runtime.get_module_namespace(module_id)?;
 

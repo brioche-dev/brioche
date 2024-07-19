@@ -32,8 +32,8 @@ fn op_brioche_version() -> String {
     crate::VERSION.to_string()
 }
 
-#[deno_core::op]
-fn op_brioche_console(level: ConsoleLevel, message: String) {
+#[deno_core::op2]
+fn op_brioche_console(#[serde] level: ConsoleLevel, #[string] message: String) {
     match level {
         ConsoleLevel::Log => tracing::info!("{}", message),
         ConsoleLevel::Debug => tracing::debug!("{}", message),
