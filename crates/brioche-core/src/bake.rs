@@ -438,7 +438,11 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
                 };
 
                 if entries.next().is_some() {
-                    anyhow::bail!("tried peeling directory with multiple entries");
+                    anyhow::bail!(
+                        "tried peeling {} entries of {:?}",
+                        entries.len() + 2,
+                        dir
+                    );
                 }
 
                 result = peeled;
