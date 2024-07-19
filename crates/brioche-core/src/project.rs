@@ -1666,5 +1666,7 @@ impl std::fmt::Display for WorkspaceMember {
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
     pub dependencies: BTreeMap<String, ProjectHash>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub downloads: BTreeMap<url::Url, crate::Hash>,
 }
