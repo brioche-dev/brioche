@@ -71,8 +71,9 @@ async fn run_publish(
 
     projects.validate_no_dirty_lockfiles()?;
 
-    let result =brioche_core::script::check::check(brioche, projects, project_hash).await?
-            .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
+    let result = brioche_core::script::check::check(brioche, projects, project_hash)
+        .await?
+        .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
 
     match result {
         Ok(()) => {
