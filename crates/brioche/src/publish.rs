@@ -1,23 +1,66 @@
 use std::{path::PathBuf, process::ExitCode};
 
-use brioche_core::reporter::ConsoleReporterKind;
+use brioche_core::{
+    project::{ProjectHash, Projects},
+    reporter::{ConsoleReporterKind, Reporter},
+    Brioche,
+};
 use clap::Parser;
+
+use crate::consolidate_result;
 
 #[derive(Debug, Parser)]
 pub struct PublishArgs {
     /// The path to the project directory to publish
     #[arg(short, long)]
-    project: PathBuf,
+    project: Vec<PathBuf>,
 }
 
 pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
         brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
 
-    let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
+    let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
+        .build()
+        .await?;
     let projects = brioche_core::project::Projects::default();
-    let project_hash = projects.load(&brioche, &args.project, true).await?;
 
+    let mut error_result = Option::None;
+
+    // Loop over the projects
+    for project_path in args.project {
+        let project_name = format!("project '{name}'", name = project_path.display());
+
+        match projects.load(&brioche, &project_path, true).await {
+            Ok(project_hash) => {
+                let result =
+                    run_publish(&reporter, &brioche, &projects, project_hash, &project_name).await;
+                consolidate_result(&reporter, &project_name, result, &mut error_result);
+            }
+            Err(e) => {
+                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
+            }
+        }
+    }
+
+    guard.shutdown_console().await;
+
+    let exit_code = if error_result.is_some() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    };
+
+    Ok(exit_code)
+}
+
+async fn run_publish(
+    reporter: &Reporter,
+    brioche: &Brioche,
+    projects: &Projects,
+    project_hash: ProjectHash,
+    project_name: &String,
+) -> Result<bool, anyhow::Error> {
     let project = projects.project(project_hash)?;
     let name = project.definition.name.as_deref().unwrap_or("[unnamed]");
     let version = project
@@ -26,49 +69,64 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
         .as_deref()
         .unwrap_or("[unversioned]");
 
-    let lockfile_result = projects.validate_no_dirty_lockfiles();
-    match lockfile_result {
-        Ok(()) => {}
-        Err(error) => {
-            eprintln!("{error:#}");
-            return Ok(ExitCode::FAILURE);
-        }
-    }
+    projects.validate_no_dirty_lockfiles()?;
 
-    let checked = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+    let result = brioche_core::script::check::check(brioche, projects, project_hash)
+        .await?
+        .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
 
-    guard.shutdown_console().await;
-
-    let check_results = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
-    Ok(match check_results {
+    match result {
         Ok(()) => {
-            println!("No errors found 🎉");
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &format!("No errors found in {project_name} 🎉",),
+                superconsole::style::ContentStyle::default(),
+            ));
 
             let response =
-                brioche_core::publish::publish_project(&brioche, &projects, project_hash, true)
+                brioche_core::publish::publish_project(brioche, projects, project_hash, true)
                     .await?;
 
             if response.tags.is_empty() {
-                println!("Project already up to date: {} {}", name, version);
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &format!("Project already up to date: {} {}", name, version),
+                    superconsole::style::ContentStyle::default(),
+                ));
             } else {
-                println!("🚀 Published project {} {}", name, version);
-                println!();
-                println!("Updated tags:");
-                for tag in &response.tags {
-                    let status = if tag.previous_hash.is_some() {
-                        "updated"
-                    } else {
-                        "new"
-                    };
-                    println!("  {} {} ({status})", tag.name, tag.tag);
-                }
+                let tags_info = response
+                    .tags
+                    .iter()
+                    .map(|tag| {
+                        let status = if tag.previous_hash.is_some() {
+                            "updated"
+                        } else {
+                            "new"
+                        };
+                        format!("{} {} ({})", tag.name, tag.tag, status)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &format!(
+                        "🚀 Published project {} {}\nUpdated tags:\n{}",
+                        name, version, tags_info
+                    ),
+                    superconsole::style::ContentStyle::default(),
+                ));
             }
 
-            ExitCode::SUCCESS
+            Ok(true)
         }
         Err(diagnostics) => {
-            diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
-            ExitCode::FAILURE
+            let mut output = Vec::new();
+            diagnostics.write(&brioche.vfs, &mut output)?;
+
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &String::from_utf8(output)?,
+                superconsole::style::ContentStyle::default(),
+            ));
+
+            Ok(false)
         }
-    })
+    }
 }
