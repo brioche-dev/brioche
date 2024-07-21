@@ -1,15 +1,22 @@
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Context as _;
+use brioche_core::project::ProjectHash;
+use brioche_core::project::Projects;
 use brioche_core::reporter::ConsoleReporterKind;
+use brioche_core::reporter::Reporter;
+use brioche_core::Brioche;
 use clap::Parser;
 use human_repr::HumanDuration;
 use tracing::Instrument;
 
+use crate::consolidate_result;
+
 #[derive(Debug, Parser)]
 pub struct InstallArgs {
     #[command(flatten)]
-    project: super::ProjectArgs,
+    project: super::MultipleProjectArgs,
 
     /// Which TypeScript export to build
     #[arg(short, long, default_value = "default")]
@@ -23,64 +30,153 @@ pub struct InstallArgs {
 pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
         brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
-    reporter.set_is_evaluating(true);
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .build()
         .await?;
     let projects = brioche_core::project::Projects::default();
 
-    let install_future = async {
-        let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
+    let mut error_result = Option::None;
+
+    // Handle the case where no projects and no registries are specified
+    let projects_path =
+        if args.project.project.is_empty() && args.project.registry_project.is_empty() {
+            vec![PathBuf::from(".")]
+        } else {
+            args.project.project
+        };
+
+    // Loop over the projects
+    for project_path in projects_path {
+        let project_name = format!("project '{name}'", name = project_path.display());
+
+        match projects.load(&brioche, &project_path, true).await {
+            Ok(project_hash) => {
+                let result = run_install(
+                    &reporter,
+                    &brioche,
+                    &projects,
+                    project_hash,
+                    &project_name,
+                    &args.export,
+                    args.check,
+                )
+                .await;
+
+                // Ensure the reporter is no longer evaluating, in case of an error
+                reporter.set_is_evaluating(false);
+
+                consolidate_result(&reporter, &project_name, result, &mut error_result);
+            }
+            Err(e) => {
+                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
+            }
+        }
+    }
+
+    // Loop over the registry projects
+    for registry_project in args.project.registry_project {
+        let project_name = format!("registry project '{registry_project}'");
+
+        match projects
+            .load_from_registry(
+                &brioche,
+                &registry_project,
+                &brioche_core::project::Version::Any,
+            )
+            .await
+        {
+            Ok(project_hash) => {
+                let result = run_install(
+                    &reporter,
+                    &brioche,
+                    &projects,
+                    project_hash,
+                    &project_name,
+                    &args.export,
+                    args.check,
+                )
+                .await;
+
+                // Ensure the reporter is no longer evaluating, in case of an error
+                reporter.set_is_evaluating(false);
+
+                consolidate_result(&reporter, &project_name, result, &mut error_result);
+            }
+            Err(e) => {
+                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
+            }
+        }
+    }
+
+    guard.shutdown_console().await;
+
+    let exit_code = if error_result.is_some() {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    };
+
+    Ok(exit_code)
+}
+
+async fn run_install(
+    reporter: &Reporter,
+    brioche: &Brioche,
+    projects: &Projects,
+    project_hash: ProjectHash,
+    project_name: &String,
+    export: &String,
+    check: bool,
+) -> Result<bool, anyhow::Error> {
+    async {
+        reporter.set_is_evaluating(true);
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {
             tracing::info!(num_lockfiles_updated, "updated lockfiles");
         }
 
-        if args.check {
+        if check {
             let checked =
-                brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+                brioche_core::script::check::check(brioche, projects, project_hash).await?;
 
             let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
 
             match result {
                 Ok(()) => reporter.emit(superconsole::Lines::from_multiline_string(
-                    "No errors found",
-                    superconsole::style::ContentStyle {
-                        foreground_color: Some(superconsole::style::Color::Green),
-                        ..superconsole::style::ContentStyle::default()
-                    },
+                    &format!("No errors found in {project_name}"),
+                    superconsole::style::ContentStyle::default(),
                 )),
                 Err(diagnostics) => {
-                    guard.shutdown_console().await;
+                    let mut output = Vec::new();
+                    diagnostics.write(&brioche.vfs, &mut output)?;
 
-                    diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
-                    anyhow::bail!("checks failed");
+                    reporter.emit(superconsole::Lines::from_multiline_string(
+                        &String::from_utf8(output)?,
+                        superconsole::style::ContentStyle::default(),
+                    ));
+
+                    return Ok(false);
                 }
             }
         }
 
-        let recipe = brioche_core::script::evaluate::evaluate(
-            &brioche,
-            &projects,
-            project_hash,
-            &args.export,
-        )
-        .await?;
+        let recipe =
+            brioche_core::script::evaluate::evaluate(brioche, projects, project_hash, export)
+                .await?;
 
         reporter.set_is_evaluating(false);
+
         let artifact = brioche_core::bake::bake(
-            &brioche,
+            brioche,
             recipe,
             &brioche_core::bake::BakeScope::Project {
                 project_hash,
-                export: args.export.to_string(),
+                export: export.to_string(),
             },
         )
         .await?;
-
-        guard.shutdown_console().await;
 
         let elapsed = reporter.elapsed().human_duration();
         let num_jobs = reporter.num_jobs();
@@ -89,7 +185,11 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
             1 => "1 job".to_string(),
             n => format!("{n} jobs"),
         };
-        eprintln!("Build finished, completed {jobs_message} in {elapsed}");
+
+        reporter.emit(superconsole::Lines::from_multiline_string(
+            &format!("Build finished, completed {jobs_message} in {elapsed}",),
+            superconsole::style::ContentStyle::default(),
+        ));
 
         // Ensure the artifact is a directory
         let mut directory = match artifact.value {
@@ -103,7 +203,7 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
         };
 
         // Remove the top-level `brioche-run` file if it exists
-        directory.insert(&brioche, b"brioche-run", None).await?;
+        directory.insert(brioche, b"brioche-run", None).await?;
 
         // Create the installation directory if it doesn't exist
         let install_dir = brioche.home.join("installed");
@@ -116,9 +216,12 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                 )
             })?;
 
-        println!("Writing output");
+        reporter.emit(superconsole::Lines::from_multiline_string(
+            &format!("Writing output for {project_name}"),
+            superconsole::style::ContentStyle::default(),
+        ));
         brioche_core::output::create_output(
-            &brioche,
+            brioche,
             &brioche_core::recipe::Artifact::Directory(directory),
             brioche_core::output::OutputOptions {
                 output_path: &install_dir,
@@ -129,7 +232,10 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
             },
         )
         .await?;
-        println!("Wrote output to {}", install_dir.display());
+        reporter.emit(superconsole::Lines::from_multiline_string(
+            &format!("Wrote output to {}", install_dir.display()),
+            superconsole::style::ContentStyle::default(),
+        ));
 
         let install_bin_dir = install_dir.join("bin");
         let install_bin_dir_exists = tokio::fs::try_exists(&install_bin_dir).await?;
@@ -142,16 +248,17 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
         };
 
         if install_bin_dir_exists && !is_on_path {
-            println!("Note: installation directory not detected in $PATH! Consider adding it:");
-            println!("  {}", install_bin_dir.display());
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &format!(
+                    "Note: installation directory not detected in $PATH! Consider adding it:\n  {}",
+                    install_bin_dir.display()
+                ),
+                superconsole::style::ContentStyle::default(),
+            ));
         }
 
-        Ok(ExitCode::SUCCESS)
-    };
-
-    let exit_code = install_future
-        .instrument(tracing::info_span!("run_install"))
-        .await?;
-
-    Ok(exit_code)
+        Ok(true)
+    }
+    .instrument(tracing::info_span!("run_install"))
+    .await
 }

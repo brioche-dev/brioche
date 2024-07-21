@@ -93,16 +93,17 @@ async fn run_check(
     project_hash: ProjectHash,
     project_name: &String,
 ) -> Result<bool, anyhow::Error> {
-    let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
-    if num_lockfiles_updated > 0 {
-        tracing::info!(num_lockfiles_updated, "updated lockfiles");
-    }
+    let result = async {
+        let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
+        if num_lockfiles_updated > 0 {
+            tracing::info!(num_lockfiles_updated, "updated lockfiles");
+        }
 
-    let result =
-        async { brioche_core::script::check::check(brioche, projects, project_hash).await }
-            .instrument(tracing::info_span!("check"))
-            .await?
-            .ensure_ok(brioche_core::script::check::DiagnosticLevel::Message);
+        brioche_core::script::check::check(brioche, projects, project_hash).await
+    }
+    .instrument(tracing::info_span!("check"))
+    .await?
+    .ensure_ok(brioche_core::script::check::DiagnosticLevel::Message);
 
     match result {
         Ok(()) => {
