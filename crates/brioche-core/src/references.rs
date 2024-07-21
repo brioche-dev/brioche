@@ -96,11 +96,12 @@ pub async fn project_references(
         }
 
         for (module_path, module_statics) in statics {
-            for static_recipe in module_statics.values() {
-                let static_recipe = static_recipe.with_context(|| {
-                    format!("static recipe not loaded for module {module_path}")
-                })?;
-                new_recipes.insert(static_recipe);
+            for (static_, output) in module_statics {
+                let output = output
+                    .as_ref()
+                    .with_context(|| format!("static not loaded for module {module_path}"))?;
+                let static_recipe_hash = static_.output_recipe_hash(output)?;
+                new_recipes.insert(static_recipe_hash);
             }
         }
     }

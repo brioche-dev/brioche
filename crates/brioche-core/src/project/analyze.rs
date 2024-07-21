@@ -42,6 +42,44 @@ pub enum ImportAnalysis {
 pub enum StaticQuery {
     Include(StaticInclude),
     Glob { patterns: Vec<String> },
+    Download { url: url::Url },
+}
+
+impl StaticQuery {
+    pub fn output_recipe_hash(
+        &self,
+        output: &StaticOutput,
+    ) -> anyhow::Result<crate::recipe::RecipeHash> {
+        let recipe_hash = match output {
+            StaticOutput::RecipeHash(hash) => *hash,
+            StaticOutput::Kind(StaticOutputKind::Download { hash }) => {
+                let download_url = match self {
+                    StaticQuery::Download { url } => url,
+                    _ => anyhow::bail!("expected download query"),
+                };
+                let recipe = crate::recipe::Recipe::Download(crate::recipe::DownloadRecipe {
+                    url: download_url.clone(),
+                    hash: hash.clone(),
+                });
+                recipe.hash()
+            }
+        };
+
+        Ok(recipe_hash)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum StaticOutput {
+    RecipeHash(crate::recipe::RecipeHash),
+    Kind(StaticOutputKind),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind")]
+pub enum StaticOutputKind {
+    Download { hash: crate::Hash },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -379,7 +417,7 @@ where
                 return Ok(None);
             }
 
-            // Filter down to calls to the `.get()` method
+            // Filter down to calls to one of the static methods
             let Ok(callee_member) = callee.member() else {
                 return Ok(None);
             };
@@ -462,6 +500,37 @@ where
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
                     Ok(Some(StaticQuery::Glob { patterns: args }))
+                }
+                "download" => {
+                    // Get the arguments
+                    let args = call_expr.arguments()?.args();
+                    let args = args
+                        .iter()
+                        .map(arg_to_string_literal)
+                        .map(|arg| {
+                            arg.with_context(|| {
+                                format!("{location}: invalid arg to Brioche.download")
+                            })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
+
+                    // Ensure there's exactly one argument
+                    let url = match &*args {
+                        [url] => url.text(),
+                        _ => {
+                            anyhow::bail!(
+                                "{location}: Brioche.download() must take exactly one argument",
+                            );
+                        }
+                    };
+
+                    // Parse the URL
+                    let url = url.parse().with_context(|| {
+                        format!("{location}: invalid URL for Brioche.download")
+                    })?;
+
+                    Ok(Some(StaticQuery::Download { url }))
+
                 }
                 _ => Ok(None),
             }

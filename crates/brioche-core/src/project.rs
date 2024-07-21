@@ -4,11 +4,11 @@ use std::{
     sync::Arc,
 };
 
-use analyze::StaticQuery;
+use analyze::{StaticOutput, StaticOutputKind, StaticQuery};
 use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::recipe::{Artifact, RecipeHash};
 
@@ -482,10 +482,11 @@ impl ProjectsInner {
         let Some(statics) = project.statics.get(&module_path) else {
             return Ok(None);
         };
-        let Some(Some(static_)) = statics.get(static_) else {
+        let Some(Some(output)) = statics.get(static_) else {
             return Ok(None);
         };
-        Ok(Some(*static_))
+        let recipe_hash = static_.output_recipe_hash(output)?;
+        Ok(Some(recipe_hash))
     }
 }
 
@@ -682,7 +683,16 @@ async fn load_project_inner(
         for static_ in &module.statics {
             // Only resolve the static if we need a fully valid project
             if fully_valid {
-                let recipe_hash = resolve_static(brioche, &path, module, static_).await?;
+                let recipe_hash = resolve_static(
+                    brioche,
+                    &path,
+                    module,
+                    static_,
+                    lockfile_required,
+                    lockfile.as_ref(),
+                    &mut new_lockfile,
+                )
+                .await?;
                 module_statics.insert(static_.clone(), Some(recipe_hash));
             } else {
                 module_statics.insert(static_.clone(), None);
@@ -977,25 +987,32 @@ async fn fetch_project_from_registry(
         })
         .await?;
 
-    let statics_recipes = project
-        .statics
-        .values()
-        .flat_map(|module_statics| module_statics.values().filter_map(|recipe| *recipe))
-        .collect::<HashSet<_>>();
+    let mut statics_recipes = HashSet::new();
+    for (static_, output) in project.statics.values().flatten() {
+        let Some(output) = output else {
+            continue;
+        };
+
+        let recipe_hash = static_.output_recipe_hash(output)?;
+        statics_recipes.insert(recipe_hash);
+    }
+
     crate::registry::fetch_recipes_deep(brioche, statics_recipes).await?;
 
     for (module_path, statics) in &project.statics {
-        for (static_, recipe_hash) in statics {
-            let Some(recipe_hash) = recipe_hash else {
+        for (static_, output) in statics {
+            let Some(output) = output else {
                 continue;
             };
+
+            let recipe_hash = static_.output_recipe_hash(output)?;
 
             let module_path = module_path.to_logical_path(&temp_project_path);
             let module_dir = module_path.parent().context("no parent dir for module")?;
 
             match static_ {
                 StaticQuery::Include(include) => {
-                    let recipe = crate::recipe::get_recipe(brioche, *recipe_hash).await?;
+                    let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
                     let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
                         anyhow::anyhow!("included static recipe is not an artifact")
                     })?;
@@ -1014,7 +1031,7 @@ async fn fetch_project_from_registry(
                     .await?;
                 }
                 StaticQuery::Glob { .. } => {
-                    let recipe = crate::recipe::get_recipe(brioche, *recipe_hash).await?;
+                    let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
                     let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
                         anyhow::anyhow!("included static recipe is not an artifact")
                     })?;
@@ -1030,6 +1047,9 @@ async fn fetch_project_from_registry(
                         },
                     )
                     .await?;
+                }
+                StaticQuery::Download { .. } => {
+                    // No need to do anything while fetching the project
                 }
             }
         }
@@ -1066,12 +1086,32 @@ async fn fetch_project_from_registry(
             .context("failed to copy blob")?;
     }
 
+    let dependencies = project
+        .dependencies
+        .iter()
+        .map(|(name, hash)| (name.clone(), *hash))
+        .collect();
+    let downloads = project
+        .statics
+        .values()
+        .flatten()
+        .filter_map(|(static_, output)| {
+            let url = match static_ {
+                StaticQuery::Download { url, .. } => url,
+                _ => return None,
+            };
+
+            let hash = match output {
+                Some(StaticOutput::Kind(StaticOutputKind::Download { hash })) => hash,
+                _ => return None,
+            };
+
+            Some((url.clone(), hash.clone()))
+        })
+        .collect();
     let lockfile = Lockfile {
-        dependencies: project
-            .dependencies
-            .iter()
-            .map(|(name, hash)| (name.clone(), *hash))
-            .collect(),
+        dependencies,
+        downloads,
     };
     let lockfile_path = temp_project_path.join("brioche.lock");
     let lockfile_contents =
@@ -1161,7 +1201,10 @@ async fn resolve_static(
     project_root: &Path,
     module: &analyze::ModuleAnalysis,
     static_: &analyze::StaticQuery,
-) -> anyhow::Result<RecipeHash> {
+    lockfile_required: bool,
+    lockfile: Option<&Lockfile>,
+    new_lockfile: &mut Lockfile,
+) -> anyhow::Result<StaticOutput> {
     match static_ {
         analyze::StaticQuery::Include(include) => {
             let module_path = module.project_subpath.to_path(project_root);
@@ -1220,7 +1263,7 @@ async fn resolve_static(
             let recipe = crate::recipe::Recipe::from(artifact.value);
             crate::recipe::save_recipes(brioche, [&recipe]).await?;
 
-            Ok(artifact_hash)
+            Ok(StaticOutput::RecipeHash(artifact_hash))
         }
         analyze::StaticQuery::Glob { patterns } => {
             let module_path = module.project_subpath.to_path(project_root);
@@ -1302,7 +1345,97 @@ async fn resolve_static(
 
             crate::recipe::save_recipes(brioche, [&recipe]).await?;
 
-            Ok(recipe_hash)
+            Ok(StaticOutput::RecipeHash(recipe_hash))
+        }
+        StaticQuery::Download { url } => {
+            let current_download_hash = lockfile.and_then(|lockfile| lockfile.downloads.get(url));
+
+            let download_hash: crate::Hash;
+            let blob_hash: Option<crate::blob::BlobHash>;
+
+            if let Some(hash) = current_download_hash {
+                // If we have the hash from the lockfile, use it to build
+                // the recipe. But, we don't have the blob hash yet
+                download_hash = hash.clone();
+                blob_hash = None;
+            } else if lockfile_required {
+                // Error out if the download isn't in the lockfile but where
+                // updating the lockfile is disabled
+                anyhow::bail!("hash for download '{url}' not found in lockfile");
+            } else {
+                // Download the URL as a blob
+                let new_blob_hash = crate::download::download(brioche, url, None).await?;
+                let blob_path = crate::blob::local_blob_path(brioche, new_blob_hash);
+                let mut blob = tokio::fs::File::open(&blob_path).await?;
+
+                // Compute a hash to store in the lockfile
+                let mut hasher = crate::Hasher::new_sha256();
+                let mut buffer = vec![0u8; 1024 * 1024];
+                loop {
+                    let length = blob
+                        .read(&mut buffer)
+                        .await
+                        .context("failed to read blob")?;
+                    if length == 0 {
+                        break;
+                    }
+
+                    hasher.update(&buffer[..length]);
+                }
+
+                // Record both the hash for the recipe plus the output
+                // blob hash
+                download_hash = hasher.finish()?;
+                blob_hash = Some(new_blob_hash);
+            };
+
+            // Create the download recipe, which is equivalent to the URL
+            // we downloaded or the one recorded in the lockfile
+            let download_recipe = crate::recipe::Recipe::Download(crate::recipe::DownloadRecipe {
+                hash: download_hash.clone(),
+                url: url.clone(),
+            });
+            let download_recipe_hash = download_recipe.hash();
+
+            if let Some(blob_hash) = blob_hash {
+                // If we downloaded the blob, save the recipe and the output
+                // artifact. This effectively caches the download
+
+                let download_artifact = crate::recipe::Artifact::File(crate::recipe::File {
+                    content_blob: blob_hash,
+                    executable: false,
+                    resources: Default::default(),
+                });
+
+                let download_recipe_json = serde_json::to_string(&download_recipe)
+                    .context("failed to serialize download recipe")?;
+                let download_artifact_hash = download_artifact.hash();
+                let download_artifact_json = serde_json::to_string(&download_artifact)
+                    .context("failed to serialize download output artifact")?;
+                crate::bake::save_bake_result(
+                    brioche,
+                    download_recipe_hash,
+                    &download_recipe_json,
+                    download_artifact_hash,
+                    &download_artifact_json,
+                )
+                .await?;
+            } else {
+                // If we didn't download the blob, just save the recipe. This
+                // either means we've already cached the download before,
+                // or we haven't and we'll need to download it or fetch
+                // it from the registry
+                crate::recipe::save_recipes(brioche, &[download_recipe]).await?;
+            }
+
+            // Update the new lockfile with the download hash
+            new_lockfile
+                .downloads
+                .insert(url.clone(), download_hash.clone());
+
+            Ok(StaticOutput::Kind(StaticOutputKind::Download {
+                hash: download_hash,
+            }))
         }
     }
 }
@@ -1316,7 +1449,7 @@ pub struct Project {
     pub modules: HashMap<RelativePathBuf, FileId>,
     #[serde_as(as = "HashMap<_, Vec<(_, _)>>")]
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub statics: HashMap<RelativePathBuf, BTreeMap<StaticQuery, Option<RecipeHash>>>,
+    pub statics: HashMap<RelativePathBuf, BTreeMap<StaticQuery, Option<StaticOutput>>>,
 }
 
 impl Project {
@@ -1533,4 +1666,7 @@ impl std::fmt::Display for WorkspaceMember {
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
     pub dependencies: BTreeMap<String, ProjectHash>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub downloads: BTreeMap<url::Url, crate::Hash>,
 }
