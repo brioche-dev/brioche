@@ -6,11 +6,11 @@ use std::{
     },
 };
 
-use opentelemetry::trace::TracerProvider;
 use bstr::ByteSlice;
 use debug_ignore::DebugIgnore;
 use human_repr::HumanDuration as _;
 use joinery::JoinableIterator as _;
+use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
@@ -117,7 +117,9 @@ pub fn start_console_reporter(
 
     let opentelemetry_layer = brioche_jaeger_endpoint
         .map(|jaeger_endpoint| {
-            opentelemetry::global::set_text_map_propagator(opentelemetry_sdk::propagation::TraceContextPropagator::new());
+            opentelemetry::global::set_text_map_propagator(
+                opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+            );
             let provider = opentelemetry_otlp::new_pipeline()
                 .tracing()
                 .with_exporter(
