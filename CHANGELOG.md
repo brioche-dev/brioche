@@ -6,18 +6,19 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+### Added
+
+- Implement support for `Brioche.download("...")`. The provided URL will be downloaded, and the hash will automatically be recorded in the `brioche.lock` lockfile ([#102](https://github.com/brioche-dev/brioche/pull/102))
+    - **NOTE**: This requires an updated version of the `std` package, see [brioche-dev/brioche-packages#75](https://github.com/brioche-dev/brioche-packages/pull/75)
+
 ### Changed
 
-- Update `brioche fmt` command to take the `-p` option more than once, allowing for formatting multiple projects at a time ([#84](https://github.com/brioche-dev/brioche/pull/84) by [@jaudiger](https://github.com/jaudiger))
-
-### Removed
-
-- Some executables that were originally included as part of this repo have been removed from this repo and instead moved into [`brioche-runtime-utils`](https://github.com/brioche-dev/brioche-runtime-utils) instead ([#62](https://github.com/brioche-dev/brioche/pull/62)). The moved executables include:
-    - `brioche-ld`
-    - `brioche-packed-plain-exec`
-    - `brioche-packed-userland-exec`
-    - `brioche-packer`
-- Several utility functions that were previously exported from `brioche-pack` have instead been moved into the new crates `brioche-resources` and `brioche-autowrap` in the [`brioche-runtime-utils`](https://github.com/brioche-dev/brioche-runtime-utils) repo ([#63](https://github.com/brioche-dev/brioche/pull/63))
+- Update most subcommands to take the `--project` (`-p`) or `--registry` (`-r`) argument more than once. The command will apply to each project. This applies to the following subcommands:
+    - `brioche fmt` ([#84](https://github.com/brioche-dev/brioche/pull/84) by [@jaudiger](https://github.com/jaudiger))
+    - `brioche check` ([#91](https://github.com/brioche-dev/brioche/pull/91) by [@jaudiger](https://github.com/jaudiger))
+    - `brioche publish` ([#106](https://github.com/brioche-dev/brioche/pull/106) by [@jaudiger](https://github.com/jaudiger))
+    - `brioche install` ([#107](https://github.com/brioche-dev/brioche/pull/107) by [@jaudiger](https://github.com/jaudiger))
+- Update `brioche fmt` to print formatted files ([#75](https://github.com/brioche-dev/brioche/issues/75) by [@jaudiger](https://github.com/jaudiger))
 
 ## [v0.1.1] - 2024-06-09
 
