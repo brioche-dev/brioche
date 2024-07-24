@@ -124,15 +124,30 @@ pub fn start_console_reporter(
                 .tracing()
                 .with_exporter(
                     opentelemetry_otlp::new_exporter()
-                        .tonic()
+                        .http()
+                        .with_http_client(reqwest::Client::new())
                         .with_endpoint(jaeger_endpoint)
-                        .with_protocol(opentelemetry_otlp::Protocol::Grpc),
+                        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary),
                 )
+                .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
+                    opentelemetry_sdk::Resource::default().merge(&opentelemetry_sdk::Resource::new(
+                        vec![
+                            opentelemetry::KeyValue::new(
+                                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                                "brioche",
+                            ),
+                            opentelemetry::KeyValue::new(
+                                opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
+                                env!("CARGO_PKG_VERSION"),
+                            ),
+                        ],
+                    )),
+                ))
                 .install_simple()?;
 
             anyhow::Ok(
                 tracing_opentelemetry::layer()
-                    .with_tracer(provider.tracer("brioche"))
+                    .with_tracer(provider.tracer("tracing-opentelemetry"))
                     .with_filter(tracing_debug_filter()),
             )
         })
