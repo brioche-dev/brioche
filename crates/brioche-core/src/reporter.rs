@@ -130,8 +130,8 @@ pub fn start_console_reporter(
                         .with_protocol(opentelemetry_otlp::Protocol::HttpBinary),
                 )
                 .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
-                    opentelemetry_sdk::Resource::default().merge(&opentelemetry_sdk::Resource::new(
-                        vec![
+                    opentelemetry_sdk::Resource::default().merge(
+                        &opentelemetry_sdk::Resource::new(vec![
                             opentelemetry::KeyValue::new(
                                 opentelemetry_semantic_conventions::resource::SERVICE_NAME,
                                 "brioche",
@@ -140,8 +140,8 @@ pub fn start_console_reporter(
                                 opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
                                 env!("CARGO_PKG_VERSION"),
                             ),
-                        ],
-                    )),
+                        ]),
+                    ),
                 ))
                 .install_simple()?;
 
