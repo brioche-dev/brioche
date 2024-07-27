@@ -10,6 +10,8 @@ use bstr::ByteSlice;
 use debug_ignore::DebugIgnore;
 use human_repr::HumanDuration as _;
 use joinery::JoinableIterator as _;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::WithExportConfig;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
 const DEFAULT_TRACING_LEVEL: &str = "brioche=info";
@@ -115,15 +117,37 @@ pub fn start_console_reporter(
 
     let opentelemetry_layer = brioche_jaeger_endpoint
         .map(|jaeger_endpoint| {
-            opentelemetry::global::set_text_map_propagator(opentelemetry_jaeger::Propagator::new());
-            let tracer = opentelemetry_jaeger::new_agent_pipeline()
-                .with_service_name("brioche")
-                .with_endpoint(jaeger_endpoint)
+            opentelemetry::global::set_text_map_propagator(
+                opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+            );
+            let provider = opentelemetry_otlp::new_pipeline()
+                .tracing()
+                .with_exporter(
+                    opentelemetry_otlp::new_exporter()
+                        .http()
+                        .with_http_client(reqwest::Client::new())
+                        .with_endpoint(jaeger_endpoint)
+                        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary),
+                )
+                .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
+                    opentelemetry_sdk::Resource::default().merge(
+                        &opentelemetry_sdk::Resource::new(vec![
+                            opentelemetry::KeyValue::new(
+                                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                                "brioche",
+                            ),
+                            opentelemetry::KeyValue::new(
+                                opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
+                                env!("CARGO_PKG_VERSION"),
+                            ),
+                        ]),
+                    ),
+                ))
                 .install_simple()?;
 
             anyhow::Ok(
                 tracing_opentelemetry::layer()
-                    .with_tracer(tracer)
+                    .with_tracer(provider.tracer("tracing-opentelemetry"))
                     .with_filter(tracing_debug_filter()),
             )
         })
