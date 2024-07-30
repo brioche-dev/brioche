@@ -11,7 +11,6 @@ use debug_ignore::DebugIgnore;
 use human_repr::HumanDuration as _;
 use joinery::JoinableIterator as _;
 use opentelemetry::trace::TracerProvider;
-use opentelemetry_otlp::WithExportConfig;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
 const DEFAULT_TRACING_LEVEL: &str = "brioche=info";
@@ -32,7 +31,10 @@ pub fn start_console_reporter(
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 
-    let brioche_jaeger_endpoint = std::env::var("BRIOCHE_JAEGER_ENDPOINT").ok();
+    let brioche_otel_enabled = matches!(
+        std::env::var("BRIOCHE_ENABLE_OTEL").as_deref(),
+        Ok("1") | Ok("true")
+    );
 
     let start = std::time::Instant::now();
     let is_evaluating = Arc::new(AtomicBool::new(false));
@@ -46,7 +48,7 @@ pub fn start_console_reporter(
     let guard = ReporterGuard {
         tx,
         shutdown_rx: Some(shutdown_rx),
-        shutdown_opentelemetry: brioche_jaeger_endpoint.is_some(),
+        shutdown_opentelemetry: brioche_otel_enabled,
     };
 
     std::thread::spawn({
@@ -115,43 +117,41 @@ pub fn start_console_reporter(
         }
     });
 
-    let opentelemetry_layer = brioche_jaeger_endpoint
-        .map(|jaeger_endpoint| {
-            opentelemetry::global::set_text_map_propagator(
-                opentelemetry_sdk::propagation::TraceContextPropagator::new(),
-            );
-            let provider = opentelemetry_otlp::new_pipeline()
-                .tracing()
-                .with_exporter(
-                    opentelemetry_otlp::new_exporter()
-                        .http()
-                        .with_http_client(reqwest::Client::new())
-                        .with_endpoint(jaeger_endpoint)
-                        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary),
-                )
-                .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
-                    opentelemetry_sdk::Resource::default().merge(
-                        &opentelemetry_sdk::Resource::new(vec![
-                            opentelemetry::KeyValue::new(
-                                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-                                "brioche",
-                            ),
-                            opentelemetry::KeyValue::new(
-                                opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
-                                env!("CARGO_PKG_VERSION"),
-                            ),
-                        ]),
-                    ),
-                ))
-                .install_simple()?;
-
-            anyhow::Ok(
-                tracing_opentelemetry::layer()
-                    .with_tracer(provider.tracer("tracing-opentelemetry"))
-                    .with_filter(tracing_debug_filter()),
+    let opentelemetry_layer = if brioche_otel_enabled {
+        opentelemetry::global::set_text_map_propagator(
+            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+        );
+        let provider = opentelemetry_otlp::new_pipeline()
+            .tracing()
+            .with_exporter(
+                opentelemetry_otlp::new_exporter()
+                    .http()
+                    .with_http_client(reqwest::Client::new()),
             )
-        })
-        .transpose()?;
+            .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
+                opentelemetry_sdk::Resource::default().merge(&opentelemetry_sdk::Resource::new(
+                    vec![
+                        opentelemetry::KeyValue::new(
+                            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                            "brioche",
+                        ),
+                        opentelemetry::KeyValue::new(
+                            opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
+                            env!("CARGO_PKG_VERSION"),
+                        ),
+                    ],
+                )),
+            ))
+            .install_simple()?;
+
+        Some(
+            tracing_opentelemetry::layer()
+                .with_tracer(provider.tracer("tracing-opentelemetry"))
+                .with_filter(tracing_debug_filter()),
+        )
+    } else {
+        None
+    };
 
     let log_file_layer = match std::env::var_os("BRIOCHE_LOG_OUTPUT") {
         Some(debug_output_path) => {
