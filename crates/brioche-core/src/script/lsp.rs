@@ -265,7 +265,7 @@ impl LanguageServer for BriocheLspServer {
         tracing::info!("goto definition");
         let response = self
             .js_lsp
-            .send::<Option<Location>>(JsLspMessage::GotoDefintion(
+            .send::<Option<Location>>(JsLspMessage::GotoDefinition(
                 params.text_document_position_params.clone(),
             ))
             .await;
@@ -615,7 +615,7 @@ fn js_lsp_task(
                 JsLspMessage::Diagnostic(params) => {
                     call_method_1(&mut js_runtime, &js_lsp, "diagnostic", &params)
                 }
-                JsLspMessage::GotoDefintion(params) => {
+                JsLspMessage::GotoDefinition(params) => {
                     call_method_1(&mut js_runtime, &js_lsp, "gotoDefinition", &params)
                 }
                 JsLspMessage::Hover(params) => {
@@ -720,7 +720,7 @@ fn call_method_1(
 enum JsLspMessage {
     Completion(CompletionParams),
     Diagnostic(DocumentDiagnosticParams),
-    GotoDefintion(TextDocumentPositionParams),
+    GotoDefinition(TextDocumentPositionParams),
     Hover(HoverParams),
     DocumentHighlight(DocumentHighlightParams),
     References(ReferenceParams),
