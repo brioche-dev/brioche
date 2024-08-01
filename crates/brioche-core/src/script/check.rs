@@ -18,7 +18,8 @@ pub async fn check(
 ) -> anyhow::Result<CheckResult> {
     let specifier = projects.project_root_module_specifier(project_hash)?;
 
-    let module_loader = super::BriocheModuleLoader::new(brioche, projects);
+    let module_loader: super::BriocheModuleLoader = todo!();
+    // let module_loader = super::BriocheModuleLoader::new(brioche, projects);
     let compiler_host =
         super::compiler_host::BriocheCompilerHost::new(brioche.clone(), projects.clone()).await;
     compiler_host.load_document(&specifier).await?;

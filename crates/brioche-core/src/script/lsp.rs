@@ -548,8 +548,9 @@ fn js_lsp_task(
     )>(1);
 
     let js_lsp_task = local_pool.spawn_pinned(|| async move {
-        let module_loader =
-            super::BriocheModuleLoader::new(&compiler_host.brioche, &compiler_host.projects);
+        let module_loader: super::BriocheModuleLoader = todo!();
+        // let module_loader =
+        //     super::BriocheModuleLoader::new(&compiler_host.brioche, &compiler_host.projects);
 
         tracing::info!("building JS LSP");
 
