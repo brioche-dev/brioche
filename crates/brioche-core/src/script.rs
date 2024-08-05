@@ -40,7 +40,6 @@ pub struct ModuleLoaderTask {
 impl ModuleLoaderTask {
     pub fn new(brioche: Brioche, projects: Projects) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        tracing::error!("starting module loader task...");
 
         tokio::task::spawn(async move {
             while let Some(message) = rx.recv().await {
@@ -49,9 +48,6 @@ impl ModuleLoaderTask {
                         specifier,
                         contents_tx,
                     } => {
-                        tracing::error!(
-                            "[module_loader_task]: read_specifier_contents {specifier:?}"
-                        );
                         let contents = specifier::read_specifier_contents(&brioche.vfs, &specifier);
                         let _ = contents_tx.send(contents);
                     }
@@ -60,9 +56,6 @@ impl ModuleLoaderTask {
                         referrer,
                         resolved_tx,
                     } => {
-                        tracing::error!(
-                            "[module_loader_task]: resolve_specifier {specifier:?} {referrer:?}"
-                        );
                         let resolved = specifier::resolve(&projects, &specifier, &referrer);
                         let _ = resolved_tx.send(resolved);
                     }
@@ -240,8 +233,6 @@ impl RuntimeTask {
     pub fn new(brioche: Brioche, projects: Projects) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
-        tracing::error!("starting runtime task...");
-
         tokio::task::spawn(async move {
             while let Some(message) = rx.recv().await {
                 match message {
@@ -383,7 +374,6 @@ pub async fn op_brioche_bake_all(
     state: Rc<RefCell<OpState>>,
     #[serde] recipes: Vec<WithMeta<Recipe>>,
 ) -> Result<Vec<Artifact>, deno_core::error::AnyError> {
-    tracing::error!("calling bake_all...");
     let runtime_task = {
         let state = state.try_borrow()?;
         state
@@ -426,7 +416,6 @@ pub async fn op_brioche_create_proxy(
     state: Rc<RefCell<OpState>>,
     #[serde] recipe: Recipe,
 ) -> Result<Recipe, deno_core::error::AnyError> {
-    tracing::error!("calling create_proxy...");
     let runtime_task = {
         let state = state.try_borrow()?;
         state
@@ -448,7 +437,6 @@ pub async fn op_brioche_create_proxy(
         Ok(Err(_)) => "ok(err)",
         Err(_) => "err",
     };
-    tracing::error!("[create_proxy] result: {status}");
 
     let result = result??;
 
@@ -462,7 +450,6 @@ pub async fn op_brioche_read_blob(
     state: Rc<RefCell<OpState>>,
     #[serde] blob_hash: BlobHash,
 ) -> Result<crate::encoding::TickEncode<Vec<u8>>, deno_core::error::AnyError> {
-    tracing::error!("calling read_blob...");
     let runtime_task = {
         let state = state.try_borrow()?;
         state
@@ -498,7 +485,6 @@ pub async fn op_brioche_get_static(
     #[string] url: String,
     #[serde] static_: StaticQuery,
 ) -> Result<Recipe, deno_core::error::AnyError> {
-    tracing::error!("calling get_static...");
     let runtime_task = {
         let state = state.try_borrow()?;
         state

@@ -104,8 +104,6 @@ async fn evaluate_with_deno(
 
                 let result = export_value.call(&mut js_scope, module_namespace.into(), &[]);
 
-                tracing::error!("result: {:?}", result);
-
                 let result = match result {
                     Some(result) => result,
                     None => {
@@ -122,11 +120,8 @@ async fn evaluate_with_deno(
                 deno_core::v8::Global::new(&mut js_scope, result)
             };
 
-            tracing::error!("resolving...");
-
-            let resolved_result = js_runtime.resolve(result).await?;
-
-            tracing::error!("serializing...");
+            let resolved_result_fut = js_runtime.resolve(result);
+            let resolved_result = js_runtime.with_event_loop_promise(resolved_result_fut, Default::default()).await?;
 
             let serialized_result = {
                 let mut js_scope = js_runtime.handle_scope();
@@ -147,6 +142,7 @@ async fn evaluate_with_deno(
                     .context("expected `briocheSerialize` to be a function")?;
 
                 let serialized_result = result_serialize.call(&mut js_scope, resolved_result.into(), &[]);
+
                 let serialized_result = match serialized_result {
                     Some(serialized_result) => serialized_result,
                     None => {
@@ -160,10 +156,12 @@ async fn evaluate_with_deno(
                         }
                     }
                 };
+
                 deno_core::v8::Global::new(&mut js_scope, serialized_result)
             };
 
-            let serialized_resolved_result = js_runtime.resolve(serialized_result).await?;
+            let serialized_resolved_result_fut = js_runtime.resolve(serialized_result);
+            let serialized_resolved_result = js_runtime.with_event_loop_promise(serialized_resolved_result_fut, Default::default()).await?;
 
             let mut js_scope = js_runtime.handle_scope();
 
@@ -179,8 +177,6 @@ async fn evaluate_with_deno(
 
             Ok(recipe)
         });
-
-        tracing::error!("finished");
 
         let _ = result_tx.send(result);
     });
