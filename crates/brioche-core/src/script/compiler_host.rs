@@ -179,7 +179,7 @@ impl BriocheCompilerHost {
                             path: path.clone(),
                             result_tx,
                         })?;
-                    result_rx.await?;
+                    result_rx.await??;
                 }
                 BriocheModuleSpecifier::Runtime { .. } => {}
             }

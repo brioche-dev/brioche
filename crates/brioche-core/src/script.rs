@@ -456,16 +456,7 @@ pub async fn op_brioche_create_proxy(
         .send(RuntimeMessage::CreateProxy { recipe, result_tx })
         .await?;
 
-    let result = result_rx.await;
-
-    let status = match &result {
-        Ok(Ok(_)) => "ok",
-        Ok(Err(_)) => "ok(err)",
-        Err(_) => "err",
-    };
-
-    let result = result??;
-
+    let result = result_rx.await??;
     Ok(result)
 }
 
