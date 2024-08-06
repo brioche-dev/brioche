@@ -31,7 +31,8 @@ impl BriocheLspServer {
         projects: Projects,
         client: Client,
     ) -> anyhow::Result<Self> {
-        let compiler_host = BriocheCompilerHost::new(brioche.clone(), projects.clone()).await;
+        // let compiler_host = BriocheCompilerHost::new(brioche.clone(), projects.clone()).await;
+        let compiler_host: BriocheCompilerHost = todo!();
         let js_lsp = js_lsp_task(local_pool, compiler_host.clone());
 
         Ok(Self {
@@ -103,7 +104,10 @@ impl LanguageServer for BriocheLspServer {
         let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
         match specifier {
             Ok(specifier) => {
-                let result = self.compiler_host.load_document(&specifier).await;
+                let result = self
+                    .compiler_host
+                    .load_documents(vec![specifier.clone()])
+                    .await;
                 match result {
                     Ok(()) => {}
                     Err(error) => {
@@ -462,12 +466,13 @@ async fn try_update_lockfile_for_module(
     module_path: PathBuf,
     load_timeout: std::time::Duration,
 ) -> anyhow::Result<bool> {
-    let project_hash = compiler_host
-        .projects
-        .find_containing_project(&module_path)
-        .context("failed to get project path")?
-        .context("containing project not found")?;
-    let project_path = compiler_host.projects.project_root(project_hash)?.clone();
+    // let project_hash = compiler_host
+    //     .projects
+    //     .find_containing_project(&module_path)
+    //     .context("failed to get project path")?
+    //     .context("containing project not found")?;
+    // let project_path = compiler_host.projects.project_root(project_hash)?.clone();
+    let project_path: PathBuf = todo!();
 
     // The instances of `Brioche` and `Projects` used for the LSP aren't
     // suitable for generating lockfiles (access to the registry is disabled,

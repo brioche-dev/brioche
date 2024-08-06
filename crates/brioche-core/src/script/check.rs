@@ -16,79 +16,191 @@ pub async fn check(
     projects: &Projects,
     project_hash: ProjectHash,
 ) -> anyhow::Result<CheckResult> {
-    let specifier = projects.project_root_module_specifier(project_hash)?;
+    let project_specifiers = projects.project_module_specifiers(project_hash)?;
 
-    let module_loader: super::BriocheModuleLoader = todo!();
+    let module_loader_task = super::ModuleLoaderTask::new(brioche.clone(), projects.clone());
+    let compiler_host_task =
+        super::compiler_host::CompilerHostTask::new(brioche.clone(), projects.clone());
+
+    let result =
+        check_with_deno(project_specifiers, module_loader_task, compiler_host_task).await?;
+    Ok(result)
+
+    // let specifier = projects.project_root_module_specifier(project_hash)?;
+
     // let module_loader = super::BriocheModuleLoader::new(brioche, projects);
-    let compiler_host =
-        super::compiler_host::BriocheCompilerHost::new(brioche.clone(), projects.clone()).await;
-    compiler_host.load_document(&specifier).await?;
+    // let compiler_host =
+    //     super::compiler_host::BriocheCompilerHost::new(brioche.clone(), projects.clone()).await;
+    // compiler_host.load_document(&specifier).await?;
 
-    let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
-        module_loader: Some(Rc::new(module_loader)),
-        extensions: vec![
-            super::compiler_host::brioche_compiler_host::init_ops(compiler_host),
-            super::js::brioche_js::init_ops(),
-        ],
-        ..Default::default()
+    // let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
+    //     module_loader: Some(Rc::new(module_loader)),
+    //     extensions: vec![
+    //         super::compiler_host::brioche_compiler_host::init_ops(compiler_host),
+    //         super::js::brioche_js::init_ops(),
+    //     ],
+    //     ..Default::default()
+    // });
+
+    // let main_module: deno_core::ModuleSpecifier = "briocheruntime:///dist/index.js".parse()?;
+
+    // tracing::debug!(%specifier, %main_module, "evaluating module");
+
+    // let module_id = js_runtime.load_main_es_module(&main_module).await?;
+    // let result = js_runtime.mod_evaluate(module_id);
+    // js_runtime
+    //     .run_event_loop(deno_core::PollEventLoopOptions::default())
+    //     .await?;
+    // result.await?;
+
+    // let module_namespace = js_runtime.get_module_namespace(module_id)?;
+
+    // let mut js_scope = js_runtime.handle_scope();
+    // let module_namespace = deno_core::v8::Local::new(&mut js_scope, module_namespace);
+
+    // let export_key_name = "check";
+    // let export_key = deno_core::v8::String::new(&mut js_scope, export_key_name)
+    //     .context("failed to create V8 string")?;
+    // let export = module_namespace
+    //     .get(&mut js_scope, export_key.into())
+    //     .with_context(|| format!("expected module to have an export named {export_key_name:?}"))?;
+    // let export: deno_core::v8::Local<deno_core::v8::Function> = export
+    //     .try_into()
+    //     .with_context(|| format!("expected export {export_key_name:?} to be a function"))?;
+
+    // tracing::debug!(%specifier, %main_module, ?export_key_name, "running function");
+
+    // let files = projects.project_module_specifiers(project_hash)?;
+    // let files = serde_v8::to_v8(&mut js_scope, &files)?;
+
+    // let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
+
+    // let result = export.call(&mut js_scope, module_namespace.into(), &[files]);
+    // let result = match result {
+    //     Some(result) => result,
+    //     None => {
+    //         let error_message = js_scope
+    //             .exception()
+    //             .map(|exception| {
+    //                 anyhow::anyhow!(deno_core::error::JsError::from_v8_exception(
+    //                     &mut js_scope,
+    //                     exception
+    //                 ))
+    //             })
+    //             .unwrap_or_else(|| anyhow::anyhow!("unknown error when calling function"));
+    //         return Err(error_message)
+    //             .with_context(|| format!("error when calling {export_key_name:?}"));
+    //     }
+    // };
+
+    // let diagnostics: Vec<Diagnostic> = serde_v8::from_v8(&mut js_scope, result)?;
+
+    // tracing::debug!(%specifier, %main_module, "finished evaluating module");
+
+    // Ok(CheckResult { diagnostics })
+}
+
+async fn check_with_deno(
+    project_specifiers: Vec<super::specifier::BriocheModuleSpecifier>,
+    module_loader_task: super::ModuleLoaderTask,
+    compiler_host_task: super::compiler_host::CompilerHostTask,
+) -> anyhow::Result<CheckResult> {
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build();
+        let runtime = match runtime {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                let _ = result_tx.send(Err(error.into()));
+                return;
+            }
+        };
+
+        let result = runtime.block_on(async move {
+            let module_loader = super::BriocheModuleLoader::new(module_loader_task);
+            let compiler_host =
+                super::compiler_host::BriocheCompilerHost::new(compiler_host_task).await;
+            compiler_host
+                .load_documents(project_specifiers.clone())
+                .await?;
+
+            let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
+                module_loader: Some(Rc::new(module_loader)),
+                extensions: vec![
+                    super::compiler_host::brioche_compiler_host::init_ops(compiler_host),
+                    super::js::brioche_js::init_ops(),
+                ],
+                ..Default::default()
+            });
+
+            let main_module: deno_core::ModuleSpecifier =
+                "briocheruntime:///dist/index.js".parse()?;
+
+            tracing::debug!(%main_module, "evaluating module");
+
+            let module_id = js_runtime.load_main_es_module(&main_module).await?;
+            let result = js_runtime.mod_evaluate(module_id);
+            js_runtime
+                .run_event_loop(deno_core::PollEventLoopOptions::default())
+                .await?;
+            result.await?;
+
+            let module_namespace = js_runtime.get_module_namespace(module_id)?;
+
+            let mut js_scope = js_runtime.handle_scope();
+            let module_namespace = deno_core::v8::Local::new(&mut js_scope, module_namespace);
+
+            let export_key_name = "check";
+            let export_key = deno_core::v8::String::new(&mut js_scope, export_key_name)
+                .context("failed to create V8 string")?;
+            let export = module_namespace
+                .get(&mut js_scope, export_key.into())
+                .with_context(|| {
+                    format!("expected module to have an export named {export_key_name:?}")
+                })?;
+            let export: deno_core::v8::Local<deno_core::v8::Function> = export
+                .try_into()
+                .with_context(|| format!("expected export {export_key_name:?} to be a function"))?;
+
+            tracing::debug!(%main_module, ?export_key_name, "running function");
+
+            let files = serde_v8::to_v8(&mut js_scope, &project_specifiers)?;
+
+            let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
+
+            let result = export.call(&mut js_scope, module_namespace.into(), &[files]);
+            let result = match result {
+                Some(result) => result,
+                None => {
+                    let error_message = js_scope
+                        .exception()
+                        .map(|exception| {
+                            anyhow::anyhow!(deno_core::error::JsError::from_v8_exception(
+                                &mut js_scope,
+                                exception
+                            ))
+                        })
+                        .unwrap_or_else(|| anyhow::anyhow!("unknown error when calling function"));
+                    return Err(error_message)
+                        .with_context(|| format!("error when calling {export_key_name:?}"));
+                }
+            };
+
+            let diagnostics: Vec<Diagnostic> = serde_v8::from_v8(&mut js_scope, result)?;
+
+            tracing::debug!(%main_module, "finished evaluating module");
+
+            Ok(CheckResult { diagnostics })
+        });
+
+        let _ = result_tx.send(result);
     });
 
-    let main_module: deno_core::ModuleSpecifier = "briocheruntime:///dist/index.js".parse()?;
-
-    tracing::debug!(%specifier, %main_module, "evaluating module");
-
-    let module_id = js_runtime.load_main_es_module(&main_module).await?;
-    let result = js_runtime.mod_evaluate(module_id);
-    js_runtime
-        .run_event_loop(deno_core::PollEventLoopOptions::default())
-        .await?;
-    result.await?;
-
-    let module_namespace = js_runtime.get_module_namespace(module_id)?;
-
-    let mut js_scope = js_runtime.handle_scope();
-    let module_namespace = deno_core::v8::Local::new(&mut js_scope, module_namespace);
-
-    let export_key_name = "check";
-    let export_key = deno_core::v8::String::new(&mut js_scope, export_key_name)
-        .context("failed to create V8 string")?;
-    let export = module_namespace
-        .get(&mut js_scope, export_key.into())
-        .with_context(|| format!("expected module to have an export named {export_key_name:?}"))?;
-    let export: deno_core::v8::Local<deno_core::v8::Function> = export
-        .try_into()
-        .with_context(|| format!("expected export {export_key_name:?} to be a function"))?;
-
-    tracing::debug!(%specifier, %main_module, ?export_key_name, "running function");
-
-    let files = projects.project_module_specifiers(project_hash)?;
-    let files = serde_v8::to_v8(&mut js_scope, &files)?;
-
-    let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
-
-    let result = export.call(&mut js_scope, module_namespace.into(), &[files]);
-    let result = match result {
-        Some(result) => result,
-        None => {
-            let error_message = js_scope
-                .exception()
-                .map(|exception| {
-                    anyhow::anyhow!(deno_core::error::JsError::from_v8_exception(
-                        &mut js_scope,
-                        exception
-                    ))
-                })
-                .unwrap_or_else(|| anyhow::anyhow!("unknown error when calling function"));
-            return Err(error_message)
-                .with_context(|| format!("error when calling {export_key_name:?}"));
-        }
-    };
-
-    let diagnostics: Vec<Diagnostic> = serde_v8::from_v8(&mut js_scope, result)?;
-
-    tracing::debug!(%specifier, %main_module, "finished evaluating module");
-
-    Ok(CheckResult { diagnostics })
+    let result = result_rx.await??;
+    Ok(result)
 }
 
 pub struct CheckResult {
