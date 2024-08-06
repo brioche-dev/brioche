@@ -8,7 +8,7 @@ use crate::{
     Brioche,
 };
 
-use super::specifier::BriocheModuleSpecifier;
+use super::{bridge::RuntimeBridge, specifier::BriocheModuleSpecifier};
 
 #[tracing::instrument(skip(brioche, projects), err)]
 pub async fn check(
@@ -18,12 +18,9 @@ pub async fn check(
 ) -> anyhow::Result<CheckResult> {
     let project_specifiers = projects.project_module_specifiers(project_hash)?;
 
-    let module_loader_task = super::ModuleLoaderTask::new(brioche.clone(), projects.clone());
-    let compiler_host_task =
-        super::compiler_host::CompilerHostTask::new(brioche.clone(), projects.clone());
+    let runtime_bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
 
-    let result =
-        check_with_deno(project_specifiers, module_loader_task, compiler_host_task).await?;
+    let result = check_with_deno(project_specifiers, runtime_bridge).await?;
     Ok(result)
 
     // let specifier = projects.project_root_module_specifier(project_hash)?;
@@ -102,8 +99,7 @@ pub async fn check(
 
 async fn check_with_deno(
     project_specifiers: Vec<super::specifier::BriocheModuleSpecifier>,
-    module_loader_task: super::ModuleLoaderTask,
-    compiler_host_task: super::compiler_host::CompilerHostTask,
+    bridge: RuntimeBridge,
 ) -> anyhow::Result<CheckResult> {
     let (result_tx, result_rx) = tokio::sync::oneshot::channel();
 
@@ -120,9 +116,8 @@ async fn check_with_deno(
         };
 
         let result = runtime.block_on(async move {
-            let module_loader = super::BriocheModuleLoader::new(module_loader_task);
-            let compiler_host =
-                super::compiler_host::BriocheCompilerHost::new(compiler_host_task).await;
+            let module_loader = super::BriocheModuleLoader::new(bridge.clone());
+            let compiler_host = super::compiler_host::BriocheCompilerHost::new(bridge).await;
             compiler_host
                 .load_documents(project_specifiers.clone())
                 .await?;

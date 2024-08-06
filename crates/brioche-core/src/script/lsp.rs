@@ -12,6 +12,7 @@ use crate::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
 use crate::script::format::format_code;
 use crate::{Brioche, BriocheBuilder};
 
+use super::bridge::RuntimeBridge;
 use super::specifier::BriocheModuleSpecifier;
 
 /// The maximum time we spend resolving projects when regenerating a
@@ -19,24 +20,22 @@ use super::specifier::BriocheModuleSpecifier;
 const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub struct BriocheLspServer {
+    bridge: RuntimeBridge,
     compiler_host: BriocheCompilerHost,
-    module_loader_task: super::ModuleLoaderTask,
     client: Client,
     js_lsp: JsLspTask,
 }
 
 impl BriocheLspServer {
     pub async fn new(brioche: Brioche, projects: Projects, client: Client) -> anyhow::Result<Self> {
-        let compiler_host_task =
-            super::compiler_host::CompilerHostTask::new(brioche.clone(), projects.clone());
-        let module_loader_task = super::ModuleLoaderTask::new(brioche.clone(), projects.clone());
+        let bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
 
-        let compiler_host = BriocheCompilerHost::new(compiler_host_task).await;
-        let js_lsp = js_lsp_task(compiler_host.clone(), module_loader_task.clone());
+        let compiler_host = BriocheCompilerHost::new(bridge.clone()).await;
+        let js_lsp = js_lsp_task(compiler_host.clone(), bridge.clone());
 
         Ok(Self {
+            bridge,
             compiler_host,
-            module_loader_task,
             client,
             js_lsp,
         })
@@ -150,14 +149,14 @@ impl LanguageServer for BriocheLspServer {
             let (lockfile_tx, lockfile_rx) = tokio::sync::oneshot::channel();
 
             std::thread::spawn({
-                let module_loader_task = self.module_loader_task.clone();
+                let bridge = self.bridge.clone();
                 let module_path = module_path.clone();
                 move || {
                     let local_set = tokio::task::LocalSet::new();
 
                     local_set.spawn_local(async move {
                         let result = try_update_lockfile_for_module(
-                            module_loader_task,
+                            bridge,
                             module_path,
                             LOCKFILE_LOAD_TIMEOUT,
                         )
@@ -462,26 +461,11 @@ impl LanguageServer for BriocheLspServer {
 }
 
 async fn try_update_lockfile_for_module(
-    module_loader_task: super::ModuleLoaderTask,
+    bridge: RuntimeBridge,
     module_path: PathBuf,
     load_timeout: std::time::Duration,
 ) -> anyhow::Result<bool> {
-    // let project_hash = compiler_host
-    //     .projects
-    //     .find_containing_project(&module_path)
-    //     .context("failed to get project path")?
-    //     .context("containing project not found")?;
-    // let project_path = compiler_host.projects.project_root(project_hash)?.clone();
-    let (project_path_tx, project_path_rx) = tokio::sync::oneshot::channel();
-    module_loader_task
-        .tx
-        .send(super::ModuleLoaderMessage::ProjectRootForModulePath {
-            module_path,
-            project_path_tx,
-        })?;
-    let project_path = project_path_rx.await??;
-    // let project_path = module_loader_task.project_root_path_for_module_path(&module_path);
-    // let project_path: PathBuf = todo!();
+    let project_path = bridge.project_root_for_module_path(module_path).await?;
 
     // The instances of `Brioche` and `Projects` used for the LSP aren't
     // suitable for generating lockfiles (access to the registry is disabled,
@@ -552,17 +536,14 @@ impl JsLspTask {
     }
 }
 
-fn js_lsp_task(
-    compiler_host: BriocheCompilerHost,
-    module_loader_task: super::ModuleLoaderTask,
-) -> JsLspTask {
+fn js_lsp_task(compiler_host: BriocheCompilerHost, bridge: RuntimeBridge) -> JsLspTask {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(
         JsLspMessage,
         tokio::sync::oneshot::Sender<serde_json::Value>,
     )>(1);
 
     std::thread::spawn(move || {
-        let module_loader = super::BriocheModuleLoader::new(module_loader_task);
+        let module_loader = super::BriocheModuleLoader::new(bridge);
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -576,9 +557,6 @@ fn js_lsp_task(
         };
 
         let result = runtime.block_on(async move {
-            // let module_loader =
-            //     super::BriocheModuleLoader::new(&compiler_host.brioche, &compiler_host.projects);
-
             tracing::info!("building JS LSP");
 
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {

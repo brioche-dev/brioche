@@ -8,135 +8,21 @@ use std::{
 use anyhow::Context as _;
 use deno_core::OpState;
 
-use crate::{
-    project::{analyze::find_imports, ProjectHash, Projects},
-    Brioche,
+use crate::project::analyze::find_imports;
+
+use super::{
+    bridge::RuntimeBridge,
+    specifier::{self, BriocheImportSpecifier, BriocheModuleSpecifier},
 };
-
-use super::specifier::{self, resolve, BriocheImportSpecifier, BriocheModuleSpecifier};
-
-#[derive(Clone)]
-pub struct CompilerHostTask {
-    tx: tokio::sync::mpsc::UnboundedSender<CompilerHostMessage>,
-}
-
-impl CompilerHostTask {
-    pub fn new(brioche: Brioche, projects: Projects) -> Self {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-
-        tokio::spawn(async move {
-            while let Some(message) = rx.recv().await {
-                let brioche = brioche.clone();
-                let projects = projects.clone();
-
-                tokio::spawn(async move {
-                    match message {
-                        CompilerHostMessage::LoadProjectFromModulePath { path, result_tx } => {
-                            let result =
-                                projects.load_from_module_path(&brioche, &path, false).await;
-                            let _ = result_tx.send(result);
-                        }
-                        CompilerHostMessage::LoadSpecifierContents {
-                            specifier,
-                            contents_tx,
-                        } => {
-                            let contents =
-                                specifier::load_specifier_contents(&brioche.vfs, &specifier).await;
-                            let _ = contents_tx.send(contents);
-                        }
-                        CompilerHostMessage::ResolveSpecifier {
-                            specifier,
-                            referrer,
-                            resolved_tx,
-                        } => {
-                            let resolved = resolve(&projects, &specifier, &referrer);
-                            let _ = resolved_tx.send(resolved);
-                        }
-                        CompilerHostMessage::UpdateVfsContents {
-                            specifier,
-                            contents,
-                            result_tx,
-                        } => {
-                            let path = match specifier {
-                                BriocheModuleSpecifier::Runtime { .. } => {
-                                    let _ = result_tx.send(Ok(false));
-                                    return;
-                                }
-                                BriocheModuleSpecifier::File { path } => path,
-                            };
-
-                            let file_id = match brioche.vfs.load_cached(&path) {
-                                Ok(Some((file_id, _))) => file_id,
-                                Ok(None) => {
-                                    let _ = result_tx.send(Ok(false));
-                                    return;
-                                }
-                                Err(error) => {
-                                    let _ = result_tx.send(Err(error));
-                                    return;
-                                }
-                            };
-
-                            let result = brioche.vfs.update(file_id, contents).map(|_| true);
-                            let _ = result_tx.send(result);
-                        }
-                        CompilerHostMessage::ReloadProjectFromSpecifier {
-                            specifier,
-                            result_tx,
-                        } => {
-                            let path = match specifier {
-                                BriocheModuleSpecifier::Runtime { .. } => {
-                                    let _ = result_tx.send(Ok(false));
-                                    return;
-                                }
-                                BriocheModuleSpecifier::File { path } => path,
-                            };
-
-                            let project = projects.find_containing_project(&path);
-                            let project = match project {
-                                Ok(project) => project,
-                                Err(error) => {
-                                    let _ = result_tx.send(Err(error).with_context(|| {
-                                        format!("no project found for path '{}'", path.display())
-                                    }));
-                                    return;
-                                }
-                            };
-
-                            if let Some(project) = project {
-                                let result = projects.clear(project).await;
-                                match result {
-                                    Ok(_) => {}
-                                    Err(error) => {
-                                        let _ = result_tx.send(Err(error));
-                                        return;
-                                    }
-                                }
-                            }
-
-                            let result = projects
-                                .load_from_module_path(&brioche, &path, false)
-                                .await
-                                .map(|_| true);
-                            let _ = result_tx.send(result);
-                        }
-                    }
-                });
-            }
-        });
-
-        Self { tx }
-    }
-}
 
 #[derive(Clone)]
 pub struct BriocheCompilerHost {
-    pub task: CompilerHostTask,
+    pub bridge: RuntimeBridge,
     pub documents: Arc<RwLock<HashMap<BriocheModuleSpecifier, BriocheDocument>>>,
 }
 
 impl BriocheCompilerHost {
-    pub async fn new(task: CompilerHostTask) -> Self {
+    pub async fn new(bridge: RuntimeBridge) -> Self {
         let documents: HashMap<_, _> = specifier::runtime_specifiers_with_contents()
             .map(|(specifier, contents)| {
                 let contents = std::str::from_utf8(&contents)
@@ -151,7 +37,7 @@ impl BriocheCompilerHost {
             .collect();
 
         Self {
-            task,
+            bridge,
             documents: Arc::new(RwLock::new(documents)),
         }
     }
@@ -178,14 +64,9 @@ impl BriocheCompilerHost {
 
             match &specifier {
                 BriocheModuleSpecifier::File { path } => {
-                    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-                    self.task
-                        .tx
-                        .send(CompilerHostMessage::LoadProjectFromModulePath {
-                            path: path.clone(),
-                            result_tx,
-                        })?;
-                    result_rx.await??;
+                    self.bridge
+                        .load_project_from_module_path(path.clone())
+                        .await?;
                 }
                 BriocheModuleSpecifier::Runtime { .. } => {}
             }
@@ -193,17 +74,10 @@ impl BriocheCompilerHost {
             let contents = match contents {
                 Some(contents) => contents,
                 None => {
-                    let (contents_tx, contents_rx) = tokio::sync::oneshot::channel();
-                    self.task
-                        .tx
-                        .send(CompilerHostMessage::LoadSpecifierContents {
-                            specifier: specifier.clone(),
-                            contents_tx,
-                        })?;
-                    let contents = contents_rx.await??;
-                    // let contents =
-                    //     super::specifier::load_specifier_contents(&self.brioche.vfs, &specifier)
-                    //         .await?;
+                    let contents = self
+                        .bridge
+                        .load_specifier_contents(specifier.clone())
+                        .await?;
                     let contents = std::str::from_utf8(&contents).with_context(|| {
                         format!("failed to parse module '{specifier}' contents as UTF-8 string")
                     })?;
@@ -256,14 +130,10 @@ impl BriocheCompilerHost {
                         continue;
                     }
                 };
-                // let resolved = resolve(&self.projects, &import_specifier, &specifier);
-                let (resolved_tx, resolved_rx) = std::sync::mpsc::channel();
-                self.task.tx.send(CompilerHostMessage::ResolveSpecifier {
-                    specifier: import_specifier.clone(),
-                    referrer: specifier.clone(),
-                    resolved_tx,
-                })?;
-                let resolved = resolved_rx.recv()?;
+
+                let resolved = self
+                    .bridge
+                    .resolve_specifier(import_specifier.clone(), specifier.clone());
                 let resolved = match resolved {
                     Ok(resolved) => resolved,
                     Err(error) => {
@@ -306,23 +176,9 @@ impl BriocheCompilerHost {
                 });
         }
 
-        // match &specifier {
-        //     BriocheModuleSpecifier::Runtime { .. } => {}
-        //     BriocheModuleSpecifier::File { path } => {
-        //         if let Some((file_id, _)) = self.brioche.vfs.load_cached(path)? {
-        //             self.brioche
-        //                 .vfs
-        //                 .update(file_id, Arc::new(contents.as_bytes().to_vec()))?;
-        //         };
-        //     }
-        // }
-        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-        self.task.tx.send(CompilerHostMessage::UpdateVfsContents {
-            specifier: specifier.clone(),
-            contents: Arc::new(contents.as_bytes().to_vec()),
-            result_tx,
-        })?;
-        result_rx.await??;
+        self.bridge
+            .update_vfs_contents(specifier.clone(), Arc::new(contents.as_bytes().to_vec()))
+            .await?;
 
         self.load_documents(vec![specifier]).await?;
 
@@ -349,15 +205,10 @@ impl BriocheCompilerHost {
     pub async fn reload_module_project(&self, uri: &url::Url) -> anyhow::Result<()> {
         let specifier: BriocheModuleSpecifier = uri.try_into()?;
 
-        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-        self.task
-            .tx
-            .send(CompilerHostMessage::ReloadProjectFromSpecifier {
-                specifier: specifier.clone(),
-                result_tx,
-            })?;
-
-        let did_update = result_rx.await??;
+        let did_update = self
+            .bridge
+            .reload_project_from_specifier(specifier.clone())
+            .await?;
 
         if did_update {
             let mut documents = self
@@ -411,31 +262,6 @@ impl BriocheCompilerHost {
 pub struct BriocheDocument {
     pub contents: Arc<String>,
     pub version: u64,
-}
-
-pub enum CompilerHostMessage {
-    LoadProjectFromModulePath {
-        path: std::path::PathBuf,
-        result_tx: tokio::sync::oneshot::Sender<anyhow::Result<ProjectHash>>,
-    },
-    LoadSpecifierContents {
-        specifier: BriocheModuleSpecifier,
-        contents_tx: tokio::sync::oneshot::Sender<anyhow::Result<Arc<Vec<u8>>>>,
-    },
-    ResolveSpecifier {
-        specifier: BriocheImportSpecifier,
-        referrer: BriocheModuleSpecifier,
-        resolved_tx: std::sync::mpsc::Sender<anyhow::Result<BriocheModuleSpecifier>>,
-    },
-    UpdateVfsContents {
-        specifier: BriocheModuleSpecifier,
-        contents: Arc<Vec<u8>>,
-        result_tx: tokio::sync::oneshot::Sender<anyhow::Result<bool>>,
-    },
-    ReloadProjectFromSpecifier {
-        specifier: BriocheModuleSpecifier,
-        result_tx: tokio::sync::oneshot::Sender<anyhow::Result<bool>>,
-    },
 }
 
 deno_core::extension!(brioche_compiler_host,
@@ -515,19 +341,11 @@ pub fn op_brioche_resolve_module(
 
     let referrer: BriocheModuleSpecifier = referrer.parse().ok()?;
     let specifier: BriocheImportSpecifier = specifier.parse().ok()?;
-    let (resolved_tx, resolved_rx) = std::sync::mpsc::channel();
 
-    let _ = compiler_host
-        .task
-        .tx
-        .send(CompilerHostMessage::ResolveSpecifier {
-            specifier,
-            referrer,
-            resolved_tx,
-        });
-    let resolved = resolved_rx.recv().ok()?.ok()?;
-    // let resolved =
-    //     super::specifier::resolve(&compiler_host.projects, &specifier, &referrer).ok()?;
+    let resolved = compiler_host
+        .bridge
+        .resolve_specifier(specifier, referrer)
+        .ok()?;
 
     Some(resolved.to_string())
 }

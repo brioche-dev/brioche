@@ -9,7 +9,7 @@ use crate::{
     Brioche,
 };
 
-use super::BriocheModuleLoader;
+use super::{bridge::RuntimeBridge, BriocheModuleLoader};
 
 #[tracing::instrument(skip(brioche, projects, project_hash), fields(%project_hash), err)]
 pub async fn evaluate(
@@ -18,18 +18,10 @@ pub async fn evaluate(
     project_hash: ProjectHash,
     export: &str,
 ) -> anyhow::Result<WithMeta<Recipe>> {
-    let module_loader_task = super::ModuleLoaderTask::new(brioche.clone(), projects.clone());
-    let runtime_task = super::RuntimeTask::new(brioche.clone(), projects.clone());
+    let bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
     let main_module = projects.project_root_module_specifier(project_hash)?;
 
-    let result = evaluate_with_deno(
-        project_hash,
-        export.to_string(),
-        main_module,
-        module_loader_task,
-        runtime_task,
-    )
-    .await?;
+    let result = evaluate_with_deno(project_hash, export.to_string(), main_module, bridge).await?;
     Ok(result)
 }
 
@@ -37,8 +29,7 @@ async fn evaluate_with_deno(
     project_hash: ProjectHash,
     export: String,
     main_module: super::specifier::BriocheModuleSpecifier,
-    module_loader_task: super::ModuleLoaderTask,
-    runtime_task: super::RuntimeTask,
+    bridge: RuntimeBridge,
 ) -> anyhow::Result<WithMeta<Recipe>> {
     let (result_tx, result_rx) =
         tokio::sync::oneshot::channel::<anyhow::Result<WithMeta<Recipe>>>();
@@ -61,11 +52,11 @@ async fn evaluate_with_deno(
         };
 
         let result = runtime.block_on(async move {
-            let module_loader = BriocheModuleLoader::new(module_loader_task);
+            let module_loader = BriocheModuleLoader::new(bridge.clone());
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
                 module_loader: Some(Rc::new(module_loader)),
                 extensions: vec![
-                    super::brioche_rt::init_ops(runtime_task, bake_scope),
+                    super::brioche_rt::init_ops(bridge, bake_scope),
                     super::js::brioche_js::init_ops(),
                 ],
                 ..Default::default()
