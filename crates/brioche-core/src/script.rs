@@ -44,47 +44,58 @@ impl ModuleLoaderTask {
 
         tokio::task::spawn(async move {
             while let Some(message) = rx.recv().await {
-                match message {
-                    ModuleLoaderMessage::ReadSpecifierContents {
-                        specifier,
-                        contents_tx,
-                    } => {
-                        let contents = specifier::read_specifier_contents(&brioche.vfs, &specifier);
-                        let _ = contents_tx.send(contents);
-                    }
-                    ModuleLoaderMessage::ResolveSpecifier {
-                        specifier,
-                        referrer,
-                        resolved_tx,
-                    } => {
-                        let resolved = specifier::resolve(&projects, &specifier, &referrer);
-                        let _ = resolved_tx.send(resolved);
-                    }
-                    ModuleLoaderMessage::ProjectRootForModulePath {
-                        module_path,
-                        project_path_tx,
-                    } => {
-                        let project_hash = projects.find_containing_project(&module_path);
-                        let project_hash = match project_hash {
-                            Ok(Some(project_hash)) => project_hash,
-                            Ok(None) => {
-                                let error = anyhow::anyhow!("containing project not found");
-                                let _ = project_path_tx.send(Err(error));
-                                continue;
-                            }
-                            Err(error) => {
-                                let _ = project_path_tx
-                                    .send(Err(error).context("failed to get project path"));
-                                continue;
-                            }
-                        };
-                        let project_path = projects.project_root(project_hash)?.clone();
-                        let _ = project_path_tx.send(Ok(project_path));
-                    }
-                }
-            }
+                let brioche = brioche.clone();
+                let projects = projects.clone();
 
-            anyhow::Ok(())
+                tokio::spawn(async move {
+                    match message {
+                        ModuleLoaderMessage::ReadSpecifierContents {
+                            specifier,
+                            contents_tx,
+                        } => {
+                            let contents =
+                                specifier::read_specifier_contents(&brioche.vfs, &specifier);
+                            let _ = contents_tx.send(contents);
+                        }
+                        ModuleLoaderMessage::ResolveSpecifier {
+                            specifier,
+                            referrer,
+                            resolved_tx,
+                        } => {
+                            let resolved = specifier::resolve(&projects, &specifier, &referrer);
+                            let _ = resolved_tx.send(resolved);
+                        }
+                        ModuleLoaderMessage::ProjectRootForModulePath {
+                            module_path,
+                            project_path_tx,
+                        } => {
+                            let project_hash = projects.find_containing_project(&module_path);
+                            let project_hash = match project_hash {
+                                Ok(Some(project_hash)) => project_hash,
+                                Ok(None) => {
+                                    let error = anyhow::anyhow!("containing project not found");
+                                    let _ = project_path_tx.send(Err(error));
+                                    return;
+                                }
+                                Err(error) => {
+                                    let _ = project_path_tx
+                                        .send(Err(error).context("failed to get project path"));
+                                    return;
+                                }
+                            };
+                            let project_path = projects.project_root(project_hash);
+                            let project_path = match project_path {
+                                Ok(project_path) => project_path,
+                                Err(error) => {
+                                    let _ = project_path_tx.send(Err(error));
+                                    return;
+                                }
+                            };
+                            let _ = project_path_tx.send(Ok(project_path));
+                        }
+                    }
+                });
+            }
         });
 
         Self { tx }

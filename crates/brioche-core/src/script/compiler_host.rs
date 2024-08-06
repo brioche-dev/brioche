@@ -24,98 +24,104 @@ impl CompilerHostTask {
     pub fn new(brioche: Brioche, projects: Projects) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-        tokio::task::spawn(async move {
+        tokio::spawn(async move {
             while let Some(message) = rx.recv().await {
-                match message {
-                    CompilerHostMessage::LoadProjectFromModulePath { path, result_tx } => {
-                        let result = projects.load_from_module_path(&brioche, &path, false).await;
-                        let _ = result_tx.send(result);
-                    }
-                    CompilerHostMessage::LoadSpecifierContents {
-                        specifier,
-                        contents_tx,
-                    } => {
-                        let contents =
-                            specifier::load_specifier_contents(&brioche.vfs, &specifier).await;
-                        let _ = contents_tx.send(contents);
-                    }
-                    CompilerHostMessage::ResolveSpecifier {
-                        specifier,
-                        referrer,
-                        resolved_tx,
-                    } => {
-                        let resolved = resolve(&projects, &specifier, &referrer);
-                        let _ = resolved_tx.send(resolved);
-                    }
-                    CompilerHostMessage::UpdateVfsContents {
-                        specifier,
-                        contents,
-                        result_tx,
-                    } => {
-                        let path = match specifier {
-                            BriocheModuleSpecifier::Runtime { .. } => {
-                                let _ = result_tx.send(Ok(false));
-                                continue;
-                            }
-                            BriocheModuleSpecifier::File { path } => path,
-                        };
+                let brioche = brioche.clone();
+                let projects = projects.clone();
 
-                        let file_id = match brioche.vfs.load_cached(&path) {
-                            Ok(Some((file_id, _))) => file_id,
-                            Ok(None) => {
-                                let _ = result_tx.send(Ok(false));
-                                continue;
-                            }
-                            Err(error) => {
-                                let _ = result_tx.send(Err(error));
-                                continue;
-                            }
-                        };
+                tokio::spawn(async move {
+                    match message {
+                        CompilerHostMessage::LoadProjectFromModulePath { path, result_tx } => {
+                            let result =
+                                projects.load_from_module_path(&brioche, &path, false).await;
+                            let _ = result_tx.send(result);
+                        }
+                        CompilerHostMessage::LoadSpecifierContents {
+                            specifier,
+                            contents_tx,
+                        } => {
+                            let contents =
+                                specifier::load_specifier_contents(&brioche.vfs, &specifier).await;
+                            let _ = contents_tx.send(contents);
+                        }
+                        CompilerHostMessage::ResolveSpecifier {
+                            specifier,
+                            referrer,
+                            resolved_tx,
+                        } => {
+                            let resolved = resolve(&projects, &specifier, &referrer);
+                            let _ = resolved_tx.send(resolved);
+                        }
+                        CompilerHostMessage::UpdateVfsContents {
+                            specifier,
+                            contents,
+                            result_tx,
+                        } => {
+                            let path = match specifier {
+                                BriocheModuleSpecifier::Runtime { .. } => {
+                                    let _ = result_tx.send(Ok(false));
+                                    return;
+                                }
+                                BriocheModuleSpecifier::File { path } => path,
+                            };
 
-                        let result = brioche.vfs.update(file_id, contents).map(|_| true);
-                        let _ = result_tx.send(result);
-                    }
-                    CompilerHostMessage::ReloadProjectFromSpecifier {
-                        specifier,
-                        result_tx,
-                    } => {
-                        let path = match specifier {
-                            BriocheModuleSpecifier::Runtime { .. } => {
-                                let _ = result_tx.send(Ok(false));
-                                continue;
-                            }
-                            BriocheModuleSpecifier::File { path } => path,
-                        };
-
-                        let project = projects.find_containing_project(&path);
-                        let project = match project {
-                            Ok(project) => project,
-                            Err(error) => {
-                                let _ = result_tx.send(Err(error).with_context(|| {
-                                    format!("no project found for path '{}'", path.display())
-                                }));
-                                continue;
-                            }
-                        };
-
-                        if let Some(project) = project {
-                            let result = projects.clear(project).await;
-                            match result {
-                                Ok(_) => {}
+                            let file_id = match brioche.vfs.load_cached(&path) {
+                                Ok(Some((file_id, _))) => file_id,
+                                Ok(None) => {
+                                    let _ = result_tx.send(Ok(false));
+                                    return;
+                                }
                                 Err(error) => {
                                     let _ = result_tx.send(Err(error));
-                                    continue;
+                                    return;
+                                }
+                            };
+
+                            let result = brioche.vfs.update(file_id, contents).map(|_| true);
+                            let _ = result_tx.send(result);
+                        }
+                        CompilerHostMessage::ReloadProjectFromSpecifier {
+                            specifier,
+                            result_tx,
+                        } => {
+                            let path = match specifier {
+                                BriocheModuleSpecifier::Runtime { .. } => {
+                                    let _ = result_tx.send(Ok(false));
+                                    return;
+                                }
+                                BriocheModuleSpecifier::File { path } => path,
+                            };
+
+                            let project = projects.find_containing_project(&path);
+                            let project = match project {
+                                Ok(project) => project,
+                                Err(error) => {
+                                    let _ = result_tx.send(Err(error).with_context(|| {
+                                        format!("no project found for path '{}'", path.display())
+                                    }));
+                                    return;
+                                }
+                            };
+
+                            if let Some(project) = project {
+                                let result = projects.clear(project).await;
+                                match result {
+                                    Ok(_) => {}
+                                    Err(error) => {
+                                        let _ = result_tx.send(Err(error));
+                                        return;
+                                    }
                                 }
                             }
-                        }
 
-                        let result = projects
-                            .load_from_module_path(&brioche, &path, false)
-                            .await
-                            .map(|_| true);
-                        let _ = result_tx.send(result);
+                            let result = projects
+                                .load_from_module_path(&brioche, &path, false)
+                                .await
+                                .map(|_| true);
+                            let _ = result_tx.send(result);
+                        }
                     }
-                }
+                });
             }
         });
 
