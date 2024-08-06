@@ -23,10 +23,8 @@ pub async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
                 .build()
                 .await?;
             let projects = brioche_core::project::Projects::default();
-            let lsp_server = brioche_core::script::lsp::BriocheLspServer::new(
-                local_pool, brioche, projects, client,
-            )
-            .await?;
+            let lsp_server =
+                brioche_core::script::lsp::BriocheLspServer::new(brioche, projects, client).await?;
             anyhow::Ok(lsp_server)
         })
         .expect("failed to build LSP")

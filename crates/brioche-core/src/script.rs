@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{hash_map::Entry, HashMap},
+    path::PathBuf,
     rc::Rc,
     sync::Arc,
 };
@@ -58,6 +59,27 @@ impl ModuleLoaderTask {
                     } => {
                         let resolved = specifier::resolve(&projects, &specifier, &referrer);
                         let _ = resolved_tx.send(resolved);
+                    }
+                    ModuleLoaderMessage::ProjectRootForModulePath {
+                        module_path,
+                        project_path_tx,
+                    } => {
+                        let project_hash = projects.find_containing_project(&module_path);
+                        let project_hash = match project_hash {
+                            Ok(Some(project_hash)) => project_hash,
+                            Ok(None) => {
+                                let error = anyhow::anyhow!("containing project not found");
+                                let _ = project_path_tx.send(Err(error));
+                                continue;
+                            }
+                            Err(error) => {
+                                let _ = project_path_tx
+                                    .send(Err(error).context("failed to get project path"));
+                                continue;
+                            }
+                        };
+                        let project_path = projects.project_root(project_hash)?.clone();
+                        let _ = project_path_tx.send(Ok(project_path));
                     }
                 }
             }
@@ -221,6 +243,10 @@ pub enum ModuleLoaderMessage {
         specifier: BriocheImportSpecifier,
         referrer: BriocheModuleSpecifier,
         resolved_tx: std::sync::mpsc::Sender<anyhow::Result<BriocheModuleSpecifier>>,
+    },
+    ProjectRootForModulePath {
+        module_path: PathBuf,
+        project_path_tx: tokio::sync::oneshot::Sender<anyhow::Result<PathBuf>>,
     },
 }
 
