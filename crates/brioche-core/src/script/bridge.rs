@@ -17,6 +17,13 @@ use crate::{
 
 use super::specifier::{self, BriocheImportSpecifier, BriocheModuleSpecifier};
 
+/// A type used to call Brioche functions across Tokio runtimes. This is used
+/// to interact with Brioche from JavaScript code, due to restrictions that
+/// require the V8 runtime to run in its own Tokio runtime.
+///
+/// This type works by spawning a Tokio task that uses a channel for
+/// communicating across runtimes, which is explicitly supported by Tokio's
+/// channel types.
 #[derive(Clone)]
 pub struct RuntimeBridge {
     tx: tokio::sync::mpsc::UnboundedSender<RuntimeBridgeMessage>,

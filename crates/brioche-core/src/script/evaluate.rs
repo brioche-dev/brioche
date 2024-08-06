@@ -31,6 +31,7 @@ async fn evaluate_with_deno(
     main_module: super::specifier::BriocheModuleSpecifier,
     bridge: RuntimeBridge,
 ) -> anyhow::Result<WithMeta<Recipe>> {
+    // Create a channel to get the result from the other Tokio runtime
     let (result_tx, result_rx) =
         tokio::sync::oneshot::channel::<anyhow::Result<WithMeta<Recipe>>>();
 
@@ -39,7 +40,9 @@ async fn evaluate_with_deno(
         export: export.clone(),
     };
 
+    // Spawn a new thread for the new Tokio runtime
     std::thread::spawn(move || {
+        // Create a new Tokio runtime
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build();
@@ -51,7 +54,11 @@ async fn evaluate_with_deno(
             }
         };
 
+        // Spawn the main JS task on the new runtime. See this issue for
+        // more context on why this is required:
+        // https://github.com/brioche-dev/brioche/pull/105#issuecomment-2241289605
         let result = runtime.block_on(async move {
+            // Create the runtime
             let module_loader = BriocheModuleLoader::new(bridge.clone());
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
                 module_loader: Some(Rc::new(module_loader)),
@@ -66,6 +73,7 @@ async fn evaluate_with_deno(
 
             tracing::debug!(%main_module, "evaluating module");
 
+            // Load and evaluate the main module
             let module_id = js_runtime.load_main_es_module(&main_module).await?;
             let result = js_runtime.mod_evaluate(module_id);
             js_runtime
@@ -75,6 +83,7 @@ async fn evaluate_with_deno(
 
             let module_namespace = js_runtime.get_module_namespace(module_id)?;
 
+            // Call the provided export from the module
             let result = {
                 let mut js_scope = js_runtime.handle_scope();
                 let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
@@ -111,9 +120,11 @@ async fn evaluate_with_deno(
                 deno_core::v8::Global::new(&mut js_scope, result)
             };
 
+            // Resolve the export if it's a promise
             let resolved_result_fut = js_runtime.resolve(result);
             let resolved_result = js_runtime.with_event_loop_promise(resolved_result_fut, Default::default()).await?;
 
+            // Call the `briocheSerialize` function on the result
             let serialized_result = {
                 let mut js_scope = js_runtime.handle_scope();
                 let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
@@ -151,6 +162,7 @@ async fn evaluate_with_deno(
                 deno_core::v8::Global::new(&mut js_scope, serialized_result)
             };
 
+            // Resolve the result of `briocheSerialize` if it's a promise
             let serialized_resolved_result_fut = js_runtime.resolve(serialized_result);
             let serialized_resolved_result = js_runtime.with_event_loop_promise(serialized_resolved_result_fut, Default::default()).await?;
 
@@ -159,6 +171,7 @@ async fn evaluate_with_deno(
             let serialized_resolved_result =
                 deno_core::v8::Local::new(&mut js_scope, serialized_resolved_result);
 
+            // Deserialize the result as a recipe
             let recipe: WithMeta<Recipe> = serde_v8::from_v8(&mut js_scope, serialized_resolved_result)
                 .with_context(|| {
                     format!("invalid recipe returned when serializing result from {export}")
