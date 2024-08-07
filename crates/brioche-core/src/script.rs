@@ -1,28 +1,25 @@
 use std::{
     cell::RefCell,
     collections::{hash_map::Entry, HashMap},
+    path::PathBuf,
     rc::Rc,
     sync::Arc,
 };
 
 use anyhow::Context as _;
+use bridge::RuntimeBridge;
 use deno_core::OpState;
-use joinery::JoinableIterator as _;
 use specifier::BriocheModuleSpecifier;
 
-use crate::{
-    bake::BakeScope,
-    project::analyze::{StaticInclude, StaticQuery},
-};
+use crate::{bake::BakeScope, project::analyze::StaticQuery};
 
 use super::{
     blob::BlobHash,
-    project::Projects,
     recipe::{Artifact, Recipe, WithMeta},
     script::specifier::BriocheImportSpecifier,
-    Brioche,
 };
 
+mod bridge;
 pub mod check;
 mod compiler_host;
 pub mod evaluate;
@@ -33,16 +30,14 @@ pub mod specifier;
 
 #[derive(Clone)]
 struct BriocheModuleLoader {
-    pub brioche: Brioche,
-    pub projects: Projects,
+    pub bridge: RuntimeBridge,
     pub sources: Rc<RefCell<HashMap<BriocheModuleSpecifier, ModuleSource>>>,
 }
 
 impl BriocheModuleLoader {
-    fn new(brioche: &Brioche, projects: &Projects) -> Self {
+    fn new(bridge: RuntimeBridge) -> Self {
         Self {
-            brioche: brioche.clone(),
-            projects: projects.clone(),
+            bridge,
             sources: Rc::new(RefCell::new(HashMap::new())),
         }
     }
@@ -51,9 +46,10 @@ impl BriocheModuleLoader {
         &self,
         module_specifier: &deno_core::ModuleSpecifier,
     ) -> Result<deno_core::ModuleSource, anyhow::Error> {
-        let brioche_module_specifier = module_specifier.try_into()?;
-        let contents =
-            specifier::read_specifier_contents(&self.brioche.vfs, &brioche_module_specifier)?;
+        let brioche_module_specifier: BriocheModuleSpecifier = module_specifier.try_into()?;
+        let contents = self
+            .bridge
+            .read_specifier_contents(brioche_module_specifier.clone())?;
 
         let code = std::str::from_utf8(&contents)
             .context("failed to parse module contents as UTF-8 string")?;
@@ -119,7 +115,10 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
 
         let referrer: BriocheModuleSpecifier = referrer.parse()?;
         let specifier: BriocheImportSpecifier = specifier.parse()?;
-        let resolved = specifier::resolve(&self.projects, &specifier, &referrer)?;
+
+        let resolved = self
+            .bridge
+            .resolve_specifier(specifier.clone(), referrer.clone())?;
 
         tracing::debug!(%specifier, %referrer, %resolved, "resolved module");
 
@@ -163,6 +162,22 @@ struct ModuleSource {
     pub source_map: Vec<u8>,
 }
 
+pub enum ModuleLoaderMessage {
+    ReadSpecifierContents {
+        specifier: BriocheModuleSpecifier,
+        contents_tx: std::sync::mpsc::Sender<anyhow::Result<Arc<Vec<u8>>>>,
+    },
+    ResolveSpecifier {
+        specifier: BriocheImportSpecifier,
+        referrer: BriocheModuleSpecifier,
+        resolved_tx: std::sync::mpsc::Sender<anyhow::Result<BriocheModuleSpecifier>>,
+    },
+    ProjectRootForModulePath {
+        module_path: PathBuf,
+        project_path_tx: tokio::sync::oneshot::Sender<anyhow::Result<PathBuf>>,
+    },
+}
+
 deno_core::extension!(brioche_rt,
     ops = [
         op_brioche_bake_all,
@@ -171,13 +186,11 @@ deno_core::extension!(brioche_rt,
         op_brioche_get_static,
     ],
     options = {
-        brioche: Brioche,
-        projects: Projects,
+        bridge: RuntimeBridge,
         bake_scope: BakeScope,
     },
     state = |state, options| {
-        state.put(options.brioche);
-        state.put(options.projects);
+        state.put(options.bridge);
         state.put(options.bake_scope);
     },
 );
@@ -188,11 +201,11 @@ pub async fn op_brioche_bake_all(
     state: Rc<RefCell<OpState>>,
     #[serde] recipes: Vec<WithMeta<Recipe>>,
 ) -> Result<Vec<Artifact>, deno_core::error::AnyError> {
-    let brioche = {
+    let bridge = {
         let state = state.try_borrow()?;
         state
-            .try_borrow::<Brioche>()
-            .context("failed to get brioche instance")?
+            .try_borrow::<RuntimeBridge>()
+            .context("failed to get runtime bridge")?
             .clone()
     };
     let bake_scope = {
@@ -203,11 +216,9 @@ pub async fn op_brioche_bake_all(
             .clone()
     };
 
-    let mut results = vec![];
-    for recipe in recipes {
-        let result = super::bake::bake(&brioche, recipe, &bake_scope).await?;
-        results.push(result.value);
-    }
+    let results = bridge.bake_all(recipes.clone(), bake_scope.clone()).await?;
+    let results = results.into_iter().map(|result| result.value).collect();
+
     Ok(results)
 }
 
@@ -217,15 +228,15 @@ pub async fn op_brioche_create_proxy(
     state: Rc<RefCell<OpState>>,
     #[serde] recipe: Recipe,
 ) -> Result<Recipe, deno_core::error::AnyError> {
-    let brioche = {
+    let bridge = {
         let state = state.try_borrow()?;
         state
-            .try_borrow::<Brioche>()
-            .context("failed to get brioche instance")?
+            .try_borrow::<RuntimeBridge>()
+            .context("failed to get runtime bridge")?
             .clone()
     };
 
-    let result = super::bake::create_proxy(&brioche, recipe).await?;
+    let result = bridge.create_proxy(recipe).await?;
     Ok(result)
 }
 
@@ -236,20 +247,15 @@ pub async fn op_brioche_read_blob(
     state: Rc<RefCell<OpState>>,
     #[serde] blob_hash: BlobHash,
 ) -> Result<crate::encoding::TickEncode<Vec<u8>>, deno_core::error::AnyError> {
-    let brioche = {
+    let bridge = {
         let state = state.try_borrow()?;
         state
-            .try_borrow::<Brioche>()
-            .context("failed to get brioche instance")?
+            .try_borrow::<RuntimeBridge>()
+            .context("failed to get runtime bridge")?
             .clone()
     };
 
-    let permit = crate::blob::get_save_blob_permit().await?;
-    let path = crate::blob::blob_path(&brioche, permit, blob_hash).await?;
-    let bytes = tokio::fs::read(path)
-        .await
-        .with_context(|| format!("failed to read blob {blob_hash}"))?;
-
+    let bytes = bridge.read_blob(blob_hash).await?;
     Ok(crate::encoding::TickEncode(bytes))
 }
 
@@ -260,39 +266,16 @@ pub async fn op_brioche_get_static(
     #[string] url: String,
     #[serde] static_: StaticQuery,
 ) -> Result<Recipe, deno_core::error::AnyError> {
-    let (brioche, projects) = {
+    let bridge = {
         let state = state.try_borrow()?;
-        let brioche = state
-            .try_borrow::<Brioche>()
-            .context("failed to get brioche instance")?
-            .clone();
-        let projects = state
-            .try_borrow::<Projects>()
-            .context("failed to get projects instance")?
-            .clone();
-        (brioche, projects)
+        state
+            .try_borrow::<RuntimeBridge>()
+            .context("failed to get runtime bridge")?
+            .clone()
     };
 
     let specifier: BriocheModuleSpecifier = url.parse()?;
 
-    let recipe_hash = projects
-        .get_static(&specifier, &static_)?
-        .with_context(|| match static_ {
-            StaticQuery::Include(StaticInclude::File { path }) => {
-                format!("failed to resolve Brioche.includeFile({path:?}) from {specifier}, was the path passed in as a string literal?")
-            }
-            StaticQuery::Include(StaticInclude::Directory { path }) => {
-                format!("failed to resolve Brioche.includeDirectory({path:?}) from {specifier}, was the path passed in as a string literal?")
-            }
-            StaticQuery::Glob { patterns } => {
-                let patterns = patterns.iter().map(|pattern| lazy_format::lazy_format!("{pattern:?}")).join_with(", ");
-                format!("failed to resolve Brioche.glob({patterns}) from {specifier}, were the patterns passed in as string literals?")
-            }
-            StaticQuery::Download { url } => {
-                format!("failed to resolve Brioche.download({url:?}) from {specifier}, was the URL passed in as a string literal?")
-            }
-
-        })?;
-    let recipe = crate::recipe::get_recipe(&brioche, recipe_hash).await?;
+    let recipe = bridge.get_static(specifier, static_).await?;
     Ok(recipe)
 }
