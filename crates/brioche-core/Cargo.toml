@@ -84,6 +84,10 @@ harness = false
 name = "bake"
 harness = false
 
+[[bench]]
+name = "blob"
+harness = false
+
 [lints.clippy]
 # Temporarily ignore false positives from `tracing::instrument`, see:
 # https://github.com/rust-lang/rust-clippy/issues/12281
