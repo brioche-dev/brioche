@@ -1,10 +1,8 @@
 use brioche_core::script::evaluate::evaluate;
 
-mod brioche_test;
-
 #[tokio::test]
 async fn test_script_ops_version() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -32,15 +30,16 @@ async fn test_script_ops_version() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let recipe = evaluate(&brioche, &projects, project_hash, "default")
         .await?
         .value;
-    let artifact = brioche_test::bake_without_meta(&brioche, recipe).await?;
+    let artifact = brioche_test_support::bake_without_meta(&brioche, recipe).await?;
 
-    let version_blob = brioche_test::blob(&brioche, brioche_core::VERSION).await;
-    assert_eq!(artifact, brioche_test::file(version_blob, false));
+    let version_blob = brioche_test_support::blob(&brioche, brioche_core::VERSION).await;
+    assert_eq!(artifact, brioche_test_support::file(version_blob, false));
 
     Ok(())
 }
@@ -54,7 +53,7 @@ struct TestStackFrame {
 
 #[tokio::test]
 async fn test_script_osp_stack_frames_from_exception() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -125,12 +124,13 @@ async fn test_script_osp_stack_frames_from_exception() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let recipe = evaluate(&brioche, &projects, project_hash, "default")
         .await?
         .value;
-    let artifact = brioche_test::bake_without_meta(&brioche, recipe).await?;
+    let artifact = brioche_test_support::bake_without_meta(&brioche, recipe).await?;
 
     let file = match artifact {
         brioche_core::recipe::Artifact::File(file) => file,

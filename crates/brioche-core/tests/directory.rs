@@ -3,28 +3,29 @@ use std::collections::BTreeMap;
 use assert_matches::assert_matches;
 use brioche_core::recipe::{Artifact, WithMeta};
 
-mod brioche_test;
-
 #[tokio::test]
 async fn test_directory_create_empty() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
     let directory = brioche_core::recipe::Directory::create(&brioche, &BTreeMap::new()).await?;
 
-    assert_eq!(Artifact::Directory(directory), brioche_test::dir_empty());
+    assert_eq!(
+        Artifact::Directory(directory),
+        brioche_test_support::dir_empty()
+    );
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_directory_create_flat() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
-    let blob1 = brioche_test::blob(&brioche, "hello world").await;
-    let file1 = brioche_test::file(blob1, false);
+    let blob1 = brioche_test_support::blob(&brioche, "hello world").await;
+    let file1 = brioche_test_support::file(blob1, false);
 
-    let blob2 = brioche_test::blob(&brioche, "hi").await;
-    let file2 = brioche_test::file(blob2, false);
+    let blob2 = brioche_test_support::blob(&brioche, "hi").await;
+    let file2 = brioche_test_support::file(blob2, false);
 
     let directory = brioche_core::recipe::Directory::create(
         &brioche,
@@ -37,11 +38,11 @@ async fn test_directory_create_flat() -> anyhow::Result<()> {
 
     assert_eq!(
         Artifact::Directory(directory),
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
-                ("file1.txt", brioche_test::file(blob1, false)),
-                ("file2.txt", brioche_test::file(blob2, false)),
+                ("file1.txt", brioche_test_support::file(blob1, false)),
+                ("file2.txt", brioche_test_support::file(blob2, false)),
             ]
         )
         .await
@@ -52,13 +53,13 @@ async fn test_directory_create_flat() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_directory_create_nested() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
-    let blob1 = brioche_test::blob(&brioche, "hello world").await;
-    let file1 = brioche_test::file(blob1, false);
+    let blob1 = brioche_test_support::blob(&brioche, "hello world").await;
+    let file1 = brioche_test_support::file(blob1, false);
 
-    let blob2 = brioche_test::blob(&brioche, "hi").await;
-    let file2 = brioche_test::file(blob2, false);
+    let blob2 = brioche_test_support::blob(&brioche, "hi").await;
+    let file2 = brioche_test_support::file(blob2, false);
 
     let inner_directory = brioche_core::recipe::Directory::create(
         &brioche,
@@ -84,18 +85,18 @@ async fn test_directory_create_nested() -> anyhow::Result<()> {
 
     assert_eq!(
         Artifact::Directory(directory),
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
-                ("foo.txt", brioche_test::file(blob1, false)),
-                ("bar.txt", brioche_test::file(blob2, false)),
+                ("foo.txt", brioche_test_support::file(blob1, false)),
+                ("bar.txt", brioche_test_support::file(blob2, false)),
                 (
                     "subdir",
-                    brioche_test::dir(
+                    brioche_test_support::dir(
                         &brioche,
                         [
-                            ("file1.txt", brioche_test::file(blob1, false)),
-                            ("file2.txt", brioche_test::file(blob2, false))
+                            ("file1.txt", brioche_test_support::file(blob1, false)),
+                            ("file2.txt", brioche_test_support::file(blob2, false))
                         ]
                     )
                     .await
@@ -110,13 +111,13 @@ async fn test_directory_create_nested() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_directory_create_nested_using_paths() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
-    let blob1 = brioche_test::blob(&brioche, "hello world").await;
-    let file1 = brioche_test::file(blob1, false);
+    let blob1 = brioche_test_support::blob(&brioche, "hello world").await;
+    let file1 = brioche_test_support::file(blob1, false);
 
-    let blob2 = brioche_test::blob(&brioche, "hi").await;
-    let file2 = brioche_test::file(blob2, false);
+    let blob2 = brioche_test_support::blob(&brioche, "hi").await;
+    let file2 = brioche_test_support::file(blob2, false);
 
     let directory = brioche_core::recipe::Directory::create(
         &brioche,
@@ -131,18 +132,18 @@ async fn test_directory_create_nested_using_paths() -> anyhow::Result<()> {
 
     assert_eq!(
         Artifact::Directory(directory),
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
-                ("foo.txt", brioche_test::file(blob1, false)),
-                ("bar.txt", brioche_test::file(blob2, false)),
+                ("foo.txt", brioche_test_support::file(blob1, false)),
+                ("bar.txt", brioche_test_support::file(blob2, false)),
                 (
                     "subdir",
-                    brioche_test::dir(
+                    brioche_test_support::dir(
                         &brioche,
                         [
-                            ("file1.txt", brioche_test::file(blob1, false)),
-                            ("file2.txt", brioche_test::file(blob2, false))
+                            ("file1.txt", brioche_test_support::file(blob1, false)),
+                            ("file2.txt", brioche_test_support::file(blob2, false))
                         ]
                     )
                     .await
@@ -157,13 +158,13 @@ async fn test_directory_create_nested_using_paths() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_directory_create_nested_with_common_empty_dir() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
-    let blob1 = brioche_test::blob(&brioche, "hello world").await;
-    let file1 = brioche_test::file(blob1, false);
+    let blob1 = brioche_test_support::blob(&brioche, "hello world").await;
+    let file1 = brioche_test_support::file(blob1, false);
 
-    let blob2 = brioche_test::blob(&brioche, "hi").await;
-    let file2 = brioche_test::file(blob2, false);
+    let blob2 = brioche_test_support::blob(&brioche, "hi").await;
+    let file2 = brioche_test_support::file(blob2, false);
 
     let directory = brioche_core::recipe::Directory::create(
         &brioche,
@@ -184,18 +185,18 @@ async fn test_directory_create_nested_with_common_empty_dir() -> anyhow::Result<
 
     assert_eq!(
         Artifact::Directory(directory),
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
-                ("foo.txt", brioche_test::file(blob1, false)),
-                ("bar.txt", brioche_test::file(blob2, false)),
+                ("foo.txt", brioche_test_support::file(blob1, false)),
+                ("bar.txt", brioche_test_support::file(blob2, false)),
                 (
                     "subdir",
-                    brioche_test::dir(
+                    brioche_test_support::dir(
                         &brioche,
                         [
-                            ("file1.txt", brioche_test::file(blob1, false)),
-                            ("file2.txt", brioche_test::file(blob2, false))
+                            ("file1.txt", brioche_test_support::file(blob1, false)),
+                            ("file2.txt", brioche_test_support::file(blob2, false))
                         ]
                     )
                     .await
@@ -210,13 +211,13 @@ async fn test_directory_create_nested_with_common_empty_dir() -> anyhow::Result<
 
 #[tokio::test]
 async fn test_directory_create_nested_with_common_nonempty_dir_error() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
-    let blob1 = brioche_test::blob(&brioche, "hello world").await;
-    let file1 = brioche_test::file(blob1, false);
+    let blob1 = brioche_test_support::blob(&brioche, "hello world").await;
+    let file1 = brioche_test_support::file(blob1, false);
 
-    let blob2 = brioche_test::blob(&brioche, "hi").await;
-    let file2 = brioche_test::file(blob2, false);
+    let blob2 = brioche_test_support::blob(&brioche, "hi").await;
+    let file2 = brioche_test_support::file(blob2, false);
 
     let inner_directory = brioche_core::recipe::Directory::create(
         &brioche,
@@ -249,13 +250,13 @@ async fn test_directory_create_nested_with_common_nonempty_dir_error() -> anyhow
 
 #[tokio::test]
 async fn test_directory_create_nested_with_common_nondir_error() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
-    let blob1 = brioche_test::blob(&brioche, "hello world").await;
-    let file1 = brioche_test::file(blob1, false);
+    let blob1 = brioche_test_support::blob(&brioche, "hello world").await;
+    let file1 = brioche_test_support::file(blob1, false);
 
-    let blob2 = brioche_test::blob(&brioche, "hi").await;
-    let file2 = brioche_test::file(blob2, false);
+    let blob2 = brioche_test_support::blob(&brioche, "hi").await;
+    let file2 = brioche_test_support::file(blob2, false);
 
     let result = brioche_core::recipe::Directory::create(
         &brioche,

@@ -24,7 +24,7 @@ pub async fn brioche_test_with(
     f: impl FnOnce(BriocheBuilder) -> BriocheBuilder,
 ) -> (Brioche, TestContext) {
     let temp = tempdir::TempDir::new("brioche-test").unwrap();
-    let registry_server = mockito::Server::new();
+    let registry_server = mockito::Server::new_async().await;
 
     let brioche_home = temp.path().join("brioche-home");
     tokio::fs::create_dir_all(&brioche_home)

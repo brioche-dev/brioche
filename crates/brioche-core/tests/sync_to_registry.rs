@@ -2,20 +2,18 @@ use brioche_core::{
     bake::BakeScope,
     recipe::{Recipe, WithMeta},
 };
-use brioche_test::tpl;
-
-mod brioche_test;
+use brioche_test_support::tpl;
 
 #[tokio::test]
 async fn test_sync_to_registry_process_and_complete_process() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     // Create a process recipe and an equivalent complete_process recipe
     let process_recipe = brioche_core::recipe::ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("dummy_recipe")],
         platform: brioche_core::platform::Platform::X86_64Linux,
-        ..brioche_test::default_process_x86_64_linux()
+        ..brioche_test_support::default_process_x86_64_linux()
     };
     let process_recipe_hash = Recipe::Process(process_recipe.clone()).hash();
     let complete_process_recipe: brioche_core::recipe::CompleteProcessRecipe =
@@ -24,9 +22,9 @@ async fn test_sync_to_registry_process_and_complete_process() -> anyhow::Result<
         Recipe::CompleteProcess(complete_process_recipe.clone()).hash();
 
     // Create a mocked output for the complete_process recipe
-    let dummy_blob = brioche_test::blob(&brioche, "dummy value").await;
-    let mocked_output = brioche_test::file(dummy_blob, false);
-    brioche_test::mock_bake(
+    let dummy_blob = brioche_test_support::blob(&brioche, "dummy value").await;
+    let mocked_output = brioche_test_support::file(dummy_blob, false);
+    brioche_test_support::mock_bake(
         &brioche,
         &Recipe::CompleteProcess(complete_process_recipe.clone()),
         &mocked_output,

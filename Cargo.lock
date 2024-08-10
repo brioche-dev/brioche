@@ -842,6 +842,7 @@ dependencies = [
  "biome_rowan",
  "blake3",
  "brioche-pack",
+ "brioche-test-support",
  "bstr 1.8.0",
  "cfg-if 1.0.0",
  "console-subscriber",
@@ -910,6 +911,23 @@ dependencies = [
  "serde_with",
  "thiserror",
  "tick-encoding",
+]
+
+[[package]]
+name = "brioche-test-support"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "brioche-core",
+ "mockito",
+ "serde",
+ "serde_json",
+ "tempdir",
+ "tokio",
+ "toml",
+ "tracing",
+ "ulid",
+ "zstd",
 ]
 
 [[package]]

@@ -4,28 +4,26 @@ use brioche_core::{
     bake::BakeScope,
     recipe::{Recipe, WithMeta},
 };
-use brioche_test::tpl;
-
-mod brioche_test;
+use brioche_test_support::tpl;
 
 #[tokio::test]
 async fn test_sync_from_registry_complete_process() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     // Create a process recipe and an equivalent complete_process recipe
     let process_recipe = brioche_core::recipe::ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("dummy_recipe")],
         platform: brioche_core::platform::Platform::X86_64Linux,
-        ..brioche_test::default_process_x86_64_linux()
+        ..brioche_test_support::default_process_x86_64_linux()
     };
     let complete_process_recipe: brioche_core::recipe::CompleteProcessRecipe =
         process_recipe.clone().try_into()?;
     let complete_process_recipe_hash =
         Recipe::CompleteProcess(complete_process_recipe.clone()).hash();
 
-    let dummy_blob = brioche_test::blob(&brioche, "dummy value").await;
-    let mocked_output = brioche_test::file(dummy_blob, false);
+    let dummy_blob = brioche_test_support::blob(&brioche, "dummy value").await;
+    let mocked_output = brioche_test_support::file(dummy_blob, false);
 
     // Mock the registry to return the output artifact for the complete_process
     // recipe. This should be the only registry request, needed since the
@@ -74,19 +72,19 @@ async fn test_sync_from_registry_complete_process() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_sync_from_registry_process() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     // Create a process recipe
     let process_recipe = brioche_core::recipe::ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("dummy_recipe")],
         platform: brioche_core::platform::Platform::X86_64Linux,
-        ..brioche_test::default_process_x86_64_linux()
+        ..brioche_test_support::default_process_x86_64_linux()
     };
     let process_recipe_hash = Recipe::Process(process_recipe.clone()).hash();
 
-    let dummy_blob = brioche_test::blob(&brioche, "dummy value").await;
-    let mocked_output = brioche_test::file(dummy_blob, false);
+    let dummy_blob = brioche_test_support::blob(&brioche, "dummy value").await;
+    let mocked_output = brioche_test_support::file(dummy_blob, false);
 
     // Mock the registry to return the output artifact for the process
     // recipe. This should be the only registry request, needed since the

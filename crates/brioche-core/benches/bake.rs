@@ -5,8 +5,6 @@ use brioche_core::{
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures::StreamExt as _;
 
-mod brioche_bench;
-
 async fn make_deep_dir(brioche: &Brioche, key: &str) -> Directory {
     let mut directory = Directory::default();
     for a in 0..10 {
@@ -21,8 +19,8 @@ async fn make_deep_dir(brioche: &Brioche, key: &str) -> Directory {
                                     "{key}a{a}/{key}b{b}/{key}c{c}/{key}d{d}/{key}e{e}/file.txt"
                                 )
                                 .as_bytes(),
-                                Some(WithMeta::without_meta(brioche_bench::file(
-                                    brioche_bench::blob(
+                                Some(WithMeta::without_meta(brioche_test_support::file(
+                                    brioche_test_support::blob(
                                         brioche,
                                         format!("a={a},b={b},c={c},d={d},e={e}"),
                                     )
@@ -49,8 +47,8 @@ async fn make_wide_dir(brioche: &Brioche, key: &str) -> Directory {
                 .insert(
                     brioche,
                     format!("{key}a{a}/{key}b{b}/file.txt").as_bytes(),
-                    Some(WithMeta::without_meta(brioche_bench::file(
-                        brioche_bench::blob(brioche, format!("a={a},b={b}")).await,
+                    Some(WithMeta::without_meta(brioche_test_support::file(
+                        brioche_test_support::blob(brioche, format!("a={a},b={b}")).await,
                         false,
                     ))),
                 )
@@ -77,7 +75,7 @@ fn run_bake_benchmark(c: &mut Criterion) {
     }
 
     let (brioche, _context, recipes) = runtime.block_on(async {
-        let (brioche, context) = brioche_bench::brioche_test().await;
+        let (brioche, context) = brioche_test_support::brioche_test().await;
 
         let deep_dir = make_deep_dir(&brioche, "").await;
         let _deep_dir_result = brioche_core::bake::bake(

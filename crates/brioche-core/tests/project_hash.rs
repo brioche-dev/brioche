@@ -1,11 +1,9 @@
 use brioche_core::vfs::Vfs;
 
-mod brioche_test;
-
 #[tokio::test]
 async fn test_project_hash_immutable() -> anyhow::Result<()> {
     let project_hash_1 = {
-        let (brioche, context) = brioche_test::brioche_test().await;
+        let (brioche, context) = brioche_test_support::brioche_test().await;
 
         let project_dir = context.mkdir("myproject").await;
 
@@ -28,12 +26,12 @@ async fn test_project_hash_immutable() -> anyhow::Result<()> {
             )
             .await;
 
-        let (_, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+        let (_, project_hash) = brioche_test_support::load_project(&brioche, &project_dir).await?;
         project_hash
     };
 
     let project_hash_2 = {
-        let (brioche, context) = brioche_test::brioche_test().await;
+        let (brioche, context) = brioche_test_support::brioche_test().await;
 
         let project_dir = context.mkdir("myproject2").await;
 
@@ -56,7 +54,7 @@ async fn test_project_hash_immutable() -> anyhow::Result<()> {
             )
             .await;
 
-        let (_, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+        let (_, project_hash) = brioche_test_support::load_project(&brioche, &project_dir).await?;
         project_hash
     };
 
@@ -68,7 +66,8 @@ async fn test_project_hash_immutable() -> anyhow::Result<()> {
 #[tokio::test]
 async fn test_project_hash_mutable() -> anyhow::Result<()> {
     let project_hash_1 = {
-        let (brioche, context) = brioche_test::brioche_test_with(|b| b.vfs(Vfs::mutable())).await;
+        let (brioche, context) =
+            brioche_test_support::brioche_test_with(|b| b.vfs(Vfs::mutable())).await;
 
         let project_dir = context.mkdir("myproject").await;
 
@@ -91,12 +90,13 @@ async fn test_project_hash_mutable() -> anyhow::Result<()> {
             )
             .await;
 
-        let (_, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+        let (_, project_hash) = brioche_test_support::load_project(&brioche, &project_dir).await?;
         project_hash
     };
 
     let project_hash_2 = {
-        let (brioche, context) = brioche_test::brioche_test_with(|b| b.vfs(Vfs::mutable())).await;
+        let (brioche, context) =
+            brioche_test_support::brioche_test_with(|b| b.vfs(Vfs::mutable())).await;
 
         let project_dir = context.mkdir("myproject2").await;
 
@@ -119,7 +119,7 @@ async fn test_project_hash_mutable() -> anyhow::Result<()> {
             )
             .await;
 
-        let (_, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+        let (_, project_hash) = brioche_test_support::load_project(&brioche, &project_dir).await?;
         project_hash
     };
 

@@ -1,10 +1,8 @@
 use brioche_core::script::evaluate::evaluate;
 
-mod brioche_test;
-
 #[tokio::test]
 async fn test_eval_basic() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -27,20 +25,21 @@ async fn test_eval_basic() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
         .value;
 
-    assert_eq!(resolved, brioche_test::dir_empty().into());
+    assert_eq!(resolved, brioche_test_support::dir_empty().into());
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_eval_custom_export() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -63,20 +62,21 @@ async fn test_eval_custom_export() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "custom")
         .await?
         .value;
 
-    assert_eq!(resolved, brioche_test::dir_empty().into());
+    assert_eq!(resolved, brioche_test_support::dir_empty().into());
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_eval_async() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -99,20 +99,21 @@ async fn test_eval_async() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
         .value;
 
-    assert_eq!(resolved, brioche_test::dir_empty().into());
+    assert_eq!(resolved, brioche_test_support::dir_empty().into());
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_eval_serialize_async() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -135,20 +136,21 @@ async fn test_eval_serialize_async() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
         .value;
 
-    assert_eq!(resolved, brioche_test::dir_empty().into());
+    assert_eq!(resolved, brioche_test_support::dir_empty().into());
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_eval_import_local() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -183,20 +185,21 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
         .value;
 
-    assert_eq!(resolved, brioche_test::dir_empty().into());
+    assert_eq!(resolved, brioche_test_support::dir_empty().into());
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_eval_import_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -244,25 +247,26 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
         .create_async()
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
         .value;
 
-    assert_eq!(resolved, brioche_test::dir_empty().into());
+    assert_eq!(resolved, brioche_test_support::dir_empty().into());
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_eval_brioche_include_file() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
     let hello_world = "hello world!";
-    let hello_world_blob = brioche_test::blob(&brioche, hello_world).await;
+    let hello_world_blob = brioche_test_support::blob(&brioche, hello_world).await;
     context.write_file("myproject/foo", hello_world).await;
 
     context
@@ -295,25 +299,29 @@ async fn test_eval_brioche_include_file() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
         .value;
 
-    assert_eq!(resolved, brioche_test::file(hello_world_blob, false).into());
+    assert_eq!(
+        resolved,
+        brioche_test_support::file(hello_world_blob, false).into()
+    );
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_eval_brioche_include_directory() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
     let hello_world = "hello world!";
-    let hello_world_blob = brioche_test::blob(&brioche, hello_world).await;
+    let hello_world_blob = brioche_test_support::blob(&brioche, hello_world).await;
     context
         .write_file("myproject/foo/hello.txt", hello_world)
         .await;
@@ -348,7 +356,8 @@ async fn test_eval_brioche_include_directory() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
@@ -356,9 +365,12 @@ async fn test_eval_brioche_include_directory() -> anyhow::Result<()> {
 
     assert_eq!(
         resolved,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
-            [("hello.txt", brioche_test::file(hello_world_blob, false))]
+            [(
+                "hello.txt",
+                brioche_test_support::file(hello_world_blob, false)
+            )]
         )
         .await
         .into(),
@@ -369,18 +381,18 @@ async fn test_eval_brioche_include_directory() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_eval_brioche_glob() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
     let hello_world = "hello world!";
-    let hello_world_blob = brioche_test::blob(&brioche, hello_world).await;
+    let hello_world_blob = brioche_test_support::blob(&brioche, hello_world).await;
     context
         .write_file("myproject/foo/hello.txt", hello_world)
         .await;
 
     let hi = "hello world!";
-    let hi_blob = brioche_test::blob(&brioche, hi).await;
+    let hi_blob = brioche_test_support::blob(&brioche, hi).await;
     context.write_file("myproject/bar/hi.txt", hi).await;
 
     context
@@ -416,7 +428,8 @@ async fn test_eval_brioche_glob() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
@@ -424,21 +437,27 @@ async fn test_eval_brioche_glob() -> anyhow::Result<()> {
 
     assert_eq!(
         resolved,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
                 (
                     "foo",
-                    brioche_test::dir(
+                    brioche_test_support::dir(
                         &brioche,
-                        [("hello.txt", brioche_test::file(hello_world_blob, false))]
+                        [(
+                            "hello.txt",
+                            brioche_test_support::file(hello_world_blob, false)
+                        )]
                     )
                     .await,
                 ),
                 (
                     "bar",
-                    brioche_test::dir(&brioche, [("hi.txt", brioche_test::file(hi_blob, false))])
-                        .await,
+                    brioche_test_support::dir(
+                        &brioche,
+                        [("hi.txt", brioche_test_support::file(hi_blob, false))]
+                    )
+                    .await,
                 ),
             ],
         )
@@ -451,12 +470,12 @@ async fn test_eval_brioche_glob() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_eval_brioche_glob_submodule() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
     let hello_world = "hello world!";
-    let hello_world_blob = brioche_test::blob(&brioche, hello_world).await;
+    let hello_world_blob = brioche_test_support::blob(&brioche, hello_world).await;
     context
         .write_file("myproject/foo/hello.txt", hello_world)
         .await;
@@ -508,7 +527,8 @@ async fn test_eval_brioche_glob_submodule() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
@@ -516,15 +536,21 @@ async fn test_eval_brioche_glob_submodule() -> anyhow::Result<()> {
 
     assert_eq!(
         resolved,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
-                ("hello.txt", brioche_test::file(hello_world_blob, false)),
+                (
+                    "hello.txt",
+                    brioche_test_support::file(hello_world_blob, false)
+                ),
                 (
                     "fizz",
-                    brioche_test::dir(
+                    brioche_test_support::dir(
                         &brioche,
-                        [("buzz.txt", brioche_test::file(hello_world_blob, false))]
+                        [(
+                            "buzz.txt",
+                            brioche_test_support::file(hello_world_blob, false)
+                        )]
                     )
                     .await,
                 ),
@@ -539,14 +565,14 @@ async fn test_eval_brioche_glob_submodule() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_eval_brioche_download() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
     let hello_endpoint = server
         .mock("GET", "/file.txt")
         .with_body(hello)
@@ -584,7 +610,8 @@ async fn test_eval_brioche_download() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let resolved = evaluate(&brioche, &projects, project_hash, "default")
         .await?
@@ -599,7 +626,7 @@ async fn test_eval_brioche_download() -> anyhow::Result<()> {
     );
 
     // Bake the download, which ensures that the download was cached
-    let baked = brioche_test::bake_without_meta(&brioche, resolved).await?;
+    let baked = brioche_test_support::bake_without_meta(&brioche, resolved).await?;
     assert_eq!(
         baked,
         brioche_core::recipe::Artifact::File(brioche_core::recipe::File {
