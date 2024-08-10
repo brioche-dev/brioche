@@ -109,10 +109,10 @@ pub async fn mock_bake(
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
-    let permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
+    let mut permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
     brioche_core::blob::save_blob_from_reader(
         brioche,
-        permit,
+        &mut permit,
         content.as_ref(),
         SaveBlobOptions::default(),
     )

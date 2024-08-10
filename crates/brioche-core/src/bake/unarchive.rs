@@ -59,10 +59,10 @@ pub async fn bake_unarchive(
 
             let entry_artifact = match archive_entry.header().entry_type() {
                 tokio_tar::EntryType::Regular => {
-                    let permit = crate::blob::get_save_blob_permit().await?;
+                    let mut permit = crate::blob::get_save_blob_permit().await?;
                     let entry_blob_hash = crate::blob::save_blob_from_reader(
                         brioche,
-                        permit,
+                        &mut permit,
                         archive_entry,
                         crate::blob::SaveBlobOptions::new(),
                     )

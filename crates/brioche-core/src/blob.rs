@@ -29,7 +29,7 @@ pub async fn get_save_blob_permit<'a>() -> anyhow::Result<SaveBlobPermit<'a>> {
 #[tracing::instrument(skip_all, err)]
 pub async fn save_blob<'a>(
     brioche: &Brioche,
-    _permit: SaveBlobPermit<'_>,
+    _permit: &mut SaveBlobPermit<'_>,
     bytes: &[u8],
     options: SaveBlobOptions<'a>,
 ) -> anyhow::Result<BlobHash> {
@@ -118,7 +118,7 @@ pub async fn save_blob<'a>(
 #[tracing::instrument(skip_all)]
 pub async fn save_blob_from_reader<'a, R>(
     brioche: &Brioche,
-    _permit: SaveBlobPermit<'_>,
+    _permit: &mut SaveBlobPermit<'_>,
     mut input: R,
     mut options: SaveBlobOptions<'a>,
 ) -> anyhow::Result<BlobHash>
@@ -227,7 +227,7 @@ where
 #[tracing::instrument(skip(brioche, _permit, options), err)]
 pub async fn save_blob_from_file<'a>(
     brioche: &Brioche,
-    _permit: SaveBlobPermit<'_>,
+    _permit: &mut SaveBlobPermit<'_>,
     input_path: &Path,
     options: SaveBlobOptions<'a>,
 ) -> anyhow::Result<BlobHash> {

@@ -357,10 +357,10 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             resources,
         } => {
             let blob_hash = {
-                let permit = super::blob::get_save_blob_permit().await?;
+                let mut permit = super::blob::get_save_blob_permit().await?;
                 super::blob::save_blob(
                     brioche,
-                    permit,
+                    &mut permit,
                     &content,
                     super::blob::SaveBlobOptions::default(),
                 )

@@ -173,10 +173,10 @@ pub async fn create_input_inner(
         };
 
         let blob_hash = {
-            let permit = super::blob::get_save_blob_permit().await?;
+            let mut permit = super::blob::get_save_blob_permit().await?;
             super::blob::save_blob_from_file(
                 brioche,
-                permit,
+                &mut permit,
                 options.input_path,
                 super::blob::SaveBlobOptions::default().remove_input(options.remove_input),
             )

@@ -11,7 +11,7 @@ pub async fn download(
     expected_hash: Option<crate::Hash>,
 ) -> anyhow::Result<crate::blob::BlobHash> {
     // Acquire a permit to save the blob
-    let save_blob_permit = crate::blob::get_save_blob_permit().await?;
+    let mut save_blob_permit = crate::blob::get_save_blob_permit().await?;
 
     // Acquire a permit to download
     tracing::debug!("acquiring download semaphore permit");
@@ -63,7 +63,7 @@ pub async fn download(
 
     let blob_hash = crate::blob::save_blob_from_reader(
         brioche,
-        save_blob_permit,
+        &mut save_blob_permit,
         download_stream,
         save_blob_options,
     )
