@@ -449,7 +449,6 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
 
 pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
-    let (_, shutdown_rx) = tokio::sync::oneshot::channel();
 
     let reporter = Reporter {
         start: std::time::Instant::now(),
@@ -459,7 +458,7 @@ pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     };
     let guard = ReporterGuard {
         tx,
-        shutdown_rx: Some(shutdown_rx),
+        shutdown_rx: None,
         shutdown_opentelemetry: false,
     };
 
@@ -469,7 +468,6 @@ pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
 #[cfg_attr(not(test), allow(unused))]
 pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
-    let (_, shutdown_rx) = tokio::sync::oneshot::channel();
 
     static TEST_TRACING_SUBSCRIBER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if let Some(debug_output_path) = std::env::var_os("BRIOCHE_LOG_OUTPUT") {
@@ -496,7 +494,7 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
     };
     let guard = ReporterGuard {
         tx,
-        shutdown_rx: Some(shutdown_rx),
+        shutdown_rx: None,
         shutdown_opentelemetry: false,
     };
 

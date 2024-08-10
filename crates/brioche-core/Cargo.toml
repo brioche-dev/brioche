@@ -67,10 +67,9 @@ walkdir = "2.5.0"
 [dev-dependencies]
 assert_matches = "1.5.0"
 brioche-test-support = { path = "../brioche-test-support" }
-criterion = { version = "0.5.1", features = ["async_tokio"] }
+divan = "0.1.14"
 mockito = "1.2.0"
 pretty_assertions = "1.4.0"
-tempdir = "0.3.7"
 zstd = "0.13.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
