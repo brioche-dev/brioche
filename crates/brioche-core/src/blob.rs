@@ -1,4 +1,5 @@
 use std::{
+    io::Read as _,
     os::unix::prelude::PermissionsExt as _,
     path::{Path, PathBuf},
 };
@@ -234,31 +235,41 @@ pub async fn save_blob_from_file<'a>(
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<BlobHash> {
     let mut hasher = blake3::Hasher::new();
-    let mut validation_hashing = options
-        .expected_hash
-        .as_ref()
-        .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
+    let mut validation_hashing = options.expected_hash.as_ref().map(|validate_hash| {
+        (
+            validate_hash.clone(),
+            super::Hasher::for_hash(validate_hash),
+        )
+    });
 
-    {
-        buffer.resize(1024 * 1024, 0);
-        let mut input_file = tokio::fs::File::open(&input_path)
-            .await
-            .with_context(|| format!("failed to open input file {}", input_path.display()))?;
-        loop {
-            let length = input_file.read(buffer).await.context("failed to read")?;
-            if length == 0 {
-                break;
+    let (mut swapped_buffer, hasher, validation_hashing) = tokio::task::spawn_blocking({
+        let mut buffer = std::mem::take(buffer);
+        let input_path = input_path.to_owned();
+        move || {
+            buffer.resize(1024 * 1024, 0);
+            let mut input_file = std::fs::File::open(&input_path)
+                .with_context(|| format!("failed to open input file {}", input_path.display()))?;
+            loop {
+                let length = input_file.read(&mut buffer).context("failed to read")?;
+                if length == 0 {
+                    break;
+                }
+
+                let buffer = &buffer[..length];
+
+                hasher.update(buffer);
+
+                if let Some((_, validate_hasher)) = &mut validation_hashing {
+                    validate_hasher.update(buffer);
+                }
             }
 
-            let buffer = &buffer[..length];
-
-            hasher.update(buffer);
-
-            if let Some((_, validate_hasher)) = &mut validation_hashing {
-                validate_hasher.update(buffer);
-            }
+            anyhow::Ok((buffer, hasher, validation_hashing))
         }
-    }
+    })
+    .await??;
+
+    std::mem::swap(buffer, &mut swapped_buffer);
 
     let hash = hasher.finalize();
     let blob_hash = BlobHash(hash);
@@ -267,7 +278,7 @@ pub async fn save_blob_from_file<'a>(
     if let Some((expected_hash, validate_hasher)) = validation_hashing {
         let actual_hash = validate_hasher.finish()?;
 
-        if *expected_hash != actual_hash {
+        if expected_hash != actual_hash {
             anyhow::bail!("expected hash {} but got {}", expected_hash, actual_hash);
         }
 
