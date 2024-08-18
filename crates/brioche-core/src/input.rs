@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -14,12 +14,12 @@ use super::{
     Brioche,
 };
 
-#[derive(Debug, Clone, Copy)]
 pub struct InputOptions<'a> {
     pub input_path: &'a Path,
     pub remove_input: bool,
     pub resource_dir: Option<&'a Path>,
     pub input_resource_dirs: &'a [PathBuf],
+    pub saved_paths: &'a mut HashMap<PathBuf, Artifact>,
     pub meta: &'a Arc<Meta>,
 }
 
@@ -29,7 +29,7 @@ impl InputOptions<'_> {
     }
 }
 
-#[tracing::instrument(skip(brioche), err)]
+#[tracing::instrument(skip_all, err, fields(input_path = %options.input_path.display()))]
 pub async fn create_input(
     brioche: &Brioche,
     options: InputOptions<'_>,
@@ -47,12 +47,16 @@ pub async fn create_input(
 }
 
 #[async_recursion::async_recursion]
-#[tracing::instrument(skip(brioche), err)]
+#[tracing::instrument(skip_all, err, fields(input_path = %options.input_path.display()))]
 pub async fn create_input_inner(
     brioche: &Brioche,
     options: InputOptions<'async_recursion>,
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<WithMeta<Artifact>> {
+    if let Some(saved) = options.saved_paths.get(options.input_path) {
+        return Ok(WithMeta::new(saved.clone(), options.meta.clone()));
+    }
+
     let metadata = tokio::fs::symlink_metadata(options.input_path)
         .await
         .with_context(|| {
@@ -62,7 +66,7 @@ pub async fn create_input_inner(
             )
         })?;
 
-    if metadata.is_file() {
+    let artifact = if metadata.is_file() {
         let resources = if options.has_resource_dirs() {
             let pack = tokio::task::spawn_blocking({
                 let input_path = options.input_path.to_owned();
@@ -101,6 +105,7 @@ pub async fn create_input_inner(
                         remove_input: false,
                         resource_dir: options.resource_dir,
                         input_resource_dirs: options.input_resource_dirs,
+                        saved_paths: options.saved_paths,
                         meta: options.meta,
                     },
                     buffer,
@@ -188,14 +193,11 @@ pub async fn create_input_inner(
         let permissions = metadata.permissions();
         let executable = is_executable(&permissions);
 
-        Ok(WithMeta::new(
-            Artifact::File(File {
-                content_blob: blob_hash,
-                executable,
-                resources,
-            }),
-            options.meta.clone(),
-        ))
+        Artifact::File(File {
+            content_blob: blob_hash,
+            executable,
+            resources,
+        })
     } else if metadata.is_dir() {
         let mut dir = tokio::fs::read_dir(options.input_path)
             .await
@@ -220,7 +222,11 @@ pub async fn create_input_inner(
                 brioche,
                 InputOptions {
                     input_path: &entry.path(),
-                    ..options
+                    input_resource_dirs: options.input_resource_dirs,
+                    resource_dir: options.resource_dir,
+                    remove_input: options.remove_input,
+                    saved_paths: options.saved_paths,
+                    meta: options.meta,
                 },
                 buffer,
             )
@@ -241,10 +247,7 @@ pub async fn create_input_inner(
         }
 
         let result_dir = Directory::create(brioche, &result_dir_entries).await?;
-        Ok(WithMeta::new(
-            Artifact::Directory(result_dir),
-            options.meta.clone(),
-        ))
+        Artifact::Directory(result_dir)
     } else if metadata.is_symlink() {
         let target = tokio::fs::read_link(options.input_path)
             .await
@@ -267,16 +270,18 @@ pub async fn create_input_inner(
                 })?;
         }
 
-        Ok(WithMeta::new(
-            Artifact::Symlink { target },
-            options.meta.clone(),
-        ))
+        Artifact::Symlink { target }
     } else {
         anyhow::bail!(
             "unsupported input file type at {}",
             options.input_path.display()
         );
-    }
+    };
+
+    options
+        .saved_paths
+        .insert(options.input_path.to_owned(), artifact.clone());
+    Ok(WithMeta::new(artifact, options.meta.clone()))
 }
 
 pub struct FoundResource<'a> {

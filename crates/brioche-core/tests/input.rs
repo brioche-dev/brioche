@@ -22,6 +22,7 @@ async fn create_input(
             remove_input,
             resource_dir: None,
             input_resource_dirs: &[],
+            saved_paths: &mut Default::default(),
             meta: &Arc::new(Meta::default()),
         },
     )
@@ -44,6 +45,7 @@ async fn create_input_with_resources(
             remove_input,
             resource_dir,
             input_resource_dirs,
+            saved_paths: &mut Default::default(),
             meta: &Arc::new(Meta::default()),
         },
     )

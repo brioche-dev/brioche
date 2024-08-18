@@ -1239,10 +1239,11 @@ async fn resolve_static(
                 brioche,
                 crate::input::InputOptions {
                     input_path: &input_path,
-                    meta: &Default::default(),
                     remove_input: false,
                     resource_dir: None,
                     input_resource_dirs: &[],
+                    saved_paths: &mut Default::default(),
+                    meta: &Default::default(),
                 },
             )
             .await?;
@@ -1316,10 +1317,11 @@ async fn resolve_static(
                         brioche,
                         crate::input::InputOptions {
                             input_path: &full_path,
-                            meta: &Default::default(),
                             remove_input: false,
                             resource_dir: None,
                             input_resource_dirs: &[],
+                            saved_paths: &mut Default::default(),
+                            meta: &Default::default(),
                         },
                     )
                     .await?;

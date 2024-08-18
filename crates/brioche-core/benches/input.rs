@@ -66,6 +66,7 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
                         remove_input: removal.should_remove(),
                         resource_dir: Some(&ctx.input_resources),
                         input_resource_dirs: &[],
+                        saved_paths: &mut Default::default(),
                         meta: &meta,
                     },
                 )
@@ -134,6 +135,7 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
                         remove_input: removal.should_remove(),
                         resource_dir: Some(&ctx.input_resources),
                         input_resource_dirs: &[],
+                        saved_paths: &mut Default::default(),
                         meta: &meta,
                     },
                 )
