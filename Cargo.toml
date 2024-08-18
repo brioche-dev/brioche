@@ -7,6 +7,10 @@ resolver = "2"
 # Also, we end up overflowing the stack without optimizations when parsing JS
 opt-level = 2
 
+[profile.profiling]
+inherits = "release"
+debug = true
+
 [profile.release-tiny]
 inherits = "release"
 opt-level = "z"
