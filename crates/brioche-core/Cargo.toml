@@ -77,15 +77,19 @@ libmount = "0.1.15"
 unshare = { git = "https://github.com/brioche-dev/unshare.git" }
 
 [[bench]]
-name = "directory"
-harness = false
-
-[[bench]]
 name = "bake"
 harness = false
 
 [[bench]]
 name = "blob"
+harness = false
+
+[[bench]]
+name = "directory"
+harness = false
+
+[[bench]]
+name = "input"
 harness = false
 
 [lints.clippy]
