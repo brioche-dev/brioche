@@ -42,7 +42,7 @@ pub async fn create_input(
         }
     }
 
-    let result = create_input_inner(brioche, options).await?;
+    let result = create_input_inner(brioche, options, &mut Vec::new()).await?;
     Ok(result)
 }
 
@@ -51,6 +51,7 @@ pub async fn create_input(
 pub async fn create_input_inner(
     brioche: &Brioche,
     options: InputOptions<'async_recursion>,
+    buffer: &mut Vec<u8>,
 ) -> anyhow::Result<WithMeta<Artifact>> {
     let metadata = tokio::fs::symlink_metadata(options.input_path)
         .await
@@ -102,6 +103,7 @@ pub async fn create_input_inner(
                         input_resource_dirs: options.input_resource_dirs,
                         meta: options.meta,
                     },
+                    buffer,
                 )
                 .await?;
 
@@ -179,6 +181,7 @@ pub async fn create_input_inner(
                 &mut permit,
                 options.input_path,
                 super::blob::SaveBlobOptions::default().remove_input(options.remove_input),
+                buffer,
             )
             .await
         }?;
@@ -219,6 +222,7 @@ pub async fn create_input_inner(
                     input_path: &entry.path(),
                     ..options
                 },
+                buffer,
             )
             .await?;
 

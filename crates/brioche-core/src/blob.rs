@@ -121,6 +121,7 @@ pub async fn save_blob_from_reader<'a, R>(
     _permit: &mut SaveBlobPermit<'_>,
     mut input: R,
     mut options: SaveBlobOptions<'a>,
+    buffer: &mut Vec<u8>,
 ) -> anyhow::Result<BlobHash>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -142,10 +143,10 @@ where
 
     tracing::trace!(temp_path = %temp_path.display(), "saving blob");
 
-    let mut buffer = vec![0u8; 1024 * 1024];
+    buffer.resize(1024 * 1024, 0);
     let mut total_bytes_read = 0;
     loop {
-        let length = input.read(&mut buffer).await.context("failed to read")?;
+        let length = input.read(buffer).await.context("failed to read")?;
         if length == 0 {
             break;
         }
@@ -230,6 +231,7 @@ pub async fn save_blob_from_file<'a>(
     _permit: &mut SaveBlobPermit<'_>,
     input_path: &Path,
     options: SaveBlobOptions<'a>,
+    buffer: &mut Vec<u8>,
 ) -> anyhow::Result<BlobHash> {
     let mut hasher = blake3::Hasher::new();
     let mut validation_hashing = options
@@ -238,15 +240,12 @@ pub async fn save_blob_from_file<'a>(
         .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
 
     {
-        let mut buffer = vec![0u8; 1024 * 1024];
+        buffer.resize(1024 * 1024, 0);
         let mut input_file = tokio::fs::File::open(&input_path)
             .await
             .with_context(|| format!("failed to open input file {}", input_path.display()))?;
         loop {
-            let length = input_file
-                .read(&mut buffer)
-                .await
-                .context("failed to read")?;
+            let length = input_file.read(buffer).await.context("failed to read")?;
             if length == 0 {
                 break;
             }

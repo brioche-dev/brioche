@@ -115,6 +115,7 @@ pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Un
         &mut permit,
         content.as_ref(),
         SaveBlobOptions::default(),
+        &mut Vec::new(),
     )
     .await
     .unwrap()

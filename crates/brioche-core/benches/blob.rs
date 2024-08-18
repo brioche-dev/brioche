@@ -73,9 +73,15 @@ fn bench_blob_save_reader_cached(bencher: divan::Bencher, num_blobs: u32) {
 
         for i in 0..num_blobs {
             let bytes = i.to_be_bytes();
-            save_blob_from_reader(&brioche, &mut permit, &bytes[..], SaveBlobOptions::new())
-                .await
-                .unwrap();
+            save_blob_from_reader(
+                &brioche,
+                &mut permit,
+                &bytes[..],
+                SaveBlobOptions::new(),
+                &mut Vec::new(),
+            )
+            .await
+            .unwrap();
         }
     });
 
@@ -108,9 +114,15 @@ fn bench_blob_save_reader_uncached(bencher: divan::Bencher, num_blobs: u32) {
             for _ in 0..num_blobs {
                 let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let bytes = n.to_be_bytes();
-                save_blob_from_reader(&brioche, &mut permit, &bytes[..], SaveBlobOptions::new())
-                    .await
-                    .unwrap();
+                save_blob_from_reader(
+                    &brioche,
+                    &mut permit,
+                    &bytes[..],
+                    SaveBlobOptions::new(),
+                    &mut Vec::new(),
+                )
+                .await
+                .unwrap();
             }
         });
     });
@@ -129,9 +141,15 @@ fn bench_blob_save_file_cached(bencher: divan::Bencher, num_blobs: u32) {
 
         for i in 0..num_blobs {
             let bytes = i.to_be_bytes();
-            save_blob_from_reader(&brioche, &mut permit, &bytes[..], SaveBlobOptions::new())
-                .await
-                .unwrap();
+            save_blob_from_reader(
+                &brioche,
+                &mut permit,
+                &bytes[..],
+                SaveBlobOptions::new(),
+                &mut Vec::new(),
+            )
+            .await
+            .unwrap();
         }
     });
 
@@ -164,9 +182,15 @@ fn bench_blob_save_file_uncached(bencher: divan::Bencher, num_blobs: u32) {
             for _ in 0..num_blobs {
                 let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let bytes = n.to_be_bytes();
-                save_blob_from_reader(&brioche, &mut permit, &bytes[..], SaveBlobOptions::new())
-                    .await
-                    .unwrap();
+                save_blob_from_reader(
+                    &brioche,
+                    &mut permit,
+                    &bytes[..],
+                    SaveBlobOptions::new(),
+                    &mut Vec::new(),
+                )
+                .await
+                .unwrap();
             }
         });
     });

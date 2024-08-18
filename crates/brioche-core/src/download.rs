@@ -66,6 +66,7 @@ pub async fn download(
         &mut save_blob_permit,
         download_stream,
         save_blob_options,
+        &mut Vec::new(),
     )
     .await
     .context("failed to save blob")?;
