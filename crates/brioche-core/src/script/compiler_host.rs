@@ -8,22 +8,21 @@ use std::{
 use anyhow::Context as _;
 use deno_core::OpState;
 
-use crate::{
-    project::{analyze::find_imports, Projects},
-    Brioche,
-};
+use crate::project::analyze::find_imports;
 
-use super::specifier::{self, resolve, BriocheImportSpecifier, BriocheModuleSpecifier};
+use super::{
+    bridge::RuntimeBridge,
+    specifier::{self, BriocheImportSpecifier, BriocheModuleSpecifier},
+};
 
 #[derive(Clone)]
 pub struct BriocheCompilerHost {
-    pub brioche: Brioche,
-    pub projects: Projects,
+    pub bridge: RuntimeBridge,
     pub documents: Arc<RwLock<HashMap<BriocheModuleSpecifier, BriocheDocument>>>,
 }
 
 impl BriocheCompilerHost {
-    pub async fn new(brioche: Brioche, projects: Projects) -> Self {
+    pub async fn new(bridge: RuntimeBridge) -> Self {
         let documents: HashMap<_, _> = specifier::runtime_specifiers_with_contents()
             .map(|(specifier, contents)| {
                 let contents = std::str::from_utf8(&contents)
@@ -38,15 +37,17 @@ impl BriocheCompilerHost {
             .collect();
 
         Self {
-            brioche,
-            projects,
+            bridge,
             documents: Arc::new(RwLock::new(documents)),
         }
     }
 
-    pub async fn load_document(&self, specifier: &BriocheModuleSpecifier) -> anyhow::Result<()> {
+    pub async fn load_documents(
+        &self,
+        specifiers: Vec<BriocheModuleSpecifier>,
+    ) -> anyhow::Result<()> {
         let mut already_visited = HashSet::new();
-        let mut specifiers_to_load = vec![specifier.clone()];
+        let mut specifiers_to_load = specifiers;
 
         while let Some(specifier) = specifiers_to_load.pop() {
             if !already_visited.insert(specifier.clone()) {
@@ -63,12 +64,9 @@ impl BriocheCompilerHost {
 
             match &specifier {
                 BriocheModuleSpecifier::File { path } => {
-                    self.projects
-                        .load_from_module_path(&self.brioche, path, false)
-                        .await
-                        .inspect_err(|err| {
-                            tracing::warn!("failed to load project from module path: {err:#}");
-                        })?;
+                    self.bridge
+                        .load_project_from_module_path(path.clone())
+                        .await?;
                 }
                 BriocheModuleSpecifier::Runtime { .. } => {}
             }
@@ -76,9 +74,10 @@ impl BriocheCompilerHost {
             let contents = match contents {
                 Some(contents) => contents,
                 None => {
-                    let contents =
-                        super::specifier::load_specifier_contents(&self.brioche.vfs, &specifier)
-                            .await?;
+                    let contents = self
+                        .bridge
+                        .load_specifier_contents(specifier.clone())
+                        .await?;
                     let contents = std::str::from_utf8(&contents).with_context(|| {
                         format!("failed to parse module '{specifier}' contents as UTF-8 string")
                     })?;
@@ -131,7 +130,10 @@ impl BriocheCompilerHost {
                         continue;
                     }
                 };
-                let resolved = resolve(&self.projects, &import_specifier, &specifier);
+
+                let resolved = self
+                    .bridge
+                    .resolve_specifier(import_specifier.clone(), specifier.clone());
                 let resolved = match resolved {
                     Ok(resolved) => resolved,
                     Err(error) => {
@@ -174,18 +176,11 @@ impl BriocheCompilerHost {
                 });
         }
 
-        match &specifier {
-            BriocheModuleSpecifier::Runtime { .. } => {}
-            BriocheModuleSpecifier::File { path } => {
-                if let Some((file_id, _)) = self.brioche.vfs.load_cached(path)? {
-                    self.brioche
-                        .vfs
-                        .update(file_id, Arc::new(contents.as_bytes().to_vec()))?;
-                };
-            }
-        }
+        self.bridge
+            .update_vfs_contents(specifier.clone(), Arc::new(contents.as_bytes().to_vec()))
+            .await?;
 
-        self.load_document(&specifier).await?;
+        self.load_documents(vec![specifier]).await?;
 
         Ok(())
     }
@@ -210,31 +205,54 @@ impl BriocheCompilerHost {
     pub async fn reload_module_project(&self, uri: &url::Url) -> anyhow::Result<()> {
         let specifier: BriocheModuleSpecifier = uri.try_into()?;
 
-        match &specifier {
-            BriocheModuleSpecifier::File { path } => {
-                let project = self
-                    .projects
-                    .find_containing_project(path)
-                    .with_context(|| format!("no project found for path '{}'", path.display()))?;
+        let did_update = self
+            .bridge
+            .reload_project_from_specifier(specifier.clone())
+            .await?;
 
-                if let Some(project) = project {
-                    self.projects.clear(project).await?;
-                }
-
-                self.projects
-                    .load_from_module_path(&self.brioche, path, false)
-                    .await?;
-
-                let mut documents = self
-                    .documents
-                    .write()
-                    .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
-                documents.entry(specifier.clone()).and_modify(|doc| {
-                    doc.version += 1;
-                });
-            }
-            BriocheModuleSpecifier::Runtime { .. } => {}
+        if did_update {
+            let mut documents = self
+                .documents
+                .write()
+                .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+            documents.entry(specifier.clone()).and_modify(|doc| {
+                doc.version += 1;
+            });
         }
+
+        //     let mut documents = self
+        //     .documents
+        //     .write()
+        //     .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+        // documents.entry(specifier.clone()).and_modify(|doc| {
+        //     doc.version += 1;
+        // });
+
+        // match &specifier {
+        //     BriocheModuleSpecifier::File { path } => {
+        //         let project = self
+        //             .projects
+        //             .find_containing_project(path)
+        //             .with_context(|| format!("no project found for path '{}'", path.display()))?;
+
+        //         if let Some(project) = project {
+        //             self.projects.clear(project).await?;
+        //         }
+
+        //         self.projects
+        //             .load_from_module_path(&self.brioche, path, false)
+        //             .await?;
+
+        //         let mut documents = self
+        //             .documents
+        //             .write()
+        //             .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+        //         documents.entry(specifier.clone()).and_modify(|doc| {
+        //             doc.version += 1;
+        //         });
+        //     }
+        //     BriocheModuleSpecifier::Runtime { .. } => {}
+        // }
 
         Ok(())
     }
@@ -323,8 +341,11 @@ pub fn op_brioche_resolve_module(
 
     let referrer: BriocheModuleSpecifier = referrer.parse().ok()?;
     let specifier: BriocheImportSpecifier = specifier.parse().ok()?;
-    let resolved =
-        super::specifier::resolve(&compiler_host.projects, &specifier, &referrer).ok()?;
+
+    let resolved = compiler_host
+        .bridge
+        .resolve_specifier(specifier, referrer)
+        .ok()?;
 
     Some(resolved.to_string())
 }

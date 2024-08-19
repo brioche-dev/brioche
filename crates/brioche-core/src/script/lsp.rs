@@ -12,6 +12,7 @@ use crate::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
 use crate::script::format::format_code;
 use crate::{Brioche, BriocheBuilder};
 
+use super::bridge::RuntimeBridge;
 use super::specifier::BriocheModuleSpecifier;
 
 /// The maximum time we spend resolving projects when regenerating a
@@ -19,22 +20,21 @@ use super::specifier::BriocheModuleSpecifier;
 const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub struct BriocheLspServer {
+    bridge: RuntimeBridge,
     compiler_host: BriocheCompilerHost,
     client: Client,
     js_lsp: JsLspTask,
 }
 
 impl BriocheLspServer {
-    pub async fn new(
-        local_pool: &tokio_util::task::LocalPoolHandle,
-        brioche: Brioche,
-        projects: Projects,
-        client: Client,
-    ) -> anyhow::Result<Self> {
-        let compiler_host = BriocheCompilerHost::new(brioche.clone(), projects.clone()).await;
-        let js_lsp = js_lsp_task(local_pool, compiler_host.clone());
+    pub async fn new(brioche: Brioche, projects: Projects, client: Client) -> anyhow::Result<Self> {
+        let bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
+
+        let compiler_host = BriocheCompilerHost::new(bridge.clone()).await;
+        let js_lsp = js_lsp_task(compiler_host.clone(), bridge.clone());
 
         Ok(Self {
+            bridge,
             compiler_host,
             client,
             js_lsp,
@@ -103,7 +103,10 @@ impl LanguageServer for BriocheLspServer {
         let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
         match specifier {
             Ok(specifier) => {
-                let result = self.compiler_host.load_document(&specifier).await;
+                let result = self
+                    .compiler_host
+                    .load_documents(vec![specifier.clone()])
+                    .await;
                 match result {
                     Ok(()) => {}
                     Err(error) => {
@@ -146,14 +149,14 @@ impl LanguageServer for BriocheLspServer {
             let (lockfile_tx, lockfile_rx) = tokio::sync::oneshot::channel();
 
             std::thread::spawn({
-                let compiler_host = self.compiler_host.clone();
+                let bridge = self.bridge.clone();
                 let module_path = module_path.clone();
                 move || {
                     let local_set = tokio::task::LocalSet::new();
 
                     local_set.spawn_local(async move {
                         let result = try_update_lockfile_for_module(
-                            compiler_host.clone(),
+                            bridge,
                             module_path,
                             LOCKFILE_LOAD_TIMEOUT,
                         )
@@ -458,16 +461,11 @@ impl LanguageServer for BriocheLspServer {
 }
 
 async fn try_update_lockfile_for_module(
-    compiler_host: BriocheCompilerHost,
+    bridge: RuntimeBridge,
     module_path: PathBuf,
     load_timeout: std::time::Duration,
 ) -> anyhow::Result<bool> {
-    let project_hash = compiler_host
-        .projects
-        .find_containing_project(&module_path)
-        .context("failed to get project path")?
-        .context("containing project not found")?;
-    let project_path = compiler_host.projects.project_root(project_hash)?.clone();
+    let project_path = bridge.project_root_for_module_path(module_path).await?;
 
     // The instances of `Brioche` and `Projects` used for the LSP aren't
     // suitable for generating lockfiles (access to the registry is disabled,
@@ -538,120 +536,130 @@ impl JsLspTask {
     }
 }
 
-fn js_lsp_task(
-    local_pool: &tokio_util::task::LocalPoolHandle,
-    compiler_host: BriocheCompilerHost,
-) -> JsLspTask {
+fn js_lsp_task(compiler_host: BriocheCompilerHost, bridge: RuntimeBridge) -> JsLspTask {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(
         JsLspMessage,
         tokio::sync::oneshot::Sender<serde_json::Value>,
     )>(1);
 
-    let js_lsp_task = local_pool.spawn_pinned(|| async move {
-        let module_loader =
-            super::BriocheModuleLoader::new(&compiler_host.brioche, &compiler_host.projects);
+    std::thread::spawn(move || {
+        let module_loader = super::BriocheModuleLoader::new(bridge);
 
-        tracing::info!("building JS LSP");
-
-        let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
-            module_loader: Some(Rc::new(module_loader.clone())),
-            source_map_getter: Some(Box::new(module_loader.clone())),
-            extensions: vec![
-                brioche_compiler_host::init_ops(compiler_host),
-                super::js::brioche_js::init_ops(),
-            ],
-            ..Default::default()
-        });
-
-        let main_module: deno_core::ModuleSpecifier = "briocheruntime:///dist/index.js".parse()?;
-
-        tracing::info!(%main_module, "evaluating module");
-
-        tracing::info!("loading module");
-
-        let module_id = js_runtime.load_main_module(&main_module, None).await?;
-        let result = js_runtime.mod_evaluate(module_id);
-        js_runtime.run_event_loop(false).await?;
-        result.await?;
-
-        let module_namespace = js_runtime.get_module_namespace(module_id)?;
-
-        tracing::info!("calling JS");
-
-        let js_lsp = {
-            let mut js_scope = js_runtime.handle_scope();
-            let module_namespace = deno_core::v8::Local::new(&mut js_scope, module_namespace);
-
-            let export_key_name = "buildLsp";
-            let export_key = deno_core::v8::String::new(&mut js_scope, export_key_name)
-                .context("failed to create V8 string")?;
-            let export = module_namespace
-                .get(&mut js_scope, export_key.into())
-                .with_context(|| {
-                    format!("expected module to have an export named {export_key_name:?}")
-                })?;
-            let export: deno_core::v8::Local<deno_core::v8::Function> = export
-                .try_into()
-                .with_context(|| format!("expected export {export_key_name:?} to be a function"))?;
-
-            tracing::info!(%main_module, ?export_key_name, "running function");
-
-            let js_lsp = export
-                .call(&mut js_scope, module_namespace.into(), &[])
-                .context("failed to build LSP")?;
-            let js_lsp: deno_core::v8::Local<deno_core::v8::Object> =
-                js_lsp.try_into().context("expected LSP to be an object")?;
-            deno_core::v8::Global::new(&mut js_scope, js_lsp)
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build();
+        let runtime = match runtime {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                tracing::error!("failed to create runtime: {error:#}");
+                return;
+            }
         };
 
-        tracing::info!("built JS LSP");
+        let result = runtime.block_on(async move {
+            tracing::info!("building JS LSP");
 
-        while let Some((message, response_tx)) = rx.recv().await {
-            tracing::info!(?message, "got message");
-            let response = match message {
-                JsLspMessage::Completion(params) => {
-                    call_method_1(&mut js_runtime, &js_lsp, "completion", &params)
-                }
-                JsLspMessage::Diagnostic(params) => {
-                    call_method_1(&mut js_runtime, &js_lsp, "diagnostic", &params)
-                }
-                JsLspMessage::GotoDefinition(params) => {
-                    call_method_1(&mut js_runtime, &js_lsp, "gotoDefinition", &params)
-                }
-                JsLspMessage::Hover(params) => {
-                    call_method_1(&mut js_runtime, &js_lsp, "hover", &params)
-                }
-                JsLspMessage::DocumentHighlight(params) => {
-                    call_method_1(&mut js_runtime, &js_lsp, "documentHighlight", &params)
-                }
-                JsLspMessage::References(params) => {
-                    call_method_1(&mut js_runtime, &js_lsp, "references", &params)
-                }
-                JsLspMessage::PrepareRename(params) => {
-                    call_method_1(&mut js_runtime, &js_lsp, "prepareRename", &params)
-                }
-                JsLspMessage::Rename(params) => {
-                    call_method_1(&mut js_runtime, &js_lsp, "rename", &params)
-                }
+            let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
+                module_loader: Some(Rc::new(module_loader)),
+                extensions: vec![
+                    brioche_compiler_host::init_ops(compiler_host),
+                    super::js::brioche_js::init_ops(),
+                ],
+                ..Default::default()
+            });
+
+            let main_module: deno_core::ModuleSpecifier =
+                "briocheruntime:///dist/index.js".parse()?;
+
+            tracing::info!(%main_module, "evaluating module");
+
+            tracing::info!("loading module");
+
+            let module_id = js_runtime.load_main_es_module(&main_module).await?;
+            let result = js_runtime.mod_evaluate(module_id);
+            js_runtime
+                .run_event_loop(deno_core::PollEventLoopOptions::default())
+                .await?;
+            result.await?;
+
+            let module_namespace = js_runtime.get_module_namespace(module_id)?;
+
+            tracing::info!("calling JS");
+
+            let js_lsp = {
+                let mut js_scope = js_runtime.handle_scope();
+                let module_namespace = deno_core::v8::Local::new(&mut js_scope, module_namespace);
+
+                let export_key_name = "buildLsp";
+                let export_key = deno_core::v8::String::new(&mut js_scope, export_key_name)
+                    .context("failed to create V8 string")?;
+                let export = module_namespace
+                    .get(&mut js_scope, export_key.into())
+                    .with_context(|| {
+                        format!("expected module to have an export named {export_key_name:?}")
+                    })?;
+                let export: deno_core::v8::Local<deno_core::v8::Function> =
+                    export.try_into().with_context(|| {
+                        format!("expected export {export_key_name:?} to be a function")
+                    })?;
+
+                tracing::info!(%main_module, ?export_key_name, "running function");
+
+                let js_lsp = export
+                    .call(&mut js_scope, module_namespace.into(), &[])
+                    .context("failed to build LSP")?;
+                let js_lsp: deno_core::v8::Local<deno_core::v8::Object> =
+                    js_lsp.try_into().context("expected LSP to be an object")?;
+                deno_core::v8::Global::new(&mut js_scope, js_lsp)
             };
 
-            match response {
-                Ok(response) => {
-                    let _ = response_tx.send(response);
-                }
-                Err(error) => {
-                    tracing::error!("failed to call method: {error:#}");
-                    return Err(error);
-                }
-            };
-        }
+            tracing::info!("built JS LSP");
 
-        anyhow::Ok(())
-    });
+            while let Some((message, response_tx)) = rx.recv().await {
+                tracing::info!(?message, "got message");
+                let response = match message {
+                    JsLspMessage::Completion(params) => {
+                        call_method_1(&mut js_runtime, &js_lsp, "completion", &params)
+                    }
+                    JsLspMessage::Diagnostic(params) => {
+                        call_method_1(&mut js_runtime, &js_lsp, "diagnostic", &params)
+                    }
+                    JsLspMessage::GotoDefinition(params) => {
+                        call_method_1(&mut js_runtime, &js_lsp, "gotoDefinition", &params)
+                    }
+                    JsLspMessage::Hover(params) => {
+                        call_method_1(&mut js_runtime, &js_lsp, "hover", &params)
+                    }
+                    JsLspMessage::DocumentHighlight(params) => {
+                        call_method_1(&mut js_runtime, &js_lsp, "documentHighlight", &params)
+                    }
+                    JsLspMessage::References(params) => {
+                        call_method_1(&mut js_runtime, &js_lsp, "references", &params)
+                    }
+                    JsLspMessage::PrepareRename(params) => {
+                        call_method_1(&mut js_runtime, &js_lsp, "prepareRename", &params)
+                    }
+                    JsLspMessage::Rename(params) => {
+                        call_method_1(&mut js_runtime, &js_lsp, "rename", &params)
+                    }
+                };
 
-    tokio::task::spawn(async move {
-        if let Err(error) = js_lsp_task.await {
-            tracing::error!("error in JS LSP task: {error}");
+                match response {
+                    Ok(response) => {
+                        let _ = response_tx.send(response);
+                    }
+                    Err(error) => {
+                        tracing::error!("failed to call method: {error:#}");
+                        return Err(error);
+                    }
+                };
+            }
+
+            anyhow::Ok(())
+        });
+
+        if let Err(error) = result {
+            tracing::error!("failed to run runtime: {error:#}");
         }
     });
 
