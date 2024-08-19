@@ -74,9 +74,30 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
 
     println!("Downloaded update");
 
+    // Write the update to a temporary file
     tokio::fs::write(&brioche_path_temp, new_update)
         .await
         .with_context(|| format!("failed to write update to {}", brioche_path_temp.display()))?;
+
+    // Set the executable bit if it's not already set
+    let mut permissions = tokio::fs::metadata(&brioche_path_temp)
+        .await
+        .with_context(|| format!("failed to get metadata for {}", brioche_path_temp.display()))?
+        .permissions();
+    const EXECUTABLE_BIT: u32 = 0o111;
+    if permissions.mode() & EXECUTABLE_BIT != EXECUTABLE_BIT {
+        permissions.set_mode(permissions.mode() | EXECUTABLE_BIT);
+        tokio::fs::set_permissions(&brioche_path_temp, permissions)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to set executable bit on {}",
+                    brioche_path_temp.display()
+                )
+            })?;
+    }
+
+    // Rename the temporary file to the actual file
     tokio::fs::rename(&brioche_path_temp, &brioche_path)
         .await
         .with_context(|| {
@@ -86,21 +107,6 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
                 brioche_path.display()
             )
         })?;
-
-    // Set the executable bit if it's not already set
-    let mut permissions = tokio::fs::metadata(&brioche_path)
-        .await
-        .with_context(|| format!("failed to get metadata for {}", brioche_path.display()))?
-        .permissions();
-    const EXECUTABLE_BIT: u32 = 0o111;
-    if permissions.mode() & EXECUTABLE_BIT != EXECUTABLE_BIT {
-        permissions.set_mode(permissions.mode() | EXECUTABLE_BIT);
-        tokio::fs::set_permissions(&brioche_path, permissions)
-            .await
-            .with_context(|| {
-                format!("failed to set executable bit on {}", brioche_path.display())
-            })?;
-    }
 
     Ok(true)
 }
