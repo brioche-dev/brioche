@@ -296,28 +296,31 @@ fn add_input_plan_nodes(
                 options.resource_dir,
                 options.input_resource_dirs,
                 resource_subpath,
-            )?
-            .with_context(|| format!("resource not found: {resource_path:?}"))?;
-
-            let resource_node = add_input_plan_nodes(
-                InputOptions {
-                    input_path: &resource.path,
-                    remove_input: false,
-                    resource_dir: options.resource_dir,
-                    input_resource_dirs: options.input_resource_dirs,
-                    saved_paths: options.saved_paths,
-                    meta: options.meta,
-                },
-                plan,
             )?;
 
-            plan.graph.update_edge(
-                node_index,
-                resource_node,
-                CreateInputPlanEdge::Resource {
-                    path: resource_path,
-                },
-            );
+            if let Some(resource) = resource {
+                let resource_node = add_input_plan_nodes(
+                    InputOptions {
+                        input_path: &resource.path,
+                        remove_input: false,
+                        resource_dir: options.resource_dir,
+                        input_resource_dirs: options.input_resource_dirs,
+                        saved_paths: options.saved_paths,
+                        meta: options.meta,
+                    },
+                    plan,
+                )?;
+
+                plan.graph.update_edge(
+                    node_index,
+                    resource_node,
+                    CreateInputPlanEdge::Resource {
+                        path: resource_path,
+                    },
+                );
+            } else {
+                tracing::debug!(input_path = %options.input_path.display(), %resource_path, "could not find resource for file, skipping");
+            }
         }
 
         node_index
