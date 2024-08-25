@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -73,17 +73,7 @@ pub async fn create_input_inner(
                 &mut plan,
             )?;
 
-            add_input_plan_indirect_resources(
-                InputOptions {
-                    input_path: &input_path,
-                    remove_input,
-                    resource_dir: resource_dir.as_deref(),
-                    input_resource_dirs: &input_resource_dirs,
-                    saved_paths: &mut Default::default(),
-                    meta: &meta,
-                },
-                &mut plan,
-            )?;
+            add_input_plan_indirect_resources(&mut plan)?;
 
             anyhow::Ok((plan, root_node))
         }
@@ -673,10 +663,7 @@ fn add_input_plan_nodes(
     Ok(root_node)
 }
 
-fn add_input_plan_indirect_resources(
-    options: InputOptions,
-    plan: &mut CreateInputPlan,
-) -> anyhow::Result<()> {
+fn add_input_plan_indirect_resources(plan: &mut CreateInputPlan) -> anyhow::Result<()> {
     let mut resource_paths: Vec<_> = plan
         .graph
         .edge_references()
@@ -693,9 +680,14 @@ fn add_input_plan_indirect_resources(
         })
         .collect();
 
+    let mut visited_resources = HashSet::new();
     let mut indirect_resources = vec![];
 
     while let Some((node, resource_path, resource_node)) = resource_paths.pop() {
+        if !visited_resources.insert(resource_path.clone()) {
+            continue;
+        }
+
         for subresource_edge in plan.graph.edges(resource_node) {
             match subresource_edge.weight() {
                 CreateInputPlanEdge::DirectoryEntry { file_name } => {
