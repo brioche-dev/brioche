@@ -322,8 +322,6 @@ fn add_input_plan_nodes(
 
         node_index
     } else if metadata.is_symlink() {
-        // TODO: Handle broken links
-
         let target =
             std::fs::read_link(options.input_path).context("failed to read symlink target")?;
         let target = <Vec<u8>>::from_path_buf(target).map_err(|_| {
@@ -331,37 +329,49 @@ fn add_input_plan_nodes(
         })?;
         let target = bstr::BString::from(target);
 
-        let node_index = plan.graph.add_node(CreateInputPlanNode::Symlink { target });
+        let node_index = plan.graph.add_node(CreateInputPlanNode::Symlink {
+            target: target.clone(),
+        });
 
         plan.paths_to_nodes
             .insert(options.input_path.to_owned(), node_index);
         plan.nodes_to_paths
             .insert(node_index, options.input_path.to_owned());
 
-        let canonical_path = std::fs::canonicalize(options.input_path)
-            .context("failed to canonicalize symlink path")?;
-        let resource_dirs = options
-            .resource_dir
-            .into_iter()
-            .chain(options.input_resource_dirs.iter().map(|dir| &**dir));
-        for resource_dir in resource_dirs {
-            let canonical_resource_dir = std::fs::canonicalize(resource_dir)
-                .context("failed to canonicalize resource dir")?;
-            if canonical_path.starts_with(&canonical_resource_dir) {
-                let target_node = add_input_plan_nodes(
-                    InputOptions {
-                        input_path: &canonical_path,
-                        remove_input: false,
-                        resource_dir: options.resource_dir,
-                        input_resource_dirs: options.input_resource_dirs,
-                        saved_paths: options.saved_paths,
-                        meta: options.meta,
-                    },
-                    plan,
-                )?;
+        // Try to add the target of the symlink as an edge, but skip it if
+        // it's a broken symlink
+        match std::fs::canonicalize(options.input_path) {
+            Ok(canonical_path) => {
+                let resource_dirs = options
+                    .resource_dir
+                    .into_iter()
+                    .chain(options.input_resource_dirs.iter().map(|dir| &**dir));
+                for resource_dir in resource_dirs {
+                    let canonical_resource_dir = std::fs::canonicalize(resource_dir)
+                        .context("failed to canonicalize resource dir")?;
+                    if canonical_path.starts_with(&canonical_resource_dir) {
+                        let target_node = add_input_plan_nodes(
+                            InputOptions {
+                                input_path: &canonical_path,
+                                remove_input: false,
+                                resource_dir: options.resource_dir,
+                                input_resource_dirs: options.input_resource_dirs,
+                                saved_paths: options.saved_paths,
+                                meta: options.meta,
+                            },
+                            plan,
+                        )?;
 
-                plan.graph
-                    .update_edge(node_index, target_node, CreateInputPlanEdge::SymlinkTarget);
+                        plan.graph.update_edge(
+                            node_index,
+                            target_node,
+                            CreateInputPlanEdge::SymlinkTarget,
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::debug!(input_path = %options.input_path.display(), %target, error = %err, "ignoring broken symlink for input");
             }
         }
 
