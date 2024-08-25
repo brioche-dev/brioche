@@ -37,7 +37,23 @@ pub async fn create_input(
         }
     }
 
-    let result = create_input_inner(brioche, options).await?;
+    let result = create_input_inner(
+        brioche,
+        InputOptions {
+            input_path: options.input_path,
+            remove_input: options.remove_input,
+            resource_dir: options.resource_dir,
+            input_resource_dirs: options.input_resource_dirs,
+            saved_paths: options.saved_paths,
+            meta: options.meta,
+        },
+    )
+    .await?;
+
+    if options.remove_input {
+        crate::fs_utils::try_remove(options.input_path).await?;
+    }
+
     Ok(result)
 }
 
