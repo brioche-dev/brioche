@@ -37,7 +37,7 @@ pub async fn create_input(
         }
     }
 
-    let result = create_input_inner(brioche, options, &mut Vec::new()).await?;
+    let result = create_input_inner(brioche, options).await?;
     Ok(result)
 }
 
@@ -45,7 +45,6 @@ pub async fn create_input(
 pub async fn create_input_inner(
     brioche: &Brioche,
     options: InputOptions<'_>,
-    buffer: &mut Vec<u8>,
 ) -> anyhow::Result<WithMeta<Artifact>> {
     tracing::debug!(input_path = %options.input_path.display(), "creating plan for input");
     let (plan, root_node) = tokio::task::spawn_blocking({
