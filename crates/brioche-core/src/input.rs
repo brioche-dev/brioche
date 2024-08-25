@@ -80,6 +80,42 @@ pub async fn create_input_inner(
     })
     .await??;
 
+    let file_nodes = plan
+        .graph
+        .node_indices()
+        .filter(|node| matches!(plan.graph[*node], CreateInputPlanNode::File { .. }));
+
+    let mut nodes_to_blobs_tasks = vec![];
+    for node in file_nodes {
+        let path = plan.nodes_to_paths[&node].to_owned();
+        let brioche = brioche.clone();
+        let task = async move {
+            let result = tokio::spawn(async move {
+                let mut blob_permit = super::blob::get_save_blob_permit().await?;
+                let blob = super::blob::save_blob_from_file(
+                    &brioche,
+                    &mut blob_permit,
+                    &path,
+                    super::blob::SaveBlobOptions::default().remove_input(options.remove_input),
+                    &mut Default::default(),
+                )
+                .await?;
+
+                anyhow::Ok((node, blob))
+            })
+            .await??;
+
+            anyhow::Ok(result)
+        };
+
+        nodes_to_blobs_tasks.push(task);
+    }
+
+    let nodes_to_blobs: HashMap<_, _> = futures::future::try_join_all(nodes_to_blobs_tasks)
+        .await?
+        .into_iter()
+        .collect();
+
     let mut nodes_to_artifacts = HashMap::<petgraph::graph::NodeIndex, WithMeta<Artifact>>::new();
     let planned_nodes = petgraph::algo::toposort(petgraph::visit::Reversed(&plan.graph), None)
         .map_err(|_| anyhow::anyhow!("cycle detected in input {:?}", options.input_path))?;
@@ -90,14 +126,9 @@ pub async fn create_input_inner(
 
         let artifact = match node {
             CreateInputPlanNode::File { is_executable } => {
-                let content_blob = super::blob::save_blob_from_file(
-                    brioche,
-                    &mut super::blob::get_save_blob_permit().await?,
-                    &path,
-                    super::blob::SaveBlobOptions::default().remove_input(options.remove_input),
-                    buffer,
-                )
-                .await?;
+                let content_blob = nodes_to_blobs
+                    .get(&node_index)
+                    .ok_or_else(|| anyhow::anyhow!("blob not found for file node: {:?}", path))?;
 
                 let mut resources = Directory::default();
 
@@ -122,7 +153,7 @@ pub async fn create_input_inner(
                 }
 
                 Artifact::File(File {
-                    content_blob,
+                    content_blob: *content_blob,
                     executable: *is_executable,
                     resources,
                 })
