@@ -53,6 +53,7 @@ pub async fn create_input_inner(
     options: InputOptions<'_>,
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<WithMeta<Artifact>> {
+    tracing::debug!(input_path = %options.input_path.display(), "creating plan for input");
     let (plan, root_node) = tokio::task::spawn_blocking({
         let input_path = options.input_path.to_owned();
         let remove_input = options.remove_input;
@@ -80,6 +81,8 @@ pub async fn create_input_inner(
     })
     .await??;
 
+    tracing::debug!(input_path = %options.input_path.display(), "loading blobs");
+
     let file_nodes = plan
         .graph
         .node_indices()
@@ -98,7 +101,7 @@ pub async fn create_input_inner(
                     &brioche,
                     &mut blob_permit,
                     &path,
-                    super::blob::SaveBlobOptions::default().remove_input(options.remove_input),
+                    super::blob::SaveBlobOptions::default().remove_input(remove_blob),
                     &mut Default::default(),
                 )
                 .await?;
@@ -121,6 +124,8 @@ pub async fn create_input_inner(
     let mut nodes_to_artifacts = HashMap::<petgraph::graph::NodeIndex, WithMeta<Artifact>>::new();
     let planned_nodes = petgraph::algo::toposort(petgraph::visit::Reversed(&plan.graph), None)
         .map_err(|_| anyhow::anyhow!("cycle detected in input {:?}", options.input_path))?;
+
+    tracing::debug!(input_path = %options.input_path.display(), "creating nodes");
 
     for node_index in planned_nodes {
         let node = &plan.graph[node_index];
@@ -193,6 +198,8 @@ pub async fn create_input_inner(
 
         nodes_to_artifacts.insert(node_index, WithMeta::new(artifact, options.meta.clone()));
     }
+
+    tracing::debug!(input_path = %options.input_path.display(), "finished");
 
     let artifact = nodes_to_artifacts
         .remove(&root_node)
