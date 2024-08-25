@@ -61,7 +61,19 @@ pub async fn create_input_inner(
         let meta = options.meta.clone();
         move || {
             let mut plan = CreateInputPlan::default();
-            let root_node = plan_create_input_sync(
+            let root_node = add_input_plan_nodes(
+                InputOptions {
+                    input_path: &input_path,
+                    remove_input,
+                    resource_dir: resource_dir.as_deref(),
+                    input_resource_dirs: &input_resource_dirs,
+                    saved_paths: &mut Default::default(),
+                    meta: &meta,
+                },
+                &mut plan,
+            )?;
+
+            add_input_plan_indirect_resources(
                 InputOptions {
                     input_path: &input_path,
                     remove_input,
@@ -510,7 +522,7 @@ struct CreateInputPlan {
     nodes_to_paths: HashMap<petgraph::graph::NodeIndex, PathBuf>,
 }
 
-fn plan_create_input_sync(
+fn add_input_plan_nodes(
     options: InputOptions,
     plan: &mut CreateInputPlan,
 ) -> anyhow::Result<petgraph::graph::NodeIndex> {
@@ -546,7 +558,7 @@ fn plan_create_input_sync(
             )?
             .with_context(|| format!("resource not found: {resource_path:?}"))?;
 
-            let resource_node = plan_create_input_sync(
+            let resource_node = add_input_plan_nodes(
                 InputOptions {
                     input_path: &resource.path,
                     remove_input: false,
@@ -595,7 +607,7 @@ fn plan_create_input_sync(
             let canonical_resource_dir = std::fs::canonicalize(resource_dir)
                 .context("failed to canonicalize resource dir")?;
             if canonical_path.starts_with(&canonical_resource_dir) {
-                let target_node = plan_create_input_sync(
+                let target_node = add_input_plan_nodes(
                     InputOptions {
                         input_path: &canonical_path,
                         remove_input: false,
@@ -634,7 +646,7 @@ fn plan_create_input_sync(
             })?;
             let file_name = bstr::BString::from(file_name);
 
-            let dir_entry_node = plan_create_input_sync(
+            let dir_entry_node = add_input_plan_nodes(
                 InputOptions {
                     input_path: &dir_entry.path(),
                     remove_input: false,
@@ -658,6 +670,13 @@ fn plan_create_input_sync(
         anyhow::bail!("unsupported file type at {:?}", options.input_path);
     };
 
+    Ok(root_node)
+}
+
+fn add_input_plan_indirect_resources(
+    options: InputOptions,
+    plan: &mut CreateInputPlan,
+) -> anyhow::Result<()> {
     let mut resource_paths: Vec<_> = plan
         .graph
         .edge_references()
@@ -724,5 +743,5 @@ fn plan_create_input_sync(
         plan.graph.update_edge(node, target_node, weight);
     }
 
-    Ok(root_node)
+    Ok(())
 }
