@@ -1,10 +1,12 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
 use anyhow::Context as _;
 use bstr::ByteSlice;
+
+use crate::recipe::RecipeHash;
 
 use super::{
     recipe::{Artifact, Directory, File},
@@ -49,7 +51,7 @@ pub async fn create_output(
         artifact,
         options,
         lock.as_ref(),
-        &mut HashSet::new(),
+        &mut HashMap::new(),
     )
     .await?;
     Ok(())
@@ -62,10 +64,17 @@ async fn create_output_inner<'a: 'async_recursion>(
     artifact: &Artifact,
     options: OutputOptions<'a>,
     link_lock: Option<&'a tokio::sync::MutexGuard<'a, LocalOutputLock>>,
-    written_paths: &mut HashSet<PathBuf>,
+    written_paths: &mut HashMap<PathBuf, RecipeHash>,
 ) -> anyhow::Result<()> {
-    if !written_paths.insert(options.output_path.to_owned()) {
-        // Path already written
+    let artifact_hash = artifact.hash();
+    let previously_written_hash =
+        written_paths.insert(options.output_path.to_owned(), artifact_hash);
+
+    // Check if we already wrote this artifact to the path. This can happen
+    // with resources, but sometimes a different artifact was written due to
+    // how symlinks are handled
+    if previously_written_hash == Some(artifact_hash) {
+        // Path already written with the same artifact
         return Ok(());
     }
 
@@ -344,7 +353,7 @@ pub async fn create_local_output(
     fetch_descendent_artifact_blobs(brioche, artifact).await?;
 
     // Create the output
-    let result = create_local_output_inner(brioche, artifact, &lock, &mut HashSet::new()).await?;
+    let result = create_local_output_inner(brioche, artifact, &lock, &mut HashMap::new()).await?;
 
     Ok(result)
 }
@@ -353,7 +362,7 @@ async fn create_local_output_inner(
     brioche: &Brioche,
     artifact: &Artifact,
     lock: &tokio::sync::MutexGuard<'_, LocalOutputLock>,
-    written_paths: &mut HashSet<PathBuf>,
+    written_paths: &mut HashMap<PathBuf, RecipeHash>,
 ) -> anyhow::Result<LocalOutput> {
     let local_dir = brioche.home.join("locals");
     tokio::fs::create_dir_all(&local_dir).await?;
