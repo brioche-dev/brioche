@@ -89,6 +89,8 @@ pub async fn create_input_inner(
     for node in file_nodes {
         let path = plan.nodes_to_paths[&node].to_owned();
         let brioche = brioche.clone();
+        let remove_blob = plan.paths_to_remove.contains(&path);
+
         let task = async move {
             let result = tokio::spawn(async move {
                 let mut blob_permit = super::blob::get_save_blob_permit().await?;
@@ -541,6 +543,7 @@ struct CreateInputPlan {
     graph: petgraph::graph::DiGraph<CreateInputPlanNode, CreateInputPlanEdge>,
     paths_to_nodes: HashMap<PathBuf, petgraph::graph::NodeIndex>,
     nodes_to_paths: HashMap<petgraph::graph::NodeIndex, PathBuf>,
+    paths_to_remove: HashSet<PathBuf>,
 }
 
 fn add_input_plan_nodes(
@@ -564,6 +567,10 @@ fn add_input_plan_nodes(
             .insert(options.input_path.to_owned(), node_index);
         plan.nodes_to_paths
             .insert(node_index, options.input_path.to_owned());
+
+        if options.remove_input {
+            plan.paths_to_remove.insert(options.input_path.to_owned());
+        }
 
         let mut file = std::fs::File::open(options.input_path)
             .with_context(|| format!("failed to open file {:?}", options.input_path))?;
