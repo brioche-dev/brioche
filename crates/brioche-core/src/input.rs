@@ -36,32 +36,6 @@ pub async fn create_input(
             set_directory_rwx_recursive(resource_dir).await?;
         }
     }
-
-    let result = create_input_inner(
-        brioche,
-        InputOptions {
-            input_path: options.input_path,
-            remove_input: options.remove_input,
-            resource_dir: options.resource_dir,
-            input_resource_dirs: options.input_resource_dirs,
-            saved_paths: options.saved_paths,
-            meta: options.meta,
-        },
-    )
-    .await?;
-
-    if options.remove_input {
-        crate::fs_utils::try_remove(options.input_path).await?;
-    }
-
-    Ok(result)
-}
-
-#[tracing::instrument(skip_all, err, fields(input_path = %options.input_path.display()))]
-pub async fn create_input_inner(
-    brioche: &Brioche,
-    options: InputOptions<'_>,
-) -> anyhow::Result<WithMeta<Artifact>> {
     tracing::debug!(input_path = %options.input_path.display(), "creating plan for input");
     let (plan, root_node) = tokio::task::spawn_blocking({
         let input_path = options.input_path.to_owned();
@@ -208,11 +182,17 @@ pub async fn create_input_inner(
         nodes_to_artifacts.insert(node_index, WithMeta::new(artifact, options.meta.clone()));
     }
 
-    tracing::debug!(input_path = %options.input_path.display(), "finished");
+    tracing::debug!(input_path = %options.input_path.display(), "finished creating input");
 
     let artifact = nodes_to_artifacts
         .remove(&root_node)
         .ok_or_else(|| anyhow::anyhow!("root node not found"))?;
+
+    if options.remove_input {
+        tracing::debug!(input_path = %options.input_path.display(), "removing input");
+        crate::fs_utils::try_remove(options.input_path).await?;
+    }
+
     Ok(artifact)
 }
 
