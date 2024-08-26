@@ -36,6 +36,10 @@ pub async fn create_input(
             set_directory_rwx_recursive(resource_dir).await?;
         }
     }
+
+    // Create a plan for the input but building a graph. This ensures that we
+    // can avoid reading the same files and resources repeatedly. This is done
+    // in a blocking task since it relies on lots of file I/O.
     tracing::debug!(input_path = %options.input_path.display(), "creating plan for input");
     let (plan, root_node) = tokio::task::spawn_blocking({
         let input_path = options.input_path.to_owned();
@@ -45,6 +49,8 @@ pub async fn create_input(
         let meta = options.meta.clone();
         move || {
             let mut plan = CreateInputPlan::default();
+
+            // Add nodes and edges for all files/directories/symlinks
             let root_node = add_input_plan_nodes(
                 InputOptions {
                     input_path: &input_path,
@@ -57,6 +63,7 @@ pub async fn create_input(
                 &mut plan,
             )?;
 
+            // Add edges for indirect resources
             add_input_plan_indirect_resources(&mut plan)?;
 
             anyhow::Ok((plan, root_node))
@@ -66,11 +73,14 @@ pub async fn create_input(
 
     tracing::debug!(input_path = %options.input_path.display(), "loading blobs");
 
+    // Find all file nodes, each of which should be saved as a blob
     let file_nodes = plan
         .graph
         .node_indices()
         .filter(|node| matches!(plan.graph[*node], CreateInputPlanNode::File { .. }));
 
+    // Save all file nodes as blobs, each in a separate task. The permit will
+    // limit the maximum concurrency.
     let mut nodes_to_blobs_tasks = vec![];
     for node in file_nodes {
         let path = plan.nodes_to_paths[&node].to_owned();
@@ -105,11 +115,16 @@ pub async fn create_input(
         .collect();
 
     let mut nodes_to_artifacts = HashMap::<petgraph::graph::NodeIndex, WithMeta<Artifact>>::new();
+
+    // Order the nodes in topological order, but with the edges reversed. This
+    // ensures that we process each node after all of its dependencies have
+    // been processed.
     let planned_nodes = petgraph::algo::toposort(petgraph::visit::Reversed(&plan.graph), None)
         .map_err(|_| anyhow::anyhow!("cycle detected in input {:?}", options.input_path))?;
 
     tracing::debug!(input_path = %options.input_path.display(), "creating nodes");
 
+    // Create an artifact for each node
     for node_index in planned_nodes {
         let node = &plan.graph[node_index];
         let path = plan.nodes_to_paths[&node_index].to_owned();
@@ -122,6 +137,9 @@ pub async fn create_input(
 
                 let mut resources = Directory::default();
 
+                // The file should have resource (or indirect resource) edges;
+                // use each one to build the resources directory for the
+                // file artifact
                 let edges_out = plan
                     .graph
                     .edges_directed(node_index, petgraph::Direction::Outgoing);
@@ -148,12 +166,18 @@ pub async fn create_input(
                     resources,
                 })
             }
-            CreateInputPlanNode::Symlink { target } => Artifact::Symlink {
-                target: target.clone(),
-            },
+            CreateInputPlanNode::Symlink { target } => {
+                // Artifacts don't need any special handling. Symlink targets
+                // are only used for adding indirect resource edges to files
+                Artifact::Symlink {
+                    target: target.clone(),
+                }
+            }
             CreateInputPlanNode::Directory => {
                 let mut directory = Directory::default();
 
+                // The directory should have directory entry edges, so use each
+                // one to build the directory from its entries
                 let edges_out = plan
                     .graph
                     .edges_directed(node_index, petgraph::Direction::Outgoing);
@@ -188,6 +212,9 @@ pub async fn create_input(
         .remove(&root_node)
         .ok_or_else(|| anyhow::anyhow!("root node not found"))?;
 
+    // Remove the input if the `remove_input` option is set. We've already
+    // removed some parts of the input (such as individual files while
+    // saving blobs), but this ensures nothing is left over.
     if options.remove_input {
         tracing::debug!(input_path = %options.input_path.display(), "removing input");
         crate::fs_utils::try_remove(options.input_path).await?;
