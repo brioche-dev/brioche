@@ -10,8 +10,6 @@ use brioche_core::{
 };
 use pretty_assertions::assert_eq;
 
-mod brioche_test;
-
 async fn create_input(
     brioche: &Brioche,
     input_path: &Path,
@@ -24,6 +22,7 @@ async fn create_input(
             remove_input,
             resource_dir: None,
             input_resource_dirs: &[],
+            saved_paths: &mut Default::default(),
             meta: &Arc::new(Meta::default()),
         },
     )
@@ -46,6 +45,7 @@ async fn create_input_with_resources(
             remove_input,
             resource_dir,
             input_resource_dirs,
+            saved_paths: &mut Default::default(),
             meta: &Arc::new(Meta::default()),
         },
     )
@@ -55,7 +55,7 @@ async fn create_input_with_resources(
 
 #[tokio::test]
 async fn test_input_file() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let file_path = context.write_file("hello.txt", b"hello").await;
 
@@ -63,7 +63,7 @@ async fn test_input_file() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false)
+        brioche_test_support::file(brioche_test_support::blob(&brioche, b"hello").await, false)
     );
     assert!(file_path.is_file());
 
@@ -72,7 +72,7 @@ async fn test_input_file() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_executable_file() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let file_path = context.write_file("hello.txt", b"hello").await;
     let mut permissions = tokio::fs::metadata(&file_path)
@@ -88,7 +88,7 @@ async fn test_input_executable_file() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::file(brioche_test::blob(&brioche, b"hello").await, true)
+        brioche_test_support::file(brioche_test_support::blob(&brioche, b"hello").await, true)
     );
     assert!(file_path.is_file());
 
@@ -97,13 +97,13 @@ async fn test_input_executable_file() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_symlink() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let symlink_path = context.write_symlink("/foo", "foo").await;
 
     let artifact = create_input(&brioche, &symlink_path, false).await?;
 
-    assert_eq!(artifact, brioche_test::symlink("/foo"));
+    assert_eq!(artifact, brioche_test_support::symlink("/foo"));
     assert!(symlink_path.is_symlink());
 
     Ok(())
@@ -111,13 +111,13 @@ async fn test_input_symlink() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_empty_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
 
     let artifact = create_input(&brioche, &dir_path, false).await?;
 
-    assert_eq!(artifact, brioche_test::dir_empty());
+    assert_eq!(artifact, brioche_test_support::dir_empty());
     assert!(dir_path.is_dir());
 
     Ok(())
@@ -125,7 +125,7 @@ async fn test_input_empty_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     context.write_file("test/hello/hi.txt", b"hello").await;
@@ -136,22 +136,25 @@ async fn test_input_dir() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
                 (
                     "hello",
-                    brioche_test::dir(
+                    brioche_test_support::dir(
                         &brioche,
                         [(
                             "hi.txt",
-                            brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false)
+                            brioche_test_support::file(
+                                brioche_test_support::blob(&brioche, b"hello").await,
+                                false
+                            )
                         ),]
                     )
                     .await
                 ),
-                ("empty", brioche_test::dir_empty()),
-                ("link", brioche_test::symlink("hello/hi.txt"))
+                ("empty", brioche_test_support::dir_empty()),
+                ("link", brioche_test_support::symlink("hello/hi.txt"))
             ]
         )
         .await
@@ -163,7 +166,7 @@ async fn test_input_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_remove_original() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     context.write_file("test/hello/hi.txt", b"hello").await;
@@ -174,22 +177,25 @@ async fn test_input_remove_original() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
                 (
                     "hello",
-                    brioche_test::dir(
+                    brioche_test_support::dir(
                         &brioche,
                         [(
                             "hi.txt",
-                            brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false)
+                            brioche_test_support::file(
+                                brioche_test_support::blob(&brioche, b"hello").await,
+                                false
+                            )
                         ),]
                     )
                     .await
                 ),
-                ("empty", brioche_test::dir_empty()),
-                ("link", brioche_test::symlink("hello/hi.txt"))
+                ("empty", brioche_test_support::dir_empty()),
+                ("link", brioche_test_support::symlink("hello/hi.txt"))
             ]
         )
         .await
@@ -201,7 +207,7 @@ async fn test_input_remove_original() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
 
@@ -225,20 +231,26 @@ async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
                 (
                     "hi",
-                    brioche_test::file(brioche_test::blob(&brioche, &packed_file).await, false)
+                    brioche_test_support::file(
+                        brioche_test_support::blob(&brioche, &packed_file).await,
+                        false
+                    )
                 ),
                 (
                     "brioche-resources.d",
-                    brioche_test::dir(
+                    brioche_test_support::dir(
                         &brioche,
                         [(
                             "test",
-                            brioche_test::file(brioche_test::blob(&brioche, b"test").await, false)
+                            brioche_test_support::file(
+                                brioche_test_support::blob(&brioche, b"test").await,
+                                false
+                            )
                         ),]
                     )
                     .await
@@ -254,7 +266,7 @@ async fn test_input_dir_treat_pack_normally() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     let resource_dir = context.mkdir("resources").await;
@@ -278,18 +290,21 @@ async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [(
                 "hi",
-                brioche_test::file_with_resources(
-                    brioche_test::blob(&brioche, &packed_file).await,
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &packed_file).await,
                     false,
-                    brioche_test::dir_value(
+                    brioche_test_support::dir_value(
                         &brioche,
                         [(
                             "test",
-                            brioche_test::file(brioche_test::blob(&brioche, b"test").await, false),
+                            brioche_test_support::file(
+                                brioche_test_support::blob(&brioche, b"test").await,
+                                false
+                            ),
                         )]
                     )
                     .await,
@@ -305,7 +320,7 @@ async fn test_input_dir_use_resource_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir_use_input_resource_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     let resource_dir = context.mkdir("resources").await;
@@ -336,18 +351,21 @@ async fn test_input_dir_use_input_resource_dir() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [(
                 "hi",
-                brioche_test::file_with_resources(
-                    brioche_test::blob(&brioche, &packed_file).await,
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &packed_file).await,
                     false,
-                    brioche_test::dir_value(
+                    brioche_test_support::dir_value(
                         &brioche,
                         [(
                             "test",
-                            brioche_test::file(brioche_test::blob(&brioche, b"test").await, false),
+                            brioche_test_support::file(
+                                brioche_test_support::blob(&brioche, b"test").await,
+                                false
+                            ),
                         )]
                     )
                     .await,
@@ -363,7 +381,7 @@ async fn test_input_dir_use_input_resource_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir_use_only_input_resource_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     let resource_dir = context.mkdir("resources").await;
@@ -387,18 +405,21 @@ async fn test_input_dir_use_only_input_resource_dir() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [(
                 "hi",
-                brioche_test::file_with_resources(
-                    brioche_test::blob(&brioche, &packed_file).await,
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &packed_file).await,
                     false,
-                    brioche_test::dir_value(
+                    brioche_test_support::dir_value(
                         &brioche,
                         [(
                             "test",
-                            brioche_test::file(brioche_test::blob(&brioche, b"test").await, false),
+                            brioche_test_support::file(
+                                brioche_test_support::blob(&brioche, b"test").await,
+                                false
+                            ),
                         )]
                     )
                     .await,
@@ -414,7 +435,7 @@ async fn test_input_dir_use_only_input_resource_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     let resource_dir = context.mkdir("resources").await;
@@ -439,21 +460,21 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [(
                 "hi",
-                brioche_test::file_with_resources(
-                    brioche_test::blob(&brioche, &packed_file).await,
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &packed_file).await,
                     false,
-                    brioche_test::dir_value(
+                    brioche_test_support::dir_value(
                         &brioche,
                         [
-                            ("test", brioche_test::symlink(b"test_target")),
+                            ("test", brioche_test_support::symlink(b"test_target")),
                             (
                                 "test_target",
-                                brioche_test::file(
-                                    brioche_test::blob(&brioche, b"test").await,
+                                brioche_test_support::file(
+                                    brioche_test_support::blob(&brioche, b"test").await,
                                     false
                                 )
                             ),
@@ -472,7 +493,7 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     let resource_dir = context.mkdir("resources").await;
@@ -496,16 +517,16 @@ async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [(
                 "hi",
-                brioche_test::file_with_resources(
-                    brioche_test::blob(&brioche, &packed_file).await,
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &packed_file).await,
                     false,
-                    brioche_test::dir_value(
+                    brioche_test_support::dir_value(
                         &brioche,
-                        [("test", brioche_test::symlink(b"test_target"))]
+                        [("test", brioche_test_support::symlink(b"test_target"))]
                     )
                     .await,
                 )
@@ -520,7 +541,7 @@ async fn test_input_dir_broken_symlink() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     let resource_dir = context.mkdir("resources").await;
@@ -548,37 +569,40 @@ async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [(
                 "hi",
-                brioche_test::file_with_resources(
-                    brioche_test::blob(&brioche, &packed_file).await,
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &packed_file).await,
                     false,
-                    brioche_test::dir_value(
+                    brioche_test_support::dir_value(
                         &brioche,
                         [
                             (
                                 "test",
-                                brioche_test::dir(
+                                brioche_test_support::dir(
                                     &brioche,
                                     [
                                         (
                                             "hi",
-                                            brioche_test::file(
-                                                brioche_test::blob(&brioche, b"test").await,
+                                            brioche_test_support::file(
+                                                brioche_test_support::blob(&brioche, b"test").await,
                                                 false
                                             )
                                         ),
-                                        ("target", brioche_test::symlink(b"../test_target")),
+                                        (
+                                            "target",
+                                            brioche_test_support::symlink(b"../test_target")
+                                        ),
                                     ]
                                 )
                                 .await
                             ),
                             (
                                 "test_target",
-                                brioche_test::file(
-                                    brioche_test::blob(&brioche, b"test").await,
+                                brioche_test_support::file(
+                                    brioche_test_support::blob(&brioche, b"test").await,
                                     false
                                 )
                             ),
@@ -597,7 +621,7 @@ async fn test_input_dir_with_dir_resources() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_input_dir_omits_unused_resources() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let dir_path = context.mkdir("test").await;
     let resource_dir = context.mkdir("resources").await;
@@ -624,18 +648,21 @@ async fn test_input_dir_omits_unused_resources() -> anyhow::Result<()> {
 
     assert_eq!(
         artifact,
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [(
                 "hi",
-                brioche_test::file_with_resources(
-                    brioche_test::blob(&brioche, &packed_file).await,
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &packed_file).await,
                     false,
-                    brioche_test::dir_value(
+                    brioche_test_support::dir_value(
                         &brioche,
                         [(
                             "test",
-                            brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false),
+                            brioche_test_support::file(
+                                brioche_test_support::blob(&brioche, b"hello").await,
+                                false
+                            ),
                         )]
                     )
                     .await,

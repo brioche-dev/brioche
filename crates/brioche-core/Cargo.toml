@@ -63,13 +63,14 @@ ulid = "1.1.0"
 url = { version = "2.5.0", features = ["serde"] }
 urlencoding = "2.1.3"
 walkdir = "2.5.0"
+petgraph = "0.6.5"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-criterion = { version = "0.5.1", features = ["async_tokio"] }
+brioche-test-support = { path = "../brioche-test-support" }
+divan = "0.1.14"
 mockito = "1.2.0"
 pretty_assertions = "1.4.0"
-tempdir = "0.3.7"
 zstd = "0.13.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -78,6 +79,18 @@ unshare = { git = "https://github.com/brioche-dev/unshare.git" }
 
 [[bench]]
 name = "bake"
+harness = false
+
+[[bench]]
+name = "blob"
+harness = false
+
+[[bench]]
+name = "directory"
+harness = false
+
+[[bench]]
+name = "input"
 harness = false
 
 [lints.clippy]

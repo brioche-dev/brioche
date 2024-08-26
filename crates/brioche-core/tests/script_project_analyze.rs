@@ -9,8 +9,6 @@ use brioche_core::{
     script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier},
 };
 
-mod brioche_test;
-
 fn get_local_module(
     project: &ProjectAnalysis,
     referrer: &BriocheModuleSpecifier,
@@ -32,7 +30,7 @@ fn get_local_module(
 
 #[tokio::test]
 async fn test_analyze_simple_project() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -63,7 +61,7 @@ async fn test_analyze_simple_project() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_project_metadata() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -97,7 +95,7 @@ async fn test_analyze_project_metadata() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_imports() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -159,7 +157,7 @@ async fn test_analyze_imports() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_nested_imports() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -195,7 +193,7 @@ async fn test_analyze_nested_imports() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_import_loop() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -241,7 +239,7 @@ async fn test_analyze_import_loop() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_external_dep() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -286,7 +284,7 @@ async fn test_analyze_external_dep() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_static_brioche_include() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -323,7 +321,7 @@ async fn test_analyze_static_brioche_include() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_static_brioche_include_invalid() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -347,7 +345,7 @@ async fn test_analyze_static_brioche_include_invalid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_analyze_static_brioche_glob() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context

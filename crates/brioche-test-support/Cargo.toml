@@ -1,0 +1,17 @@
+[package]
+name = "brioche-test-support"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { version = "1.0.75", features = ["backtrace"] }
+brioche-core = { path = "../brioche-core" }
+mockito = "1.2.0"
+serde = { version = "1.0.193", features = ["derive"] }
+serde_json = "1.0.108"
+tempdir = "0.3.7"
+tokio = { version = "1.35.0", features = ["full", "tracing"] }
+toml = "0.8.8"
+tracing = "0.1.40"
+ulid = "1.1.0"
+zstd = "0.13.1"

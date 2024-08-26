@@ -530,6 +530,7 @@ pub async fn bake_process(
             remove_input: true,
             resource_dir: Some(&host_resource_dir),
             input_resource_dirs: &host_input_resource_dirs,
+            saved_paths: &mut HashMap::new(),
             meta,
         },
     )

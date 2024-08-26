@@ -24,7 +24,7 @@ pub async fn brioche_test_with(
     f: impl FnOnce(BriocheBuilder) -> BriocheBuilder,
 ) -> (Brioche, TestContext) {
     let temp = tempdir::TempDir::new("brioche-test").unwrap();
-    let registry_server = mockito::Server::new();
+    let registry_server = mockito::Server::new_async().await;
 
     let brioche_home = temp.path().join("brioche-home");
     tokio::fs::create_dir_all(&brioche_home)
@@ -109,12 +109,13 @@ pub async fn mock_bake(
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Unpin) -> BlobHash {
-    let permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
+    let mut permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
     brioche_core::blob::save_blob_from_reader(
         brioche,
-        permit,
+        &mut permit,
         content.as_ref(),
         SaveBlobOptions::default(),
+        &mut Vec::new(),
     )
     .await
     .unwrap()

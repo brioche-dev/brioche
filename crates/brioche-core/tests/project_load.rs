@@ -1,10 +1,8 @@
 use assert_matches::assert_matches;
 
-mod brioche_test;
-
 #[tokio::test]
 async fn test_project_load_simple() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -16,7 +14,8 @@ async fn test_project_load_simple() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let project = projects.project(project_hash).unwrap();
     assert!(projects
@@ -30,12 +29,13 @@ async fn test_project_load_simple() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_simple_no_definition() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context.write_file("myproject/project.bri", r#""#).await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let project = projects.project(project_hash).unwrap();
     assert!(projects
@@ -49,7 +49,7 @@ async fn test_project_load_simple_no_definition() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     context
         .write_toml(
@@ -101,7 +101,8 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -126,7 +127,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     context
         .write_toml(
@@ -174,7 +175,8 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -199,7 +201,7 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
     context
@@ -228,7 +230,8 @@ async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &main_project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &main_project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -248,7 +251,7 @@ async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
         .local_registry_project(|path| async move {
@@ -281,7 +284,8 @@ async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -303,7 +307,7 @@ async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
         .local_registry_project(|path| async move {
@@ -332,7 +336,8 @@ async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<(
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -354,7 +359,7 @@ async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<(
 
 #[tokio::test]
 async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
         .local_registry_project(|path| async move {
@@ -391,7 +396,8 @@ async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::R
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -413,7 +419,7 @@ async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::R
 
 #[tokio::test]
 async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
         .local_registry_project(|path| async move {
@@ -448,7 +454,8 @@ async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -470,7 +477,7 @@ async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<
 
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let foo_hash = context
         .remote_registry_project(|path| async move {
@@ -503,7 +510,8 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -526,7 +534,7 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let foo_hash = context
         .remote_registry_project(|path| async move {
@@ -571,7 +579,8 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -600,7 +609,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
 
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let foo_hash = context
         .remote_registry_project(|path| async move {
@@ -648,7 +657,8 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -674,7 +684,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
 
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
@@ -724,7 +734,8 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     assert!(projects
         .local_paths(project_hash)
@@ -749,7 +760,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
 
 #[tokio::test]
 async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     context
         .write_toml(
@@ -819,7 +830,8 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
 
     let bar_dep_hash = project.dependency_hash("bar").unwrap();
@@ -833,7 +845,7 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
 
 #[tokio::test]
 async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let bar_hash = context
         .remote_registry_project(|path| async move {
@@ -888,7 +900,8 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
     projects.commit_dirty_lockfiles().await?;
     assert!(projects
@@ -920,7 +933,7 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_complex() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
     context
@@ -991,7 +1004,8 @@ async fn test_project_load_complex() -> anyhow::Result<()> {
         .create_async()
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &main_project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &main_project_dir).await?;
     let project = projects.project(project_hash).unwrap();
 
     let main_dep_project_hash = project.dependency_hash("depproject").unwrap();
@@ -1036,7 +1050,7 @@ async fn test_project_load_complex() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_complex_implied() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
     context
@@ -1101,7 +1115,8 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
         .create_async()
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &main_project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &main_project_dir).await?;
     let project = projects.project(project_hash).unwrap();
 
     let main_dep_project_hash = project.dependency_hash("depproject").unwrap();
@@ -1146,12 +1161,12 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_not_found() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     // project.bri does not exist
     let project_dir = context.mkdir("myproject").await;
 
-    let result = brioche_test::load_project(&brioche, &project_dir)
+    let result = brioche_test_support::load_project(&brioche, &project_dir)
         .await
         .map(|_| ());
 
@@ -1162,7 +1177,7 @@ async fn test_project_load_not_found() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_path_dep_not_found() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -1183,7 +1198,7 @@ async fn test_project_load_path_dep_not_found() -> anyhow::Result<()> {
     // project.bri does not exist
     let _dep_dir = context.mkdir("mydep").await;
 
-    let result = brioche_test::load_project(&brioche, &project_dir)
+    let result = brioche_test_support::load_project(&brioche, &project_dir)
         .await
         .map(|_| ());
 
@@ -1194,7 +1209,7 @@ async fn test_project_load_path_dep_not_found() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_dep_not_found() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -1210,7 +1225,7 @@ async fn test_project_load_dep_not_found() -> anyhow::Result<()> {
         )
         .await;
 
-    let result = brioche_test::load_project(&brioche, &project_dir)
+    let result = brioche_test_support::load_project(&brioche, &project_dir)
         .await
         .map(|_| ());
 
@@ -1221,7 +1236,7 @@ async fn test_project_load_dep_not_found() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_dep_implied_not_found() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -1233,7 +1248,7 @@ async fn test_project_load_dep_implied_not_found() -> anyhow::Result<()> {
         )
         .await;
 
-    let result = brioche_test::load_project(&brioche, &project_dir)
+    let result = brioche_test_support::load_project(&brioche, &project_dir)
         .await
         .map(|_| ());
 
@@ -1244,7 +1259,7 @@ async fn test_project_load_dep_implied_not_found() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_brioche_include_outside_of_project() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -1280,7 +1295,7 @@ async fn test_project_load_brioche_include_outside_of_project() -> anyhow::Resul
         )
         .await;
 
-    let result = brioche_test::load_project(&brioche, &project_dir)
+    let result = brioche_test_support::load_project(&brioche, &project_dir)
         .await
         .map(|_| ());
 
@@ -1291,7 +1306,7 @@ async fn test_project_load_brioche_include_outside_of_project() -> anyhow::Resul
 
 #[tokio::test]
 async fn test_project_load_brioche_include_directory_as_file_error() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -1327,7 +1342,7 @@ async fn test_project_load_brioche_include_directory_as_file_error() -> anyhow::
         )
         .await;
 
-    let result = brioche_test::load_project(&brioche, &project_dir)
+    let result = brioche_test_support::load_project(&brioche, &project_dir)
         .await
         .map(|_| ());
 
@@ -1338,7 +1353,7 @@ async fn test_project_load_brioche_include_directory_as_file_error() -> anyhow::
 
 #[tokio::test]
 async fn test_project_load_brioche_include_file_as_directory_error() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
 
@@ -1374,7 +1389,7 @@ async fn test_project_load_brioche_include_file_as_directory_error() -> anyhow::
         )
         .await;
 
-    let result = brioche_test::load_project(&brioche, &project_dir)
+    let result = brioche_test_support::load_project(&brioche, &project_dir)
         .await
         .map(|_| ());
 

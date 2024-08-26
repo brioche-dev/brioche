@@ -1,18 +1,16 @@
 use brioche_core::recipe::{DownloadRecipe, Recipe};
-use brioche_test::bake_without_meta;
-
-mod brioche_test;
+use brioche_test_support::bake_without_meta;
 
 #[tokio::test]
 async fn test_bake_parallel_no_duplicates() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
     let hello_endpoint = server
         .mock("GET", "/file.txt")
         .with_body(hello)
@@ -29,8 +27,14 @@ async fn test_bake_parallel_no_duplicates() -> anyhow::Result<()> {
 
     let (download_result_1, download_result_2) = tokio::join!(download_1, download_2);
 
-    assert_eq!(download_result_1?, brioche_test::file(hello_blob, false));
-    assert_eq!(download_result_2?, brioche_test::file(hello_blob, false));
+    assert_eq!(
+        download_result_1?,
+        brioche_test_support::file(hello_blob, false)
+    );
+    assert_eq!(
+        download_result_2?,
+        brioche_test_support::file(hello_blob, false)
+    );
 
     // Ensure we only downloaded the file once
     hello_endpoint.assert();

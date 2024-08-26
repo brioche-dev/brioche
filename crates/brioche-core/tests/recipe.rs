@@ -3,11 +3,9 @@ use std::collections::HashMap;
 use assert_matches::assert_matches;
 use brioche_core::recipe::{Recipe, WithMeta};
 
-mod brioche_test;
-
 #[tokio::test]
 async fn test_recipe_get_nonexistent() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
     let file = brioche_core::recipe::Recipe::CreateFile {
         content: "foo".into(),
@@ -25,7 +23,7 @@ async fn test_recipe_get_nonexistent() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_recipe_save_none() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
     let new_artifacts = brioche_core::recipe::save_recipes(&brioche, [] as [Recipe; 0]).await?;
     assert_eq!(new_artifacts, 0);
@@ -35,7 +33,7 @@ async fn test_recipe_save_none() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_recipe_save_new() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
     let file = brioche_core::recipe::Recipe::CreateFile {
         content: "foo".into(),
@@ -56,7 +54,7 @@ async fn test_recipe_save_new() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_recipe_save_repeat() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
     let file = brioche_core::recipe::Recipe::CreateFile {
         content: "foo".into(),
@@ -82,7 +80,7 @@ async fn test_recipe_save_repeat() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_recipe_save_multiple() -> anyhow::Result<()> {
-    let (brioche, _) = brioche_test::brioche_test().await;
+    let (brioche, _) = brioche_test_support::brioche_test().await;
 
     let file_1 = brioche_core::recipe::Recipe::CreateFile {
         content: "foo".into(),

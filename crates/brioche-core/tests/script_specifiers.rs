@@ -6,8 +6,6 @@ use brioche_core::{
     },
 };
 
-mod brioche_test;
-
 async fn resolve(
     projects: &Projects,
     specifier: &str,
@@ -21,7 +19,7 @@ async fn resolve(
 
 #[tokio::test]
 async fn test_specifier_read_runtime() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let specifier: BriocheModuleSpecifier = "briocheruntime:///dist/index.js"
         .parse()
@@ -35,7 +33,7 @@ async fn test_specifier_read_runtime() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_specifier_read_project() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -51,7 +49,7 @@ async fn test_specifier_read_project() -> anyhow::Result<()> {
     let foo_path = context.write_file("myproject/foo.bri", foo_script).await;
 
     // Ensure the project files get loaded into the VFS
-    brioche_test::load_project(&brioche, &project_dir).await?;
+    brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let specifier = BriocheModuleSpecifier::from_path(&foo_path);
     let contents = read_specifier_contents(&brioche.vfs, &specifier)?;
@@ -64,7 +62,7 @@ async fn test_specifier_read_project() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_specifier_resolve_relative() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -86,7 +84,7 @@ async fn test_specifier_resolve_relative() -> anyhow::Result<()> {
         .await;
     let test_path = context.write_file("myproject/test.txt", "Hi world!").await;
 
-    let (projects, _) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, _) = brioche_test_support::load_project(&brioche, &project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
     let sibling_specifier = resolve(&projects, "./test.txt", &referrer).await?;
@@ -112,7 +110,7 @@ async fn test_specifier_resolve_relative() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_specifier_resolve_project_relative() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -134,7 +132,7 @@ async fn test_specifier_resolve_project_relative() -> anyhow::Result<()> {
         .await;
     let test_path = context.write_file("myproject/test.txt", "Hi world!").await;
 
-    let (projects, _) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, _) = brioche_test_support::load_project(&brioche, &project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
     let root_specifier = resolve(&projects, "/test.txt", &referrer).await?;
@@ -160,7 +158,7 @@ async fn test_specifier_resolve_project_relative() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     let main_path = context
@@ -179,7 +177,7 @@ async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
         .await;
     let foo_main_path = context.write_file("myproject/foo/index.bri", "").await;
 
-    let (projects, _) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, _) = brioche_test_support::load_project(&brioche, &project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
     let sibling_specifier = resolve(&projects, "./", &referrer).await?;
@@ -217,7 +215,7 @@ async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     let main_path = context
@@ -236,7 +234,7 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
         .await;
     let foo_main_path = context.write_file("myproject/foo/index.bri", "").await;
 
-    let (projects, _) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, _) = brioche_test_support::load_project(&brioche, &project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
     let root_specifier = resolve(&projects, "/", &referrer).await?;
@@ -268,7 +266,7 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let root_project_dir = context.mkdir("root").await;
 
@@ -352,7 +350,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
         .create_async()
         .await;
 
-    let (projects, _) = brioche_test::load_project(&brioche, &root_project_dir).await?;
+    let (projects, _) = brioche_test_support::load_project(&brioche, &root_project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&bar_file_path);
 
     let baz_specifier = resolve(&projects, "baz", &referrer).await?;
