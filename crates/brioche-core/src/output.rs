@@ -45,6 +45,8 @@ pub async fn create_output(
     // Fetch all blobs before creating the output
     fetch_descendent_artifact_blobs(brioche, artifact).await?;
 
+    tracing::debug!(output_path = %options.output_path.display(), "creating output");
+
     // Create the output
     create_output_inner(
         brioche,
@@ -54,6 +56,9 @@ pub async fn create_output(
         &mut HashMap::new(),
     )
     .await?;
+
+    tracing::debug!(output_path = %options.output_path.display(), "finished creating output");
+
     Ok(())
 }
 
