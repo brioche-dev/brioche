@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Context as _;
 use bstr::BString;
-use futures::TryStreamExt as _;
+use tokio::io::AsyncReadExt;
 use tracing::Instrument;
 
 use crate::{
@@ -38,15 +38,21 @@ pub async fn bake_unarchive(
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);
 
-    let decompressed_archive_file = unarchive.compression.decompress(archive_file);
+    let mut decompressed_archive_file = unarchive.compression.decompress(archive_file);
+    let mut decompressed_archive_buffer = Vec::new();
+    decompressed_archive_file
+        .read(&mut decompressed_archive_buffer)
+        .await?;
 
-    let mut archive = tokio_tar::Archive::new(decompressed_archive_file);
-    let mut archive_entries = archive.entries()?;
+    let archive = std::sync::Mutex::new(std::sync::Arc::new(tar::Archive::new(
+        std::io::Cursor::new(decompressed_archive_buffer),
+    )));
+    let mut archive_entries = archive.lock()?.entries()?;
     let mut directory_entries = BTreeMap::<BString, WithMeta<Artifact>>::new();
     let mut buffer = Vec::new();
 
     let save_blobs_future = async {
-        while let Some(archive_entry) = archive_entries.try_next().await? {
+        while let Some(archive_entry) = archive_entries.next().transpose()? {
             let entry_path = bstr::BString::new(archive_entry.path_bytes().into_owned());
             let entry_mode = archive_entry.header().mode()?;
 
@@ -59,7 +65,7 @@ pub async fn bake_unarchive(
             );
 
             let entry_artifact = match archive_entry.header().entry_type() {
-                tokio_tar::EntryType::Regular => {
+                tar::EntryType::Regular => {
                     let mut permit = crate::blob::get_save_blob_permit().await?;
                     let entry_blob_hash = crate::blob::save_blob_from_reader(
                         brioche,
@@ -77,7 +83,7 @@ pub async fn bake_unarchive(
                         resources: Directory::default(),
                     }))
                 }
-                tokio_tar::EntryType::Symlink => {
+                tar::EntryType::Symlink => {
                     let link_name = archive_entry.link_name_bytes().with_context(|| {
                         format!(
                             "unsupported tar archive: no link name for symlink entry at {}",
@@ -89,7 +95,7 @@ pub async fn bake_unarchive(
                         target: link_name.into_owned().into(),
                     })
                 }
-                tokio_tar::EntryType::Link => {
+                tar::EntryType::Link => {
                     let link_name = archive_entry.link_name_bytes().with_context(|| {
                         format!(
                             "unsupported tar archive: no link name for hardlink entry at {}",
@@ -99,15 +105,15 @@ pub async fn bake_unarchive(
                     let linked_entry =
                         directory_entries.get(link_name.as_ref()).with_context(|| {
                             format!(
-                            "unsupported tar archive: could not find target for link entry at {}",
-                            entry_path
-                        )
+                                "unsupported tar archive: could not find target for link entry at {}",
+                                entry_path
+                            )
                         })?;
 
                     Some(linked_entry.value.clone())
                 }
-                tokio_tar::EntryType::Directory => Some(Artifact::Directory(Directory::default())),
-                tokio_tar::EntryType::XGlobalHeader | tokio_tar::EntryType::XHeader => {
+                tar::EntryType::Directory => Some(Artifact::Directory(Directory::default())),
+                tar::EntryType::XGlobalHeader | tar::EntryType::XHeader => {
                     // Ignore
                     None
                 }

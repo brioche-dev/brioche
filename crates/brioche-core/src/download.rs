@@ -61,7 +61,7 @@ pub async fn download(
             Ok(())
         });
 
-    let blob_hash = crate::blob::save_blob_from_reader(
+    let blob_hash = crate::blob::save_blob_from_async_reader(
         brioche,
         &mut save_blob_permit,
         download_stream,

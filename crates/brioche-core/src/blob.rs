@@ -125,6 +125,115 @@ pub async fn save_blob_from_reader<'a, R>(
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<BlobHash>
 where
+    R: std::io::Read + Unpin,
+{
+    anyhow::ensure!(!options.remove_input, "cannot remove input from reader");
+
+    let mut hasher = blake3::Hasher::new();
+    let mut validation_hashing = options
+        .expected_hash
+        .as_ref()
+        .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
+
+    let temp_dir = brioche.home.join("blobs-temp");
+    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+    let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
+    let mut temp_file = tokio::fs::File::create(&temp_path)
+        .await
+        .context("failed to open temp file")?;
+
+    tracing::trace!(temp_path = %temp_path.display(), "saving blob");
+
+    let mut buffer = vec![0u8; 1024 * 1024];
+    let mut total_bytes_read = 0;
+    loop {
+        let length = input.read(&mut buffer).context("failed to read")?;
+        if length == 0 {
+            break;
+        }
+
+        total_bytes_read += length;
+        let buffer = &buffer[..length];
+
+        temp_file
+            .write_all(buffer)
+            .await
+            .context("failed to write all")?;
+
+        hasher.update(buffer);
+
+        if let Some((_, validate_hasher)) = &mut validation_hashing {
+            validate_hasher.update(buffer);
+        }
+
+        if let Some(on_progress) = &mut options.on_progress {
+            on_progress(total_bytes_read)?;
+        }
+    }
+
+    let hash = hasher.finalize();
+    let blob_hash = BlobHash(hash);
+    let blob_path = local_blob_path(brioche, blob_hash);
+
+    if let Some((expected_hash, validate_hasher)) = validation_hashing {
+        let actual_hash = validate_hasher.finish()?;
+
+        if *expected_hash != actual_hash {
+            anyhow::bail!("expected hash {} but got {}", expected_hash, actual_hash);
+        }
+
+        let expected_hash_string = expected_hash.to_string();
+        let blob_hash_string = blob_hash.to_string();
+
+        let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
+        sqlx::query!(
+            r"
+                INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
+                ON CONFLICT (hash) DO UPDATE SET blob_hash = ?
+            ",
+            expected_hash_string,
+            blob_hash_string,
+            blob_hash_string,
+        )
+        .execute(&mut *db_transaction)
+        .await?;
+        db_transaction.commit().await?;
+        drop(db_conn);
+    }
+
+    if let Some(parent) = blob_path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+
+    tracing::debug!(overwrite = blob_path.exists(), %blob_hash, "saved blob");
+
+    temp_file
+        .set_permissions(blob_permissions())
+        .await
+        .context("failed to set blob permissions")?;
+    let temp_file = temp_file.into_std().await;
+    tokio::task::spawn_blocking(move || {
+        temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
+        anyhow::Ok(())
+    })
+    .await??;
+
+    tokio::fs::rename(&temp_path, &blob_path)
+        .await
+        .context("failed to rename blob from temp file")?;
+
+    Ok(blob_hash)
+}
+
+#[tracing::instrument(skip_all)]
+pub async fn save_blob_from_async_reader<'a, R>(
+    brioche: &Brioche,
+    _permit: SaveBlobPermit<'_>,
+    mut input: R,
+    mut options: SaveBlobOptions<'a>,
+) -> anyhow::Result<BlobHash>
+where
     R: tokio::io::AsyncRead + Unpin,
 {
     anyhow::ensure!(!options.remove_input, "cannot remove input from reader");
