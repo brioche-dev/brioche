@@ -322,6 +322,28 @@ async fn test_analyze_static_brioche_include() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_analyze_static_brioche_include_escape_error() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                Brioche.includeFile("\"'\\foo'\"");
+            "#,
+        )
+        .await;
+
+    let result = analyze_project(&brioche.vfs, &project_dir).await;
+
+    // Escape sequences are not currently supported
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_analyze_static_brioche_include_invalid() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 

@@ -445,8 +445,8 @@ where
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
                     // Ensure there's exactly one argument
-                    let include_path = match &*args {
-                        [path] => path.text(),
+                    let path = match &*args {
+                        [path] => path.clone(),
                         _ => {
                             anyhow::bail!(
                                 "{location}: Brioche.includeFile() must take exactly one argument",
@@ -455,7 +455,7 @@ where
                     };
 
                     Ok(Some(StaticQuery::Include(StaticInclude::File {
-                        path: include_path.to_string(),
+                        path,
                     })))
                 }
                 "includeDirectory" => {
@@ -472,8 +472,8 @@ where
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
                     // Ensure there's exactly one argument
-                    let include_path = match &*args {
-                        [path] => path.text(),
+                    let path = match &*args {
+                        [path] => path.clone(),
                         _ => {
                             anyhow::bail!(
                                 "{location}: Brioche.includeDirectory() must take exactly one argument",
@@ -482,7 +482,7 @@ where
                     };
 
                     Ok(Some(StaticQuery::Include(StaticInclude::Directory {
-                        path: include_path.to_string(),
+                        path,
                     })))
                 }
                 "glob" => {
@@ -492,10 +492,9 @@ where
                         .iter()
                         .map(arg_to_string_literal)
                         .map(|arg| {
-                            let arg = arg.with_context(|| {
+                            arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.includeDirectory")
-                            })?;
-                            anyhow::Ok(arg.text().to_string())
+                            })
                         })
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -516,7 +515,7 @@ where
 
                     // Ensure there's exactly one argument
                     let url = match &*args {
-                        [url] => url.text(),
+                        [url] => url.clone(),
                         _ => {
                             anyhow::bail!(
                                 "{location}: Brioche.download() must take exactly one argument",
@@ -561,6 +560,11 @@ fn expression_to_json(
             }
             Literal::JsStringLiteralExpression(string) => {
                 let value = string.inner_string_text().context("invalid string")?;
+                if value.contains('\\') {
+                    // TODO: Figure out how to properly unescape the string
+                    anyhow::bail!("unsupported escape sequence in string literal");
+                }
+
                 Ok(serde_json::Value::String(value.text().to_string()))
             }
             _ => {
@@ -644,20 +648,13 @@ fn expression_to_json(
 
 fn arg_to_string_literal(
     arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
-) -> anyhow::Result<biome_js_syntax::TokenText> {
+) -> anyhow::Result<String> {
     let arg = arg?;
     let arg = arg
         .as_any_js_expression()
         .context("spread arguments are not supported")?;
-    let arg = arg
-        .as_any_js_literal_expression()
-        .context("argument must be a string literal")?;
-    let arg = arg
-        .as_js_string_literal_expression()
-        .context("argument must be a string literal")?;
-    let arg = arg
-        .inner_string_text()
-        .context("invalid string literal argument")?;
+    let arg = expression_to_json(arg)?;
+    let arg = arg.as_str().context("expected string argument")?;
 
-    anyhow::Ok(arg)
+    anyhow::Ok(arg.to_string())
 }
