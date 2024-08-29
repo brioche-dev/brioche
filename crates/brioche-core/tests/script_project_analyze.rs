@@ -517,3 +517,120 @@ async fn test_analyze_static_brioche_download() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_analyze_static_brioche_download_with_project_version() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    version: "1.0.0",
+                }
+
+                export function () {
+                    return Brioche.download(`https://example.com/v${project.version}/download.tar.gz`);
+                }
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    let root_module = &project.local_modules[&project.root_module];
+
+    assert_eq!(
+        root_module.statics,
+        BTreeSet::from_iter([StaticQuery::Download {
+            url: "https://example.com/v1.0.0/download.tar.gz".parse()?,
+        }]),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_static_brioche_download_with_project_version_brackets() -> anyhow::Result<()>
+{
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    version: "1.0.0",
+                }
+
+                export function () {
+                    return Brioche.download(`https://example.com/v${project["version"]}/download.tar.gz`);
+                }
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    let root_module = &project.local_modules[&project.root_module];
+
+    assert_eq!(
+        root_module.statics,
+        BTreeSet::from_iter([StaticQuery::Download {
+            url: "https://example.com/v1.0.0/download.tar.gz".parse()?,
+        }]),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_static_brioche_download_with_project_version_cross_module_error(
+) -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import { foo } from "./foo.bri";
+
+                export const project = {
+                    version: "1.0.0",
+                }
+
+                export function () {
+                    return foo();
+                    return Brioche.download(`https://example.com/v${project["version"]}/download.tar.gz`);
+                }
+            "#,
+        )
+        .await;
+    context
+        .write_file(
+            "myproject/foo.bri",
+            r#"
+                // This is a different variable called "project", not the
+                // actual project export
+                export const project = {
+                    version: "x",
+                }
+
+                export function foo() {
+                    return Brioche.download(`https://example.com/v${project.version}/download.tar.gz`);
+                }
+            "#,
+        )
+        .await;
+
+    let result = analyze_project(&brioche.vfs, &project_dir).await;
+
+    // Only statics in the root module can access the `project` variable
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}

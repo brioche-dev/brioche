@@ -142,7 +142,7 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
         })
     });
 
-    let project_definition = project_export.map(|project_export| {
+    let project_definition_json_with_context = project_export.map(|project_export| {
         let line = contents[..project_export.syntax().text_range().start().into()]
         .lines()
         .count();
@@ -157,14 +157,29 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
             })
             .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
 
-        let json = expression_to_json(&project_export_expr)
+        let json = expression_to_json(&project_export_expr, &Default::default())
             .with_context(|| format!("{file_line}: invalid project export"))?;
-        let project_definition: ProjectDefinition = serde_json::from_value(json)
-            .with_context(|| format!("{file_line}: invalid project definition"))?;
-
-        anyhow::Ok(project_definition)
+        anyhow::Ok((json, file_line))
     }).transpose()?;
+    let project_definition_json = project_definition_json_with_context
+        .clone()
+        .map(|(json, _)| json);
+
+    let project_definition = project_definition_json_with_context
+        .map(|(json, file_line)| {
+            let project_definition: ProjectDefinition = serde_json::from_value(json)
+                .with_context(|| format!("{file_line}: invalid project definition"))?;
+
+            anyhow::Ok(project_definition)
+        })
+        .transpose()?;
     let project_definition = project_definition.unwrap_or_default();
+
+    // Support references to `project` for statics in the root module
+    let root_module_env = project_definition_json
+        .map(|json| ("project".to_string(), json))
+        .into_iter()
+        .collect::<HashMap<_, _>>();
 
     let mut local_modules = HashMap::new();
     let root_module = analyze_module(
@@ -172,6 +187,7 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
         &root_module_path,
         project_path,
         Some(&module),
+        &root_module_env,
         &mut local_modules,
     )
     .await?;
@@ -189,6 +205,7 @@ pub async fn analyze_module(
     module_path: &Path,
     project_path: &Path,
     module: Option<&'async_recursion biome_js_syntax::JsModule>,
+    env: &HashMap<String, serde_json::Value>,
     local_modules: &mut HashMap<BriocheModuleSpecifier, ModuleAnalysis>,
 ) -> anyhow::Result<BriocheModuleSpecifier> {
     let module_path = if module_path == project_path {
@@ -294,9 +311,18 @@ pub async fn analyze_module(
                     import_module_path.starts_with(project_path),
                     "invalid import path: must be within project root",
                 );
-                let import_module_specifier =
-                    analyze_module(vfs, &import_module_path, project_path, None, local_modules)
-                        .await?;
+
+                // Analyze the imported module, but start with a separate
+                // environment
+                let import_module_specifier = analyze_module(
+                    vfs,
+                    &import_module_path,
+                    project_path,
+                    None,
+                    &Default::default(),
+                    local_modules,
+                )
+                .await?;
                 ImportAnalysis::LocalModule(import_module_specifier)
             }
             BriocheImportSpecifier::External(dependency) => {
@@ -307,7 +333,7 @@ pub async fn analyze_module(
     }
 
     let statics =
-        find_statics(module, display_location).collect::<anyhow::Result<BTreeSet<_>>>()?;
+        find_statics(module, env, display_location).collect::<anyhow::Result<BTreeSet<_>>>()?;
 
     let local_module = local_modules
         .get_mut(&module_specifier)
@@ -382,6 +408,7 @@ where
 
 pub fn find_statics<'a, D>(
     module: &'a biome_js_syntax::JsModule,
+    env: &'a HashMap<String, serde_json::Value>,
     mut display_location: impl FnMut(usize) -> D + 'a,
 ) -> impl Iterator<Item = anyhow::Result<StaticQuery>> + 'a
 where
@@ -436,7 +463,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(arg_to_string_literal)
+                        .map(|arg| arg_to_string_literal(arg, env))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.includeFile")
@@ -463,7 +490,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(arg_to_string_literal)
+                        .map(|arg| arg_to_string_literal(arg, env))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.includeDirectory")
@@ -490,7 +517,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(arg_to_string_literal)
+                        .map(|arg| arg_to_string_literal(arg, env))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.includeDirectory")
@@ -505,7 +532,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(arg_to_string_literal)
+                        .map(|arg| arg_to_string_literal(arg, env))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.download")
@@ -539,6 +566,7 @@ where
 
 fn expression_to_json(
     expr: &biome_js_syntax::AnyJsExpression,
+    env: &HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<serde_json::Value> {
     use biome_js_syntax::{AnyJsExpression as Expr, AnyJsLiteralExpression as Literal};
     match expr {
@@ -581,7 +609,8 @@ fn expression_to_json(
                         anyhow::bail!("[{n}]: unsupported array element");
                     }
                 };
-                let element = expression_to_json(&element).with_context(|| format!("[{n}]"))?;
+                let element =
+                    expression_to_json(&element, env).with_context(|| format!("[{n}]"))?;
                 values.push(element);
             }
             Ok(serde_json::Value::Array(values))
@@ -600,7 +629,7 @@ fn expression_to_json(
                                 let key_expr = computed
                                     .expression()
                                     .context("invalid object member name")?;
-                                let key = expression_to_json(&key_expr)
+                                let key = expression_to_json(&key_expr, env)
                                     .context("invalid object member name")?;
                                 let serde_json::Value::String(key) = key else {
                                     anyhow::bail!("object member name must be a string");
@@ -617,7 +646,8 @@ fn expression_to_json(
                         let value = member
                             .value()
                             .with_context(|| format!("{key}: syntax error"))?;
-                        let value = expression_to_json(&value).with_context(|| key.to_string())?;
+                        let value =
+                            expression_to_json(&value, env).with_context(|| key.to_string())?;
                         (key, value)
                     }
                     biome_js_syntax::AnyJsObjectMember::JsShorthandPropertyObjectMember(member) => {
@@ -657,7 +687,7 @@ fn expression_to_json(
                             let expr = element
                                 .expression()
                                 .context("invalid template expression")?;
-                            let value = expression_to_json(&expr)
+                            let value = expression_to_json(&expr, env)
                                 .with_context(|| "invalid template expression")?;
 
                             let string = value
@@ -674,6 +704,55 @@ fn expression_to_json(
 
             Ok(serde_json::Value::String(components.join("")))
         }
+        Expr::JsIdentifierExpression(ident) => {
+            let name = ident.name().context("invalid identifier")?;
+            let name = name.text();
+            let value = env
+                .get(&name)
+                .with_context(|| format!("variable {name:?} is not allowed in this context"))?;
+            Ok(value.clone())
+        }
+        Expr::JsStaticMemberExpression(expr) => {
+            let object = expr.object().context("invalid object reference")?;
+            let object = expression_to_json(&object, env).context("invalid object reference")?;
+            let object = object.as_object().context("invalid object reference")?;
+
+            let member = expr.member().context("invalid member reference")?;
+            let member = member.text();
+
+            let value = object
+                .get(&member)
+                .with_context(|| format!("member {member:?} not found in object"))?;
+            Ok(value.clone())
+        }
+        Expr::JsComputedMemberExpression(expr) => {
+            let object = expr.object().context("invalid object reference")?;
+            let object = expression_to_json(&object, env).context("invalid object reference")?;
+
+            let member = expr.member().context("invalid member reference")?;
+            let member = expression_to_json(&member, env).context("invalid member reference")?;
+
+            let value = match (object, member) {
+                (serde_json::Value::Object(object), serde_json::Value::String(member)) => object
+                    .get(&member)
+                    .cloned()
+                    .with_context(|| format!("member {member:?} not found in object"))?,
+                (serde_json::Value::Array(array), serde_json::Value::Number(member)) => {
+                    let member = member.as_u64().context("invalid array index")?;
+                    let member: usize = member.try_into().context("invalid array index")?;
+
+                    array
+                        .get(member)
+                        .cloned()
+                        .with_context(|| format!("index {member} out of bounds"))?
+                }
+                _ => {
+                    anyhow::bail!("unsupported index expression");
+                }
+            };
+
+            Ok(value.clone())
+        }
         Expr::JsParenthesizedExpression(_) => todo!(),
         Expr::TsAsExpression(_) => todo!(),
         Expr::TsNonNullAssertionExpression(_) => todo!(),
@@ -687,12 +766,13 @@ fn expression_to_json(
 
 fn arg_to_string_literal(
     arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
+    env: &HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<String> {
     let arg = arg?;
     let arg = arg
         .as_any_js_expression()
         .context("spread arguments are not supported")?;
-    let arg = expression_to_json(arg)?;
+    let arg = expression_to_json(arg, env)?;
     let arg = arg.as_str().context("expected string argument")?;
 
     anyhow::Ok(arg.to_string())
