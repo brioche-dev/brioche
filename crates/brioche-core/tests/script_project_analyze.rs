@@ -374,3 +374,33 @@ async fn test_analyze_static_brioche_glob() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_analyze_static_brioche_download() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export function () {
+                    return Brioche.download("https://example.com");
+                }
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    let root_module = &project.local_modules[&project.root_module];
+
+    assert_eq!(
+        root_module.statics,
+        BTreeSet::from_iter([StaticQuery::Download {
+            url: "https://example.com".parse()?,
+        }]),
+    );
+
+    Ok(())
+}
