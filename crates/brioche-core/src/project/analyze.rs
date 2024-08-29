@@ -635,6 +635,45 @@ fn expression_to_json(
 
             Ok(serde_json::Value::Object(values))
         }
+        Expr::JsTemplateExpression(template) => {
+            anyhow::ensure!(
+                template.tag().is_none(),
+                "template literals cannot have tags"
+            );
+
+            let components = template
+                .elements()
+                .iter()
+                .map(|element| {
+                    let value = match element {
+                        biome_js_syntax::AnyJsTemplateElement::JsTemplateChunkElement(chunk) => {
+                            let string = chunk.text();
+
+                            anyhow::ensure!(!string.contains('\\'), "unsupported escape sequence");
+
+                            string
+                        }
+                        biome_js_syntax::AnyJsTemplateElement::JsTemplateElement(element) => {
+                            let expr = element
+                                .expression()
+                                .context("invalid template expression")?;
+                            let value = expression_to_json(&expr)
+                                .with_context(|| "invalid template expression")?;
+
+                            let string = value
+                                .as_str()
+                                .context("template component must be a string")?;
+
+                            string.to_owned()
+                        }
+                    };
+
+                    anyhow::Ok(value)
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
+            Ok(serde_json::Value::String(components.join("")))
+        }
         Expr::JsParenthesizedExpression(_) => todo!(),
         Expr::TsAsExpression(_) => todo!(),
         Expr::TsNonNullAssertionExpression(_) => todo!(),

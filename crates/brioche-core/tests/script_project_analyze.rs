@@ -344,6 +344,97 @@ async fn test_analyze_static_brioche_include_escape_error() -> anyhow::Result<()
 }
 
 #[tokio::test]
+async fn test_analyze_static_brioche_include_template_simple() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                Brioche.includeFile(`foo`);
+
+                export function () {
+                    return Brioche.includeDirectory(`"bar"`);
+                }
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    let root_module = &project.local_modules[&project.root_module];
+
+    assert_eq!(
+        root_module.statics,
+        BTreeSet::from_iter([
+            StaticQuery::Include(StaticInclude::File {
+                path: "foo".to_string()
+            }),
+            StaticQuery::Include(StaticInclude::Directory {
+                path: "\"bar\"".to_string()
+            }),
+        ]),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_static_brioche_include_template_nested_literal() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                Brioche.includeFile(`foo/${"bar"}/${`baz`}`);
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    let root_module = &project.local_modules[&project.root_module];
+
+    assert_eq!(
+        root_module.statics,
+        BTreeSet::from_iter([StaticQuery::Include(StaticInclude::File {
+            path: "foo/bar/baz".to_string()
+        }),]),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_analyze_static_brioche_include_template_escape_error() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                Brioche.includeFile(`foo`);
+
+                export function () {
+                    return Brioche.includeDirectory(`\$bar`);
+                }
+            "#,
+        )
+        .await;
+
+    let result = analyze_project(&brioche.vfs, &project_dir).await;
+
+    // Escape sequences are not currently supported
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_analyze_static_brioche_include_invalid() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test::brioche_test().await;
 
