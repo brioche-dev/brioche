@@ -14,12 +14,10 @@ use brioche_core::{
     },
     Hash,
 };
-use brioche_test::{
+use brioche_test_support::{
     bake_without_meta, default_process, home_dir, input_resource_dirs, output_path, resource_dir,
     temp_dir, template_input, tpl, tpl_join, work_dir,
 };
-
-mod brioche_test;
 
 fn sha256_hash(hash: &str) -> Hash {
     Hash::Sha256 {
@@ -34,7 +32,7 @@ fn utils() -> Recipe {
     });
 
     Recipe::Unarchive(Unarchive {
-        file: Box::new(brioche_test::without_meta(utils_download)),
+        file: Box::new(brioche_test_support::without_meta(utils_download)),
         archive: ArchiveFormat::Tar,
         compression: CompressionFormat::Zstd,
     })
@@ -82,7 +80,7 @@ macro_rules! run_test {
 // test cases drastically.
 #[tokio::test]
 async fn test_bake_process() -> anyhow::Result<()> {
-    let brioche_test = brioche_test::brioche_test().await;
+    let brioche_test = brioche_test_support::brioche_test().await;
     let results = [
         run_test!(brioche_test, test_bake_process_simple),
         run_test!(brioche_test, test_bake_process_fail_on_no_output),
@@ -144,10 +142,10 @@ async fn test_bake_process() -> anyhow::Result<()> {
 
 async fn test_bake_process_simple(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let hello = "hello";
-    let hello_blob = brioche_test::blob(brioche, hello).await;
+    let hello_blob = brioche_test_support::blob(brioche, hello).await;
 
     let hello_process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -158,7 +156,7 @@ async fn test_bake_process_simple(
 
     assert_eq!(
         bake_without_meta(brioche, hello_process).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     Ok(())
@@ -166,7 +164,7 @@ async fn test_bake_process_simple(
 
 async fn test_bake_process_fail_on_no_output(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -181,22 +179,22 @@ async fn test_bake_process_fail_on_no_output(
 
 async fn test_bake_process_scaffold_output(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let hello_blob = brioche_test::blob(brioche, "hello").await;
+    let hello_blob = brioche_test_support::blob(brioche, "hello").await;
 
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("# ... doing nothing ...")],
-        output_scaffold: Some(Box::new(WithMeta::without_meta(brioche_test::lazy_file(
-            hello_blob, false,
-        )))),
+        output_scaffold: Some(Box::new(WithMeta::without_meta(
+            brioche_test_support::lazy_file(hello_blob, false),
+        ))),
         ..default_process()
     });
 
     assert_eq!(
         bake_without_meta(brioche, process).await?,
-        brioche_test::file(hello_blob, false)
+        brioche_test_support::file(hello_blob, false)
     );
 
     Ok(())
@@ -204,9 +202,9 @@ async fn test_bake_process_scaffold_output(
 
 async fn test_bake_process_scaffold_and_modify_output(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let hello_blob = brioche_test::blob(brioche, "hello").await;
+    let hello_blob = brioche_test_support::blob(brioche, "hello").await;
 
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -217,16 +215,16 @@ async fn test_bake_process_scaffold_and_modify_output(
         ],
         env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
         output_scaffold: Some(Box::new(WithMeta::without_meta(
-            brioche_test::lazy_dir_empty(),
+            brioche_test_support::lazy_dir_empty(),
         ))),
         ..default_process()
     });
 
     assert_eq!(
         bake_without_meta(brioche, process).await?,
-        brioche_test::dir(
+        brioche_test_support::dir(
             brioche,
-            [("hi.txt", brioche_test::file(hello_blob, false)),]
+            [("hi.txt", brioche_test_support::file(hello_blob, false)),]
         )
         .await
     );
@@ -236,7 +234,7 @@ async fn test_bake_process_scaffold_and_modify_output(
 
 async fn test_bake_process_fail_on_non_zero_exit(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -256,7 +254,7 @@ async fn test_bake_process_fail_on_non_zero_exit(
 
 async fn test_bake_process_command_no_path(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("env"),
@@ -275,7 +273,7 @@ async fn test_bake_process_command_no_path(
 // than `execvpe`
 async fn test_bake_process_command_path(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("env"),
@@ -294,7 +292,7 @@ async fn test_bake_process_command_path(
 
 async fn test_bake_process_with_utils(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -316,7 +314,7 @@ async fn test_bake_process_with_utils(
 
 async fn test_bake_process_with_readonly_contents(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -347,7 +345,7 @@ async fn test_bake_process_with_readonly_contents(
 
 async fn test_bake_process_cached(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process_random = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -380,9 +378,9 @@ async fn test_bake_process_cached(
 
 async fn test_bake_process_cached_equivalent_inputs(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let empty_dir_1 = brioche_test::lazy_dir_empty();
+    let empty_dir_1 = brioche_test_support::lazy_dir_empty();
     let empty_dir_2 = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("mkdir \"$BRIOCHE_OUTPUT\"")],
@@ -449,9 +447,9 @@ async fn test_bake_process_cached_equivalent_inputs(
 
 async fn test_bake_process_cached_equivalent_inputs_parallel(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let empty_dir_1 = brioche_test::lazy_dir_empty();
+    let empty_dir_1 = brioche_test_support::lazy_dir_empty();
     let empty_dir_2 = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
         args: vec![tpl("sh"), tpl("-c"), tpl("mkdir \"$BRIOCHE_OUTPUT\"")],
@@ -509,18 +507,18 @@ async fn test_bake_process_cached_equivalent_inputs_parallel(
         brioche_core::bake::create_proxy(brioche, process_random_1.clone()).await?;
     let process_random_2_proxy =
         brioche_core::bake::create_proxy(brioche, process_random_2.clone()).await?;
-    let processes_dir = brioche_test::lazy_dir([
+    let processes_dir = brioche_test_support::lazy_dir([
         ("process1.txt", process_random_1.clone()),
         ("process2.txt", process_random_2.clone()),
         ("process1p.txt", process_random_1_proxy),
         ("process2p.txt", process_random_2_proxy),
     ]);
-    let process_a_dir = brioche_test::lazy_dir([("a", processes_dir.clone())]);
-    let process_b_dir = brioche_test::lazy_dir([("b", processes_dir.clone())]);
+    let process_a_dir = brioche_test_support::lazy_dir([("a", processes_dir.clone())]);
+    let process_b_dir = brioche_test_support::lazy_dir([("b", processes_dir.clone())]);
     let merged = Recipe::Merge {
         directories: vec![
-            brioche_test::without_meta(process_a_dir),
-            brioche_test::without_meta(process_b_dir),
+            brioche_test_support::without_meta(process_a_dir),
+            brioche_test_support::without_meta(process_b_dir),
         ],
     };
 
@@ -555,7 +553,7 @@ async fn test_bake_process_cached_equivalent_inputs_parallel(
 
 async fn test_bake_process_cache_busted(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process_random_1 = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -591,7 +589,7 @@ async fn test_bake_process_cache_busted(
 
 async fn test_bake_process_custom_env_vars(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -636,7 +634,7 @@ async fn test_bake_process_custom_env_vars(
 
 async fn test_bake_process_no_default_env_vars(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -671,7 +669,7 @@ async fn test_bake_process_no_default_env_vars(
 
 async fn test_bake_process_no_default_path(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("sh"),
@@ -699,7 +697,7 @@ async fn test_bake_process_no_default_path(
 
 async fn test_bake_process_command_ambiguous_error(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     // Using a shorthand for the command ("sh") is only allowed if
     // each element in `$PATH` is an artifact subpath (e.g. `${artifact}/bin`)
@@ -732,7 +730,7 @@ async fn test_bake_process_command_ambiguous_error(
 
 async fn test_bake_process_command_uses_path(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("sh"),
@@ -760,7 +758,7 @@ async fn test_bake_process_command_uses_path(
 
 async fn test_bake_process_command_uses_dependencies(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("sh"),
@@ -783,9 +781,9 @@ async fn test_bake_process_command_uses_dependencies(
 
 async fn test_bake_process_starts_with_work_dir_contents(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let hello_blob = brioche_test::blob(brioche, b"hello").await;
+    let hello_blob = brioche_test_support::blob(brioche, b"hello").await;
 
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -806,10 +804,12 @@ async fn test_bake_process_starts_with_work_dir_contents(
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir([(
-            "file.txt",
-            brioche_test::lazy_file(hello_blob, false),
-        )]))),
+        work_dir: Box::new(brioche_test_support::without_meta(
+            brioche_test_support::lazy_dir([(
+                "file.txt",
+                brioche_test_support::lazy_file(hello_blob, false),
+            )]),
+        )),
         ..default_process()
     };
 
@@ -820,9 +820,9 @@ async fn test_bake_process_starts_with_work_dir_contents(
 
 async fn test_bake_process_edit_work_dir_contents(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let hello_blob = brioche_test::blob(brioche, b"hello").await;
+    let hello_blob = brioche_test_support::blob(brioche, b"hello").await;
 
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -844,13 +844,21 @@ async fn test_bake_process_edit_work_dir_contents(
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
         ]),
-        work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir([
-            ("file.txt", brioche_test::lazy_file(hello_blob, false)),
-            (
-                "dir",
-                brioche_test::lazy_dir([("other.txt", brioche_test::lazy_file(hello_blob, false))]),
-            ),
-        ]))),
+        work_dir: Box::new(brioche_test_support::without_meta(
+            brioche_test_support::lazy_dir([
+                (
+                    "file.txt",
+                    brioche_test_support::lazy_file(hello_blob, false),
+                ),
+                (
+                    "dir",
+                    brioche_test_support::lazy_dir([(
+                        "other.txt",
+                        brioche_test_support::lazy_file(hello_blob, false),
+                    )]),
+                ),
+            ]),
+        )),
         ..default_process()
     };
 
@@ -861,7 +869,7 @@ async fn test_bake_process_edit_work_dir_contents(
 
 async fn test_bake_process_has_resource_dir(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -892,20 +900,23 @@ async fn test_bake_process_has_resource_dir(
 
 async fn test_bake_process_contains_all_resources(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let fizz = brioche_test::dir(
+    let fizz = brioche_test_support::dir(
         brioche,
         [(
             "file.txt",
-            brioche_test::file_with_resources(
-                brioche_test::blob(brioche, b"foo").await,
+            brioche_test_support::file_with_resources(
+                brioche_test_support::blob(brioche, b"foo").await,
                 false,
-                brioche_test::dir_value(
+                brioche_test_support::dir_value(
                     brioche,
                     [(
                         "foo/bar.txt",
-                        brioche_test::file(brioche_test::blob(brioche, b"resource a").await, false),
+                        brioche_test_support::file(
+                            brioche_test_support::blob(brioche, b"resource a").await,
+                            false,
+                        ),
                     )],
                 )
                 .await,
@@ -914,14 +925,17 @@ async fn test_bake_process_contains_all_resources(
     )
     .await;
 
-    let buzz = brioche_test::file_with_resources(
-        brioche_test::blob(brioche, b"bar").await,
+    let buzz = brioche_test_support::file_with_resources(
+        brioche_test_support::blob(brioche, b"bar").await,
         false,
-        brioche_test::dir_value(
+        brioche_test_support::dir_value(
             brioche,
             [(
                 "foo/baz.txt",
-                brioche_test::file(brioche_test::blob(brioche, b"resource b").await, false),
+                brioche_test_support::file(
+                    brioche_test_support::blob(brioche, b"resource b").await,
+                    false,
+                ),
             )],
         )
         .await,
@@ -975,7 +989,7 @@ async fn test_bake_process_contains_all_resources(
 
 async fn test_bake_process_output_with_resources(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     // Create a dummy file with pack metadata. This attaches resources
     // to the file when it gets put into the output of a process.
@@ -991,8 +1005,8 @@ async fn test_bake_process_output_with_resources(
         },
     )?;
 
-    let dummy_packed_blob = brioche_test::blob(brioche, &dummy_packed_contents).await;
-    let dummy_packed = brioche_test::file(dummy_packed_blob, false);
+    let dummy_packed_blob = brioche_test_support::blob(brioche, &dummy_packed_contents).await;
+    let dummy_packed = brioche_test_support::file(dummy_packed_blob, false);
 
     let process = ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -1033,16 +1047,22 @@ async fn test_bake_process_output_with_resources(
 
     assert_eq!(
         *resources,
-        brioche_test::dir_value(
+        brioche_test_support::dir_value(
             brioche,
             [
                 (
                     "program",
-                    brioche_test::file(brioche_test::blob(brioche, b"dummy_program").await, false)
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"dummy_program").await,
+                        false
+                    )
                 ),
                 (
                     "ld-linux.so",
-                    brioche_test::file(brioche_test::blob(brioche, b"dummy_ld_linux").await, false)
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"dummy_ld_linux").await,
+                        false
+                    )
                 ),
             ]
         )
@@ -1054,7 +1074,7 @@ async fn test_bake_process_output_with_resources(
 
 async fn test_bake_process_unsafe_validation(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let no_unsafety = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -1104,7 +1124,7 @@ async fn test_bake_process_unsafe_validation(
 
 async fn test_bake_process_networking_disabled(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let mut server = mockito::Server::new();
     let hello_endpoint = server
@@ -1148,7 +1168,7 @@ async fn test_bake_process_networking_disabled(
 
 async fn test_bake_process_networking_enabled(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let mut server = mockito::Server::new();
     let hello_endpoint = server
@@ -1185,7 +1205,7 @@ async fn test_bake_process_networking_enabled(
 
     assert_eq!(
         bake_without_meta(brioche, process).await?,
-        brioche_test::file(brioche_test::blob(brioche, "hello").await, false),
+        brioche_test_support::file(brioche_test_support::blob(brioche, "hello").await, false),
     );
 
     hello_endpoint.assert();
@@ -1195,7 +1215,7 @@ async fn test_bake_process_networking_enabled(
 
 async fn test_bake_process_networking_enabled_dns(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
     let process = Recipe::Process(ProcessRecipe {
         command: tpl("/usr/bin/env"),
@@ -1229,40 +1249,40 @@ async fn test_bake_process_networking_enabled_dns(
 
 async fn test_bake_process_dependencies(
     brioche: &brioche_core::Brioche,
-    _context: &brioche_test::TestContext,
+    _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let dep1 = brioche_test::dir(
+    let dep1 = brioche_test_support::dir(
         brioche,
         [
-            ("a", brioche_test::dir_empty()),
-            ("b", brioche_test::dir_empty()),
-            ("c", brioche_test::dir_empty()),
-            ("bin", brioche_test::dir_empty()),
+            ("a", brioche_test_support::dir_empty()),
+            ("b", brioche_test_support::dir_empty()),
+            ("c", brioche_test_support::dir_empty()),
+            ("bin", brioche_test_support::dir_empty()),
             (
                 "brioche-env.d",
-                brioche_test::dir(
+                brioche_test_support::dir(
                     brioche,
                     [(
                         "env",
-                        brioche_test::dir(
+                        brioche_test_support::dir(
                             brioche,
                             [
                                 (
                                     "PATH",
-                                    brioche_test::dir(
+                                    brioche_test_support::dir(
                                         brioche,
                                         [
-                                            ("a", brioche_test::symlink(b"../../../a")),
-                                            ("b", brioche_test::symlink(b"../../../b")),
+                                            ("a", brioche_test_support::symlink(b"../../../a")),
+                                            ("b", brioche_test_support::symlink(b"../../../b")),
                                         ],
                                     )
                                     .await,
                                 ),
                                 (
                                     "DEP1",
-                                    brioche_test::dir(
+                                    brioche_test_support::dir(
                                         brioche,
-                                        [("a", brioche_test::symlink(b"../../../c"))],
+                                        [("a", brioche_test_support::symlink(b"../../../c"))],
                                     )
                                     .await,
                                 ),
@@ -1276,38 +1296,38 @@ async fn test_bake_process_dependencies(
         ],
     )
     .await;
-    let dep2 = brioche_test::dir(
+    let dep2 = brioche_test_support::dir(
         brioche,
         [
-            ("d", brioche_test::dir_empty()),
-            ("e", brioche_test::dir_empty()),
-            ("f", brioche_test::dir_empty()),
-            ("bin", brioche_test::dir_empty()),
+            ("d", brioche_test_support::dir_empty()),
+            ("e", brioche_test_support::dir_empty()),
+            ("f", brioche_test_support::dir_empty()),
+            ("bin", brioche_test_support::dir_empty()),
             (
                 "brioche-env.d",
-                brioche_test::dir(
+                brioche_test_support::dir(
                     brioche,
                     [(
                         "env",
-                        brioche_test::dir(
+                        brioche_test_support::dir(
                             brioche,
                             [
                                 (
                                     "PATH",
-                                    brioche_test::dir(
+                                    brioche_test_support::dir(
                                         brioche,
                                         [
-                                            ("d", brioche_test::symlink(b"../../../d")),
-                                            ("e", brioche_test::symlink(b"../../../e")),
+                                            ("d", brioche_test_support::symlink(b"../../../d")),
+                                            ("e", brioche_test_support::symlink(b"../../../e")),
                                         ],
                                     )
                                     .await,
                                 ),
                                 (
                                     "DEP2",
-                                    brioche_test::dir(
+                                    brioche_test_support::dir(
                                         brioche,
-                                        [("a", brioche_test::symlink(b"../../../f"))],
+                                        [("a", brioche_test_support::symlink(b"../../../f"))],
                                     )
                                     .await,
                                 ),

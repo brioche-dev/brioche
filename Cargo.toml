@@ -1,11 +1,15 @@
 [workspace]
-members = ["crates/brioche", "crates/brioche-core", "crates/brioche-pack"]
+members = ["crates/brioche", "crates/brioche-core", "crates/brioche-pack", "crates/brioche-test-support"]
 resolver = "2"
 
 [profile.dev]
 # Enable optimizations for debug builds because the JS runs slow without it.
 # Also, we end up overflowing the stack without optimizations when parsing JS
 opt-level = 2
+
+[profile.profiling]
+inherits = "release"
+debug = true
 
 [profile.release-tiny]
 inherits = "release"

@@ -4,8 +4,6 @@ use assert_matches::assert_matches;
 use brioche_core::{output::create_local_output, recipe::Artifact, Brioche};
 use pretty_assertions::assert_eq;
 
-mod brioche_test;
-
 async fn dir_is_empty(path: impl AsRef<Path>) -> bool {
     let mut entries = tokio::fs::read_dir(path).await.expect("failed to read dir");
     let first_entry = entries.next_entry().await.expect("failed to read entry");
@@ -75,9 +73,10 @@ async fn create_output_with_links(
 
 #[tokio::test]
 async fn test_output_file() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false);
+    let artifact =
+        brioche_test_support::file(brioche_test_support::blob(&brioche, b"hello").await, false);
 
     create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
@@ -97,9 +96,10 @@ async fn test_output_file() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_executable_file() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::file(brioche_test::blob(&brioche, b"hello").await, true);
+    let artifact =
+        brioche_test_support::file(brioche_test_support::blob(&brioche, b"hello").await, true);
 
     create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
@@ -129,9 +129,9 @@ async fn test_output_executable_file() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_symlink() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::symlink("/foo");
+    let artifact = brioche_test_support::symlink("/foo");
 
     create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
@@ -146,9 +146,9 @@ async fn test_output_symlink() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_empty_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir_empty();
+    let artifact = brioche_test_support::dir_empty();
 
     create_output(&brioche, &context.path("output"), &artifact, false).await?;
 
@@ -160,24 +160,27 @@ async fn test_output_empty_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [
             (
                 "hello",
-                brioche_test::dir(
+                brioche_test_support::dir(
                     &brioche,
                     [(
                         "hi.txt",
-                        brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false),
+                        brioche_test_support::file(
+                            brioche_test_support::blob(&brioche, b"hello").await,
+                            false,
+                        ),
                     )],
                 )
                 .await,
             ),
-            ("empty", brioche_test::dir_empty()),
-            ("link", brioche_test::symlink("hello/hi.txt")),
+            ("empty", brioche_test_support::dir_empty()),
+            ("link", brioche_test_support::symlink("hello/hi.txt")),
         ],
     )
     .await;
@@ -203,24 +206,27 @@ async fn test_output_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_merge() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [
             (
                 "hello",
-                brioche_test::dir(
+                brioche_test_support::dir(
                     &brioche,
                     [(
                         "hi.txt",
-                        brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false),
+                        brioche_test_support::file(
+                            brioche_test_support::blob(&brioche, b"hello").await,
+                            false,
+                        ),
                     )],
                 )
                 .await,
             ),
-            ("empty", brioche_test::dir_empty()),
-            ("link", brioche_test::symlink("hello/hi.txt")),
+            ("empty", brioche_test_support::dir_empty()),
+            ("link", brioche_test_support::symlink("hello/hi.txt")),
         ],
     )
     .await;
@@ -250,16 +256,19 @@ async fn test_output_merge() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_merge_replace() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [
             (
                 "test.txt",
-                brioche_test::file(brioche_test::blob(&brioche, "new content").await, false),
+                brioche_test_support::file(
+                    brioche_test_support::blob(&brioche, "new content").await,
+                    false,
+                ),
             ),
-            ("link", brioche_test::symlink("test.txt")),
+            ("link", brioche_test_support::symlink("test.txt")),
         ],
     )
     .await;
@@ -290,24 +299,27 @@ async fn test_output_merge_replace() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_conflict_no_merge() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [
             (
                 "hello",
-                brioche_test::dir(
+                brioche_test_support::dir(
                     &brioche,
                     [(
                         "hi.txt",
-                        brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false),
+                        brioche_test_support::file(
+                            brioche_test_support::blob(&brioche, b"hello").await,
+                            false,
+                        ),
                     )],
                 )
                 .await,
             ),
-            ("empty", brioche_test::dir_empty()),
-            ("link", brioche_test::symlink("hello/hi.txt")),
+            ("empty", brioche_test_support::dir_empty()),
+            ("link", brioche_test_support::symlink("hello/hi.txt")),
         ],
     )
     .await;
@@ -335,24 +347,27 @@ async fn test_output_conflict_no_merge() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_conflict_merge() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [
             (
                 "hello",
-                brioche_test::dir(
+                brioche_test_support::dir(
                     &brioche,
                     [(
                         "hi.txt",
-                        brioche_test::file(brioche_test::blob(&brioche, b"hello").await, false),
+                        brioche_test_support::file(
+                            brioche_test_support::blob(&brioche, b"hello").await,
+                            false,
+                        ),
                     )],
                 )
                 .await,
             ),
-            ("empty", brioche_test::dir_empty()),
-            ("link", brioche_test::symlink("hello/hi.txt")),
+            ("empty", brioche_test_support::dir_empty()),
+            ("link", brioche_test_support::symlink("hello/hi.txt")),
         ],
     )
     .await;
@@ -376,26 +391,27 @@ async fn test_output_conflict_merge() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_dir_with_resources() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [(
             "hello",
-            brioche_test::dir(
+            brioche_test_support::dir(
                 &brioche,
                 [
                     (
                         "hi.txt",
-                        brioche_test::file_with_resources(
-                            brioche_test::blob(&brioche, b"hello").await,
+                        brioche_test_support::file_with_resources(
+                            brioche_test_support::blob(&brioche, b"hello").await,
                             false,
-                            brioche_test::dir_value(
+                            brioche_test_support::dir_value(
                                 &brioche,
                                 [(
                                     "hi_ref.txt",
-                                    brioche_test::file(
-                                        brioche_test::blob(&brioche, b"reference data").await,
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(&brioche, b"reference data")
+                                            .await,
                                         false,
                                     ),
                                 )],
@@ -405,19 +421,20 @@ async fn test_output_dir_with_resources() -> anyhow::Result<()> {
                     ),
                     (
                         "second.txt",
-                        brioche_test::file_with_resources(
-                            brioche_test::blob(&brioche, b"2").await,
+                        brioche_test_support::file_with_resources(
+                            brioche_test_support::blob(&brioche, b"2").await,
                             false,
-                            brioche_test::dir_value(
+                            brioche_test_support::dir_value(
                                 &brioche,
                                 [(
                                     "second_refs",
-                                    brioche_test::dir(
+                                    brioche_test_support::dir(
                                         &brioche,
                                         [(
                                             "second_ref.txt",
-                                            brioche_test::file(
-                                                brioche_test::blob(&brioche, b"T W O").await,
+                                            brioche_test_support::file(
+                                                brioche_test_support::blob(&brioche, b"T W O")
+                                                    .await,
                                                 false,
                                             ),
                                         )],
@@ -465,22 +482,22 @@ async fn test_output_dir_with_resources() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_dir_with_resources_and_pack_dir() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [
             (
                 "hi.txt",
-                brioche_test::file_with_resources(
-                    brioche_test::blob(&brioche, b"hello").await,
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, b"hello").await,
                     false,
-                    brioche_test::dir_value(
+                    brioche_test_support::dir_value(
                         &brioche,
                         [(
                             "hi_ref.txt",
-                            brioche_test::file(
-                                brioche_test::blob(&brioche, b"reference data").await,
+                            brioche_test_support::file(
+                                brioche_test_support::blob(&brioche, b"reference data").await,
                                 false,
                             ),
                         )],
@@ -490,11 +507,14 @@ async fn test_output_dir_with_resources_and_pack_dir() -> anyhow::Result<()> {
             ),
             (
                 "brioche-resources.d",
-                brioche_test::dir(
+                brioche_test_support::dir(
                     &brioche,
                     [(
                         "test.txt",
-                        brioche_test::file(brioche_test::blob(&brioche, b"test").await, false),
+                        brioche_test_support::file(
+                            brioche_test_support::blob(&brioche, b"test").await,
+                            false,
+                        ),
                     )],
                 )
                 .await,
@@ -525,32 +545,32 @@ async fn test_output_dir_with_resources_and_pack_dir() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_dir_with_nested_resources() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [(
             "hello",
-            brioche_test::dir(
+            brioche_test_support::dir(
                 &brioche,
                 [(
                     "hi.txt",
-                    brioche_test::file_with_resources(
-                        brioche_test::blob(&brioche, b"hello").await,
+                    brioche_test_support::file_with_resources(
+                        brioche_test_support::blob(&brioche, b"hello").await,
                         false,
-                        brioche_test::dir_value(
+                        brioche_test_support::dir_value(
                             &brioche,
                             [(
                                 "hi_ref.txt",
-                                brioche_test::file_with_resources(
-                                    brioche_test::blob(&brioche, b"reference data").await,
+                                brioche_test_support::file_with_resources(
+                                    brioche_test_support::blob(&brioche, b"reference data").await,
                                     false,
-                                    brioche_test::dir_value(
+                                    brioche_test_support::dir_value(
                                         &brioche,
                                         [(
                                             "hi_ref_ref.txt",
-                                            brioche_test::file(
-                                                brioche_test::blob(
+                                            brioche_test_support::file(
+                                                brioche_test_support::blob(
                                                     &brioche,
                                                     b"reference reference data",
                                                 )
@@ -596,26 +616,26 @@ async fn test_output_dir_with_nested_resources() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_dir_with_equal_resources() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [(
             "hello",
-            brioche_test::dir(
+            brioche_test_support::dir(
                 &brioche,
                 [
                     (
                         "hi.txt",
-                        brioche_test::file_with_resources(
-                            brioche_test::blob(&brioche, b"hello").await,
+                        brioche_test_support::file_with_resources(
+                            brioche_test_support::blob(&brioche, b"hello").await,
                             false,
-                            brioche_test::dir_value(
+                            brioche_test_support::dir_value(
                                 &brioche,
                                 [(
                                     "same.txt",
-                                    brioche_test::file(
-                                        brioche_test::blob(&brioche, b"a").await,
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(&brioche, b"a").await,
                                         false,
                                     ),
                                 )],
@@ -625,15 +645,15 @@ async fn test_output_dir_with_equal_resources() -> anyhow::Result<()> {
                     ),
                     (
                         "second.txt",
-                        brioche_test::file_with_resources(
-                            brioche_test::blob(&brioche, b"2").await,
+                        brioche_test_support::file_with_resources(
+                            brioche_test_support::blob(&brioche, b"2").await,
                             false,
-                            brioche_test::dir_value(
+                            brioche_test_support::dir_value(
                                 &brioche,
                                 [(
                                     "same.txt",
-                                    brioche_test::file(
-                                        brioche_test::blob(&brioche, b"a").await,
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(&brioche, b"a").await,
                                         false,
                                     ),
                                 )],
@@ -669,16 +689,16 @@ async fn test_output_dir_with_equal_resources() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_output_top_level_file_with_resources_fails() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::file_with_resources(
-        brioche_test::blob(&brioche, b"hello").await,
+    let artifact = brioche_test_support::file_with_resources(
+        brioche_test_support::blob(&brioche, b"hello").await,
         false,
-        brioche_test::dir_value(
+        brioche_test_support::dir_value(
             &brioche,
             [(
                 "same.txt",
-                brioche_test::file(brioche_test::blob(&brioche, b"a").await, false),
+                brioche_test_support::file(brioche_test_support::blob(&brioche, b"a").await, false),
             )],
         )
         .await,
@@ -694,16 +714,16 @@ async fn test_output_top_level_file_with_resources_fails() -> anyhow::Result<()>
 
 #[tokio::test]
 async fn test_output_top_level_file_with_parallel_resources() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let artifact = brioche_test::file_with_resources(
-        brioche_test::blob(&brioche, b"hello").await,
+    let artifact = brioche_test_support::file_with_resources(
+        brioche_test_support::blob(&brioche, b"hello").await,
         false,
-        brioche_test::dir_value(
+        brioche_test_support::dir_value(
             &brioche,
             [(
                 "resource.txt",
-                brioche_test::file(brioche_test::blob(&brioche, b"a").await, false),
+                brioche_test_support::file(brioche_test_support::blob(&brioche, b"a").await, false),
             )],
         )
         .await,
@@ -736,26 +756,26 @@ async fn test_output_top_level_file_with_parallel_resources() -> anyhow::Result<
 
 #[tokio::test]
 async fn test_output_with_links() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let hello_blob = brioche_test::blob(&brioche, b"hello").await;
+    let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
     let hello_blob_path = brioche_core::blob::local_blob_path(&brioche, hello_blob);
 
-    let hello = brioche_test::file(hello_blob, false);
-    let hello_exe = brioche_test::file(hello_blob, true);
+    let hello = brioche_test_support::file(hello_blob, false);
+    let hello_exe = brioche_test_support::file(hello_blob, true);
 
-    let hello_with_resource = brioche_test::file_with_resources(
+    let hello_with_resource = brioche_test_support::file_with_resources(
         hello_blob,
         false,
-        brioche_test::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
+        brioche_test_support::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
     );
-    let hello_exe_with_resource = brioche_test::file_with_resources(
+    let hello_exe_with_resource = brioche_test_support::file_with_resources(
         hello_blob,
         true,
-        brioche_test::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
+        brioche_test_support::dir_value(&brioche, [("resource.txt", hello.clone())]).await,
     );
 
-    let artifact = brioche_test::dir(
+    let artifact = brioche_test_support::dir(
         &brioche,
         [
             ("hello.txt", hello.clone()),
@@ -768,7 +788,10 @@ async fn test_output_with_links() -> anyhow::Result<()> {
             ("hello_exe_res2", hello_exe_with_resource.clone()),
             (
                 "hi.txt",
-                brioche_test::file(brioche_test::blob(&brioche, b"hi").await, false),
+                brioche_test_support::file(
+                    brioche_test_support::blob(&brioche, b"hi").await,
+                    false,
+                ),
             ),
         ],
     )

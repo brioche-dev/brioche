@@ -1,19 +1,17 @@
 use assert_matches::assert_matches;
 use brioche_core::recipe::{DownloadRecipe, Recipe};
-use brioche_test::bake_without_meta;
-
-mod brioche_test;
+use brioche_test_support::bake_without_meta;
 
 #[tokio::test]
 async fn test_bake_download() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
     let hello_endpoint = server
         .mock("GET", "/file.txt")
         .with_body(hello)
@@ -27,7 +25,7 @@ async fn test_bake_download() -> anyhow::Result<()> {
 
     assert_eq!(
         bake_without_meta(&brioche, hello_download).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     hello_endpoint.assert();
@@ -37,14 +35,14 @@ async fn test_bake_download() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_bake_download_cached() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
     let hello_endpoint = server
         .mock("GET", "/file.txt")
         .with_body(hello)
@@ -58,12 +56,12 @@ async fn test_bake_download_cached() -> anyhow::Result<()> {
 
     assert_eq!(
         bake_without_meta(&brioche, hello_download.clone()).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     assert_eq!(
         bake_without_meta(&brioche, hello_download).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     hello_endpoint.assert();
@@ -73,14 +71,14 @@ async fn test_bake_download_cached() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_bake_download_rerun_after_failure() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
     let hello_endpoint = server.mock("GET", "/file.txt").with_status(404).create();
 
     let hello_download = Recipe::Download(DownloadRecipe {
@@ -99,7 +97,7 @@ async fn test_bake_download_rerun_after_failure() -> anyhow::Result<()> {
 
     assert_eq!(
         bake_without_meta(&brioche, hello_download).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     hello_endpoint.assert();
@@ -109,14 +107,14 @@ async fn test_bake_download_rerun_after_failure() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_bake_download_different_urls_with_same_hash() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
     let file_1_endpoint = server.mock("GET", "/file1.txt").with_body(hello).create();
     let file_2_endpoint = server.mock("GET", "/file2.txt").with_body(hello).create();
 
@@ -127,7 +125,7 @@ async fn test_bake_download_different_urls_with_same_hash() -> anyhow::Result<()
 
     assert_eq!(
         bake_without_meta(&brioche, file_1_download).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     let file_2_download = Recipe::Download(DownloadRecipe {
@@ -137,7 +135,7 @@ async fn test_bake_download_different_urls_with_same_hash() -> anyhow::Result<()
 
     assert_eq!(
         bake_without_meta(&brioche, file_2_download).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     file_1_endpoint.assert();
@@ -148,18 +146,18 @@ async fn test_bake_download_different_urls_with_same_hash() -> anyhow::Result<()
 
 #[tokio::test]
 async fn test_bake_download_url_changed_hash() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
 
     let hi = "hi";
-    let hi_blob = brioche_test::blob(&brioche, hi).await;
-    let hi_hash = brioche_test::sha256(hi);
+    let hi_blob = brioche_test_support::blob(&brioche, hi).await;
+    let hi_hash = brioche_test_support::sha256(hi);
 
     let file_endpoint = server.mock("GET", "/file.txt").with_body(hello).create();
 
@@ -170,7 +168,7 @@ async fn test_bake_download_url_changed_hash() -> anyhow::Result<()> {
 
     assert_eq!(
         bake_without_meta(&brioche, file_download_1).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     file_endpoint.assert();
@@ -184,7 +182,7 @@ async fn test_bake_download_url_changed_hash() -> anyhow::Result<()> {
 
     assert_eq!(
         bake_without_meta(&brioche, file_download_2).await?,
-        brioche_test::file(hi_blob, false),
+        brioche_test_support::file(hi_blob, false),
     );
 
     file_endpoint.assert();
@@ -194,14 +192,14 @@ async fn test_bake_download_url_changed_hash() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_bake_download_invalid_hash() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
     let hello_endpoint = server
         .mock("GET", "/file.txt")
         .with_body("not hello")
@@ -221,7 +219,7 @@ async fn test_bake_download_invalid_hash() -> anyhow::Result<()> {
 
     assert_eq!(
         bake_without_meta(&brioche, hello_download).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     Ok(())
@@ -229,19 +227,19 @@ async fn test_bake_download_invalid_hash() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_bake_download_does_not_cache_using_only_hash() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut server = mockito::Server::new();
     let server_url = server.url();
 
     let hello = "hello";
-    let hello_blob = brioche_test::blob(&brioche, hello).await;
-    let hello_hash = brioche_test::sha256(hello);
+    let hello_blob = brioche_test_support::blob(&brioche, hello).await;
+    let hello_hash = brioche_test_support::sha256(hello);
     let hello_endpoint = server.mock("GET", "/hello.txt").with_body(hello).create();
 
     let hi = "hi";
-    let hi_blob = brioche_test::blob(&brioche, hi).await;
-    let hi_hash = brioche_test::sha256(hi);
+    let hi_blob = brioche_test_support::blob(&brioche, hi).await;
+    let hi_hash = brioche_test_support::sha256(hi);
     let hi_endpoint = server.mock("GET", "/hi.txt").with_body(hi).create();
 
     let hello_download = Recipe::Download(DownloadRecipe {
@@ -266,7 +264,7 @@ async fn test_bake_download_does_not_cache_using_only_hash() -> anyhow::Result<(
 
     assert_eq!(
         bake_without_meta(&brioche, hello_download.clone()).await?,
-        brioche_test::file(hello_blob, false),
+        brioche_test_support::file(hello_blob, false),
     );
 
     assert_matches!(
@@ -276,7 +274,7 @@ async fn test_bake_download_does_not_cache_using_only_hash() -> anyhow::Result<(
 
     assert_eq!(
         bake_without_meta(&brioche, hi_download.clone()).await?,
-        brioche_test::file(hi_blob, false),
+        brioche_test_support::file(hi_blob, false),
     );
 
     hello_endpoint.assert();

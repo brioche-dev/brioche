@@ -3,9 +3,11 @@ use std::path::PathBuf;
 use assert_matches::assert_matches;
 use brioche_core::script::check::{CheckResult, DiagnosticLevel};
 
-mod brioche_test;
-
-async fn write_project(context: &brioche_test::TestContext, name: &str, script: &str) -> PathBuf {
+async fn write_project(
+    context: &brioche_test_support::TestContext,
+    name: &str,
+    script: &str,
+) -> PathBuf {
     let project_dir = context.mkdir(name).await;
 
     context.write_file("myproject/project.bri", script).await;
@@ -23,7 +25,7 @@ fn worst_level(result: &CheckResult) -> Option<DiagnosticLevel> {
 
 #[tokio::test]
 async fn test_check_basic_valid() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = write_project(
         &context,
@@ -44,7 +46,8 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
         "#,
     )
     .await;
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 
@@ -55,7 +58,7 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_check_basic_invalid() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = write_project(
         &context,
@@ -76,7 +79,8 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
         "#,
     )
     .await;
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 
@@ -87,7 +91,7 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_check_import_valid() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let project_dir = write_project(
         &context,
@@ -133,7 +137,8 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
         .create_async()
         .await;
 
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 
@@ -144,7 +149,7 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_check_import_nonexistent() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = write_project(
         &context,
@@ -167,7 +172,7 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
     .await;
 
     let (projects, project_hash) =
-        brioche_test::load_project_no_validate(&brioche, &project_dir).await?;
+        brioche_test_support::load_project_no_validate(&brioche, &project_dir).await?;
 
     let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 
@@ -178,7 +183,7 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_check_invalid_unused_var() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = write_project(
         &context,
@@ -199,7 +204,8 @@ async fn test_check_invalid_unused_var() -> anyhow::Result<()> {
         "#,
     )
     .await;
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 
@@ -210,7 +216,7 @@ async fn test_check_invalid_unused_var() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = write_project(
         &context,
@@ -238,7 +244,8 @@ async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
         "#,
     )
     .await;
-    let (projects, project_hash) = brioche_test::load_project(&brioche, &project_dir).await?;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
 
     let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
 

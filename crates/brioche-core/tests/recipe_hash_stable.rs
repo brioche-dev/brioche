@@ -9,53 +9,61 @@ use brioche_core::{
 };
 use pretty_assertions::assert_eq;
 
-mod brioche_test;
-
 #[tokio::test]
 async fn test_recipe_hash_stable_file() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let hello_blob = brioche_test::blob(&brioche, b"hello").await;
-    let hi_blob = brioche_test::blob(&brioche, b"hi").await;
+    let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
+    let hi_blob = brioche_test_support::blob(&brioche, b"hi").await;
 
     let mut asserts = vec![];
 
     asserts.push((
-        brioche_test::file(hello_blob, false).hash().to_string(),
+        brioche_test_support::file(hello_blob, false)
+            .hash()
+            .to_string(),
         "042cbcf2fc68cccbde296bcb6bae718ca625866b1c245c8e980cef7a0a5cf269",
     ));
     asserts.push((
-        brioche_test::lazy_file(hello_blob, false)
+        brioche_test_support::lazy_file(hello_blob, false)
             .hash()
             .to_string(),
         "042cbcf2fc68cccbde296bcb6bae718ca625866b1c245c8e980cef7a0a5cf269",
     ));
 
     asserts.push((
-        brioche_test::file(hi_blob, false).hash().to_string(),
+        brioche_test_support::file(hi_blob, false)
+            .hash()
+            .to_string(),
         "0db68b5a219eb5ec35887d86401a2991445acd5b37e3a5893bf78ffce0df346b",
     ));
     asserts.push((
-        brioche_test::lazy_file(hi_blob, false).hash().to_string(),
+        brioche_test_support::lazy_file(hi_blob, false)
+            .hash()
+            .to_string(),
         "0db68b5a219eb5ec35887d86401a2991445acd5b37e3a5893bf78ffce0df346b",
     ));
 
     asserts.push((
-        brioche_test::file(hello_blob, true).hash().to_string(),
+        brioche_test_support::file(hello_blob, true)
+            .hash()
+            .to_string(),
         "65b1f6376f34e88546d5f313b8e2dd7f2516e5c2d78500c7f6f474cc0141fd20",
     ));
     asserts.push((
-        brioche_test::lazy_file(hello_blob, true).hash().to_string(),
+        brioche_test_support::lazy_file(hello_blob, true)
+            .hash()
+            .to_string(),
         "65b1f6376f34e88546d5f313b8e2dd7f2516e5c2d78500c7f6f474cc0141fd20",
     ));
 
     asserts.push((
-        brioche_test::file_with_resources(
+        brioche_test_support::file_with_resources(
             hello_blob,
             false,
-            brioche_test::dir_value(
+            brioche_test_support::dir_value(
                 &brioche,
-                [("foo.txt", brioche_test::file(hello_blob, false))],
+                [("foo.txt", brioche_test_support::file(hello_blob, false))],
             )
             .await,
         )
@@ -64,13 +72,13 @@ async fn test_recipe_hash_stable_file() -> anyhow::Result<()> {
         "b02bb2a50344129ab3684eaf4eafedc8a550049e85006ee6a7fdefd79c6db345",
     ));
     asserts.push((
-        brioche_test::lazy_file_with_resources(
+        brioche_test_support::lazy_file_with_resources(
             hello_blob,
             false,
             Recipe::from(
-                brioche_test::dir(
+                brioche_test_support::dir(
                     &brioche,
-                    [("foo.txt", brioche_test::file(hello_blob, false))],
+                    [("foo.txt", brioche_test_support::file(hello_blob, false))],
                 )
                 .await,
             ),
@@ -90,26 +98,28 @@ async fn test_recipe_hash_stable_file() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_recipe_hash_stable_directory() -> anyhow::Result<()> {
-    let (brioche, _context) = brioche_test::brioche_test().await;
+    let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let hello_blob = brioche_test::blob(&brioche, b"hello").await;
-    let hi_blob = brioche_test::blob(&brioche, b"hi").await;
+    let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
+    let hi_blob = brioche_test_support::blob(&brioche, b"hi").await;
 
     let mut asserts = vec![];
 
     asserts.push((
-        brioche_test::dir_empty().hash().to_string(),
+        brioche_test_support::dir_empty().hash().to_string(),
         "2e4799f8f3b8e26761b4ab8700222d0b112737b601870de583f371f8ba03d08d",
     ));
     asserts.push((
-        Recipe::from(brioche_test::dir_empty()).hash().to_string(),
+        Recipe::from(brioche_test_support::dir_empty())
+            .hash()
+            .to_string(),
         "2e4799f8f3b8e26761b4ab8700222d0b112737b601870de583f371f8ba03d08d",
     ));
 
     asserts.push((
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
-            [("foo.txt", brioche_test::file(hello_blob, false))],
+            [("foo.txt", brioche_test_support::file(hello_blob, false))],
         )
         .await
         .hash()
@@ -118,9 +128,9 @@ async fn test_recipe_hash_stable_directory() -> anyhow::Result<()> {
     ));
     asserts.push((
         Recipe::from(
-            brioche_test::dir(
+            brioche_test_support::dir(
                 &brioche,
-                [("foo.txt", brioche_test::file(hello_blob, false))],
+                [("foo.txt", brioche_test_support::file(hello_blob, false))],
             )
             .await,
         )
@@ -130,14 +140,17 @@ async fn test_recipe_hash_stable_directory() -> anyhow::Result<()> {
     ));
 
     asserts.push((
-        brioche_test::dir(
+        brioche_test_support::dir(
             &brioche,
             [
-                ("foo.txt", brioche_test::file(hello_blob, false)),
+                ("foo.txt", brioche_test_support::file(hello_blob, false)),
                 (
                     "bar",
-                    brioche_test::dir(&brioche, [("hi.txt", brioche_test::file(hi_blob, false))])
-                        .await,
+                    brioche_test_support::dir(
+                        &brioche,
+                        [("hi.txt", brioche_test_support::file(hi_blob, false))],
+                    )
+                    .await,
                 ),
             ],
         )
@@ -148,15 +161,15 @@ async fn test_recipe_hash_stable_directory() -> anyhow::Result<()> {
     ));
     asserts.push((
         Recipe::from(
-            brioche_test::dir(
+            brioche_test_support::dir(
                 &brioche,
                 [
-                    ("foo.txt", brioche_test::file(hello_blob, false)),
+                    ("foo.txt", brioche_test_support::file(hello_blob, false)),
                     (
                         "bar",
-                        brioche_test::dir(
+                        brioche_test_support::dir(
                             &brioche,
-                            [("hi.txt", brioche_test::file(hi_blob, false))],
+                            [("hi.txt", brioche_test_support::file(hi_blob, false))],
                         )
                         .await,
                     ),
@@ -170,12 +183,12 @@ async fn test_recipe_hash_stable_directory() -> anyhow::Result<()> {
     ));
 
     asserts.push((
-        brioche_test::lazy_dir([(
+        brioche_test_support::lazy_dir([(
             "foo",
             Recipe::Merge {
                 directories: vec![
-                    brioche_test::without_meta(brioche_test::lazy_dir_empty()),
-                    brioche_test::without_meta(brioche_test::lazy_dir_empty()),
+                    brioche_test_support::without_meta(brioche_test_support::lazy_dir_empty()),
+                    brioche_test_support::without_meta(brioche_test_support::lazy_dir_empty()),
                 ],
             },
         )])
@@ -194,25 +207,29 @@ async fn test_recipe_hash_stable_directory() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_recipe_hash_stable_symlink() -> anyhow::Result<()> {
-    let (_brioche, _context) = brioche_test::brioche_test().await;
+    let (_brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut asserts = vec![];
 
     asserts.push((
-        brioche_test::lazy_symlink(b"foo").hash().to_string(),
+        brioche_test_support::lazy_symlink(b"foo")
+            .hash()
+            .to_string(),
         "148b4e771e39cd0309404ac40bb0ce382557dea7ac258be23eb633cf051b4446",
     ));
     asserts.push((
-        brioche_test::symlink(b"foo").hash().to_string(),
+        brioche_test_support::symlink(b"foo").hash().to_string(),
         "148b4e771e39cd0309404ac40bb0ce382557dea7ac258be23eb633cf051b4446",
     ));
 
     asserts.push((
-        brioche_test::lazy_symlink(b"/foo").hash().to_string(),
+        brioche_test_support::lazy_symlink(b"/foo")
+            .hash()
+            .to_string(),
         "9819e3b1d518885c9e759a59799b46ab27d39a4d15c6b891807b192bdc5c2225",
     ));
     asserts.push((
-        brioche_test::symlink(b"/foo").hash().to_string(),
+        brioche_test_support::symlink(b"/foo").hash().to_string(),
         "9819e3b1d518885c9e759a59799b46ab27d39a4d15c6b891807b192bdc5c2225",
     ));
 
@@ -226,7 +243,7 @@ async fn test_recipe_hash_stable_symlink() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_recipe_hash_stable_download() -> anyhow::Result<()> {
-    let (_brioche, _context) = brioche_test::brioche_test().await;
+    let (_brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut asserts = vec![];
 
@@ -260,7 +277,7 @@ async fn test_recipe_hash_stable_download() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
-    let (_brioche, _context) = brioche_test::brioche_test().await;
+    let (_brioche, _context) = brioche_test_support::brioche_test().await;
 
     let mut asserts = vec![];
 
@@ -270,7 +287,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
             args: vec![],
             env: BTreeMap::default(),
             dependencies: vec![],
-            work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
             output_scaffold: None,
             platform: Platform::X86_64Linux,
             is_unsafe: false,
@@ -291,7 +310,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
             args: vec![],
             env: BTreeMap::default(),
             dependencies: vec![],
-            work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
             output_scaffold: None,
             platform: Platform::X86_64Linux,
             is_unsafe: false,
@@ -314,7 +335,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
             }],
             env: BTreeMap::default(),
             dependencies: vec![],
-            work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
             output_scaffold: None,
             platform: Platform::X86_64Linux,
             is_unsafe: false,
@@ -344,7 +367,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                 },
             )]),
             dependencies: vec![],
-            work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
             output_scaffold: None,
             platform: Platform::X86_64Linux,
             is_unsafe: false,
@@ -370,7 +395,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                 ProcessTemplate {
                     components: vec![
                         ProcessTemplateComponent::Input {
-                            recipe: brioche_test::without_meta(brioche_test::lazy_dir_empty()),
+                            recipe: brioche_test_support::without_meta(
+                                brioche_test_support::lazy_dir_empty(),
+                            ),
                         },
                         ProcessTemplateComponent::Literal {
                             value: "/bin".into(),
@@ -379,7 +406,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                 },
             )]),
             dependencies: vec![],
-            work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
             output_scaffold: None,
             platform: Platform::X86_64Linux,
             is_unsafe: false,
@@ -405,7 +434,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                 ProcessTemplate {
                     components: vec![
                         ProcessTemplateComponent::Input {
-                            recipe: brioche_test::without_meta(brioche_test::lazy_dir_empty()),
+                            recipe: brioche_test_support::without_meta(
+                                brioche_test_support::lazy_dir_empty(),
+                            ),
                         },
                         ProcessTemplateComponent::Literal {
                             value: "/bin".into(),
@@ -414,7 +445,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                 },
             )]),
             dependencies: vec![],
-            work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
             output_scaffold: None,
             platform: Platform::X86_64Linux,
             is_unsafe: true,
@@ -440,7 +473,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                 ProcessTemplate {
                     components: vec![
                         ProcessTemplateComponent::Input {
-                            recipe: brioche_test::without_meta(brioche_test::lazy_dir_empty()),
+                            recipe: brioche_test_support::without_meta(
+                                brioche_test_support::lazy_dir_empty(),
+                            ),
                         },
                         ProcessTemplateComponent::Literal {
                             value: "/bin".into(),
@@ -449,7 +484,9 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                 },
             )]),
             dependencies: vec![],
-            work_dir: Box::new(brioche_test::without_meta(brioche_test::lazy_dir_empty())),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
             output_scaffold: None,
             platform: Platform::X86_64Linux,
             is_unsafe: true,

@@ -43,6 +43,7 @@ pub async fn bake_unarchive(
     let mut archive = tokio_tar::Archive::new(decompressed_archive_file);
     let mut archive_entries = archive.entries()?;
     let mut directory_entries = BTreeMap::<BString, WithMeta<Artifact>>::new();
+    let mut buffer = Vec::new();
 
     let save_blobs_future = async {
         while let Some(archive_entry) = archive_entries.try_next().await? {
@@ -59,12 +60,13 @@ pub async fn bake_unarchive(
 
             let entry_artifact = match archive_entry.header().entry_type() {
                 tokio_tar::EntryType::Regular => {
-                    let permit = crate::blob::get_save_blob_permit().await?;
+                    let mut permit = crate::blob::get_save_blob_permit().await?;
                     let entry_blob_hash = crate::blob::save_blob_from_reader(
                         brioche,
-                        permit,
+                        &mut permit,
                         archive_entry,
                         crate::blob::SaveBlobOptions::new(),
+                        &mut buffer,
                     )
                     .await?;
                     let executable = entry_mode & 0o100 != 0;

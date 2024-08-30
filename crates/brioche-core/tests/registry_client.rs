@@ -1,10 +1,8 @@
 use assert_matches::assert_matches;
 
-mod brioche_test;
-
 #[tokio::test]
 async fn test_registry_client_get_project() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (projects, project_hash, _) = context
         .temp_project(|path| async move {
@@ -43,7 +41,7 @@ async fn test_registry_client_get_project() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_registry_client_get_project_invalid_hash() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (projects, project_hash, _) = context
         .temp_project(|path| async move {
@@ -85,7 +83,7 @@ async fn test_registry_client_get_project_invalid_hash() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_registry_client_get_blob() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let path = context.write_file("test.txt", "hello world!").await;
     let (file_id, contents) = brioche.vfs.load(&path).await?;
@@ -113,7 +111,7 @@ async fn test_registry_client_get_blob() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_registry_client_get_blob_invalid_hash() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let path = context.write_file("test.txt", "hello world!").await;
     let (file_id, _) = brioche.vfs.load(&path).await?;
