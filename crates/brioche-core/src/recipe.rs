@@ -1,14 +1,15 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{Arc, OnceLock, RwLock},
 };
 
 use anyhow::Context as _;
-use bstr::{BStr, BString, ByteSlice as _};
+use bstr::{BStr, BString, ByteSlice as _, ByteVec as _};
 use futures::{StreamExt as _, TryStreamExt as _};
 use joinery::JoinableIterator as _;
 use sqlx::{Acquire as _, Arguments as _};
+use wax::Pattern as _;
 
 use crate::encoding::TickEncoded;
 
@@ -86,6 +87,10 @@ pub enum Recipe {
         path: BString,
         recipe: Option<Box<WithMeta<Recipe>>>,
     },
+    Glob {
+        directory: Box<WithMeta<Recipe>>,
+        patterns: BTreeSet<BString>,
+    },
     #[serde(rename_all = "camelCase")]
     SetPermissions {
         file: Box<WithMeta<Recipe>>,
@@ -151,6 +156,7 @@ impl Recipe {
             | Recipe::Peel { .. }
             | Recipe::Get { .. }
             | Recipe::Insert { .. }
+            | Recipe::Glob { .. }
             | Recipe::SetPermissions { .. }
             | Recipe::CollectReferences { .. }
             | Recipe::Proxy(_) => false,
@@ -1002,6 +1008,38 @@ impl Directory {
 
         Ok(())
     }
+
+    pub async fn glob(
+        &self,
+        brioche: &Brioche,
+        patterns: &[wax::Glob<'_>],
+    ) -> anyhow::Result<Self> {
+        let mut result = Self::default();
+
+        let entries = self.entries(brioche).await?;
+        let mut queue: VecDeque<_> = entries.into_iter().collect();
+
+        while let Some((path, artifact)) = queue.pop_front() {
+            let path_string = String::from_utf8_lossy(&path);
+            let any_matches = patterns
+                .iter()
+                .any(|pattern| pattern.is_match(&*path_string));
+            if any_matches {
+                result.insert(brioche, &path, Some(artifact)).await?;
+            } else if let Artifact::Directory(subdirectory) = artifact.value {
+                let sub_entries = subdirectory.entries(brioche).await?;
+                queue.extend(sub_entries.into_iter().map(|(name, artifact)| {
+                    let mut subpath = path.clone();
+                    subpath.push_char('/');
+                    subpath.extend_from_slice(&name);
+
+                    (subpath, artifact)
+                }));
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 impl TryFrom<Recipe> for Artifact {
@@ -1041,6 +1079,7 @@ impl TryFrom<Recipe> for Artifact {
             | Recipe::Peel { .. }
             | Recipe::Get { .. }
             | Recipe::Insert { .. }
+            | Recipe::Glob { .. }
             | Recipe::SetPermissions { .. }
             | Recipe::CollectReferences { .. }
             | Recipe::Proxy { .. } => Err(RecipeIncomplete),
