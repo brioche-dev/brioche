@@ -485,6 +485,36 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
 
             Ok(Artifact::Directory(directory))
         }
+        Recipe::Glob {
+            directory,
+            patterns,
+        } => {
+            let artifact = bake(brioche, *directory, &scope).await?;
+            let Artifact::Directory(directory) = artifact.value else {
+                anyhow::bail!("tried globbing a non-directory");
+            };
+
+            let patterns = patterns
+                .into_iter()
+                .map(|pattern| {
+                    let pattern = String::from_utf8(pattern.into())
+                        .context("glob pattern is not valid UTF-8")?;
+                    anyhow::ensure!(
+                        !pattern.contains('!'),
+                        "glob patterns with '!' are not supported"
+                    );
+
+                    anyhow::Ok(pattern)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let patterns = patterns
+                .iter()
+                .map(|pattern| wax::Glob::new(pattern))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let globbed = directory.glob(brioche, &patterns).await?;
+            Ok(Artifact::Directory(globbed))
+        }
         Recipe::SetPermissions { file, executable } => {
             let result = bake(brioche, *file, &scope).await?;
             let Artifact::File(mut file) = result.value else {

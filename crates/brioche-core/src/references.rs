@@ -127,6 +127,7 @@ pub fn referenced_blobs(recipe: &Recipe) -> Vec<BlobHash> {
         | Recipe::Peel { .. }
         | Recipe::Get { .. }
         | Recipe::Insert { .. }
+        | Recipe::Glob { .. }
         | Recipe::SetPermissions { .. }
         | Recipe::Proxy(_)
         | Recipe::CollectReferences { .. }
@@ -255,6 +256,10 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
             .into_iter()
             .chain(recipe.iter().flat_map(|recipe| referenced_recipes(recipe)))
             .collect(),
+        Recipe::Glob {
+            directory,
+            patterns: _,
+        } => referenced_recipes(directory),
         Recipe::SetPermissions {
             file,
             executable: _,
