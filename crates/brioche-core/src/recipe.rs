@@ -430,20 +430,6 @@ impl std::ops::DerefMut for WithMeta<Artifact> {
     }
 }
 
-impl std::ops::Deref for WithMeta<RecipeHash> {
-    type Target = RecipeHash;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
-
-impl std::ops::DerefMut for WithMeta<RecipeHash> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.value
-    }
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StackFrame {
