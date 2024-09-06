@@ -687,7 +687,7 @@ pub struct File {
 #[serde(rename_all = "camelCase")]
 pub struct Directory {
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
-    entries: BTreeMap<BString, WithMeta<RecipeHash>>,
+    entries: BTreeMap<BString, RecipeHash>,
 }
 
 impl Directory {
@@ -741,10 +741,7 @@ impl Directory {
 
         let entries = dir_entries
             .iter()
-            .map(|(path, recipe)| {
-                let recipe_hash = recipe.as_ref().map(|recipe| recipe.hash());
-                (path.clone(), recipe_hash)
-            })
+            .map(|(path, recipe)| (path.clone(), recipe.hash()))
             .collect();
         Ok(Self { entries })
     }
@@ -753,28 +750,23 @@ impl Directory {
         self.entries.is_empty()
     }
 
-    pub fn entry_hashes(&self) -> &BTreeMap<BString, WithMeta<RecipeHash>> {
+    pub fn entry_hashes(&self) -> &BTreeMap<BString, RecipeHash> {
         &self.entries
     }
 
-    pub async fn entries(
-        &self,
-        brioche: &Brioche,
-    ) -> anyhow::Result<BTreeMap<BString, WithMeta<Artifact>>> {
-        let entry_recipes =
-            get_recipes(brioche, self.entries.values().map(|entry| **entry)).await?;
+    pub async fn entries(&self, brioche: &Brioche) -> anyhow::Result<BTreeMap<BString, Artifact>> {
+        let entry_recipes = get_recipes(brioche, self.entries.values().copied()).await?;
 
         let entries = self
             .entries
             .iter()
             .map(|(path, recipe_hash)| {
                 let recipe = entry_recipes
-                    .get(&**recipe_hash)
+                    .get(recipe_hash)
                     .with_context(|| format!("failed to get artifact for entry {path:?}"))?;
                 let artifact: Artifact = recipe.clone().try_into().map_err(|_| {
                     anyhow::anyhow!("recipe at {path:?} is not a complete artifact")
                 })?;
-                let artifact = recipe_hash.as_ref().map(|_| artifact);
                 Ok((path.clone(), artifact))
             })
             .collect::<anyhow::Result<_>>()?;
@@ -787,21 +779,21 @@ impl Directory {
         brioche: &Brioche,
         full_path: &BStr,
         path_components: &[&BStr],
-    ) -> Result<Option<WithMeta<Artifact>>, DirectoryError> {
+    ) -> Result<Option<Artifact>, DirectoryError> {
         match path_components {
             [] => Err(DirectoryError::EmptyPath {
                 path: full_path.into(),
             }),
             [filename] => match self.entries.get(&**filename) {
                 Some(recipe_hash) => {
-                    let recipe = get_recipe(brioche, recipe_hash.value).await?;
+                    let recipe = get_recipe(brioche, *recipe_hash).await?;
                     let artifact: Artifact =
                         recipe
                             .try_into()
                             .map_err(|_| DirectoryError::RecipeIncomplete {
                                 path: full_path.into(),
                             })?;
-                    Ok(Some(recipe_hash.as_ref().map(|_| artifact)))
+                    Ok(Some(artifact))
                 }
                 None => Ok(None),
             },
@@ -809,7 +801,7 @@ impl Directory {
                 let Some(dir_entry_hash) = self.entries.get(&**directory_name) else {
                     return Ok(None);
                 };
-                let dir_entry = get_recipe(brioche, dir_entry_hash.value).await?;
+                let dir_entry = get_recipe(brioche, *dir_entry_hash).await?;
                 let dir_entry: Artifact =
                     dir_entry
                         .try_into()
@@ -835,8 +827,8 @@ impl Directory {
         brioche: &Brioche,
         full_path: &BStr,
         path_components: &[&BStr],
-        artifact: Option<WithMeta<Artifact>>,
-    ) -> Result<Option<WithMeta<Artifact>>, DirectoryError> {
+        artifact: Option<Artifact>,
+    ) -> Result<Option<Artifact>, DirectoryError> {
         match path_components {
             [] => {
                 return Err(DirectoryError::EmptyPath {
@@ -846,22 +838,22 @@ impl Directory {
             [filename] => {
                 let replaced_hash = match artifact {
                     Some(artifact) => {
-                        let artifact_hash = artifact.as_ref().map(|artifact| artifact.hash());
-                        save_recipes(brioche, [Recipe::from(artifact.value)]).await?;
+                        let artifact_hash = artifact.hash();
+                        save_recipes(brioche, [Recipe::from(artifact)]).await?;
                         self.entries.insert(filename.to_vec().into(), artifact_hash)
                     }
                     None => self.entries.remove(&**filename),
                 };
                 let replaced = match replaced_hash {
                     Some(recipe_hash) => {
-                        let recipe = get_recipe(brioche, *recipe_hash).await?;
+                        let recipe = get_recipe(brioche, recipe_hash).await?;
                         let artifact: Artifact =
                             recipe
                                 .try_into()
                                 .map_err(|_| DirectoryError::RecipeIncomplete {
                                     path: full_path.into(),
                                 })?;
-                        Some(recipe_hash.map(|_| artifact))
+                        Some(artifact)
                     }
                     None => None,
                 };
@@ -879,14 +871,14 @@ impl Directory {
                         let new_directory_hash = new_directory.hash();
                         save_recipes(brioche, [new_directory]).await?;
 
-                        entry.insert(WithMeta::without_meta(new_directory_hash));
+                        entry.insert(new_directory_hash);
 
                         None
                     }
                     std::collections::btree_map::Entry::Occupied(mut entry) => {
                         let dir_entry_hash = entry.get();
 
-                        let dir_entry = get_recipe(brioche, **dir_entry_hash).await?;
+                        let dir_entry = get_recipe(brioche, *dir_entry_hash).await?;
                         let dir_entry: Artifact =
                             dir_entry
                                 .try_into()
@@ -905,7 +897,7 @@ impl Directory {
                         let updated_dir_entry: Recipe = inner_dir.into();
                         let updated_dir_entry_hash = updated_dir_entry.hash();
                         save_recipes(brioche, [updated_dir_entry]).await?;
-                        entry.insert(WithMeta::without_meta(updated_dir_entry_hash));
+                        entry.insert(updated_dir_entry_hash);
 
                         replaced
                     }
@@ -919,7 +911,7 @@ impl Directory {
         &self,
         brioche: &Brioche,
         path: &[u8],
-    ) -> Result<Option<WithMeta<Artifact>>, DirectoryError> {
+    ) -> Result<Option<Artifact>, DirectoryError> {
         let path = bstr::BStr::new(path);
         let mut components = vec![];
         for component in path.split(|&byte| byte == b'/' || byte == b'\\') {
@@ -944,8 +936,8 @@ impl Directory {
         &mut self,
         brioche: &Brioche,
         path: &[u8],
-        artifact: Option<WithMeta<Artifact>>,
-    ) -> Result<Option<WithMeta<Artifact>>, DirectoryError> {
+        artifact: Option<Artifact>,
+    ) -> Result<Option<Artifact>, DirectoryError> {
         let path = bstr::BStr::new(path);
         let mut components = vec![];
         for component in path.split(|&byte| byte == b'/' || byte == b'\\') {
@@ -973,8 +965,8 @@ impl Directory {
             match self.entries.entry(key.clone()) {
                 std::collections::btree_map::Entry::Occupied(mut current) => {
                     let (current_dir_entry, other_dir_entry) = tokio::try_join!(
-                        get_recipe(brioche, **current.get()),
-                        get_recipe(brioche, **artifact),
+                        get_recipe(brioche, *current.get()),
+                        get_recipe(brioche, *artifact),
                     )?;
 
                     let current_dir_entry: Artifact = current_dir_entry
@@ -993,15 +985,15 @@ impl Directory {
                             let updated_current_inner_artifact: Recipe = current_inner.into();
                             let updated_current_inner_hash = updated_current_inner_artifact.hash();
                             save_recipes(brioche, [updated_current_inner_artifact]).await?;
-                            current.insert(WithMeta::without_meta(updated_current_inner_hash));
+                            current.insert(updated_current_inner_hash);
                         }
                         (_, other_dir_entry) => {
-                            current.insert(artifact.as_ref().map(|_| other_dir_entry.hash()));
+                            current.insert(other_dir_entry.hash());
                         }
                     }
                 }
                 std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(artifact.clone());
+                    entry.insert(*artifact);
                 }
             }
         }
@@ -1026,7 +1018,7 @@ impl Directory {
                 .any(|pattern| pattern.is_match(&*path_string));
             if any_matches {
                 result.insert(brioche, &path, Some(artifact)).await?;
-            } else if let Artifact::Directory(subdirectory) = artifact.value {
+            } else if let Artifact::Directory(subdirectory) = artifact {
                 let sub_entries = subdirectory.entries(brioche).await?;
                 queue.extend(sub_entries.into_iter().map(|(name, artifact)| {
                     let mut subpath = path.clone();

@@ -1325,7 +1325,7 @@ async fn resolve_static(
                         },
                     )
                     .await?;
-                    anyhow::Ok((relative_path, artifact))
+                    anyhow::Ok((relative_path, artifact.value))
                 })
                 .try_collect::<Vec<_>>()
                 .await?;

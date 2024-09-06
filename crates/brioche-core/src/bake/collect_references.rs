@@ -1,5 +1,5 @@
 use crate::{
-    recipe::{Artifact, Directory, WithMeta},
+    recipe::{Artifact, Directory},
     Brioche,
 };
 
@@ -18,7 +18,7 @@ pub async fn bake_collect_references(
             .insert(
                 brioche,
                 b"brioche-resources.d",
-                Some(WithMeta::without_meta(Artifact::Directory(resources_dir))),
+                Some(Artifact::Directory(resources_dir)),
             )
             .await?;
 
@@ -61,14 +61,9 @@ async fn collect_directory_references(
     let mut new_directory = Directory::default();
 
     for (name, artifact) in directory.entries(brioche).await? {
-        let new_artifact =
-            Box::pin(collect_references(brioche, artifact.value, resources_dir)).await?;
+        let new_artifact = Box::pin(collect_references(brioche, artifact, resources_dir)).await?;
         new_directory
-            .insert(
-                brioche,
-                &name,
-                Some(WithMeta::new(new_artifact, artifact.meta)),
-            )
+            .insert(brioche, &name, Some(new_artifact))
             .await?;
     }
 

@@ -196,7 +196,7 @@ pub async fn dir_value<K: AsRef<[u8]>>(
     let mut directory = Directory::default();
     for (k, v) in entries {
         directory
-            .insert(brioche, k.as_ref(), Some(WithMeta::without_meta(v)))
+            .insert(brioche, k.as_ref(), Some(v))
             .await
             .expect("failed to insert into dir");
     }

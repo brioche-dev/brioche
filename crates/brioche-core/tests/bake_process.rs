@@ -42,16 +42,12 @@ async fn try_get(
     brioche: &brioche_core::Brioche,
     dir: &Directory,
     path: impl AsRef<[u8]>,
-) -> anyhow::Result<Option<WithMeta<Artifact>>> {
+) -> anyhow::Result<Option<Artifact>> {
     let artifact = dir.get(brioche, path.as_ref()).await?;
     Ok(artifact)
 }
 
-async fn get(
-    brioche: &brioche_core::Brioche,
-    dir: &Directory,
-    path: impl AsRef<[u8]>,
-) -> WithMeta<Artifact> {
+async fn get(brioche: &brioche_core::Brioche, dir: &Directory, path: impl AsRef<[u8]>) -> Artifact {
     let path = bstr::BStr::new(path.as_ref());
     try_get(brioche, dir, &path)
         .await
@@ -1041,7 +1037,7 @@ async fn test_bake_process_output_with_resources(
     };
 
     let program = get(brioche, &dir, "bin/program").await;
-    let Artifact::File(File { resources, .. }) = &program.value else {
+    let Artifact::File(File { resources, .. }) = &program else {
         panic!("expected file");
     };
 

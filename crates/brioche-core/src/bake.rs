@@ -425,14 +425,14 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             Ok(artifact.value)
         }
         Recipe::Peel { directory, depth } => {
-            let mut result = bake(brioche, *directory, &scope).await?;
+            let mut result = bake(brioche, *directory, &scope).await?.value;
 
             if depth == 0 {
                 anyhow::bail!("must peel at least 1 layer");
             }
 
             for _ in 0..depth {
-                let Artifact::Directory(dir) = result.value else {
+                let Artifact::Directory(dir) = result else {
                     anyhow::bail!("tried peeling non-directory artifact");
                 };
                 let entries = dir.entries(brioche).await?;
@@ -448,7 +448,7 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
                 result = peeled;
             }
 
-            Ok(result.value)
+            Ok(result)
         }
         Recipe::Get { directory, path } => {
             let artifact = bake(brioche, *directory, &scope).await?;
@@ -460,7 +460,7 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
                 anyhow::bail!("path not found in directory: {path:?}");
             };
 
-            Ok(result.value)
+            Ok(result)
         }
         Recipe::Insert {
             directory,
@@ -476,6 +476,7 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
                     }
                 }
             })?;
+            let artifact = artifact.map(|artifact| artifact.value);
 
             let Artifact::Directory(mut directory) = directory.value else {
                 anyhow::bail!("tried removing item from non-directory artifact");
