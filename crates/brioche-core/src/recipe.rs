@@ -342,10 +342,13 @@ pub struct Meta {
     pub source: Option<Vec<StackFrame>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WithMeta<T> {
-    pub value: T,
+    #[serde(default, skip_serializing)]
     pub meta: Arc<Meta>,
+
+    #[serde(flatten)]
+    pub value: T,
 }
 
 impl<T> WithMeta<T> {
@@ -376,31 +379,6 @@ impl<T> WithMeta<T> {
 
     pub fn source_frame(&self) -> Option<&StackFrame> {
         self.meta.source.as_ref().and_then(|frames| frames.first())
-    }
-}
-
-impl<T> serde::Serialize for WithMeta<T>
-where
-    T: serde::Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serde::Serialize::serialize(&self.value, serializer)
-    }
-}
-
-impl<'de, T> serde::Deserialize<'de> for WithMeta<T>
-where
-    T: serde::Deserialize<'de>,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value: T = serde::Deserialize::deserialize(deserializer)?;
-        Ok(WithMeta::without_meta(value))
     }
 }
 
