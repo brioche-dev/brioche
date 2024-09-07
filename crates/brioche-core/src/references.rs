@@ -37,7 +37,8 @@ pub async fn recipe_references(
             break;
         }
 
-        let recipes = crate::recipe::get_recipes(brioche, unvisited.drain(..)).await?;
+        let mut recipes = HashMap::new();
+        crate::recipe::get_recipes(brioche, unvisited.drain(..), &mut recipes).await?;
 
         for recipe in recipes.values() {
             unvisited.extend(referenced_recipes(recipe));
