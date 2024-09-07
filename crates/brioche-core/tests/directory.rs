@@ -289,11 +289,7 @@ async fn test_directory_insert_new() -> anyhow::Result<()> {
         brioche_test_support::dir_value(&brioche, [("file1.txt", file1.clone())]).await;
 
     directory
-        .insert(
-            &brioche,
-            b"file2.txt",
-            Some(WithMeta::without_meta(file2.clone())),
-        )
+        .insert(&brioche, b"file2.txt", Some(file2.clone()))
         .await?;
 
     assert_eq!(
@@ -325,11 +321,7 @@ async fn test_directory_insert_replace() -> anyhow::Result<()> {
         brioche_test_support::dir_value(&brioche, [("file1.txt", file_old.clone())]).await;
 
     directory
-        .insert(
-            &brioche,
-            b"file1.txt",
-            Some(WithMeta::without_meta(file_new.clone())),
-        )
+        .insert(&brioche, b"file1.txt", Some(file_new.clone()))
         .await?;
 
     assert_eq!(
@@ -427,11 +419,7 @@ async fn test_directory_insert_new_nested() -> anyhow::Result<()> {
     .await;
 
     directory
-        .insert(
-            &brioche,
-            b"subdir/file2.txt",
-            Some(WithMeta::without_meta(file2.clone())),
-        )
+        .insert(&brioche, b"subdir/file2.txt", Some(file2.clone()))
         .await?;
 
     assert_eq!(
@@ -470,11 +458,7 @@ async fn test_directory_insert_new_dir() -> anyhow::Result<()> {
         brioche_test_support::dir_value(&brioche, [("file1.txt", file1.clone())]).await;
 
     directory
-        .insert(
-            &brioche,
-            b"subdir/file2.txt",
-            Some(WithMeta::without_meta(file2.clone())),
-        )
+        .insert(&brioche, b"subdir/file2.txt", Some(file2.clone()))
         .await?;
 
     assert_eq!(
@@ -526,11 +510,7 @@ async fn test_directory_insert_replace_nested() -> anyhow::Result<()> {
     .await;
 
     directory
-        .insert(
-            &brioche,
-            b"foo/bar",
-            Some(WithMeta::without_meta(file2.clone())),
-        )
+        .insert(&brioche, b"foo/bar", Some(file2.clone()))
         .await?;
 
     assert_eq!(

@@ -214,7 +214,7 @@ async fn resolve_command(
         // Get the artifact referred to by the subpath
         let subpath_artifact = dir.get(brioche, &subpath).await;
         let subpath_artifact = match &subpath_artifact {
-            Ok(Some(subpath_artifact)) => &subpath_artifact.value,
+            Ok(Some(subpath_artifact)) => subpath_artifact,
             Err(DirectoryError::EmptyPath { .. }) => {
                 // If the subpath was empty, use the directory itself
                 &artifact.value
@@ -232,7 +232,7 @@ async fn resolve_command(
         // Try to get the artifact referred to by the command
         let command_artifact = subpath_dir.get(brioche, &command_literal).await;
         let command_artifact = match &command_artifact {
-            Ok(Some(command_artifact)) => &command_artifact.value,
+            Ok(Some(command_artifact)) => command_artifact,
             _ => {
                 continue;
             }
@@ -840,7 +840,7 @@ async fn append_dependency_envs(
 
         // Get the directory `brioche-env.d/env` if it exists
         let env_dir = dependency.get(brioche, b"brioche-env.d/env").await?;
-        let env_dir = env_dir.and_then(|env_dir| match env_dir.value {
+        let env_dir = env_dir.and_then(|env_dir| match env_dir {
             Artifact::Directory(dir) => Some(dir),
             _ => None,
         });
@@ -851,7 +851,7 @@ async fn append_dependency_envs(
 
             for (env_var, env_dir_entry) in env_dir_entries {
                 // Validate the entry is a directory
-                let Artifact::Directory(env_dir_entry) = env_dir_entry.value else {
+                let Artifact::Directory(env_dir_entry) = env_dir_entry else {
                     anyhow::bail!("expected `brioche-env.d/env/{env_var}` to be a directory");
                 };
                 let env_value_entries = env_dir_entry.entries(brioche).await?;
@@ -862,7 +862,7 @@ async fn append_dependency_envs(
                     // Validate it's a symlink
                     let Artifact::Symlink {
                         target: env_value_target,
-                    } = env_value_entry.value
+                    } = env_value_entry
                     else {
                         anyhow::bail!("expected `brioche-env.d/env/{env_var}/{env_value_entry_name}` to be a symlink");
                     };
@@ -895,7 +895,6 @@ async fn append_dependency_envs(
         // If the artifact contains a `bin` directory, append that to `$PATH`
         // automatically
         let bin_artifact = dependency.get(brioche, b"bin").await?;
-        let bin_artifact = bin_artifact.as_ref().map(|artifact| &artifact.value);
         if matches!(bin_artifact, Some(Artifact::Directory { .. })) {
             env_var_appends.push(("PATH".into(), dependency_artifact.clone(), "bin".into()));
         }

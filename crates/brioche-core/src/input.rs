@@ -153,6 +153,7 @@ pub async fn create_input(
                     let resource_node_index = edge.target();
                     let resource_artifact = nodes_to_artifacts
                         .get(&resource_node_index)
+                        .map(|artifact| &artifact.value)
                         .ok_or_else(|| anyhow::anyhow!("resource node not found"))?;
 
                     resources
@@ -192,6 +193,7 @@ pub async fn create_input(
                     let entry_node_index = edge.target();
                     let entry_artifact = nodes_to_artifacts
                         .get(&entry_node_index)
+                        .map(|artifact| &artifact.value)
                         .ok_or_else(|| anyhow::anyhow!("directory entry node not found"))?;
 
                     directory

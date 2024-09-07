@@ -183,14 +183,14 @@ async fn make_deep_dir(brioche: &Brioche, key: &str) -> Directory {
                                     "{key}a{a}/{key}b{b}/{key}c{c}/{key}d{d}/{key}e{e}/file.txt"
                                 )
                                 .as_bytes(),
-                                Some(WithMeta::without_meta(brioche_test_support::file(
+                                Some(brioche_test_support::file(
                                     brioche_test_support::blob(
                                         brioche,
                                         format!("a={a},b={b},c={c},d={d},e={e}"),
                                     )
                                     .await,
                                     false,
-                                ))),
+                                )),
                             )
                             .await
                             .unwrap();
@@ -211,10 +211,10 @@ async fn make_wide_dir(brioche: &Brioche, key: &str) -> Directory {
                 .insert(
                     brioche,
                     format!("{key}a{a}/{key}b{b}/file.txt").as_bytes(),
-                    Some(WithMeta::without_meta(brioche_test_support::file(
+                    Some(brioche_test_support::file(
                         brioche_test_support::blob(brioche, format!("a={a},b={b}")).await,
                         false,
-                    ))),
+                    )),
                 )
                 .await
                 .unwrap();

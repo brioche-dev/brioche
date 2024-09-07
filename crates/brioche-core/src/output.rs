@@ -253,7 +253,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                     }
                 };
 
-                match (&entry.value, link_lock) {
+                match (&entry, link_lock) {
                     (Artifact::File(file), Some(link_lock)) => {
                         if !file.resources.is_empty() {
                             create_output_inner(
@@ -275,7 +275,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                         // for the file, then hardlink to it
 
                         let local_output =
-                            create_local_output_inner(brioche, &entry.value, link_lock).await?;
+                            create_local_output_inner(brioche, &entry, link_lock).await?;
                         crate::fs_utils::try_remove(&entry_path).await?;
                         tokio::fs::hard_link(&local_output.path, &entry_path)
                             .await
@@ -284,7 +284,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                     _ => {
                         create_output_inner(
                             brioche,
-                            &entry.value,
+                            &entry,
                             OutputOptions {
                                 output_path: &entry_path,
                                 resource_dir: Some(resource_dir),

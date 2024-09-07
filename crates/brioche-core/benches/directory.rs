@@ -1,4 +1,4 @@
-use brioche_core::recipe::{Directory, WithMeta};
+use brioche_core::recipe::Directory;
 
 fn main() {
     divan::main();
@@ -26,11 +26,7 @@ fn bench_directory_insert(bencher: divan::Bencher) {
                             for e in 0..3 {
                                 let path = format!("a{a}/b{b}/c{c}/d{d}/e{e}/file.txt");
                                 directory
-                                    .insert(
-                                        &brioche,
-                                        path.as_bytes(),
-                                        Some(WithMeta::without_meta(file_hello.clone())),
-                                    )
+                                    .insert(&brioche, path.as_bytes(), Some(file_hello.clone()))
                                     .await
                                     .unwrap();
                             }

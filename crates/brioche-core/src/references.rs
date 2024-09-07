@@ -142,11 +142,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
             content_blob: _,
             executable: _,
         } => referenced_recipes(resources),
-        Recipe::Directory(directory) => directory
-            .entry_hashes()
-            .values()
-            .map(|entry| entry.value)
-            .collect(),
+        Recipe::Directory(directory) => directory.entry_hashes().values().copied().collect(),
         Recipe::Symlink { .. } => vec![],
         Recipe::Download(_) => vec![],
         Recipe::Unarchive(unarchive) => referenced_recipes(&unarchive.file),
@@ -296,7 +292,7 @@ pub async fn descendent_artifact_blobs(
             Artifact::Symlink { .. } => {}
             Artifact::Directory(directory) => {
                 let entries = directory.entries(brioche).await?;
-                unvisited.extend(entries.into_values().map(|entry| entry.value));
+                unvisited.extend(entries.into_values());
             }
         }
     }
