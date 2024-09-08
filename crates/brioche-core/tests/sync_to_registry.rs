@@ -22,11 +22,8 @@ async fn test_sync_to_registry_process_and_complete_process() -> anyhow::Result<
         Recipe::CompleteProcess(complete_process_recipe.clone()).hash();
 
     // Create a mocked output for the complete_process recipe
-    let output_resource_dir = brioche_test_support::empty_dir_value();
-    let output_resource_dir_hash = Recipe::Directory(output_resource_dir.clone()).hash();
     let dummy_blob = brioche_test_support::blob(&brioche, "dummy value").await;
-    let mocked_output =
-        brioche_test_support::file_with_resources(dummy_blob, false, output_resource_dir);
+    let mocked_output = brioche_test_support::file(dummy_blob, false);
     brioche_test_support::mock_bake(
         &brioche,
         &Recipe::CompleteProcess(complete_process_recipe.clone()),
@@ -87,7 +84,6 @@ async fn test_sync_to_registry_process_and_complete_process() -> anyhow::Result<
                 process_recipe_hash,
                 complete_process_recipe_hash,
                 mocked_output.hash(),
-                output_resource_dir_hash,
             ])?)
             .create(),
     );

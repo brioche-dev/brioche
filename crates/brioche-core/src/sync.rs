@@ -4,7 +4,7 @@ use human_repr::HumanDuration;
 
 use crate::{
     project::ProjectHash,
-    references::{ProjectReferences, RecipeReferences, ReferencedRecipe},
+    references::{ProjectReferences, RecipeReferences},
     Brioche,
 };
 
@@ -55,12 +55,9 @@ pub async fn sync_bakes(
 
     let mut sync_references = RecipeReferences::default();
 
-    let recipe_hashes = bakes.iter().flat_map(|(input, output)| {
-        [
-            ReferencedRecipe::Recipe(input.clone()),
-            ReferencedRecipe::Recipe(output.clone().into()),
-        ]
-    });
+    let recipe_hashes = bakes
+        .iter()
+        .flat_map(|(input, output)| [input.hash(), output.hash()]);
     crate::references::recipe_references(brioche, &mut sync_references, recipe_hashes).await?;
 
     let num_recipe_refs = sync_references.recipes.len();

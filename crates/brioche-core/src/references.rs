@@ -17,21 +17,6 @@ use crate::{
     Brioche,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ReferencedRecipe {
-    Recipe(Recipe),
-    RecipeHash(RecipeHash),
-}
-
-impl ReferencedRecipe {
-    pub fn hash(&self) -> RecipeHash {
-        match self {
-            ReferencedRecipe::Recipe(recipe) => recipe.hash(),
-            ReferencedRecipe::RecipeHash(hash) => *hash,
-        }
-    }
-}
-
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RecipeReferences {
     pub blobs: HashSet<BlobHash>,
@@ -41,32 +26,18 @@ pub struct RecipeReferences {
 pub async fn recipe_references(
     brioche: &Brioche,
     references: &mut RecipeReferences,
-    recipes: impl IntoIterator<Item = ReferencedRecipe>,
+    recipes: impl IntoIterator<Item = RecipeHash>,
 ) -> anyhow::Result<()> {
     let mut unvisited = VecDeque::from_iter(recipes);
 
     loop {
-        unvisited.retain(|recipe| !references.recipes.contains_key(&recipe.hash()));
+        unvisited.retain(|recipe| !references.recipes.contains_key(recipe));
 
         if unvisited.is_empty() {
             break;
         }
 
-        let mut recipe_hashes = vec![];
-        let mut recipes = HashMap::new();
-
-        for referenced in unvisited.drain(..) {
-            match referenced {
-                ReferencedRecipe::Recipe(recipe) => {
-                    recipes.insert(recipe.hash(), recipe);
-                }
-                ReferencedRecipe::RecipeHash(hash) => {
-                    recipe_hashes.push(hash);
-                }
-            }
-        }
-
-        crate::recipe::get_recipes(brioche, recipe_hashes, &mut recipes).await?;
+        let recipes = crate::recipe::get_recipes(brioche, unvisited.drain(..)).await?;
 
         for recipe in recipes.values() {
             unvisited.extend(referenced_recipes(recipe));
@@ -93,7 +64,7 @@ pub async fn project_references(
     project_hashes: impl IntoIterator<Item = ProjectHash>,
 ) -> anyhow::Result<()> {
     let mut unvisited = VecDeque::from_iter(project_hashes);
-    let mut new_recipes = HashSet::<ReferencedRecipe>::new();
+    let mut new_recipes = HashSet::<RecipeHash>::new();
 
     loop {
         unvisited.retain(|project_hash| !references.projects.contains_key(project_hash));
@@ -130,7 +101,7 @@ pub async fn project_references(
                     .as_ref()
                     .with_context(|| format!("static not loaded for module {module_path}"))?;
                 let static_recipe_hash = static_.output_recipe_hash(output)?;
-                new_recipes.insert(ReferencedRecipe::RecipeHash(static_recipe_hash));
+                new_recipes.insert(static_recipe_hash);
             }
         }
     }
@@ -164,24 +135,17 @@ pub fn referenced_blobs(recipe: &Recipe) -> Vec<BlobHash> {
     }
 }
 
-pub fn referenced_recipes(recipe: &Recipe) -> Vec<ReferencedRecipe> {
+pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
     match recipe {
         Recipe::File {
             resources,
             content_blob: _,
             executable: _,
-        } => vec![ReferencedRecipe::Recipe(resources.value.clone())],
-        Recipe::Directory(directory) => directory
-            .entry_hashes()
-            .values()
-            .copied()
-            .map(ReferencedRecipe::RecipeHash)
-            .collect(),
+        } => referenced_recipes(resources),
+        Recipe::Directory(directory) => directory.entry_hashes().values().copied().collect(),
         Recipe::Symlink { .. } => vec![],
         Recipe::Download(_) => vec![],
-        Recipe::Unarchive(unarchive) => {
-            vec![ReferencedRecipe::Recipe(unarchive.file.value.clone())]
-        }
+        Recipe::Unarchive(unarchive) => referenced_recipes(&unarchive.file),
         Recipe::Process(process) => {
             let ProcessRecipe {
                 command,
@@ -199,28 +163,26 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<ReferencedRecipe> {
 
             templates
                 .flat_map(|template| &template.components)
-                .filter_map(|component| match component {
-                    ProcessTemplateComponent::Input { recipe } => {
-                        Some(ReferencedRecipe::Recipe(recipe.value.clone()))
-                    }
+                .flat_map(|component| match component {
+                    ProcessTemplateComponent::Input { recipe } => referenced_recipes(recipe),
                     ProcessTemplateComponent::Literal { .. }
                     | ProcessTemplateComponent::OutputPath
                     | ProcessTemplateComponent::ResourceDir
                     | ProcessTemplateComponent::InputResourceDirs
                     | ProcessTemplateComponent::HomeDir
                     | ProcessTemplateComponent::WorkDir
-                    | ProcessTemplateComponent::TempDir => None,
+                    | ProcessTemplateComponent::TempDir => vec![],
                 })
                 .chain(
                     dependencies
                         .iter()
-                        .map(|recipe| ReferencedRecipe::Recipe(recipe.value.clone())),
+                        .flat_map(|dep| referenced_recipes(&dep.value)),
                 )
-                .chain([ReferencedRecipe::Recipe(work_dir.value.clone())])
+                .chain(referenced_recipes(work_dir))
                 .chain(
                     output_scaffold
-                        .as_ref()
-                        .map(|recipe| ReferencedRecipe::Recipe(recipe.value.clone())),
+                        .iter()
+                        .flat_map(|recipe| referenced_recipes(recipe)),
                 )
                 .collect()
         }
@@ -236,13 +198,19 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<ReferencedRecipe> {
                 networking: _,
             } = process;
 
+            let work_dir = Recipe::from(work_dir.clone());
+            let output_scaffold = output_scaffold
+                .as_ref()
+                .map(|artifact| Recipe::from((**artifact).clone()));
+
             let templates = [command].into_iter().chain(args).chain(env.values());
 
             templates
                 .flat_map(|template| &template.components)
-                .filter_map(|component| match component {
+                .flat_map(|component| match component {
                     CompleteProcessTemplateComponent::Input { artifact } => {
-                        Some(ReferencedRecipe::Recipe(artifact.value.clone().into()))
+                        let recipe = Recipe::from(artifact.value.clone());
+                        referenced_recipes(&recipe)
                     }
                     CompleteProcessTemplateComponent::Literal { .. }
                     | CompleteProcessTemplateComponent::OutputPath
@@ -250,65 +218,51 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<ReferencedRecipe> {
                     | CompleteProcessTemplateComponent::InputResourceDirs
                     | CompleteProcessTemplateComponent::HomeDir
                     | CompleteProcessTemplateComponent::WorkDir
-                    | CompleteProcessTemplateComponent::TempDir => None,
+                    | CompleteProcessTemplateComponent::TempDir => vec![],
                 })
-                .chain([ReferencedRecipe::Recipe(Recipe::Directory(
-                    work_dir.clone(),
-                ))])
-                .chain(
-                    output_scaffold
-                        .as_deref()
-                        .map(|recipe| ReferencedRecipe::Recipe(recipe.clone().into())),
-                )
+                .chain(referenced_recipes(&work_dir))
+                .chain(output_scaffold.iter().flat_map(referenced_recipes))
                 .collect()
         }
         Recipe::CreateFile {
             content: _,
             executable: _,
             resources,
-        } => vec![ReferencedRecipe::Recipe(resources.value.clone())],
+        } => referenced_recipes(resources),
         Recipe::CreateDirectory(directory) => directory
             .entries
             .values()
-            .map(|entry| ReferencedRecipe::Recipe(entry.value.clone()))
+            .flat_map(|entry| referenced_recipes(entry))
             .collect(),
-        Recipe::Cast { recipe, to: _ } => vec![ReferencedRecipe::Recipe(recipe.value.clone())],
+        Recipe::Cast { recipe, to: _ } => referenced_recipes(recipe),
         Recipe::Merge { directories } => directories
             .iter()
-            .map(|dir| ReferencedRecipe::Recipe(dir.value.clone()))
+            .flat_map(|dir| referenced_recipes(dir))
             .collect(),
         Recipe::Peel {
             directory,
             depth: _,
-        } => vec![ReferencedRecipe::Recipe(directory.value.clone())],
-        Recipe::Get { directory, path: _ } => {
-            vec![ReferencedRecipe::Recipe(directory.value.clone())]
-        }
+        } => referenced_recipes(directory),
+        Recipe::Get { directory, path: _ } => referenced_recipes(directory),
         Recipe::Insert {
             directory,
             path: _,
             recipe,
-        } => [ReferencedRecipe::Recipe(directory.value.clone())]
+        } => referenced_recipes(directory)
             .into_iter()
-            .chain(
-                recipe
-                    .as_ref()
-                    .map(|recipe| ReferencedRecipe::Recipe(recipe.value.clone())),
-            )
+            .chain(recipe.iter().flat_map(|recipe| referenced_recipes(recipe)))
             .collect(),
         Recipe::Glob {
             directory,
             patterns: _,
-        } => vec![ReferencedRecipe::Recipe(directory.value.clone())],
+        } => referenced_recipes(directory),
         Recipe::SetPermissions {
             file,
             executable: _,
-        } => vec![ReferencedRecipe::Recipe(file.value.clone())],
-        Recipe::Proxy(proxy) => vec![ReferencedRecipe::RecipeHash(proxy.recipe)],
-        Recipe::CollectReferences { recipe } => {
-            vec![ReferencedRecipe::Recipe(recipe.value.clone())]
-        }
-        Recipe::Sync { recipe } => vec![ReferencedRecipe::Recipe(recipe.value.clone())],
+        } => referenced_recipes(file),
+        Recipe::Proxy(proxy) => vec![proxy.recipe],
+        Recipe::CollectReferences { recipe } => referenced_recipes(recipe),
+        Recipe::Sync { recipe } => referenced_recipes(recipe),
     }
 }
 
