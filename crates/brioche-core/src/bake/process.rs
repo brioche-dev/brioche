@@ -938,9 +938,9 @@ async fn append_dependency_envs(
                     }
                     Artifact::File(env_dir_file) => {
                         // Read the file to get the env var value
-                        let permit = crate::blob::get_save_blob_permit().await?;
+                        let mut permit = crate::blob::get_save_blob_permit().await?;
                         let env_dir_blob_path =
-                            crate::blob::blob_path(brioche, permit, env_dir_file.content_blob)
+                            crate::blob::blob_path(brioche, &mut permit, env_dir_file.content_blob)
                                 .await?;
                         let env_value = tokio::fs::read(env_dir_blob_path).await?;
 
