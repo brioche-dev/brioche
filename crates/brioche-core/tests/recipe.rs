@@ -114,13 +114,9 @@ async fn test_recipe_save_multiple() -> anyhow::Result<()> {
         brioche_core::recipe::save_recipes(&brioche, [file_2.clone(), file_3.clone()]).await?;
     assert_eq!(new_artifacts, 1);
 
-    let mut results = HashMap::new();
-    brioche_core::recipe::get_recipes(
-        &brioche,
-        [file_1.hash(), file_2.hash(), file_3.hash()],
-        &mut results,
-    )
-    .await?;
+    let results =
+        brioche_core::recipe::get_recipes(&brioche, [file_1.hash(), file_2.hash(), file_3.hash()])
+            .await?;
 
     assert_eq!(
         results,

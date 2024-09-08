@@ -12,7 +12,6 @@ use crate::{
     blob::BlobHash,
     project::{Project, ProjectHash},
     recipe::{Artifact, Recipe, RecipeHash},
-    references::ReferencedRecipe,
     Brioche,
 };
 
@@ -503,14 +502,7 @@ pub async fn fetch_recipes_deep(
 
         for recipe in &new_recipes {
             let referenced_recipes = crate::references::referenced_recipes(recipe);
-            let referenced_recipe_hashes =
-                referenced_recipes
-                    .into_iter()
-                    .filter_map(|reference| match reference {
-                        ReferencedRecipe::RecipeHash(hash) => Some(hash),
-                        ReferencedRecipe::Recipe(_) => None,
-                    });
-            pending_recipes.extend(referenced_recipe_hashes);
+            pending_recipes.extend(referenced_recipes);
         }
 
         checked_recipes.extend(new_recipes.iter().map(|recipe| recipe.hash()));
