@@ -1282,6 +1282,30 @@ async fn test_bake_process_dependencies(
                                     )
                                     .await,
                                 ),
+                                ("DEP1_SYMLINK", brioche_test_support::symlink(b"../../a")),
+                                (
+                                    "DEP1_FILE",
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(brioche, b"dep1_file").await,
+                                        false,
+                                    ),
+                                ),
+                                (
+                                    "FALLBACK_1",
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(brioche, b"dep1_fallback1")
+                                            .await,
+                                        false,
+                                    ),
+                                ),
+                                (
+                                    "FALLBACK_2",
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(brioche, b"dep1_fallback2")
+                                            .await,
+                                        false,
+                                    ),
+                                ),
                             ],
                         )
                         .await,
@@ -1327,6 +1351,46 @@ async fn test_bake_process_dependencies(
                                     )
                                     .await,
                                 ),
+                                ("DEP2_SYMLINK", brioche_test_support::symlink(b"../../d")),
+                                (
+                                    "DEP2_FILE",
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(brioche, b"dep2_file").await,
+                                        false,
+                                    ),
+                                ),
+                                (
+                                    "FALLBACK_1",
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(brioche, b"dep2_fallback1")
+                                            .await,
+                                        false,
+                                    ),
+                                ),
+                                (
+                                    "FALLBACK_2",
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(brioche, b"dep2_fallback2")
+                                            .await,
+                                        false,
+                                    ),
+                                ),
+                                (
+                                    "FALLBACK_3",
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(brioche, b"dep2_fallback3")
+                                            .await,
+                                        false,
+                                    ),
+                                ),
+                                (
+                                    "FALLBACK_4",
+                                    brioche_test_support::file(
+                                        brioche_test_support::blob(brioche, b"dep2_fallback4")
+                                            .await,
+                                        false,
+                                    ),
+                                ),
                             ],
                         )
                         .await,
@@ -1349,6 +1413,14 @@ async fn test_bake_process_dependencies(
                 test "$PATH" = "$EXPECTED_PATH"
                 test "$DEP1" = "$EXPECTED_DEP1"
                 test "$DEP2" = "$EXPECTED_DEP2"
+                test "$DEP1_SYMLINK" = "$EXPECTED_DEP1_SYMLINK"
+                test "$DEP1_FILE" = "$EXPECTED_DEP1_FILE"
+                test "$DEP2_SYMLINK" = "$EXPECTED_DEP2_SYMLINK"
+                test "$DEP2_FILE" = "$EXPECTED_DEP2_FILE"
+                test "$FALLBACK_1" = "$EXPECTED_FALLBACK_1"
+                test "$FALLBACK_2" = "$EXPECTED_FALLBACK_2"
+                test "$FALLBACK_3" = "$EXPECTED_FALLBACK_3"
+                test "$FALLBACK_4" = "$EXPECTED_FALLBACK_4"
 
                 touch "$BRIOCHE_OUTPUT"
             "#),
@@ -1360,6 +1432,7 @@ async fn test_bake_process_dependencies(
                 tpl_join([template_input(utils()), tpl("/bin")]),
             ),
             ("DEP1".into(), tpl("hello")),
+            ("FALLBACK_4".into(), tpl("process_fallback4")),
             (
                 "EXPECTED_PATH".into(),
                 tpl_join([
@@ -1388,9 +1461,23 @@ async fn test_bake_process_dependencies(
                 ]),
             ),
             (
+                "EXPECTED_DEP1_SYMLINK".into(),
+                tpl_join([template_input(dep1.clone().into()), tpl("/a")]),
+            ),
+            ("EXPECTED_DEP1_FILE".into(), tpl("dep1_file")),
+            (
                 "EXPECTED_DEP2".into(),
                 tpl_join([template_input(dep2.clone().into()), tpl("/f")]),
             ),
+            (
+                "EXPECTED_DEP2_SYMLINK".into(),
+                tpl_join([template_input(dep2.clone().into()), tpl("/d")]),
+            ),
+            ("EXPECTED_DEP2_FILE".into(), tpl("dep2_file")),
+            ("EXPECTED_FALLBACK_1".into(), tpl("dep1_fallback1")),
+            ("EXPECTED_FALLBACK_2".into(), tpl("dep1_fallback2")),
+            ("EXPECTED_FALLBACK_3".into(), tpl("dep2_fallback3")),
+            ("EXPECTED_FALLBACK_4".into(), tpl("process_fallback4")),
         ]),
         dependencies: vec![
             WithMeta::without_meta(dep1.clone().into()),
