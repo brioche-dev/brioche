@@ -167,9 +167,8 @@ impl Recipe {
 pub async fn get_recipes(
     brioche: &Brioche,
     recipe_hashes: impl IntoIterator<Item = RecipeHash>,
-) -> anyhow::Result<HashMap<RecipeHash, Recipe>> {
-    let mut recipes = HashMap::new();
-
+    recipes: &mut HashMap<RecipeHash, Recipe>,
+) -> anyhow::Result<()> {
     let cached_recipes = brioche.cached_recipes.read().await;
     let mut uncached_recipes = HashSet::new();
 
@@ -189,7 +188,7 @@ pub async fn get_recipes(
 
     // Return early if we have no uncached recipess to fetch
     if uncached_recipes.is_empty() {
-        return Ok(recipes);
+        return Ok(());
     }
 
     let mut db_conn = brioche.db_conn.lock().await;
@@ -251,11 +250,12 @@ pub async fn get_recipes(
         anyhow::bail!("recipes not found: {uncached_recipes:?}");
     }
 
-    Ok(recipes)
+    Ok(())
 }
 
 pub async fn get_recipe(brioche: &Brioche, recipe_hash: RecipeHash) -> anyhow::Result<Recipe> {
-    let mut recipes = get_recipes(brioche, [recipe_hash]).await?;
+    let mut recipes = HashMap::new();
+    get_recipes(brioche, [recipe_hash], &mut recipes).await?;
     let recipe = recipes
         .remove(&recipe_hash)
         .expect("recipe not returned in collection");
@@ -719,7 +719,8 @@ impl Directory {
     }
 
     pub async fn entries(&self, brioche: &Brioche) -> anyhow::Result<BTreeMap<BString, Artifact>> {
-        let entry_recipes = get_recipes(brioche, self.entries.values().copied()).await?;
+        let mut entry_recipes = HashMap::new();
+        get_recipes(brioche, self.entries.values().copied(), &mut entry_recipes).await?;
 
         let entries = self
             .entries
