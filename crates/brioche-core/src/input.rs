@@ -525,14 +525,9 @@ fn add_input_plan_indirect_resources(plan: &mut CreateInputPlan) -> anyhow::Resu
         })
         .collect();
 
-    let mut visited_resources = HashSet::new();
     let mut indirect_resources = vec![];
 
     while let Some((node, resource_path, resource_node)) = resource_paths.pop() {
-        if !visited_resources.insert(resource_path.clone()) {
-            continue;
-        }
-
         for subresource_edge in plan.graph.edges(resource_node) {
             match subresource_edge.weight() {
                 CreateInputPlanEdge::DirectoryEntry { file_name } => {
