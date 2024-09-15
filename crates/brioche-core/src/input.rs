@@ -350,9 +350,13 @@ fn add_input_plan_nodes(
 
         node_index
     } else if metadata.is_symlink() {
-        let target =
+        let input_parent_path = options
+            .input_path
+            .parent()
+            .context("failed to get symlink parent directory")?;
+        let target_path =
             std::fs::read_link(options.input_path).context("failed to read symlink target")?;
-        let target = <Vec<u8>>::from_path_buf(target).map_err(|_| {
+        let target = <Vec<u8>>::from_path_buf(target_path.clone()).map_err(|_| {
             anyhow::anyhow!("invalid symlink target at {}", options.input_path.display())
         })?;
         let target = bstr::BString::from(target);
@@ -376,23 +380,72 @@ fn add_input_plan_nodes(
             .collect::<Result<Vec<_>, _>>()
             .context("failed to canonicalize resource dirs")?;
 
-        // Ensure the symlink target exists and is within a resource directory
-        let canonical_path = std::fs::canonicalize(options.input_path)
-            .inspect_err(|err| {
-                tracing::debug!(input_path = %options.input_path.display(), %target, error = %err, "ignoring broken symlink for input");
-            })
-            .ok()
-            .filter(|canonical_path| {
-                canonical_resource_dirs.iter().any(|canonical_resource_dir| {
-                    canonical_path.starts_with(canonical_resource_dir)
-                })
-            });
+        // Logically resolve the symlink target path
+        let resolved_path = input_parent_path.join(&target_path);
+        let resolved_path = crate::fs_utils::logical_path(&resolved_path);
 
-        // Add an edge to the symlink target if the symlink is valid
-        if let Some(canonical_path) = canonical_path {
+        // If the resolved path is within a resource directory, get the
+        // resource dir and the subpath
+        let resource_dir_with_subpath = resolved_path.ancestors().find_map(|ancestor| {
+            let subpath = resolved_path.strip_prefix(ancestor).ok()?;
+            let canonical_ancestor = std::fs::canonicalize(ancestor).ok()?;
+
+            let ancestor_is_resource_dir = canonical_resource_dirs
+                .iter()
+                .any(|canonical_resource_dir| canonical_ancestor == *canonical_resource_dir);
+
+            if ancestor_is_resource_dir {
+                Some((canonical_ancestor, subpath))
+            } else {
+                None
+            }
+        });
+
+        // If the resolved path is in a resource directory, get the
+        // metadata of the target
+        let target_info = resource_dir_with_subpath.and_then(|(resource_dir, subpath)| {
+            let target_metadata = std::fs::symlink_metadata(&resolved_path)
+                .inspect_err(|error| {
+                    tracing::debug!(
+                        input_path = %options.input_path.display(),
+                        resolved_path = %resolved_path.display(),
+                        %error,
+                        "symlink points into resource directory but the target could not be read, symlink may be broken"
+                    );
+                })
+                .ok()?;
+            Some((resource_dir, subpath, target_metadata))
+        });
+
+        // If the symlink's target could be resolved within a resource
+        // directory and if we could read the target's metadata, then we
+        // add a node for the target and add an edge to it. This should
+        // apply to most resource symlinks, but other symlinks may be broken
+        // or e.g. could intentionally point to an absolute path
+        if let Some((resource_dir, subpath, target_metadata)) = target_info {
+            // TODO: Handle nested symlinks
+            anyhow::ensure!(
+                !target_metadata.is_symlink(),
+                "target of symlink {} is another symlink, which is not supported",
+                options.input_path.display(),
+            );
+
+            for ancestor in subpath.ancestors().skip(1) {
+                let ancestor_path = resource_dir.join(ancestor);
+                let ancestor_metadata = std::fs::symlink_metadata(&ancestor_path)
+                    .context("failed to get ancestor metadata")?;
+
+                // TODO: Handle traversing through directory symlinks
+                anyhow::ensure!(
+                    !ancestor_metadata.is_symlink(),
+                    "symlink {} traverses through a symlink path, which is not supported",
+                    options.input_path.display(),
+                );
+            }
+
             let target_node = add_input_plan_nodes(
                 InputOptions {
-                    input_path: &canonical_path,
+                    input_path: &resolved_path,
                     remove_input: false,
                     resource_dir: options.resource_dir,
                     input_resource_dirs: options.input_resource_dirs,
@@ -472,14 +525,9 @@ fn add_input_plan_indirect_resources(plan: &mut CreateInputPlan) -> anyhow::Resu
         })
         .collect();
 
-    let mut visited_resources = HashSet::new();
     let mut indirect_resources = vec![];
 
     while let Some((node, resource_path, resource_node)) = resource_paths.pop() {
-        if !visited_resources.insert(resource_path.clone()) {
-            continue;
-        }
-
         for subresource_edge in plan.graph.edges(resource_node) {
             match subresource_edge.weight() {
                 CreateInputPlanEdge::DirectoryEntry { file_name } => {
@@ -516,8 +564,12 @@ fn add_input_plan_indirect_resources(plan: &mut CreateInputPlan) -> anyhow::Resu
                     indirect_resources.push((
                         node,
                         target_node,
-                        CreateInputPlanEdge::IndirectResource { path: target_path },
+                        CreateInputPlanEdge::IndirectResource {
+                            path: target_path.clone(),
+                        },
                     ));
+
+                    resource_paths.push((node, target_path, target_node));
                 }
             }
         }

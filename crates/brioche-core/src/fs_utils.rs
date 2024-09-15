@@ -5,10 +5,14 @@ use bstr::ByteSlice as _;
 use relative_path::RelativePath;
 
 pub fn logical_path(path: &Path) -> PathBuf {
+    let mut root_components = vec![];
     let mut components = vec![];
     for component in path.components() {
         match component {
-            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+            Component::Prefix(_) | Component::RootDir => {
+                root_components.push(component);
+            }
+            Component::Normal(_) => {
                 components.push(component);
             }
             Component::CurDir => {}
@@ -18,7 +22,7 @@ pub fn logical_path(path: &Path) -> PathBuf {
         }
     }
 
-    PathBuf::from_iter(components)
+    PathBuf::from_iter(root_components.into_iter().chain(components))
 }
 
 pub fn logical_path_bytes(path: &[u8]) -> anyhow::Result<Vec<u8>> {
