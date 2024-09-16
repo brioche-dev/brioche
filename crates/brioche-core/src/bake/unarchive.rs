@@ -31,8 +31,8 @@ pub async fn bake_unarchive(
     let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Unarchive);
 
     let archive_path = {
-        let permit = crate::blob::get_save_blob_permit().await?;
-        crate::blob::blob_path(brioche, permit, blob_hash).await?
+        let mut permit = crate::blob::get_save_blob_permit().await?;
+        crate::blob::blob_path(brioche, &mut permit, blob_hash).await?
     };
     let archive_file = tokio::fs::File::open(&archive_path).await?;
     let uncompressed_archive_size = archive_file.metadata().await?.len();

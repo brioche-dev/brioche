@@ -822,6 +822,52 @@ async fn build_process_template(
     Ok(result)
 }
 
+enum DependencyEnvVarChange {
+    AppendPath {
+        artifact: WithMeta<Artifact>,
+        subpath: bstr::BString,
+    },
+    FallbackPath {
+        artifact: WithMeta<Artifact>,
+        subpath: bstr::BString,
+    },
+    FallbackValue {
+        value: bstr::BString,
+    },
+}
+
+impl DependencyEnvVarChange {
+    fn build_components(&self) -> Vec<CompleteProcessTemplateComponent> {
+        match self {
+            DependencyEnvVarChange::AppendPath { artifact, subpath }
+            | DependencyEnvVarChange::FallbackPath { artifact, subpath } => {
+                let mut subpath = subpath.clone();
+
+                // Build template components representing either `${artifact}` or
+                // `${artifact}/${subpath}`
+                if subpath.is_empty() {
+                    vec![CompleteProcessTemplateComponent::Input {
+                        artifact: artifact.clone(),
+                    }]
+                } else {
+                    subpath.insert(0, b'/');
+                    vec![
+                        CompleteProcessTemplateComponent::Input {
+                            artifact: artifact.clone(),
+                        },
+                        CompleteProcessTemplateComponent::Literal { value: subpath },
+                    ]
+                }
+            }
+            DependencyEnvVarChange::FallbackValue { value } => {
+                vec![CompleteProcessTemplateComponent::Literal {
+                    value: value.clone(),
+                }]
+            }
+        }
+    }
+}
+
 async fn append_dependency_envs(
     brioche: &Brioche,
     env: &mut BTreeMap<bstr::BString, CompleteProcessTemplate>,
@@ -830,7 +876,7 @@ async fn append_dependency_envs(
     // Tuples of env var values to add, where each artifact subpath will
     // be added to the env var separated by `:`
     // (env_var_name, artifact, artifact_subpath)
-    let mut env_var_appends: Vec<(bstr::BString, WithMeta<Artifact>, bstr::BString)> = vec![];
+    let mut env_var_changes: Vec<(bstr::BString, DependencyEnvVarChange)> = vec![];
 
     for dependency_artifact in dependencies {
         // Validate that the dependency is a directory
@@ -845,49 +891,93 @@ async fn append_dependency_envs(
             _ => None,
         });
         if let Some(env_dir) = env_dir {
-            // Each entry in the directory should be a directory whose
-            // name is treated as an env var
+            // Each entry in the directory will get treated as an env var,
+            // depending if it's a file, directory, or symlink
             let env_dir_entries = env_dir.entries(brioche).await?;
 
             for (env_var, env_dir_entry) in env_dir_entries {
-                // Validate the entry is a directory
-                let Artifact::Directory(env_dir_entry) = env_dir_entry else {
-                    anyhow::bail!("expected `brioche-env.d/env/{env_var}` to be a directory");
-                };
-                let env_value_entries = env_dir_entry.entries(brioche).await?;
+                match env_dir_entry {
+                    Artifact::Directory(env_dir_entry) => {
+                        let env_value_entries = env_dir_entry.entries(brioche).await?;
 
-                // Each entry within the env var directory should be a symlink
-                // pointing to a path to append to the env var
-                for (env_value_entry_name, env_value_entry) in env_value_entries {
-                    // Validate it's a symlink
-                    let Artifact::Symlink {
+                        // Each entry within the env var directory should be a symlink
+                        // pointing to a path to append to the env var
+                        for (env_value_entry_name, env_value_entry) in env_value_entries {
+                            // Validate it's a symlink
+                            let Artifact::Symlink {
+                                target: env_value_target,
+                            } = env_value_entry
+                            else {
+                                anyhow::bail!("expected `brioche-env.d/env/{env_var}/{env_value_entry_name}` to be a symlink");
+                            };
+
+                            // Get the path of the symlink relative to the
+                            // root of the dependency artifact
+                            let dependency_subpath = bstr::join(
+                                "/",
+                                [
+                                    "brioche-env.d".as_bytes(),
+                                    "env".as_bytes(),
+                                    &**env_var,
+                                    &*env_value_target,
+                                ]
+                                .into_iter(),
+                            );
+                            let dependency_subpath =
+                                crate::fs_utils::logical_path_bytes(&dependency_subpath)?;
+
+                            // Append the env var
+                            env_var_changes.push((
+                                env_var.clone(),
+                                DependencyEnvVarChange::AppendPath {
+                                    artifact: dependency_artifact.clone(),
+                                    subpath: dependency_subpath.into(),
+                                },
+                            ));
+                        }
+                    }
+                    Artifact::File(env_dir_file) => {
+                        // Read the file to get the env var value
+                        let mut permit = crate::blob::get_save_blob_permit().await?;
+                        let env_dir_blob_path =
+                            crate::blob::blob_path(brioche, &mut permit, env_dir_file.content_blob)
+                                .await?;
+                        let env_value = tokio::fs::read(env_dir_blob_path).await?;
+
+                        // Add the env var
+                        env_var_changes.push((
+                            env_var.clone(),
+                            DependencyEnvVarChange::FallbackValue {
+                                value: env_value.into(),
+                            },
+                        ));
+                    }
+                    Artifact::Symlink {
                         target: env_value_target,
-                    } = env_value_entry
-                    else {
-                        anyhow::bail!("expected `brioche-env.d/env/{env_var}/{env_value_entry_name}` to be a symlink");
-                    };
+                    } => {
+                        // Get the path of the symlink relative to the
+                        // root of the dependency artifact
+                        let dependency_subpath = bstr::join(
+                            "/",
+                            [
+                                "brioche-env.d".as_bytes(),
+                                "env".as_bytes(),
+                                &*env_value_target,
+                            ]
+                            .into_iter(),
+                        );
+                        let dependency_subpath =
+                            crate::fs_utils::logical_path_bytes(&dependency_subpath)?;
 
-                    // Get the path of the symlink relative to the
-                    // root of the dependency artifact
-                    let dependency_subpath = bstr::join(
-                        "/",
-                        [
-                            "brioche-env.d".as_bytes(),
-                            "env".as_bytes(),
-                            &**env_var,
-                            &*env_value_target,
-                        ]
-                        .into_iter(),
-                    );
-                    let dependency_subpath =
-                        crate::fs_utils::logical_path_bytes(&dependency_subpath)?;
-
-                    // Append the env var
-                    env_var_appends.push((
-                        env_var.clone(),
-                        dependency_artifact.clone(),
-                        bstr::BString::new(dependency_subpath),
-                    ));
+                        // Add the env var
+                        env_var_changes.push((
+                            env_var.clone(),
+                            DependencyEnvVarChange::FallbackPath {
+                                artifact: dependency_artifact.clone(),
+                                subpath: dependency_subpath.into(),
+                            },
+                        ));
+                    }
                 }
             }
         }
@@ -896,39 +986,44 @@ async fn append_dependency_envs(
         // automatically
         let bin_artifact = dependency.get(brioche, b"bin").await?;
         if matches!(bin_artifact, Some(Artifact::Directory { .. })) {
-            env_var_appends.push(("PATH".into(), dependency_artifact.clone(), "bin".into()));
+            env_var_changes.push((
+                "PATH".into(),
+                DependencyEnvVarChange::AppendPath {
+                    artifact: dependency_artifact.clone(),
+                    subpath: "bin".into(),
+                },
+            ));
         }
     }
 
     // Append to the env vars
-    for (env_var, artifact, mut subpath) in env_var_appends {
-        // Build template components representing either `${artifact}` or
-        // `${artifact}/${subpath}`
-        let append_components = if subpath.is_empty() {
-            vec![CompleteProcessTemplateComponent::Input { artifact }]
-        } else {
-            subpath.insert(0, b'/');
-            vec![
-                CompleteProcessTemplateComponent::Input { artifact },
-                CompleteProcessTemplateComponent::Literal { value: subpath },
-            ]
-        };
-
+    for (env_var, change) in env_var_changes {
         // Get the current env var value
         let current_value = env
             .entry(env_var.clone())
             .or_insert_with(|| CompleteProcessTemplate { components: vec![] });
 
-        // If the current value is empty or unset, set it to the new value.
-        // Otherwise, add a `:` and append the new value
-        if current_value.is_empty() {
-            *current_value = CompleteProcessTemplate {
-                components: append_components,
-            };
-        } else {
-            current_value.append_literal(":");
-            current_value.components.extend(append_components);
-        };
+        let components = change.build_components();
+
+        match change {
+            DependencyEnvVarChange::AppendPath { .. } => {
+                // If the current value is empty or unset, set it to the new value.
+                // Otherwise, add a `:` and append the new value
+                if current_value.is_empty() {
+                    *current_value = CompleteProcessTemplate { components };
+                } else {
+                    current_value.append_literal(":");
+                    current_value.components.extend(components);
+                };
+            }
+            DependencyEnvVarChange::FallbackPath { .. }
+            | DependencyEnvVarChange::FallbackValue { .. } => {
+                // Only set the fallback value if the current value is unset
+                if current_value.is_empty() {
+                    *current_value = CompleteProcessTemplate { components };
+                }
+            }
+        }
     }
 
     Ok(())

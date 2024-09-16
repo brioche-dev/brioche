@@ -452,7 +452,7 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
 
 pub async fn blob_path(
     brioche: &Brioche,
-    _permit: SaveBlobPermit<'_>,
+    _permit: &mut SaveBlobPermit<'_>,
     blob_hash: BlobHash,
 ) -> anyhow::Result<PathBuf> {
     let local_path = local_blob_path(brioche, blob_hash);
