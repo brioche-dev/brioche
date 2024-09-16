@@ -108,6 +108,15 @@ async fn test_bake_process() -> anyhow::Result<()> {
         run_test!(brioche_test, test_bake_process_has_resource_dir),
         run_test!(brioche_test, test_bake_process_contains_all_resources),
         run_test!(brioche_test, test_bake_process_output_with_resources),
+        run_test!(brioche_test, test_bake_process_output_with_shared_resources),
+        run_test!(
+            brioche_test,
+            test_bake_process_output_with_nested_symlink_resource_error
+        ),
+        run_test!(
+            brioche_test,
+            test_bake_process_output_with_symlink_traversal_resource_error
+        ),
         run_test!(brioche_test, test_bake_process_unsafe_validation),
         run_test!(brioche_test, test_bake_process_networking_disabled),
         run_test!(brioche_test, test_bake_process_networking_enabled),
@@ -1064,6 +1073,325 @@ async fn test_bake_process_output_with_resources(
         )
         .await
     );
+
+    Ok(())
+}
+
+async fn test_bake_process_output_with_shared_resources(
+    brioche: &brioche_core::Brioche,
+    _context: &brioche_test_support::TestContext,
+) -> anyhow::Result<()> {
+    // Create a dummy file with pack metadata. This attaches resources
+    // to the file when it gets put into the output of a process.
+    let dummy_packed_1_contents = "dummy_packed_1".to_string();
+    let mut dummy_packed_1_contents = dummy_packed_1_contents.into_bytes();
+    brioche_pack::inject_pack(
+        &mut dummy_packed_1_contents,
+        &brioche_pack::Pack::Metadata {
+            resource_paths: vec![
+                "resource_1".into(),
+                "foo".into(),
+                "bar".into(),
+                "baz".into(),
+                "quux".into(),
+            ],
+            format: Default::default(),
+            metadata: Default::default(),
+        },
+    )?;
+
+    let dummy_packed_1_blob = brioche_test_support::blob(brioche, &dummy_packed_1_contents).await;
+    let dummy_packed_1 = brioche_test_support::file(dummy_packed_1_blob, false);
+
+    // Sane as above
+    let dummy_packed_2_contents = "dummy_packed_2".to_string();
+    let mut dummy_packed_2_contents = dummy_packed_2_contents.into_bytes();
+    brioche_pack::inject_pack(
+        &mut dummy_packed_2_contents,
+        &brioche_pack::Pack::Metadata {
+            resource_paths: vec![
+                "resource_2".into(),
+                "foo".into(),
+                "bar".into(),
+                "baz".into(),
+                "quux".into(),
+            ],
+            format: Default::default(),
+            metadata: Default::default(),
+        },
+    )?;
+
+    let dummy_packed_2_blob = brioche_test_support::blob(brioche, &dummy_packed_2_contents).await;
+    let dummy_packed_2 = brioche_test_support::file(dummy_packed_2_blob, false);
+
+    let process = ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                set -euo pipefail
+                mkdir -p "$BRIOCHE_OUTPUT/bin"
+
+                echo -n "resource_1_target" > "$BRIOCHE_RESOURCE_DIR/resource_1_target"
+                echo -n "resource_2_target" > "$BRIOCHE_RESOURCE_DIR/resource_2_target"
+
+                echo -n "dummy_foo" > "$BRIOCHE_RESOURCE_DIR/foo"
+                echo -n "dummy_bar_target" > "$BRIOCHE_RESOURCE_DIR/bar_target"
+                echo -n "dummy_baz_target" > "$BRIOCHE_RESOURCE_DIR/baz_target"
+
+                ln -s "resource_1_target" "$BRIOCHE_RESOURCE_DIR/resource_1"
+                ln -s "resource_2_target" "$BRIOCHE_RESOURCE_DIR/resource_2"
+
+                ln -s "bar_target" "$BRIOCHE_RESOURCE_DIR/bar"
+                ln -s "baz_target" "$BRIOCHE_RESOURCE_DIR/baz"
+
+                cp "$dummy_packed_1" "$BRIOCHE_OUTPUT/bin/program_1"
+                cp "$dummy_packed_2" "$BRIOCHE_OUTPUT/bin/program_2"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+            (
+                "dummy_packed_1".into(),
+                template_input(dummy_packed_1.into()),
+            ),
+            (
+                "dummy_packed_2".into(),
+                template_input(dummy_packed_2.into()),
+            ),
+        ]),
+        ..default_process()
+    };
+
+    let result = bake_without_meta(brioche, Recipe::Process(process)).await?;
+    let Artifact::Directory(dir) = result else {
+        panic!("expected directory");
+    };
+
+    let program_1 = get(brioche, &dir, "bin/program_1").await;
+    let Artifact::File(File {
+        resources: resources_1,
+        ..
+    }) = &program_1
+    else {
+        panic!("expected file");
+    };
+
+    let program_2 = get(brioche, &dir, "bin/program_2").await;
+    let Artifact::File(File {
+        resources: resources_2,
+        ..
+    }) = &program_2
+    else {
+        panic!("expected file");
+    };
+
+    assert_eq!(
+        *resources_1,
+        brioche_test_support::dir_value(
+            brioche,
+            [
+                (
+                    "resource_1",
+                    brioche_test_support::symlink("resource_1_target"),
+                ),
+                (
+                    "resource_1_target",
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"resource_1_target").await,
+                        false
+                    )
+                ),
+                (
+                    "foo",
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"dummy_foo").await,
+                        false
+                    )
+                ),
+                ("bar", brioche_test_support::symlink("bar_target"),),
+                (
+                    "bar_target",
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"dummy_bar_target").await,
+                        false
+                    )
+                ),
+                ("baz", brioche_test_support::symlink("baz_target")),
+                (
+                    "baz_target",
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"dummy_baz_target").await,
+                        false
+                    ),
+                ),
+            ]
+        )
+        .await
+    );
+
+    assert_eq!(
+        *resources_2,
+        brioche_test_support::dir_value(
+            brioche,
+            [
+                (
+                    "resource_2",
+                    brioche_test_support::symlink("resource_2_target"),
+                ),
+                (
+                    "resource_2_target",
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"resource_2_target").await,
+                        false
+                    )
+                ),
+                (
+                    "foo",
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"dummy_foo").await,
+                        false
+                    )
+                ),
+                ("bar", brioche_test_support::symlink("bar_target"),),
+                (
+                    "bar_target",
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"dummy_bar_target").await,
+                        false
+                    )
+                ),
+                ("baz", brioche_test_support::symlink("baz_target")),
+                (
+                    "baz_target",
+                    brioche_test_support::file(
+                        brioche_test_support::blob(brioche, b"dummy_baz_target").await,
+                        false
+                    ),
+                ),
+            ]
+        )
+        .await
+    );
+
+    Ok(())
+}
+
+async fn test_bake_process_output_with_nested_symlink_resource_error(
+    brioche: &brioche_core::Brioche,
+    _context: &brioche_test_support::TestContext,
+) -> anyhow::Result<()> {
+    // Create a dummy file with pack metadata. This attaches resources
+    // to the file when it gets put into the output of a process.
+    let dummy_packed_contents = "dummy_packed".to_string();
+    let mut dummy_packed_contents = dummy_packed_contents.into_bytes();
+    brioche_pack::inject_pack(
+        &mut dummy_packed_contents,
+        &brioche_pack::Pack::Metadata {
+            resource_paths: vec!["foo".into()],
+            format: Default::default(),
+            metadata: Default::default(),
+        },
+    )?;
+
+    let dummy_packed_blob = brioche_test_support::blob(brioche, &dummy_packed_contents).await;
+    let dummy_packed = brioche_test_support::file(dummy_packed_blob, false);
+
+    let process = ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                set -euo pipefail
+                mkdir -p "$BRIOCHE_OUTPUT/bin"
+
+                echo -n "dummy_foo_target_target" > "$BRIOCHE_RESOURCE_DIR/foo_target_target"
+                ln -s "foo_target_target" "$BRIOCHE_RESOURCE_DIR/foo_target"
+                ln -s "foo_target" "$BRIOCHE_RESOURCE_DIR/foo"
+
+                cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+            ("dummy_packed".into(), template_input(dummy_packed.into())),
+        ]),
+        ..default_process()
+    };
+
+    let result = bake_without_meta(brioche, Recipe::Process(process)).await;
+
+    // Symlink resource points to another resource, which is not allowed
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
+
+async fn test_bake_process_output_with_symlink_traversal_resource_error(
+    brioche: &brioche_core::Brioche,
+    _context: &brioche_test_support::TestContext,
+) -> anyhow::Result<()> {
+    // Create a dummy file with pack metadata. This attaches resources
+    // to the file when it gets put into the output of a process.
+    let dummy_packed_contents = "dummy_packed".to_string();
+    let mut dummy_packed_contents = dummy_packed_contents.into_bytes();
+    brioche_pack::inject_pack(
+        &mut dummy_packed_contents,
+        &brioche_pack::Pack::Metadata {
+            resource_paths: vec!["foo".into()],
+            format: Default::default(),
+            metadata: Default::default(),
+        },
+    )?;
+
+    let dummy_packed_blob = brioche_test_support::blob(brioche, &dummy_packed_contents).await;
+    let dummy_packed = brioche_test_support::file(dummy_packed_blob, false);
+
+    let process = ProcessRecipe {
+        command: tpl("/usr/bin/env"),
+        args: vec![
+            tpl("sh"),
+            tpl("-c"),
+            tpl(r#"
+                set -euo pipefail
+                mkdir -p "$BRIOCHE_OUTPUT/bin"
+
+                mkdir -p "$BRIOCHE_RESOURCE_DIR/fizz_target"
+                echo -n "dummy_fizzbuzz" > "$BRIOCHE_RESOURCE_DIR/fizz_target/buzz"
+                ln -s "fizz_target" "$BRIOCHE_RESOURCE_DIR/fizz"
+                ln -s "fizz/buzz" "$BRIOCHE_RESOURCE_DIR/foo"
+
+                cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
+            "#),
+        ],
+        env: BTreeMap::from_iter([
+            ("BRIOCHE_OUTPUT".into(), output_path()),
+            ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+            (
+                "PATH".into(),
+                tpl_join([template_input(utils()), tpl("/bin")]),
+            ),
+            ("dummy_packed".into(), template_input(dummy_packed.into())),
+        ]),
+        ..default_process()
+    };
+
+    let result = bake_without_meta(brioche, Recipe::Process(process)).await;
+
+    // Symlink resource traverses a symlink, which is not allowed
+    assert_matches!(result, Err(_));
 
     Ok(())
 }
