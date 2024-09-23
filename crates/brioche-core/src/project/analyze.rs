@@ -43,15 +43,16 @@ pub enum StaticQuery {
     Include(StaticInclude),
     Glob { patterns: Vec<String> },
     Download { url: url::Url },
+    GitRef(GitRefOptions),
 }
 
 impl StaticQuery {
     pub fn output_recipe_hash(
         &self,
         output: &StaticOutput,
-    ) -> anyhow::Result<crate::recipe::RecipeHash> {
+    ) -> anyhow::Result<Option<crate::recipe::RecipeHash>> {
         let recipe_hash = match output {
-            StaticOutput::RecipeHash(hash) => *hash,
+            StaticOutput::RecipeHash(hash) => Some(*hash),
             StaticOutput::Kind(StaticOutputKind::Download { hash }) => {
                 let download_url = match self {
                     StaticQuery::Download { url } => url,
@@ -61,12 +62,24 @@ impl StaticQuery {
                     url: download_url.clone(),
                     hash: hash.clone(),
                 });
-                recipe.hash()
+                Some(recipe.hash())
+            }
+            StaticOutput::Kind(StaticOutputKind::GitRef { .. }) => {
+                // git ref statics don't resolve to a recipe
+                None
             }
         };
 
         Ok(recipe_hash)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub struct GitRefOptions {
+    pub repository: url::Url,
+
+    #[serde(rename = "ref")]
+    pub ref_: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -80,6 +93,7 @@ pub enum StaticOutput {
 #[serde(tag = "kind")]
 pub enum StaticOutputKind {
     Download { hash: crate::Hash },
+    GitRef { commit: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -556,7 +570,36 @@ where
                     })?;
 
                     Ok(Some(StaticQuery::Download { url }))
+                }
+                "gitRef" => {
+                    // Get the arguments
+                    let args = call_expr.arguments()?.args();
+                    let args = args
+                        .iter()
+                        .map(|arg| arg_to_json(arg, env))
+                        .map(|arg| {
+                            arg.with_context(|| {
+                                format!("{location}: invalid arg to Brioche.download")
+                            })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?;
 
+                    // Ensure there's exactly one argument
+                    let options = match &*args {
+                        [options] => options.clone(),
+                        _ => {
+                            anyhow::bail!(
+                                "{location}: Brioche.gitRef() must take exactly one argument",
+                            );
+                        }
+                    };
+
+                    // Parse the options
+                    let options = serde_json::from_value(options).with_context(|| {
+                        format!("{location}: invalid options for Brioche.gitRef, expected an object with the keys `repository` and `ref`")
+                    })?;
+
+                    Ok(Some(StaticQuery::GitRef(options)))
                 }
                 _ => Ok(None),
             }
@@ -764,15 +807,24 @@ fn expression_to_json(
     }
 }
 
-fn arg_to_string_literal(
+fn arg_to_json(
     arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
     env: &HashMap<String, serde_json::Value>,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<serde_json::Value> {
     let arg = arg?;
     let arg = arg
         .as_any_js_expression()
         .context("spread arguments are not supported")?;
     let arg = expression_to_json(arg, env)?;
+
+    anyhow::Ok(arg)
+}
+
+fn arg_to_string_literal(
+    arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
+    env: &HashMap<String, serde_json::Value>,
+) -> anyhow::Result<String> {
+    let arg = arg_to_json(arg, env)?;
     let arg = arg.as_str().context("expected string argument")?;
 
     anyhow::Ok(arg.to_string())

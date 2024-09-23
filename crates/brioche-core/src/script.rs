@@ -265,7 +265,7 @@ pub async fn op_brioche_get_static(
     state: Rc<RefCell<OpState>>,
     #[string] url: String,
     #[serde] static_: StaticQuery,
-) -> Result<Recipe, deno_core::error::AnyError> {
+) -> Result<bridge::GetStaticResult, deno_core::error::AnyError> {
     let bridge = {
         let state = state.try_borrow()?;
         state

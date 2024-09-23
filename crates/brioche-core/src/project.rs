@@ -4,13 +4,13 @@ use std::{
     sync::Arc,
 };
 
-use analyze::{StaticOutput, StaticOutputKind, StaticQuery};
+use analyze::{GitRefOptions, StaticOutput, StaticOutputKind, StaticQuery};
 use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-use crate::recipe::{Artifact, RecipeHash};
+use crate::recipe::Artifact;
 
 use super::{vfs::FileId, Brioche};
 
@@ -314,7 +314,7 @@ impl Projects {
         &self,
         specifier: &super::script::specifier::BriocheModuleSpecifier,
         static_: &StaticQuery,
-    ) -> anyhow::Result<Option<RecipeHash>> {
+    ) -> anyhow::Result<Option<StaticOutput>> {
         let projects = self
             .inner
             .read()
@@ -450,7 +450,7 @@ impl ProjectsInner {
         &self,
         specifier: &super::script::specifier::BriocheModuleSpecifier,
         static_: &StaticQuery,
-    ) -> anyhow::Result<Option<RecipeHash>> {
+    ) -> anyhow::Result<Option<StaticOutput>> {
         let path = match specifier {
             super::script::specifier::BriocheModuleSpecifier::File { path } => path,
             _ => {
@@ -485,8 +485,7 @@ impl ProjectsInner {
         let Some(Some(output)) = statics.get(static_) else {
             return Ok(None);
         };
-        let recipe_hash = static_.output_recipe_hash(output)?;
-        Ok(Some(recipe_hash))
+        Ok(Some(output.clone()))
     }
 }
 
@@ -994,7 +993,9 @@ async fn fetch_project_from_registry(
         };
 
         let recipe_hash = static_.output_recipe_hash(output)?;
-        statics_recipes.insert(recipe_hash);
+        if let Some(recipe_hash) = recipe_hash {
+            statics_recipes.insert(recipe_hash);
+        }
     }
 
     crate::registry::fetch_recipes_deep(brioche, statics_recipes).await?;
@@ -1012,6 +1013,7 @@ async fn fetch_project_from_registry(
 
             match static_ {
                 StaticQuery::Include(include) => {
+                    let recipe_hash = recipe_hash.context("no recipe hash for include static")?;
                     let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
                     let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
                         anyhow::anyhow!("included static recipe is not an artifact")
@@ -1031,6 +1033,7 @@ async fn fetch_project_from_registry(
                     .await?;
                 }
                 StaticQuery::Glob { .. } => {
+                    let recipe_hash = recipe_hash.context("no recipe hash for glob static")?;
                     let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
                     let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
                         anyhow::anyhow!("included static recipe is not an artifact")
@@ -1048,7 +1051,7 @@ async fn fetch_project_from_registry(
                     )
                     .await?;
                 }
-                StaticQuery::Download { .. } => {
+                StaticQuery::Download { .. } | StaticQuery::GitRef { .. } => {
                     // No need to do anything while fetching the project
                 }
             }
@@ -1091,27 +1094,37 @@ async fn fetch_project_from_registry(
         .iter()
         .map(|(name, hash)| (name.clone(), *hash))
         .collect();
-    let downloads = project
-        .statics
-        .values()
-        .flatten()
-        .filter_map(|(static_, output)| {
-            let url = match static_ {
-                StaticQuery::Download { url, .. } => url,
-                _ => return None,
-            };
 
-            let hash = match output {
-                Some(StaticOutput::Kind(StaticOutputKind::Download { hash })) => hash,
-                _ => return None,
-            };
+    let mut downloads = BTreeMap::new();
+    let mut git_refs = BTreeMap::new();
+    for (static_, output) in project.statics.values().flatten() {
+        match static_ {
+            StaticQuery::Include(_) | StaticQuery::Glob { .. } => {
+                continue;
+            }
+            StaticQuery::Download { url } => {
+                let Some(StaticOutput::Kind(StaticOutputKind::Download { hash })) = output else {
+                    continue;
+                };
 
-            Some((url.clone(), hash.clone()))
-        })
-        .collect();
+                downloads.insert(url.clone(), hash.clone());
+            }
+            StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
+                let Some(StaticOutput::Kind(StaticOutputKind::GitRef { commit })) = output else {
+                    continue;
+                };
+
+                let repo_refs: &mut BTreeMap<_, _> =
+                    git_refs.entry(repository.clone()).or_default();
+                repo_refs.insert(ref_.clone(), commit.clone());
+            }
+        }
+    }
+
     let lockfile = Lockfile {
         dependencies,
         downloads,
+        git_refs,
     };
     let lockfile_path = temp_project_path.join("brioche.lock");
     let lockfile_contents =
@@ -1439,6 +1452,37 @@ async fn resolve_static(
                 hash: download_hash,
             }))
         }
+        StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
+            let current_commit = lockfile.and_then(|lockfile| {
+                lockfile
+                    .git_refs
+                    .get(repository)
+                    .and_then(|repo_refs| repo_refs.get(ref_))
+            });
+
+            let commit = if let Some(commit) = current_commit {
+                commit.clone()
+            } else if lockfile_required {
+                // Error out if the git ref isn't in the lockfile but where
+                // updating the lockfile is disabled
+                anyhow::bail!(
+                    "commit for git repo '{repository}' ref '{ref_}' not found in lockfile"
+                );
+            } else {
+                // Fetch the current commit hash of the git ref from the repo
+                crate::download::fetch_git_commit_for_ref(repository, ref_)
+                    .await
+                    .with_context(|| {
+                        format!("failed to fetch ref '{ref_}' from git repo '{repository}'")
+                    })?
+            };
+
+            // Update the new lockfile with the commit
+            let repo_refs = new_lockfile.git_refs.entry(repository.clone()).or_default();
+            repo_refs.insert(ref_.clone(), commit.clone());
+
+            Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }))
+        }
     }
 }
 
@@ -1671,4 +1715,7 @@ pub struct Lockfile {
 
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub downloads: BTreeMap<url::Url, crate::Hash>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub git_refs: BTreeMap<url::Url, BTreeMap<String, String>>,
 }

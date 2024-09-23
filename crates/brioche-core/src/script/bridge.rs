@@ -8,10 +8,10 @@ use crate::{
     bake::BakeScope,
     blob::BlobHash,
     project::{
-        analyze::{StaticInclude, StaticQuery},
+        analyze::{GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery},
         ProjectHash, Projects,
     },
-    recipe::{Artifact, Recipe, WithMeta},
+    recipe::{Artifact, DownloadRecipe, Recipe, WithMeta},
     Brioche,
 };
 
@@ -220,9 +220,9 @@ impl RuntimeBridge {
                             static_,
                             result_tx,
                         } => {
-                            let recipe_hash = projects.get_static(&specifier, &static_);
-                            let recipe_hash = match recipe_hash {
-                                Ok(Some(recipe_hash)) => recipe_hash,
+                            let static_output = projects.get_static(&specifier, &static_);
+                            let static_output = match static_output {
+                                Ok(Some(static_output)) => static_output,
                                 Ok(None) => {
                                     let error = match static_ {
                                         StaticQuery::Include(StaticInclude::File { path }) => {
@@ -243,6 +243,9 @@ impl RuntimeBridge {
                                         StaticQuery::Download { url } => {
                                             anyhow::anyhow!("failed to resolve Brioche.download({url:?}) from {specifier}, was the URL passed in as a string literal?")
                                         }
+                                        StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
+                                            anyhow::anyhow!("failed to resolve Brioche.gitRef({{ repository: \"{repository}\", ref: {ref_:?} }}) from {specifier}, were the repository and ref values passed in as string literals?")
+                                        }
                                     };
                                     let _ = result_tx.send(Err(error));
                                     return;
@@ -253,8 +256,44 @@ impl RuntimeBridge {
                                 }
                             };
 
-                            let result = crate::recipe::get_recipe(&brioche, recipe_hash).await;
-                            let _ = result_tx.send(result);
+                            let result = match static_output {
+                                StaticOutput::RecipeHash(recipe_hash) => {
+                                    let recipe =
+                                        crate::recipe::get_recipe(&brioche, recipe_hash).await;
+                                    let recipe = match recipe {
+                                        Ok(recipe) => recipe,
+                                        Err(error) => {
+                                            let _ = result_tx.send(Err(error));
+                                            return;
+                                        }
+                                    };
+
+                                    GetStaticResult::Recipe(recipe)
+                                }
+                                StaticOutput::Kind(StaticOutputKind::Download { hash }) => {
+                                    let StaticQuery::Download { url } = static_ else {
+                                        let _ = result_tx.send(Err(anyhow::anyhow!("invalid 'download' static output kind for non-download static")));
+                                        return;
+                                    };
+
+                                    GetStaticResult::Recipe(Recipe::Download(DownloadRecipe {
+                                        url,
+                                        hash,
+                                    }))
+                                }
+                                StaticOutput::Kind(StaticOutputKind::GitRef { commit }) => {
+                                    let StaticQuery::GitRef(git_ref) = static_ else {
+                                        let _ = result_tx.send(Err(anyhow::anyhow!("invalid 'git_ref' static output kind for non-git ref static")));
+                                        return;
+                                    };
+
+                                    GetStaticResult::GitRef {
+                                        repository: git_ref.repository,
+                                        commit,
+                                    }
+                                }
+                            };
+                            let _ = result_tx.send(Ok(result));
                         }
                     }
                 });
@@ -406,7 +445,7 @@ impl RuntimeBridge {
         &self,
         specifier: BriocheModuleSpecifier,
         static_: StaticQuery,
-    ) -> anyhow::Result<Recipe> {
+    ) -> anyhow::Result<GetStaticResult> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
 
         self.tx.send(RuntimeBridgeMessage::GetStatic {
@@ -466,6 +505,16 @@ enum RuntimeBridgeMessage {
     GetStatic {
         specifier: BriocheModuleSpecifier,
         static_: StaticQuery,
-        result_tx: tokio::sync::oneshot::Sender<anyhow::Result<Recipe>>,
+        result_tx: tokio::sync::oneshot::Sender<anyhow::Result<GetStaticResult>>,
+    },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "staticKind", rename_all = "snake_case")]
+pub enum GetStaticResult {
+    Recipe(Recipe),
+    GitRef {
+        repository: url::Url,
+        commit: String,
     },
 }
