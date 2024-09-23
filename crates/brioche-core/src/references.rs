@@ -101,7 +101,9 @@ pub async fn project_references(
                     .as_ref()
                     .with_context(|| format!("static not loaded for module {module_path}"))?;
                 let static_recipe_hash = static_.output_recipe_hash(output)?;
-                new_recipes.insert(static_recipe_hash);
+                if let Some(static_recipe_hash) = static_recipe_hash {
+                    new_recipes.insert(static_recipe_hash);
+                }
             }
         }
     }

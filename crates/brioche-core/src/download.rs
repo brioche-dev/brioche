@@ -80,3 +80,126 @@ pub async fn download(
 
     Ok(blob_hash)
 }
+
+pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyhow::Result<String> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<anyhow::Result<_>>();
+
+    // gix uses a blocking client, so spawn a separate thread to fetch
+    std::thread::spawn({
+        let repository: gix::Url = repository
+            .as_str()
+            .try_into()
+            .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
+        move || {
+            // Connect to the repository by URL
+            let transport = gix::protocol::transport::connect(repository, Default::default());
+            let mut transport = match transport {
+                Ok(transport) => transport,
+                Err(error) => {
+                    let _ = tx.send(Err(error.into()));
+                    return;
+                }
+            };
+
+            // Perform a handshake to get the remote's capabilities.
+            // Authentication is disabled
+            let empty_auth = |_| Ok(None);
+            let outcome = gix::protocol::fetch::handshake(
+                &mut transport,
+                empty_auth,
+                vec![],
+                &mut gix::progress::Discard,
+            );
+            let outcome = match outcome {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+                    let _ = tx.send(Err(error.into()));
+                    return;
+                }
+            };
+
+            let refs = match outcome.refs {
+                Some(refs) => {
+                    // The handshake will sometimes return the refs directly,
+                    // depending on protocol version. If that happens, we're
+                    // done
+                    refs
+                }
+                None => {
+                    // Fetch the refs
+                    let refs = gix::protocol::ls_refs(
+                        &mut transport,
+                        &outcome.capabilities,
+                        |_, _, _| Ok(gix::protocol::ls_refs::Action::Continue),
+                        &mut gix::progress::Discard,
+                        false,
+                    );
+                    match refs {
+                        Ok(refs) => refs,
+                        Err(error) => {
+                            let _ =
+                                gix::protocol::indicate_end_of_interaction(&mut transport, false);
+                            let _ = tx.send(Err(error.into()));
+                            return;
+                        }
+                    }
+                }
+            };
+
+            // End the interaction with the remote
+            let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+
+            let _ = tx.send(Ok(refs));
+        }
+    });
+
+    let remote_refs = rx.await?;
+    let remote_refs = match remote_refs {
+        Ok(remote_refs) => remote_refs,
+        Err(error) => {
+            anyhow::bail!("{error}");
+        }
+    };
+
+    // Find the ref that matches the requested ref name
+    let object_id = remote_refs
+        .iter()
+        .find_map(|remote_ref| {
+            let (name, object) = match remote_ref {
+                gix::protocol::handshake::Ref::Peeled {
+                    full_ref_name,
+                    object,
+                    ..
+                } => (full_ref_name, object),
+                gix::protocol::handshake::Ref::Direct {
+                    full_ref_name,
+                    object,
+                } => (full_ref_name, object),
+                gix::protocol::handshake::Ref::Symbolic {
+                    full_ref_name,
+                    object,
+                    ..
+                } => (full_ref_name, object),
+                gix::protocol::handshake::Ref::Unborn { .. } => {
+                    return None;
+                }
+            };
+
+            if let Some(tag_name) = name.strip_prefix(b"refs/tags/") {
+                if tag_name == ref_.as_bytes() {
+                    return Some(object);
+                }
+            } else if let Some(head_name) = name.strip_prefix(b"refs/heads/") {
+                if head_name == ref_.as_bytes() {
+                    return Some(object);
+                }
+            }
+
+            None
+        })
+        .with_context(|| format!("git ref '{ref_}' not found in repo {repository}"))?;
+
+    let commit = object_id.to_string();
+    Ok(commit)
+}
