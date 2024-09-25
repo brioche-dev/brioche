@@ -2,10 +2,9 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Context as _;
 use bstr::BString;
-use futures::TryStreamExt as _;
-use tracing::Instrument;
 
 use crate::{
+    blob::BlobHash,
     recipe::{Artifact, Directory, File, Meta, Unarchive, WithMeta},
     Brioche,
 };
@@ -40,84 +39,121 @@ pub async fn bake_unarchive(
 
     let decompressed_archive_file = unarchive.compression.decompress(archive_file);
 
-    let mut archive = tokio_tar::Archive::new(decompressed_archive_file);
-    let mut archive_entries = archive.entries()?;
-    let mut directory_entries = BTreeMap::<BString, WithMeta<Artifact>>::new();
-    let mut buffer = Vec::new();
+    let (entry_tx, mut entry_rx) = tokio::sync::mpsc::channel(16);
 
-    let save_blobs_future = async {
-        while let Some(archive_entry) = archive_entries.try_next().await? {
-            let entry_path = bstr::BString::new(archive_entry.path_bytes().into_owned());
-            let entry_mode = archive_entry.header().mode()?;
+    let mut permit = crate::blob::get_save_blob_permit().await?;
+    let process_archive_task = tokio::task::spawn_blocking({
+        let brioche = brioche.clone();
+        move || {
+            let decompressed_archive_file =
+                tokio_util::io::SyncIoBridge::new(decompressed_archive_file);
+            let mut archive = tar::Archive::new(decompressed_archive_file);
 
-            let position = archive_entry.raw_file_position();
-            let estimated_progress = position as f64 / (uncompressed_archive_size as f64).max(1.0);
-            let progress_percent = (estimated_progress * 100.0).min(99.0) as u8;
-            brioche.reporter.update_job(
-                job_id,
-                crate::reporter::UpdateJob::Unarchive { progress_percent },
-            );
+            let mut buffer = Vec::new();
 
-            let entry_artifact = match archive_entry.header().entry_type() {
-                tokio_tar::EntryType::Regular => {
-                    let mut permit = crate::blob::get_save_blob_permit().await?;
-                    let entry_blob_hash = crate::blob::save_blob_from_reader(
-                        brioche,
-                        &mut permit,
-                        archive_entry,
-                        crate::blob::SaveBlobOptions::new(),
-                        &mut buffer,
-                    )
-                    .await?;
-                    let executable = entry_mode & 0o100 != 0;
+            for archive_entry in archive.entries()? {
+                let archive_entry = archive_entry?;
+                let entry_path = bstr::BString::new(archive_entry.path_bytes().into_owned());
+                let entry_mode = archive_entry.header().mode()?;
 
-                    Some(Artifact::File(File {
-                        content_blob: entry_blob_hash,
-                        executable,
-                        resources: Directory::default(),
-                    }))
-                }
-                tokio_tar::EntryType::Symlink => {
-                    let link_name = archive_entry.link_name_bytes().with_context(|| {
-                        format!(
-                            "unsupported tar archive: no link name for symlink entry at {}",
-                            entry_path
-                        )
-                    })?;
+                let position = archive_entry.raw_file_position();
+                let estimated_progress =
+                    position as f64 / (uncompressed_archive_size as f64).max(1.0);
+                let progress_percent = (estimated_progress * 100.0).min(99.0) as u8;
+                brioche.reporter.update_job(
+                    job_id,
+                    crate::reporter::UpdateJob::Unarchive { progress_percent },
+                );
 
-                    Some(Artifact::Symlink {
-                        target: link_name.into_owned().into(),
-                    })
-                }
-                tokio_tar::EntryType::Link => {
-                    let link_name = archive_entry.link_name_bytes().with_context(|| {
-                        format!(
-                            "unsupported tar archive: no link name for hardlink entry at {}",
-                            entry_path
-                        )
-                    })?;
-                    let linked_entry =
-                        directory_entries.get(link_name.as_ref()).with_context(|| {
+                let entry = match archive_entry.header().entry_type() {
+                    tar::EntryType::Regular => {
+                        let entry_blob_hash = crate::blob::save_blob_from_reader_sync(
+                            &brioche,
+                            &mut permit,
+                            archive_entry,
+                            crate::blob::SaveBlobOptions::new(),
+                            &mut buffer,
+                        )?;
+                        let executable = entry_mode & 0o100 != 0;
+
+                        ArchiveEntry::File {
+                            content_blob: entry_blob_hash,
+                            executable,
+                        }
+                    }
+                    tar::EntryType::Symlink => {
+                        let link_name = archive_entry.link_name_bytes().with_context(|| {
                             format!(
+                                "unsupported tar archive: no link name for symlink entry at {}",
+                                entry_path
+                            )
+                        })?;
+
+                        ArchiveEntry::Symlink {
+                            target: link_name.into_owned().into(),
+                        }
+                    }
+                    tar::EntryType::Link => {
+                        let link_name = archive_entry.link_name_bytes().with_context(|| {
+                            format!(
+                                "unsupported tar archive: no link name for hardlink entry at {}",
+                                entry_path
+                            )
+                        })?;
+
+                        ArchiveEntry::Link {
+                            link_name: link_name.into_owned().into(),
+                        }
+                    }
+                    tar::EntryType::Directory => ArchiveEntry::Directory,
+                    tar::EntryType::XGlobalHeader | tar::EntryType::XHeader => {
+                        // Ignore
+                        continue;
+                    }
+                    other => {
+                        anyhow::bail!(
+                            "unsupported tar archive: unsupported entry type {:?} at {}",
+                            other,
+                            entry_path
+                        );
+                    }
+                };
+
+                entry_tx.blocking_send((entry_path, entry))?;
+            }
+
+            anyhow::Ok(())
+        }
+    });
+    let process_archive_task = async {
+        process_archive_task.await??;
+        anyhow::Result::<()>::Ok(())
+    };
+
+    let build_directory_fut = async {
+        let mut directory_entries = BTreeMap::<BString, WithMeta<Artifact>>::new();
+
+        while let Some((entry_path, entry)) = entry_rx.recv().await {
+            let entry_artifact = match entry {
+                ArchiveEntry::File {
+                    content_blob,
+                    executable,
+                } => Some(Artifact::File(File {
+                    content_blob,
+                    executable,
+                    resources: Directory::default(),
+                })),
+                ArchiveEntry::Symlink { target } => Some(Artifact::Symlink { target }),
+                ArchiveEntry::Link { link_name } => {
+                    let linked_entry = directory_entries.get(&link_name).with_context(|| {
+                        format!(
                             "unsupported tar archive: could not find target for link entry at {}",
                             entry_path
                         )
-                        })?;
-
+                    })?;
                     Some(linked_entry.value.clone())
                 }
-                tokio_tar::EntryType::Directory => Some(Artifact::Directory(Directory::default())),
-                tokio_tar::EntryType::XGlobalHeader | tokio_tar::EntryType::XHeader => {
-                    // Ignore
-                    None
-                }
-                other => {
-                    anyhow::bail!(
-                        "unsupported tar archive: unsupported entry type {:?} at {}",
-                        other,
-                        entry_path
-                    );
-                }
+                ArchiveEntry::Directory => Some(Artifact::Directory(Directory::default())),
             };
 
             let entry_path = crate::fs_utils::logical_path_bytes(&entry_path);
@@ -144,13 +180,26 @@ pub async fn bake_unarchive(
             },
         );
 
-        anyhow::Ok(())
-    }
-    .instrument(tracing::info_span!("save_blobs"));
+        let directory = Directory::create(brioche, &directory_entries).await?;
 
-    save_blobs_future.await?;
+        anyhow::Ok(directory)
+    };
 
-    let directory = Directory::create(brioche, &directory_entries).await?;
+    let (_, directory) = tokio::try_join!(process_archive_task, build_directory_fut)?;
 
     Ok(directory)
+}
+
+enum ArchiveEntry {
+    File {
+        content_blob: BlobHash,
+        executable: bool,
+    },
+    Symlink {
+        target: BString,
+    },
+    Link {
+        link_name: BString,
+    },
+    Directory,
 }

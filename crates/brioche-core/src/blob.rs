@@ -1,5 +1,5 @@
 use std::{
-    io::Read as _,
+    io::{Read as _, Write as _},
     os::unix::prelude::PermissionsExt as _,
     path::{Path, PathBuf},
 };
@@ -222,6 +222,72 @@ where
     tokio::fs::rename(&temp_path, &blob_path)
         .await
         .context("failed to rename blob from temp file")?;
+
+    Ok(blob_hash)
+}
+
+#[tracing::instrument(skip_all)]
+pub fn save_blob_from_reader_sync<'a, R>(
+    brioche: &Brioche,
+    _permit: &mut SaveBlobPermit<'_>,
+    mut input: R,
+    mut options: SaveBlobOptions<'a>,
+    buffer: &mut Vec<u8>,
+) -> anyhow::Result<BlobHash>
+where
+    R: std::io::Read,
+{
+    anyhow::ensure!(!options.remove_input, "cannot remove input from reader");
+    anyhow::ensure!(
+        options.expected_hash.is_none(),
+        "cannot validate expected hash in sync mode"
+    );
+
+    let mut hasher = blake3::Hasher::new();
+
+    let temp_dir = brioche.home.join("blobs-temp");
+    std::fs::create_dir_all(&temp_dir).unwrap();
+    let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
+    let mut temp_file = std::fs::File::create(&temp_path).context("failed to open temp file")?;
+
+    tracing::trace!(temp_path = %temp_path.display(), "saving blob");
+
+    buffer.resize(1024 * 1024, 0);
+    let mut total_bytes_read = 0;
+    loop {
+        let length = input.read(buffer).context("failed to read")?;
+        if length == 0 {
+            break;
+        }
+
+        total_bytes_read += length;
+        let buffer = &buffer[..length];
+
+        temp_file.write_all(buffer).context("failed to write all")?;
+
+        hasher.update(buffer);
+
+        if let Some(on_progress) = &mut options.on_progress {
+            on_progress(total_bytes_read)?;
+        }
+    }
+
+    let hash = hasher.finalize();
+    let blob_hash = BlobHash(hash);
+    let blob_path = local_blob_path(brioche, blob_hash);
+
+    if let Some(parent) = blob_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    tracing::debug!(overwrite = blob_path.exists(), %blob_hash, "saved blob");
+
+    temp_file
+        .set_permissions(blob_permissions())
+        .context("failed to set blob permissions")?;
+    temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
+
+    std::fs::rename(&temp_path, &blob_path).context("failed to rename blob from temp file")?;
 
     Ok(blob_hash)
 }
