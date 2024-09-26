@@ -6,6 +6,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+## [v0.1.2] - 2024-09-26
+
 ### Standard library
 
 > **NOTE**: These features require both the latest version of Brioche and an appropriate version of the `std` package. Consult the [std changelog] for more details
@@ -55,7 +57,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 - **Initial release!**
 
-[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.2...HEAD
+[v0.1.2]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.0
 
