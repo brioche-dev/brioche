@@ -722,6 +722,32 @@ async fn load_project_inner(
             .write()
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
 
+        // If the lockfile doesn't need to be fully valid, ensure that
+        // the new lockfile includes old statics that weren't updated. This
+        // can mean that e.g. unnecessary downloads are kept, but this is
+        // appropriate for situations like the LSP
+        if !fully_valid {
+            let Lockfile {
+                dependencies: _,
+                downloads: new_downloads,
+                git_refs: new_git_refs,
+            } = &mut new_lockfile;
+
+            if let Some(lockfile) = &lockfile {
+                for (url, hash) in &lockfile.downloads {
+                    new_downloads
+                        .entry(url.clone())
+                        .or_insert_with(|| hash.clone());
+                }
+
+                for (url, options) in &lockfile.git_refs {
+                    new_git_refs
+                        .entry(url.clone())
+                        .or_insert_with(|| options.clone());
+                }
+            }
+        }
+
         if lockfile.as_ref() != Some(&new_lockfile) {
             if lockfile_required {
                 anyhow::bail!("lockfile at {} is out of date", lockfile_path.display());
