@@ -427,37 +427,60 @@ impl LanguageServer for BriocheLspServer {
         }]))
     }
 
-    // async fn diagnostic(
-    //     &self,
-    //     params: DocumentDiagnosticParams,
-    // ) -> Result<DocumentDiagnosticReportResult> {
-    //     self.client
-    //         .log_message(MessageType::INFO, "diagnostic")
-    //         .await;
-    //     let response = self
-    //         .js_lsp
-    //         .send::<Vec<Diagnostic>>(JsLspMessage::Diagnostic(params.clone()))
-    //         .await;
-    //     let diagnostics = match response {
-    //         Ok(diagnostics) => diagnostics,
-    //         Err(error) => {
-    //             tracing::error!(error = %error, "failed to get diagnostics");
-    //             return Err(tower_lsp::jsonrpc::Error::internal_error());
-    //         }
-    //     };
+    async fn diagnostic(
+        &self,
+        params: DocumentDiagnosticParams,
+    ) -> Result<DocumentDiagnosticReportResult> {
+        self.client
+            .log_message(MessageType::INFO, "diagnostic")
+            .await;
 
-    //     tracing::info!(?diagnostics, "got diagnostics");
+        let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
+        match specifier {
+            Ok(specifier) => {
+                let result = self
+                    .compiler_host
+                    .load_documents(vec![specifier.clone()])
+                    .await;
+                match result {
+                    Ok(()) => {}
+                    Err(error) => {
+                        tracing::warn!("failed to load document {specifier}: {error:#}");
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "failed to parse URI {}: {error:#}",
+                    params.text_document.uri
+                );
+            }
+        }
 
-    //     Ok(DocumentDiagnosticReportResult::Report(
-    //         DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-    //             full_document_diagnostic_report: FullDocumentDiagnosticReport {
-    //                 items: diagnostics,
-    //                 ..Default::default()
-    //             },
-    //             ..Default::default()
-    //         }),
-    //     ))
-    // }
+        let response = self
+            .js_lsp
+            .send::<Vec<Diagnostic>>(JsLspMessage::Diagnostic(params.clone()))
+            .await;
+        let diagnostics = match response {
+            Ok(diagnostics) => diagnostics,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to get diagnostics");
+                return Err(tower_lsp::jsonrpc::Error::internal_error());
+            }
+        };
+
+        tracing::info!(?diagnostics, "got diagnostics");
+
+        Ok(DocumentDiagnosticReportResult::Report(
+            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+                full_document_diagnostic_report: FullDocumentDiagnosticReport {
+                    items: diagnostics,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        ))
+    }
 }
 
 async fn try_update_lockfile_for_module(
