@@ -985,6 +985,17 @@ async fn fetch_project_from_registry(
     brioche: &Brioche,
     project_hash: ProjectHash,
 ) -> anyhow::Result<PathBuf> {
+    // Use a mutex to ensure we don't try to fetch the same project more
+    // than once at a time
+    static FETCH_PROJECTS_MUTEX: tokio::sync::Mutex<
+        BTreeMap<ProjectHash, Arc<tokio::sync::Mutex<()>>>,
+    > = tokio::sync::Mutex::const_new(BTreeMap::new());
+    let project_mutex = {
+        let mut fetch_projects = FETCH_PROJECTS_MUTEX.lock().await;
+        fetch_projects.entry(project_hash).or_default().clone()
+    };
+    let _guard = project_mutex.lock().await;
+
     let local_path = brioche.home.join("projects").join(project_hash.to_string());
 
     if tokio::fs::try_exists(&local_path).await? {
@@ -1662,6 +1673,18 @@ impl std::str::FromStr for ProjectHash {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let hash = blake3::Hash::from_hex(s)?;
         Ok(Self(hash))
+    }
+}
+
+impl std::cmp::Ord for ProjectHash {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_bytes().cmp(other.0.as_bytes())
+    }
+}
+
+impl std::cmp::PartialOrd for ProjectHash {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
