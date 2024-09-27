@@ -1665,6 +1665,18 @@ impl std::str::FromStr for ProjectHash {
     }
 }
 
+impl std::cmp::Ord for ProjectHash {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_bytes().cmp(other.0.as_bytes())
+    }
+}
+
+impl std::cmp::PartialOrd for ProjectHash {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Workspace {
     pub definition: WorkspaceDefinition,
