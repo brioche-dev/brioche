@@ -6,6 +6,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+## [v0.1.3] - 2024-09-27
+
 ### Fixed
 
 - Fix Brioche LSP erasing locked download and git ref hashes ([#130](https://github.com/brioche-dev/brioche/pull/130))
@@ -63,7 +65,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 - **Initial release!**
 
-[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.3...HEAD
+[v0.1.3]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.3
 [v0.1.2]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.0
