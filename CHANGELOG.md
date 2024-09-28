@@ -6,11 +6,17 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix Brioche LSP erasing locked download and git ref hashes ([#130](https://github.com/brioche-dev/brioche/pull/130))
+- Fix "failed to move temporary project from registry" error. This occurred due to a race condition when a project tried to be fetched more than once from the registry, e.g. from a dependency shared by multiple other dependencies, like `std` ([#131](https://github.com/brioche-dev/brioche/pull/131))
+- Fix (very annoying!) "Request textDocument/diagnostic failed" error from LSP whenever a `.bri` file was first opened ([#132](https://github.com/brioche-dev/brioche/pull/132))
+
 ## [v0.1.2] - 2024-09-26
 
 ### Standard library
 
-> **NOTE**: These features require both the latest version of Brioche and an appropriate version of the `std` package. Consult the [std changelog] for more details
+> **NOTE**: These features require both the latest version of Brioche and an appropriate version of the `std` package. Consult the [std changelog](https://github.com/brioche-dev/brioche-packages/blob/main/packages/std/CHANGELOG.md) for more details
 
 - Add `Brioche.download("...")`. The provided URL will be downloaded, and the hash will automatically be recorded in the `brioche.lock` lockfile ([#102](https://github.com/brioche-dev/brioche/pull/102))
 - Add `Brioche.gitRef({ repository, ref })`. The git repository URL will be fetched, and the commit for the corresponding ref (branch or tag name) will be recorded in the `brioche.lock` lockfile. This is useful when used with the `gitCheckout` function from the `git` package ([#126](https://github.com/brioche-dev/brioche/pull/126))
@@ -61,5 +67,3 @@ Note that the individual Rust crates within this repo are not considered stable 
 [v0.1.2]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.1
 [v0.1.0]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.0
-
-[std changelog]: https://github.com/brioche-dev/brioche-packages/blob/main/packages/std/CHANGELOG.md
