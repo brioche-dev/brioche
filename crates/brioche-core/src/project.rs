@@ -27,6 +27,17 @@ pub enum ProjectValidation {
     Minimal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProjectLocking {
+    /// The project is unlocked, meaning the lockfile can be updated
+    Unlocked,
+
+    /// The project is locked, meaning the lockfile must exist and be
+    /// up-to-date. This is useful for loading registry projects, or when
+    /// the `--locked` CLI flag is specified
+    Locked,
+}
+
 #[derive(Clone, Default)]
 pub struct Projects {
     inner: Arc<std::sync::RwLock<ProjectsInner>>,
@@ -521,8 +532,15 @@ async fn load_project(
         let local_set = tokio::task::LocalSet::new();
 
         local_set.spawn_local(async move {
-            let result =
-                load_project_inner(&projects, &brioche, &path, validation, false, depth).await;
+            let result = load_project_inner(
+                &projects,
+                &brioche,
+                &path,
+                validation,
+                ProjectLocking::Unlocked,
+                depth,
+            )
+            .await;
             let _ = tx.send(result).inspect_err(|err| {
                 tracing::warn!("failed to send project load result: {err:?}");
             });
@@ -541,7 +559,7 @@ async fn load_project_inner(
     brioche: &Brioche,
     path: &Path,
     validation: ProjectValidation,
-    lockfile_required: bool,
+    locking: ProjectLocking,
     depth: usize,
 ) -> anyhow::Result<(ProjectHash, Arc<Project>, Vec<LoadProjectError>)> {
     tracing::debug!(path = %path.display(), "resolving project");
@@ -558,24 +576,22 @@ async fn load_project_inner(
     let lockfile: Option<Lockfile> = match lockfile_contents {
         Ok(contents) => match serde_json::from_str(&contents) {
             Ok(lockfile) => Some(lockfile),
-            Err(error) => {
-                if lockfile_required {
+            Err(error) => match locking {
+                ProjectLocking::Locked => {
                     return Err(error).context(format!(
                         "failed to parse lockfile at {}",
                         lockfile_path.display()
                     ));
-                } else {
-                    None
                 }
-            }
+                ProjectLocking::Unlocked => None,
+            },
         },
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            if lockfile_required {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => match locking {
+            ProjectLocking::Locked => {
                 anyhow::bail!("lockfile not found: {}", lockfile_path.display());
-            } else {
-                None
             }
-        }
+            ProjectLocking::Unlocked => None,
+        },
         Err(error) => {
             return Err(error).context(format!(
                 "failed to read lockfile at {}",
@@ -610,7 +626,7 @@ async fn load_project_inner(
                     name,
                     &dep_path,
                     validation,
-                    lockfile_required,
+                    locking,
                     dep_depth,
                     &mut errors,
                 )
@@ -629,7 +645,7 @@ async fn load_project_inner(
                     name,
                     version,
                     validation,
-                    lockfile_required,
+                    locking,
                     lockfile.as_ref(),
                     dep_depth,
                     &mut new_lockfile,
@@ -672,7 +688,7 @@ async fn load_project_inner(
                         dep_name,
                         &Version::Any,
                         validation,
-                        lockfile_required,
+                        locking,
                         lockfile.as_ref(),
                         dep_depth,
                         &mut new_lockfile,
@@ -707,7 +723,7 @@ async fn load_project_inner(
                         &path,
                         module,
                         static_,
-                        lockfile_required,
+                        locking,
                         lockfile.as_ref(),
                         &mut new_lockfile,
                     )
@@ -774,10 +790,13 @@ async fn load_project_inner(
         }
 
         if lockfile.as_ref() != Some(&new_lockfile) {
-            if lockfile_required {
-                anyhow::bail!("lockfile at {} is out of date", lockfile_path.display());
-            } else {
-                projects.dirty_lockfiles.insert(lockfile_path, new_lockfile);
+            match locking {
+                ProjectLocking::Unlocked => {
+                    projects.dirty_lockfiles.insert(lockfile_path, new_lockfile);
+                }
+                ProjectLocking::Locked => {
+                    anyhow::bail!("lockfile at {} is out of date", lockfile_path.display());
+                }
             }
         }
 
@@ -805,19 +824,12 @@ async fn try_load_path_dependency_with_errors(
     name: &str,
     dep_path: &Path,
     validation: ProjectValidation,
-    lockfile_required: bool,
+    locking: ProjectLocking,
     dep_depth: usize,
     errors: &mut Vec<LoadProjectError>,
 ) -> Option<ProjectHash> {
-    let result = load_project_inner(
-        projects,
-        brioche,
-        dep_path,
-        validation,
-        lockfile_required,
-        dep_depth,
-    )
-    .await;
+    let result =
+        load_project_inner(projects, brioche, dep_path, validation, locking, dep_depth).await;
 
     match result {
         Ok((dep_hash, _, dep_errors)) => {
@@ -850,21 +862,15 @@ async fn try_load_registry_dependency_with_errors(
     name: &str,
     version: &Version,
     validation: ProjectValidation,
-    lockfile_required: bool,
+    locking: ProjectLocking,
     lockfile: Option<&Lockfile>,
     dep_depth: usize,
     new_lockfile: &mut Lockfile,
     errors: &mut Vec<LoadProjectError>,
 ) -> Option<ProjectHash> {
-    let resolved_dep_result = resolve_dependency_to_local_path(
-        brioche,
-        workspace,
-        name,
-        version,
-        lockfile_required,
-        lockfile,
-    )
-    .await;
+    let resolved_dep_result =
+        resolve_dependency_to_local_path(brioche, workspace, name, version, locking, lockfile)
+            .await;
     let resolved_dep = match resolved_dep_result {
         Ok(resolved_dep) => resolved_dep,
         Err(error) => {
@@ -881,7 +887,7 @@ async fn try_load_registry_dependency_with_errors(
         brioche,
         &resolved_dep.local_path,
         validation,
-        resolved_dep.lockfile_required,
+        resolved_dep.locking,
         dep_depth,
     )
     .await;
@@ -931,7 +937,7 @@ async fn resolve_dependency_to_local_path(
     workspace: Option<&Workspace>,
     dependency_name: &str,
     dependency_version: &Version,
-    lockfile_required: bool,
+    locking: ProjectLocking,
     lockfile: Option<&Lockfile>,
 ) -> anyhow::Result<ResolvedDependency> {
     if let Some(workspace) = workspace {
@@ -947,7 +953,7 @@ async fn resolve_dependency_to_local_path(
             return Ok(ResolvedDependency {
                 local_path: workspace_path,
                 expected_hash: None,
-                lockfile_required,
+                locking,
                 should_lock: None,
             });
         }
@@ -959,17 +965,18 @@ async fn resolve_dependency_to_local_path(
         lockfile.and_then(|lockfile| lockfile.dependencies.get(dependency_name));
     let dep_hash = match lockfile_dep_hash {
         Some(dep_hash) => *dep_hash,
-        None => {
-            if lockfile_required {
-                anyhow::bail!("dependency '{}' not found in lockfile", dependency_name);
-            } else {
+        None => match locking {
+            ProjectLocking::Unlocked => {
                 resolve_project_from_registry(brioche, dependency_name, dependency_version)
                     .await
                     .with_context(|| {
                         format!("failed to resolve '{dependency_name}' from registry")
                     })?
             }
-        }
+            ProjectLocking::Locked => {
+                anyhow::bail!("dependency '{}' not found in lockfile", dependency_name);
+            }
+        },
     };
 
     let local_path = fetch_project_from_registry(brioche, dep_hash)
@@ -979,7 +986,7 @@ async fn resolve_dependency_to_local_path(
     Ok(ResolvedDependency {
         local_path,
         expected_hash: Some(dep_hash),
-        lockfile_required: true,
+        locking: ProjectLocking::Locked,
         should_lock: Some(dep_hash),
     })
 }
@@ -987,7 +994,7 @@ async fn resolve_dependency_to_local_path(
 struct ResolvedDependency {
     local_path: PathBuf,
     expected_hash: Option<ProjectHash>,
-    lockfile_required: bool,
+    locking: ProjectLocking,
     should_lock: Option<ProjectHash>,
 }
 
@@ -1276,7 +1283,7 @@ async fn resolve_static(
     project_root: &Path,
     module: &analyze::ModuleAnalysis,
     static_: &analyze::StaticQuery,
-    lockfile_required: bool,
+    locking: ProjectLocking,
     lockfile: Option<&Lockfile>,
     new_lockfile: &mut Lockfile,
 ) -> anyhow::Result<StaticOutput> {
@@ -1430,41 +1437,45 @@ async fn resolve_static(
             let download_hash: crate::Hash;
             let blob_hash: Option<crate::blob::BlobHash>;
 
-            if let Some(hash) = current_download_hash {
-                // If we have the hash from the lockfile, use it to build
-                // the recipe. But, we don't have the blob hash yet
-                download_hash = hash.clone();
-                blob_hash = None;
-            } else if lockfile_required {
-                // Error out if the download isn't in the lockfile but where
-                // updating the lockfile is disabled
-                anyhow::bail!("hash for download '{url}' not found in lockfile");
-            } else {
-                // Download the URL as a blob
-                let new_blob_hash = crate::download::download(brioche, url, None).await?;
-                let blob_path = crate::blob::local_blob_path(brioche, new_blob_hash);
-                let mut blob = tokio::fs::File::open(&blob_path).await?;
+            match (current_download_hash, locking) {
+                (Some(hash), _) => {
+                    // If we have the hash from the lockfile, use it to build
+                    // the recipe. But, we don't have the blob hash yet
+                    download_hash = hash.clone();
+                    blob_hash = None;
+                }
+                (None, ProjectLocking::Unlocked) => {
+                    // Download the URL as a blob
+                    let new_blob_hash = crate::download::download(brioche, url, None).await?;
+                    let blob_path = crate::blob::local_blob_path(brioche, new_blob_hash);
+                    let mut blob = tokio::fs::File::open(&blob_path).await?;
 
-                // Compute a hash to store in the lockfile
-                let mut hasher = crate::Hasher::new_sha256();
-                let mut buffer = vec![0u8; 1024 * 1024];
-                loop {
-                    let length = blob
-                        .read(&mut buffer)
-                        .await
-                        .context("failed to read blob")?;
-                    if length == 0 {
-                        break;
+                    // Compute a hash to store in the lockfile
+                    let mut hasher = crate::Hasher::new_sha256();
+                    let mut buffer = vec![0u8; 1024 * 1024];
+                    loop {
+                        let length = blob
+                            .read(&mut buffer)
+                            .await
+                            .context("failed to read blob")?;
+                        if length == 0 {
+                            break;
+                        }
+
+                        hasher.update(&buffer[..length]);
                     }
 
-                    hasher.update(&buffer[..length]);
+                    // Record both the hash for the recipe plus the output
+                    // blob hash
+                    download_hash = hasher.finish()?;
+                    blob_hash = Some(new_blob_hash);
                 }
-
-                // Record both the hash for the recipe plus the output
-                // blob hash
-                download_hash = hasher.finish()?;
-                blob_hash = Some(new_blob_hash);
-            };
+                (None, ProjectLocking::Locked) => {
+                    // Error out if the download isn't in the lockfile but where
+                    // updating the lockfile is disabled
+                    anyhow::bail!("hash for download '{url}' not found in lockfile");
+                }
+            }
 
             // Create the download recipe, which is equivalent to the URL
             // we downloaded or the one recorded in the lockfile
@@ -1522,21 +1533,23 @@ async fn resolve_static(
                     .and_then(|repo_refs| repo_refs.get(ref_))
             });
 
-            let commit = if let Some(commit) = current_commit {
-                commit.clone()
-            } else if lockfile_required {
-                // Error out if the git ref isn't in the lockfile but where
-                // updating the lockfile is disabled
-                anyhow::bail!(
-                    "commit for git repo '{repository}' ref '{ref_}' not found in lockfile"
-                );
-            } else {
-                // Fetch the current commit hash of the git ref from the repo
-                crate::download::fetch_git_commit_for_ref(repository, ref_)
-                    .await
-                    .with_context(|| {
-                        format!("failed to fetch ref '{ref_}' from git repo '{repository}'")
-                    })?
+            let commit = match (current_commit, locking) {
+                (Some(commit), _) => commit.clone(),
+                (None, ProjectLocking::Unlocked) => {
+                    // Fetch the current commit hash of the git ref from the repo
+                    crate::download::fetch_git_commit_for_ref(repository, ref_)
+                        .await
+                        .with_context(|| {
+                            format!("failed to fetch ref '{ref_}' from git repo '{repository}'")
+                        })?
+                }
+                (None, ProjectLocking::Locked) => {
+                    // Error out if the git ref isn't in the lockfile but where
+                    // updating the lockfile is disabled
+                    anyhow::bail!(
+                        "commit for git repo '{repository}' ref '{ref_}' not found in lockfile"
+                    );
+                }
             };
 
             // Update the new lockfile with the commit
