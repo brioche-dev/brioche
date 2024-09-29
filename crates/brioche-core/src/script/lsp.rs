@@ -561,7 +561,12 @@ impl JsLspTask {
             .await
             .map_err(|_| anyhow::anyhow!("timeout waiting for response from JS LSP"))??;
 
-        let response = serde_json::from_value(response)?;
+        let response = serde_json::from_value(response.clone()).inspect_err(|_| {
+            tracing::warn!(
+                "failed to deserialize response: {:?}",
+                serde_json::to_string(&response)
+            )
+        })?;
 
         Ok(response)
     }
