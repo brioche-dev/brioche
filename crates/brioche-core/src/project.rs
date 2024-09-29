@@ -49,6 +49,7 @@ impl Projects {
         brioche: &Brioche,
         path: &Path,
         validation: ProjectValidation,
+        locking: ProjectLocking,
     ) -> anyhow::Result<ProjectHash> {
         {
             let projects = self
@@ -75,6 +76,7 @@ impl Projects {
             brioche.clone(),
             path.to_owned(),
             validation,
+            locking,
             100,
         )
         .await?;
@@ -101,6 +103,7 @@ impl Projects {
         brioche: &Brioche,
         path: &Path,
         validation: ProjectValidation,
+        locking: ProjectLocking,
     ) -> anyhow::Result<ProjectHash> {
         {
             let projects = self
@@ -114,7 +117,7 @@ impl Projects {
 
         for ancestor in path.ancestors().skip(1) {
             if tokio::fs::try_exists(ancestor.join("project.bri")).await? {
-                return self.load(brioche, ancestor, validation).await;
+                return self.load(brioche, ancestor, validation, locking).await;
             }
         }
 
@@ -135,7 +138,12 @@ impl Projects {
             .with_context(|| format!("failed to fetch '{project_name}' from registry"))?;
 
         let loaded_project_hash = self
-            .load(brioche, &local_path, ProjectValidation::Standard)
+            .load(
+                brioche,
+                &local_path,
+                ProjectValidation::Standard,
+                ProjectLocking::Locked,
+            )
             .await?;
 
         anyhow::ensure!(
@@ -524,6 +532,7 @@ async fn load_project(
     brioche: Brioche,
     path: PathBuf,
     validation: ProjectValidation,
+    locking: ProjectLocking,
     depth: usize,
 ) -> anyhow::Result<ProjectHash> {
     let rt = tokio::runtime::Handle::current();
@@ -532,15 +541,8 @@ async fn load_project(
         let local_set = tokio::task::LocalSet::new();
 
         local_set.spawn_local(async move {
-            let result = load_project_inner(
-                &projects,
-                &brioche,
-                &path,
-                validation,
-                ProjectLocking::Unlocked,
-                depth,
-            )
-            .await;
+            let result =
+                load_project_inner(&projects, &brioche, &path, validation, locking, depth).await;
             let _ = tx.send(result).inspect_err(|err| {
                 tracing::warn!("failed to send project load result: {err:?}");
             });

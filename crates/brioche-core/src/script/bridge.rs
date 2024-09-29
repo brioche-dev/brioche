@@ -9,7 +9,7 @@ use crate::{
     blob::BlobHash,
     project::{
         analyze::{GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery},
-        ProjectHash, ProjectValidation, Projects,
+        ProjectHash, ProjectLocking, ProjectValidation, Projects,
     },
     recipe::{Artifact, DownloadRecipe, Recipe, WithMeta},
     Brioche,
@@ -42,7 +42,12 @@ impl RuntimeBridge {
                     match message {
                         RuntimeBridgeMessage::LoadProjectFromModulePath { path, result_tx } => {
                             let result = projects
-                                .load_from_module_path(&brioche, &path, ProjectValidation::Minimal)
+                                .load_from_module_path(
+                                    &brioche,
+                                    &path,
+                                    ProjectValidation::Minimal,
+                                    ProjectLocking::Unlocked,
+                                )
                                 .await;
                             let _ = result_tx.send(result);
                         }
@@ -125,7 +130,12 @@ impl RuntimeBridge {
                             }
 
                             let result = projects
-                                .load_from_module_path(&brioche, &path, ProjectValidation::Minimal)
+                                .load_from_module_path(
+                                    &brioche,
+                                    &path,
+                                    ProjectValidation::Minimal,
+                                    ProjectLocking::Unlocked,
+                                )
                                 .await
                                 .map(|_| true);
                             let _ = result_tx.send(result);

@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use brioche_core::reporter::ConsoleReporterKind;
+use brioche_core::{project::ProjectLocking, reporter::ConsoleReporterKind};
 use clap::Parser;
 use human_repr::HumanDuration;
 use tracing::Instrument;
@@ -51,7 +51,9 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let projects = brioche_core::project::Projects::default();
 
     let build_future = async {
-        let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
+        let project_hash =
+            super::load_project(&brioche, &projects, &args.project, ProjectLocking::Unlocked)
+                .await?;
 
         let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
         if num_lockfiles_updated > 0 {

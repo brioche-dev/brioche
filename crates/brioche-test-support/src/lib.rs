@@ -8,7 +8,7 @@ use std::{
 
 use brioche_core::{
     blob::{BlobHash, SaveBlobOptions},
-    project::{self, ProjectHash, ProjectValidation, Projects},
+    project::{self, ProjectHash, ProjectLocking, ProjectValidation, Projects},
     recipe::{
         CreateDirectory, Directory, File, ProcessRecipe, ProcessTemplate, ProcessTemplateComponent,
         Recipe, WithMeta,
@@ -61,7 +61,12 @@ pub async fn load_project(
 ) -> anyhow::Result<(Projects, ProjectHash)> {
     let projects = Projects::default();
     let project_hash = projects
-        .load(brioche, path, ProjectValidation::Standard)
+        .load(
+            brioche,
+            path,
+            ProjectValidation::Standard,
+            ProjectLocking::Unlocked,
+        )
         .await?;
 
     Ok((projects, project_hash))
@@ -73,7 +78,12 @@ pub async fn load_project_no_validate(
 ) -> anyhow::Result<(Projects, ProjectHash)> {
     let projects = Projects::default();
     let project_hash = projects
-        .load(brioche, path, ProjectValidation::Minimal)
+        .load(
+            brioche,
+            path,
+            ProjectValidation::Minimal,
+            ProjectLocking::Unlocked,
+        )
         .await?;
 
     Ok((projects, project_hash))
@@ -410,6 +420,7 @@ impl TestContext {
                 &self.brioche,
                 &temp_project_path,
                 ProjectValidation::Standard,
+                ProjectLocking::Unlocked,
             )
             .await
             .expect("failed to load temp project");

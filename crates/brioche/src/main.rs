@@ -1,6 +1,9 @@
 use std::{collections::HashMap, path::PathBuf, process::ExitCode, sync::Arc};
 
-use brioche_core::{project::ProjectValidation, reporter::ConsoleReporterKind};
+use brioche_core::{
+    project::{ProjectLocking, ProjectValidation},
+    reporter::ConsoleReporterKind,
+};
 use clap::Parser;
 
 mod build;
@@ -195,7 +198,12 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
     let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
     let projects = brioche_core::project::Projects::default();
     let project_hash = projects
-        .load(&brioche, &args.project, ProjectValidation::Standard)
+        .load(
+            &brioche,
+            &args.project,
+            ProjectValidation::Standard,
+            ProjectLocking::Unlocked,
+        )
         .await?;
     let project = projects.project(project_hash)?;
     let mut project_references = brioche_core::references::ProjectReferences::default();
@@ -247,11 +255,12 @@ async fn load_project(
     brioche: &brioche_core::Brioche,
     projects: &brioche_core::project::Projects,
     args: &ProjectArgs,
+    locking: ProjectLocking,
 ) -> anyhow::Result<brioche_core::project::ProjectHash> {
     let project_hash = match (&args.project, &args.registry) {
         (Some(project), None) => {
             projects
-                .load(brioche, project, ProjectValidation::Standard)
+                .load(brioche, project, ProjectValidation::Standard, locking)
                 .await?
         }
         (None, Some(registry)) => {
@@ -263,7 +272,12 @@ async fn load_project(
             // Default to the current directory if a project path
             // is not specified
             projects
-                .load(brioche, &PathBuf::from("."), ProjectValidation::Standard)
+                .load(
+                    brioche,
+                    &PathBuf::from("."),
+                    ProjectValidation::Standard,
+                    ProjectLocking::Unlocked,
+                )
                 .await?
         }
         (Some(_), Some(_)) => {

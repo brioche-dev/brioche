@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use brioche_core::project::ProjectValidation;
+use brioche_core::project::{ProjectLocking, ProjectValidation};
 
 #[tokio::test]
 async fn test_project_load_simple() -> anyhow::Result<()> {
@@ -793,11 +793,21 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
 
     let projects = brioche_core::project::Projects::default();
     let bar_hash = projects
-        .load(&brioche, &bar_dir, ProjectValidation::Standard)
+        .load(
+            &brioche,
+            &bar_dir,
+            ProjectValidation::Standard,
+            ProjectLocking::Unlocked,
+        )
         .await
         .expect("failed to load bar project");
     let foo_hash = projects
-        .load(&brioche, &foo_dir, ProjectValidation::Standard)
+        .load(
+            &brioche,
+            &foo_dir,
+            ProjectValidation::Standard,
+            ProjectLocking::Unlocked,
+        )
         .await
         .expect("failed to load foo project");
 

@@ -7,7 +7,7 @@ use tower_lsp::lsp_types::request::GotoTypeDefinitionResponse;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use crate::project::{ProjectValidation, Projects};
+use crate::project::{ProjectLocking, ProjectValidation, Projects};
 use crate::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
 use crate::script::format::format_code;
 use crate::{Brioche, BriocheBuilder};
@@ -503,7 +503,12 @@ async fn try_update_lockfile_for_module(
 
     tokio::time::timeout(
         load_timeout,
-        projects.load(&brioche, &project_path, ProjectValidation::Minimal),
+        projects.load(
+            &brioche,
+            &project_path,
+            ProjectValidation::Minimal,
+            ProjectLocking::Unlocked,
+        ),
     )
     .await
     .context("timed out trying to load project")?

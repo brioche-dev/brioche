@@ -1,7 +1,7 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Context as _;
-use brioche_core::{fs_utils, reporter::ConsoleReporterKind};
+use brioche_core::{fs_utils, project::ProjectLocking, reporter::ConsoleReporterKind};
 use clap::Parser;
 use human_repr::HumanDuration;
 use tracing::Instrument;
@@ -56,9 +56,14 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         .build()
         .await?;
     let projects = brioche_core::project::Projects::default();
+    let locking = if args.locked {
+        ProjectLocking::Locked
+    } else {
+        ProjectLocking::Unlocked
+    };
 
     let build_future = async {
-        let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
+        let project_hash = super::load_project(&brioche, &projects, &args.project, locking).await?;
 
         // If the `--locked` flag is used, validate that all lockfiles are
         // up-to-date. Otherwise, write any out-of-date lockfiles
