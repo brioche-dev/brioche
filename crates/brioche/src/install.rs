@@ -3,6 +3,8 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use brioche_core::project::ProjectHash;
+use brioche_core::project::ProjectLocking;
+use brioche_core::project::ProjectValidation;
 use brioche_core::project::Projects;
 use brioche_core::reporter::ConsoleReporterKind;
 use brioche_core::reporter::Reporter;
@@ -25,6 +27,10 @@ pub struct InstallArgs {
     /// Check the project before building
     #[arg(long)]
     check: bool,
+
+    /// Validate that the lockfile is up-to-date
+    #[arg(long)]
+    locked: bool,
 }
 
 pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
@@ -36,6 +42,15 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
         .await?;
     let projects = brioche_core::project::Projects::default();
 
+    let install_options = InstallOptions {
+        check: args.check,
+        locked: args.locked,
+    };
+    let locking = if args.locked {
+        ProjectLocking::Locked
+    } else {
+        ProjectLocking::Unlocked
+    };
     let mut error_result = Option::None;
 
     // Handle the case where no projects and no registries are specified
@@ -50,7 +65,15 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
     for project_path in projects_path {
         let project_name = format!("project '{name}'", name = project_path.display());
 
-        match projects.load(&brioche, &project_path, true).await {
+        match projects
+            .load(
+                &brioche,
+                &project_path,
+                ProjectValidation::Standard,
+                locking,
+            )
+            .await
+        {
             Ok(project_hash) => {
                 let result = run_install(
                     &reporter,
@@ -59,7 +82,7 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                     project_hash,
                     &project_name,
                     &args.export,
-                    args.check,
+                    &install_options,
                 )
                 .await;
 
@@ -94,7 +117,7 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                     project_hash,
                     &project_name,
                     &args.export,
-                    args.check,
+                    &install_options,
                 )
                 .await;
 
@@ -120,6 +143,11 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
     Ok(exit_code)
 }
 
+struct InstallOptions {
+    check: bool,
+    locked: bool,
+}
+
 async fn run_install(
     reporter: &Reporter,
     brioche: &Brioche,
@@ -127,17 +155,23 @@ async fn run_install(
     project_hash: ProjectHash,
     project_name: &String,
     export: &String,
-    check: bool,
+    options: &InstallOptions,
 ) -> Result<bool, anyhow::Error> {
     async {
         reporter.set_is_evaluating(true);
 
-        let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
-        if num_lockfiles_updated > 0 {
-            tracing::info!(num_lockfiles_updated, "updated lockfiles");
+        // If the `--locked` flag is used, validate that all lockfiles are
+        // up-to-date. Otherwise, write any out-of-date lockfiles
+        if options.locked {
+            projects.validate_no_dirty_lockfiles()?;
+        } else {
+            let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
+            if num_lockfiles_updated > 0 {
+                tracing::info!(num_lockfiles_updated, "updated lockfiles");
+            }
         }
 
-        if check {
+        if options.check {
             let checked =
                 brioche_core::script::check::check(brioche, projects, project_hash).await?;
 

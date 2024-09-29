@@ -9,7 +9,7 @@ use crate::{
     blob::BlobHash,
     project::{
         analyze::{GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery},
-        ProjectHash, Projects,
+        ProjectHash, ProjectLocking, ProjectValidation, Projects,
     },
     recipe::{Artifact, DownloadRecipe, Recipe, WithMeta},
     Brioche,
@@ -41,8 +41,14 @@ impl RuntimeBridge {
                 tokio::spawn(async move {
                     match message {
                         RuntimeBridgeMessage::LoadProjectFromModulePath { path, result_tx } => {
-                            let result =
-                                projects.load_from_module_path(&brioche, &path, false).await;
+                            let result = projects
+                                .load_from_module_path(
+                                    &brioche,
+                                    &path,
+                                    ProjectValidation::Minimal,
+                                    ProjectLocking::Unlocked,
+                                )
+                                .await;
                             let _ = result_tx.send(result);
                         }
                         RuntimeBridgeMessage::LoadSpecifierContents {
@@ -124,7 +130,12 @@ impl RuntimeBridge {
                             }
 
                             let result = projects
-                                .load_from_module_path(&brioche, &path, false)
+                                .load_from_module_path(
+                                    &brioche,
+                                    &path,
+                                    ProjectValidation::Minimal,
+                                    ProjectLocking::Unlocked,
+                                )
                                 .await
                                 .map(|_| true);
                             let _ = result_tx.send(result);

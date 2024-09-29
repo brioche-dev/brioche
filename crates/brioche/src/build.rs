@@ -1,7 +1,7 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Context as _;
-use brioche_core::{fs_utils, reporter::ConsoleReporterKind};
+use brioche_core::{fs_utils, project::ProjectLocking, reporter::ConsoleReporterKind};
 use clap::Parser;
 use human_repr::HumanDuration;
 use tracing::Instrument;
@@ -23,6 +23,10 @@ pub struct BuildArgs {
     /// Check the project before building
     #[arg(long)]
     check: bool,
+
+    /// Validate that the lockfile is up-to-date
+    #[arg(long)]
+    locked: bool,
 
     /// Replace the output path if it already exists
     #[arg(long)]
@@ -53,12 +57,24 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         .await?;
     let projects = brioche_core::project::Projects::default();
 
-    let build_future = async {
-        let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
+    let locking = if args.locked {
+        ProjectLocking::Locked
+    } else {
+        ProjectLocking::Unlocked
+    };
 
-        let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
-        if num_lockfiles_updated > 0 {
-            tracing::info!(num_lockfiles_updated, "updated lockfiles");
+    let build_future = async {
+        let project_hash = super::load_project(&brioche, &projects, &args.project, locking).await?;
+
+        // If the `--locked` flag is used, validate that all lockfiles are
+        // up-to-date. Otherwise, write any out-of-date lockfiles
+        if args.locked {
+            projects.validate_no_dirty_lockfiles()?;
+        } else {
+            let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
+            if num_lockfiles_updated > 0 {
+                tracing::info!(num_lockfiles_updated, "updated lockfiles");
+            }
         }
 
         if args.check {

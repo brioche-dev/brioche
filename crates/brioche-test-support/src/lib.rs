@@ -8,7 +8,7 @@ use std::{
 
 use brioche_core::{
     blob::{BlobHash, SaveBlobOptions},
-    project::{self, ProjectHash, Projects},
+    project::{self, ProjectHash, ProjectLocking, ProjectValidation, Projects},
     recipe::{
         CreateDirectory, Directory, File, ProcessRecipe, ProcessTemplate, ProcessTemplateComponent,
         Recipe, WithMeta,
@@ -60,7 +60,14 @@ pub async fn load_project(
     path: &Path,
 ) -> anyhow::Result<(Projects, ProjectHash)> {
     let projects = Projects::default();
-    let project_hash = projects.load(brioche, path, true).await?;
+    let project_hash = projects
+        .load(
+            brioche,
+            path,
+            ProjectValidation::Standard,
+            ProjectLocking::Unlocked,
+        )
+        .await?;
 
     Ok((projects, project_hash))
 }
@@ -70,7 +77,14 @@ pub async fn load_project_no_validate(
     path: &Path,
 ) -> anyhow::Result<(Projects, ProjectHash)> {
     let projects = Projects::default();
-    let project_hash = projects.load(brioche, path, false).await?;
+    let project_hash = projects
+        .load(
+            brioche,
+            path,
+            ProjectValidation::Minimal,
+            ProjectLocking::Unlocked,
+        )
+        .await?;
 
     Ok((projects, project_hash))
 }
@@ -402,7 +416,12 @@ impl TestContext {
 
         let projects = Projects::default();
         let project_hash = projects
-            .load(&self.brioche, &temp_project_path, true)
+            .load(
+                &self.brioche,
+                &temp_project_path,
+                ProjectValidation::Standard,
+                ProjectLocking::Unlocked,
+            )
             .await
             .expect("failed to load temp project");
         projects.commit_dirty_lockfiles().await.unwrap();
