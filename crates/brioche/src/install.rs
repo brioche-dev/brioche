@@ -3,6 +3,7 @@ use std::process::ExitCode;
 
 use anyhow::Context as _;
 use brioche_core::project::ProjectHash;
+use brioche_core::project::ProjectValidation;
 use brioche_core::project::Projects;
 use brioche_core::reporter::ConsoleReporterKind;
 use brioche_core::reporter::Reporter;
@@ -50,7 +51,10 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
     for project_path in projects_path {
         let project_name = format!("project '{name}'", name = project_path.display());
 
-        match projects.load(&brioche, &project_path, true).await {
+        match projects
+            .load(&brioche, &project_path, ProjectValidation::Standard)
+            .await
+        {
             Ok(project_hash) => {
                 let result = run_install(
                     &reporter,

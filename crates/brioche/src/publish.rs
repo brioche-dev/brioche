@@ -1,7 +1,7 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use brioche_core::{
-    project::{ProjectHash, Projects},
+    project::{ProjectHash, ProjectValidation, Projects},
     reporter::{ConsoleReporterKind, Reporter},
     Brioche,
 };
@@ -31,7 +31,10 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     for project_path in args.project {
         let project_name = format!("project '{name}'", name = project_path.display());
 
-        match projects.load(&brioche, &project_path, true).await {
+        match projects
+            .load(&brioche, &project_path, ProjectValidation::Standard)
+            .await
+        {
             Ok(project_hash) => {
                 let result =
                     run_publish(&reporter, &brioche, &projects, project_hash, &project_name).await;

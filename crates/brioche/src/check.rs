@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use brioche_core::project::ProjectHash;
+use brioche_core::project::ProjectValidation;
 use brioche_core::project::Projects;
 use brioche_core::reporter::ConsoleReporterKind;
 use brioche_core::reporter::Reporter;
@@ -48,7 +49,10 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
     for project_path in projects_path {
         let project_name = format!("project '{name}'", name = project_path.display());
 
-        match projects.load(&brioche, &project_path, true).await {
+        match projects
+            .load(&brioche, &project_path, ProjectValidation::Standard)
+            .await
+        {
             Ok(project_hash) => {
                 let result = run_check(
                     &reporter,

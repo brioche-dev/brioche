@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, process::ExitCode, sync::Arc};
 
-use brioche_core::reporter::ConsoleReporterKind;
+use brioche_core::{project::ProjectValidation, reporter::ConsoleReporterKind};
 use clap::Parser;
 
 mod build;
@@ -194,7 +194,9 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
 
     let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
     let projects = brioche_core::project::Projects::default();
-    let project_hash = projects.load(&brioche, &args.project, true).await?;
+    let project_hash = projects
+        .load(&brioche, &args.project, ProjectValidation::Standard)
+        .await?;
     let project = projects.project(project_hash)?;
     let mut project_references = brioche_core::references::ProjectReferences::default();
     brioche_core::references::project_references(
@@ -247,7 +249,11 @@ async fn load_project(
     args: &ProjectArgs,
 ) -> anyhow::Result<brioche_core::project::ProjectHash> {
     let project_hash = match (&args.project, &args.registry) {
-        (Some(project), None) => projects.load(brioche, project, true).await?,
+        (Some(project), None) => {
+            projects
+                .load(brioche, project, ProjectValidation::Standard)
+                .await?
+        }
         (None, Some(registry)) => {
             projects
                 .load_from_registry(brioche, registry, &brioche_core::project::Version::Any)
@@ -256,7 +262,9 @@ async fn load_project(
         (None, None) => {
             // Default to the current directory if a project path
             // is not specified
-            projects.load(brioche, &PathBuf::from("."), true).await?
+            projects
+                .load(brioche, &PathBuf::from("."), ProjectValidation::Standard)
+                .await?
         }
         (Some(_), Some(_)) => {
             anyhow::bail!("cannot specify both --project and --registry");

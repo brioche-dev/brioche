@@ -7,7 +7,7 @@ use tower_lsp::lsp_types::request::GotoTypeDefinitionResponse;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use crate::project::Projects;
+use crate::project::{ProjectValidation, Projects};
 use crate::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
 use crate::script::format::format_code;
 use crate::{Brioche, BriocheBuilder};
@@ -501,10 +501,13 @@ async fn try_update_lockfile_for_module(
         .context("failed to build `Brioche` instance")?;
     let projects = Projects::default();
 
-    tokio::time::timeout(load_timeout, projects.load(&brioche, &project_path, false))
-        .await
-        .context("timed out trying to load project")?
-        .context("failed to load project")?;
+    tokio::time::timeout(
+        load_timeout,
+        projects.load(&brioche, &project_path, ProjectValidation::Minimal),
+    )
+    .await
+    .context("timed out trying to load project")?
+    .context("failed to load project")?;
 
     let updated = projects
         .commit_dirty_lockfile_for_project_path(&project_path)

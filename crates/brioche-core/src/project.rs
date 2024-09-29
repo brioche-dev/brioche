@@ -16,6 +16,17 @@ use super::{vfs::FileId, Brioche};
 
 pub mod analyze;
 
+#[derive(Debug, Clone, Copy)]
+pub enum ProjectValidation {
+    /// Fully validate the project, ensuring all modules and dependencies
+    /// resolve properly
+    Standard,
+
+    /// Perform minimal validation while loading the project. This is suitable
+    /// for situations like the LSP, where syntax errors are common
+    Minimal,
+}
+
 #[derive(Clone, Default)]
 pub struct Projects {
     inner: Arc<std::sync::RwLock<ProjectsInner>>,
@@ -26,7 +37,7 @@ impl Projects {
         &self,
         brioche: &Brioche,
         path: &Path,
-        fully_valid: bool,
+        validation: ProjectValidation,
     ) -> anyhow::Result<ProjectHash> {
         {
             let projects = self
@@ -34,11 +45,14 @@ impl Projects {
                 .read()
                 .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
             if let Some(project_hash) = projects.paths_to_projects.get(path) {
-                if fully_valid {
-                    let errors = &projects.project_load_errors[project_hash];
-                    if !errors.is_empty() {
-                        anyhow::bail!("project load errors: {errors:?}");
+                match validation {
+                    ProjectValidation::Standard => {
+                        let errors = &projects.project_load_errors[project_hash];
+                        if !errors.is_empty() {
+                            anyhow::bail!("project load errors: {errors:?}");
+                        }
                     }
+                    ProjectValidation::Minimal => {}
                 }
 
                 return Ok(*project_hash);
@@ -49,20 +63,23 @@ impl Projects {
             self.clone(),
             brioche.clone(),
             path.to_owned(),
-            fully_valid,
+            validation,
             100,
         )
         .await?;
 
-        if fully_valid {
-            let projects = self
-                .inner
-                .read()
-                .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
-            let errors = &projects.project_load_errors[&project_hash];
-            if !errors.is_empty() {
-                anyhow::bail!("project load errors: {errors:?}");
+        match validation {
+            ProjectValidation::Standard => {
+                let projects = self
+                    .inner
+                    .read()
+                    .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+                let errors = &projects.project_load_errors[&project_hash];
+                if !errors.is_empty() {
+                    anyhow::bail!("project load errors: {errors:?}");
+                }
             }
+            ProjectValidation::Minimal => {}
         }
 
         Ok(project_hash)
@@ -72,7 +89,7 @@ impl Projects {
         &self,
         brioche: &Brioche,
         path: &Path,
-        validate: bool,
+        validation: ProjectValidation,
     ) -> anyhow::Result<ProjectHash> {
         {
             let projects = self
@@ -86,7 +103,7 @@ impl Projects {
 
         for ancestor in path.ancestors().skip(1) {
             if tokio::fs::try_exists(ancestor.join("project.bri")).await? {
-                return self.load(brioche, ancestor, validate).await;
+                return self.load(brioche, ancestor, validation).await;
             }
         }
 
@@ -106,7 +123,9 @@ impl Projects {
             .await
             .with_context(|| format!("failed to fetch '{project_name}' from registry"))?;
 
-        let loaded_project_hash = self.load(brioche, &local_path, true).await?;
+        let loaded_project_hash = self
+            .load(brioche, &local_path, ProjectValidation::Standard)
+            .await?;
 
         anyhow::ensure!(
             loaded_project_hash == project_hash,
@@ -493,7 +512,7 @@ async fn load_project(
     projects: Projects,
     brioche: Brioche,
     path: PathBuf,
-    fully_valid: bool,
+    validation: ProjectValidation,
     depth: usize,
 ) -> anyhow::Result<ProjectHash> {
     let rt = tokio::runtime::Handle::current();
@@ -503,7 +522,7 @@ async fn load_project(
 
         local_set.spawn_local(async move {
             let result =
-                load_project_inner(&projects, &brioche, &path, fully_valid, false, depth).await;
+                load_project_inner(&projects, &brioche, &path, validation, false, depth).await;
             let _ = tx.send(result).inspect_err(|err| {
                 tracing::warn!("failed to send project load result: {err:?}");
             });
@@ -521,7 +540,7 @@ async fn load_project_inner(
     projects: &Projects,
     brioche: &Brioche,
     path: &Path,
-    fully_valid: bool,
+    validation: ProjectValidation,
     lockfile_required: bool,
     depth: usize,
 ) -> anyhow::Result<(ProjectHash, Arc<Project>, Vec<LoadProjectError>)> {
@@ -590,7 +609,7 @@ async fn load_project_inner(
                     brioche,
                     name,
                     &dep_path,
-                    fully_valid,
+                    validation,
                     lockfile_required,
                     dep_depth,
                     &mut errors,
@@ -609,7 +628,7 @@ async fn load_project_inner(
                     workspace.as_ref(),
                     name,
                     version,
-                    fully_valid,
+                    validation,
                     lockfile_required,
                     lockfile.as_ref(),
                     dep_depth,
@@ -652,7 +671,7 @@ async fn load_project_inner(
                         workspace.as_ref(),
                         dep_name,
                         &Version::Any,
-                        fully_valid,
+                        validation,
                         lockfile_required,
                         lockfile.as_ref(),
                         dep_depth,
@@ -681,20 +700,23 @@ async fn load_project_inner(
         let mut module_statics = BTreeMap::new();
         for static_ in &module.statics {
             // Only resolve the static if we need a fully valid project
-            if fully_valid {
-                let recipe_hash = resolve_static(
-                    brioche,
-                    &path,
-                    module,
-                    static_,
-                    lockfile_required,
-                    lockfile.as_ref(),
-                    &mut new_lockfile,
-                )
-                .await?;
-                module_statics.insert(static_.clone(), Some(recipe_hash));
-            } else {
-                module_statics.insert(static_.clone(), None);
+            match validation {
+                ProjectValidation::Standard => {
+                    let recipe_hash = resolve_static(
+                        brioche,
+                        &path,
+                        module,
+                        static_,
+                        lockfile_required,
+                        lockfile.as_ref(),
+                        &mut new_lockfile,
+                    )
+                    .await?;
+                    module_statics.insert(static_.clone(), Some(recipe_hash));
+                }
+                ProjectValidation::Minimal => {
+                    module_statics.insert(static_.clone(), None);
+                }
             }
         }
 
@@ -726,24 +748,27 @@ async fn load_project_inner(
         // the new lockfile includes old statics that weren't updated. This
         // can mean that e.g. unnecessary downloads are kept, but this is
         // appropriate for situations like the LSP
-        if !fully_valid {
-            let Lockfile {
-                dependencies: _,
-                downloads: new_downloads,
-                git_refs: new_git_refs,
-            } = &mut new_lockfile;
+        match validation {
+            ProjectValidation::Standard => {}
+            ProjectValidation::Minimal => {
+                let Lockfile {
+                    dependencies: _,
+                    downloads: new_downloads,
+                    git_refs: new_git_refs,
+                } = &mut new_lockfile;
 
-            if let Some(lockfile) = &lockfile {
-                for (url, hash) in &lockfile.downloads {
-                    new_downloads
-                        .entry(url.clone())
-                        .or_insert_with(|| hash.clone());
-                }
+                if let Some(lockfile) = &lockfile {
+                    for (url, hash) in &lockfile.downloads {
+                        new_downloads
+                            .entry(url.clone())
+                            .or_insert_with(|| hash.clone());
+                    }
 
-                for (url, options) in &lockfile.git_refs {
-                    new_git_refs
-                        .entry(url.clone())
-                        .or_insert_with(|| options.clone());
+                    for (url, options) in &lockfile.git_refs {
+                        new_git_refs
+                            .entry(url.clone())
+                            .or_insert_with(|| options.clone());
+                    }
                 }
             }
         }
@@ -779,7 +804,7 @@ async fn try_load_path_dependency_with_errors(
     brioche: &Brioche,
     name: &str,
     dep_path: &Path,
-    fully_valid: bool,
+    validation: ProjectValidation,
     lockfile_required: bool,
     dep_depth: usize,
     errors: &mut Vec<LoadProjectError>,
@@ -788,7 +813,7 @@ async fn try_load_path_dependency_with_errors(
         projects,
         brioche,
         dep_path,
-        fully_valid,
+        validation,
         lockfile_required,
         dep_depth,
     )
@@ -824,7 +849,7 @@ async fn try_load_registry_dependency_with_errors(
     workspace: Option<&Workspace>,
     name: &str,
     version: &Version,
-    fully_valid: bool,
+    validation: ProjectValidation,
     lockfile_required: bool,
     lockfile: Option<&Lockfile>,
     dep_depth: usize,
@@ -855,7 +880,7 @@ async fn try_load_registry_dependency_with_errors(
         projects,
         brioche,
         &resolved_dep.local_path,
-        fully_valid,
+        validation,
         resolved_dep.lockfile_required,
         dep_depth,
     )
