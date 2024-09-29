@@ -93,11 +93,14 @@ class Lsp {
 
   completion(params: lsp.TextDocumentPositionParams): lsp.CompletionItem[] {
     const fileName = params.textDocument.uri;
-    const position = ts.getPositionOfLineAndCharacter(
+    const position = tryGetPositionOfLineAndCharacter(
       this.host.getSourceFile(fileName),
       params.position.line,
       params.position.character
     );
+    if (position == null) {
+      return [];
+    }
 
     const completions = this.languageService.getCompletionsAtPosition(brioche.toTsUrl(fileName), position, {});
 
@@ -137,12 +140,13 @@ class Lsp {
         return [];
       }
 
+      const start = sourceFile.getLineAndCharacterOfPosition(diagnostic.start);
+      const end = sourceFile.getLineAndCharacterOfPosition(diagnostic.start + diagnostic.length);
+
       return [{
         range: {
-          start: sourceFile.getLineAndCharacterOfPosition(diagnostic.start),
-          end: sourceFile.getLineAndCharacterOfPosition(
-            diagnostic.start + diagnostic.length
-          ),
+          start,
+          end,
         },
         message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
       }];
@@ -166,12 +170,12 @@ class Lsp {
       return [{
         range: {
           start: {
-            line: startLine - 1,
-            character: startColumn - 1,
+            line: Math.max(0, startLine - 1),
+            character: Math.max(0, startColumn - 1),
           },
           end: {
-            line: endLine - 1,
-            character: endColumn - 1,
+            line: Math.max(0, endLine - 1),
+            character: Math.max(0, endColumn - 1),
           },
         },
         message: diagnostic.message,
@@ -189,11 +193,15 @@ class Lsp {
       return null;
     }
 
-    const position = ts.getPositionOfLineAndCharacter(
+    const position = tryGetPositionOfLineAndCharacter(
       sourceFile,
       params.position.line,
       params.position.character,
     );
+    if (position == null) {
+      return null;
+    }
+
     const definition = this.languageService.getDefinitionAtPosition(
       brioche.toTsUrl(fileName),
       position,
@@ -224,11 +232,15 @@ class Lsp {
       return null;
     }
 
-    const position = ts.getPositionOfLineAndCharacter(
+    const position = tryGetPositionOfLineAndCharacter(
       sourceFile,
       params.position.line,
       params.position.character,
     );
+    if (position == null) {
+      return null;
+    }
+
     const info = this.languageService.getQuickInfoAtPosition(brioche.toTsUrl(fileName), position);
     if (!info) {
       return null;
@@ -249,11 +261,15 @@ class Lsp {
       return null;
     }
 
-    const position = ts.getPositionOfLineAndCharacter(
+    const position = tryGetPositionOfLineAndCharacter(
       sourceFile,
       params.position.line,
       params.position.character,
     );
+    if (position == null) {
+      return null;
+    }
+
     const references = this.languageService.getReferencesAtPosition(brioche.toTsUrl(fileName), position);
     if (!references) {
       return null;
@@ -286,6 +302,10 @@ class Lsp {
       params.position.line,
       params.position.character,
     );
+    if (position == null) {
+      return null;
+    }
+
     const searchFilenames = new Set([...this.host.getScriptFileNames(), brioche.toTsUrl(fileName)]);
     const highlights = this.languageService.getDocumentHighlights(brioche.toTsUrl(fileName), position, Array.from(searchFilenames));
     if (!highlights) {
@@ -316,11 +336,15 @@ class Lsp {
       return null;
     }
 
-    const position = ts.getPositionOfLineAndCharacter(
+    const position = tryGetPositionOfLineAndCharacter(
       sourceFile,
       params.position.line,
       params.position.character,
     );
+    if (position == null) {
+      return null;
+    }
+
     const rename = this.languageService.getRenameInfo(brioche.toTsUrl(fileName), position, {});
     if (rename == null || !rename.canRename) {
       return null;
@@ -384,5 +408,18 @@ function lspSeverityFromEslint(severity: eslint.Linter.Severity): lsp.Diagnostic
     case 2:
     default:
       return lsp.DiagnosticSeverity.Error;
+  }
+}
+
+function tryGetPositionOfLineAndCharacter(
+  sourceFile: ts.SourceFile,
+  line: number,
+  character: number
+): number | null {
+  try {
+    return ts.getPositionOfLineAndCharacter(sourceFile, line, character);
+  } catch (error) {
+    console.warn("error getting position of line and character", { line, character }, error);
+    return null;
   }
 }
