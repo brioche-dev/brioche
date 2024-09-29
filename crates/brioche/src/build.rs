@@ -24,6 +24,10 @@ pub struct BuildArgs {
     #[arg(long)]
     check: bool,
 
+    /// Validate that the lockfile is up-to-date
+    #[arg(long)]
+    locked: bool,
+
     /// Replace the output path if it already exists
     #[arg(long)]
     replace: bool,
@@ -56,9 +60,15 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let build_future = async {
         let project_hash = super::load_project(&brioche, &projects, &args.project).await?;
 
-        let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
-        if num_lockfiles_updated > 0 {
-            tracing::info!(num_lockfiles_updated, "updated lockfiles");
+        // If the `--locked` flag is used, validate that all lockfiles are
+        // up-to-date. Otherwise, write any out-of-date lockfiles
+        if args.locked {
+            projects.validate_no_dirty_lockfiles()?;
+        } else {
+            let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
+            if num_lockfiles_updated > 0 {
+                tracing::info!(num_lockfiles_updated, "updated lockfiles");
+            }
         }
 
         if args.check {
