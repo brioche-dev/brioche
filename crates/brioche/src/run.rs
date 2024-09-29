@@ -27,6 +27,10 @@ pub struct RunArgs {
     #[arg(long)]
     check: bool,
 
+    /// Validate that the lockfile is up-to-date
+    #[arg(long)]
+    locked: bool,
+
     /// Keep temporary build files. Useful for debugging build failures
     #[arg(long)]
     keep_temps: bool,
@@ -50,14 +54,24 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
         .await?;
     let projects = brioche_core::project::Projects::default();
 
-    let build_future = async {
-        let project_hash =
-            super::load_project(&brioche, &projects, &args.project, ProjectLocking::Unlocked)
-                .await?;
+    let locking = if args.locked {
+        ProjectLocking::Locked
+    } else {
+        ProjectLocking::Unlocked
+    };
 
-        let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
-        if num_lockfiles_updated > 0 {
-            tracing::info!(num_lockfiles_updated, "updated lockfiles");
+    let build_future = async {
+        let project_hash = super::load_project(&brioche, &projects, &args.project, locking).await?;
+
+        // If the `--locked` flag is used, validate that all lockfiles are
+        // up-to-date. Otherwise, write any out-of-date lockfiles
+        if args.locked {
+            projects.validate_no_dirty_lockfiles()?;
+        } else {
+            let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
+            if num_lockfiles_updated > 0 {
+                tracing::info!(num_lockfiles_updated, "updated lockfiles");
+            }
         }
 
         if args.check {

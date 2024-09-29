@@ -56,6 +56,7 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         .build()
         .await?;
     let projects = brioche_core::project::Projects::default();
+
     let locking = if args.locked {
         ProjectLocking::Locked
     } else {

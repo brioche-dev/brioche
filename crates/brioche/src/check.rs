@@ -32,6 +32,14 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
         .await?;
     let projects = brioche_core::project::Projects::default();
 
+    let check_options = CheckOptions {
+        locked: args.locked,
+    };
+    let locking = if args.locked {
+        ProjectLocking::Locked
+    } else {
+        ProjectLocking::Unlocked
+    };
     let mut error_result = Option::None;
 
     // Handle the case where no projects and no registries are specified
@@ -41,15 +49,6 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
         } else {
             args.project.project
         };
-
-    let check_options = CheckOptions {
-        locked: args.locked,
-    };
-    let locking = if args.locked {
-        ProjectLocking::Locked
-    } else {
-        ProjectLocking::Unlocked
-    };
 
     // Loop over the projects
     for project_path in projects_path {
