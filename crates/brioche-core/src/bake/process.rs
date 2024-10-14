@@ -601,7 +601,7 @@ async fn run_sandboxed_self_exec(
                     bytes_read = stderr.read(&mut stderr_buffer) => {
                         let buffer = &stderr_buffer[..bytes_read?];
                         write_stderr.write_all(buffer).await?;
-                        ProcessPacket::Stdout(buffer.to_vec())
+                        ProcessPacket::Stderr(buffer.to_vec())
                     }
                 };
 
