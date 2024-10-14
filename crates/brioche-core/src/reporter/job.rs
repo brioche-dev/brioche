@@ -370,6 +370,12 @@ impl ProcessPacket {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ProcessStream {
+    Stdout,
+    Stderr,
+}
+
 #[derive(Debug, Clone)]
 pub enum ProcessStatus {
     Running {
