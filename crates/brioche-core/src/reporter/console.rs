@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
     sync::{
         atomic::{AtomicBool, AtomicUsize},
@@ -6,7 +7,7 @@ use std::{
     },
 };
 
-use bstr::{BString, ByteSlice as _};
+use bstr::{BString, ByteSlice};
 use human_repr::HumanDuration as _;
 use opentelemetry::trace::TracerProvider as _;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
@@ -72,13 +73,11 @@ pub fn start_console_reporter(
                         start,
                         is_evaluating,
                         jobs,
-                        terminal: tokio::sync::RwLock::new(termwiz::surface::Surface::new(80, 24)),
+                        job_outputs: Arc::new(tokio::sync::RwLock::new(JobOutputContents::new(
+                            1024 * 1024,
+                        ))),
                     };
-                    ConsoleReporter::SuperConsole {
-                        console,
-                        root,
-                        partial_lines: HashMap::new(),
-                    }
+                    ConsoleReporter::SuperConsole { console, root }
                 }
                 None => ConsoleReporter::Plain {
                     partial_lines: HashMap::new(),
@@ -205,7 +204,6 @@ enum ConsoleReporter {
     SuperConsole {
         console: superconsole::SuperConsole,
         root: JobsComponent,
-        partial_lines: HashMap<JobId, Vec<u8>>,
     },
     Plain {
         partial_lines: HashMap<JobId, Vec<u8>>,
@@ -261,37 +259,19 @@ impl ConsoleReporter {
 
     fn update_job(&mut self, id: JobId, update: UpdateJob) {
         match self {
-            ConsoleReporter::SuperConsole {
-                root,
-                partial_lines,
-                ..
-            } => {
-                if let UpdateJob::Process {
-                    ref packet,
-                    ref status,
-                } = update
-                {
-                    let mut terminal = root.terminal.blocking_write();
+            ConsoleReporter::SuperConsole { root, .. } => {
+                if let UpdateJob::Process { ref packet, .. } = update {
                     if let Some(packet) = &packet.0 {
-                        let child_id = status
-                            .child_id()
-                            .map(|id| id.to_string())
-                            .unwrap_or_else(|| "?".to_string());
-                        let buffer = partial_lines.entry(id).or_default();
-                        buffer.extend_from_slice(packet.bytes());
-
-                        if let Some((lines, remainder)) = buffer.rsplit_once_str(b"\n") {
-                            // Write each output line to the terminal, preceded
-                            // by the process ID. We also use "\r\n" since we're
-                            // writing to a terminal-like output.
-                            for line in lines.split(|&b| b == b'\n') {
-                                terminal.add_change("\r\n");
-                                terminal.add_change(format!("[{child_id}] "));
-                                terminal.add_change(String::from_utf8_lossy(line));
+                        let mut job_outputs = root.job_outputs.blocking_write();
+                        let (stream, bytes) = match packet {
+                            super::job::ProcessPacket::Stdout(bytes) => {
+                                (ProcessStream::Stdout, bytes)
                             }
-
-                            *buffer = remainder.to_vec();
-                        }
+                            super::job::ProcessPacket::Stderr(bytes) => {
+                                (ProcessStream::Stderr, bytes)
+                            }
+                        };
+                        job_outputs.append(JobOutputStream { job_id: id, stream }, bytes);
                     }
                 };
 
@@ -352,11 +332,7 @@ impl ConsoleReporter {
 
     fn render(&mut self) -> anyhow::Result<()> {
         match self {
-            ConsoleReporter::SuperConsole {
-                console,
-                root,
-                partial_lines: _,
-            } => {
+            ConsoleReporter::SuperConsole { console, root } => {
                 console.render(root)?;
             }
             ConsoleReporter::Plain { .. } => {}
@@ -367,11 +343,7 @@ impl ConsoleReporter {
 
     fn finalize(self) -> anyhow::Result<()> {
         match self {
-            ConsoleReporter::SuperConsole {
-                console,
-                root,
-                partial_lines: _,
-            } => {
+            ConsoleReporter::SuperConsole { console, root } => {
                 console.finalize(&root)?;
             }
             ConsoleReporter::Plain { .. } => {}
@@ -381,11 +353,13 @@ impl ConsoleReporter {
     }
 }
 
+const JOB_LABEL_WIDTH: usize = 7;
+
 struct JobsComponent {
     start: std::time::Instant,
     is_evaluating: Arc<AtomicBool>,
     jobs: Arc<tokio::sync::RwLock<HashMap<JobId, Job>>>,
-    terminal: tokio::sync::RwLock<termwiz::surface::Surface>,
+    job_outputs: Arc<tokio::sync::RwLock<JobOutputContents>>,
 }
 
 impl superconsole::Component for JobsComponent {
@@ -395,23 +369,25 @@ impl superconsole::Component for JobsComponent {
         mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
         let jobs = self.jobs.blocking_read();
-        let mut jobs: Vec<_> = jobs.iter().collect();
+        let num_jobs = jobs.len();
+
         let max_visible_jobs = std::cmp::max(dimensions.height.saturating_sub(15), 3);
 
-        jobs.sort_by(cmp_job_entries);
-        let job_partition_point = jobs.partition_point(|&(_, job)| !job.is_complete());
-        let (incomplete_jobs, complete_jobs) = jobs.split_at(job_partition_point);
+        let mut job_list: Vec<_> = jobs.iter().collect();
+        job_list.sort_by(cmp_job_entries);
 
-        let num_jobs = jobs.len();
+        let job_partition_point = job_list.partition_point(|&(_, job)| !job.is_complete());
+        let (incomplete_jobs, complete_jobs) = job_list.split_at(job_partition_point);
+
         let num_complete_jobs = complete_jobs.len();
         let is_evaluating = self.is_evaluating.load(std::sync::atomic::Ordering::SeqCst);
 
-        let jobs = incomplete_jobs
+        let job_list = incomplete_jobs
             .iter()
             .chain(complete_jobs.iter().take(3))
             .take(max_visible_jobs);
 
-        let jobs_lines = jobs
+        let jobs_lines = job_list
             .map(|(_, job)| {
                 job.draw(
                     superconsole::Dimensions {
@@ -423,20 +399,76 @@ impl superconsole::Component for JobsComponent {
             })
             .collect::<Result<Vec<superconsole::Lines>, _>>()?;
 
-        let num_terminal_lines = dimensions
+        let num_job_output_lines = dimensions
             .height
             .saturating_sub(jobs_lines.len())
             .saturating_sub(3);
-        let mut terminal = self.terminal.blocking_write();
+        let job_outputs = self.job_outputs.blocking_read();
 
-        terminal.resize(dimensions.width, std::cmp::max(num_terminal_lines, 1));
+        let job_output_content_width = dimensions
+            .width
+            .saturating_sub(JOB_LABEL_WIDTH)
+            .saturating_sub(4);
 
-        let terminal_lines = terminal.screen_lines();
-        let terminal_lines = terminal_lines
-            .iter()
-            .skip_while(|line| line.is_whitespace())
-            .map(|line| superconsole::Line::sanitized(&line.as_str()))
-            .take(num_terminal_lines);
+        let contents_rev = Some(job_outputs.contents.iter().rev())
+            .filter(|_| job_output_content_width > 0)
+            .into_iter()
+            .flatten();
+        let lines_with_streams_rev = contents_rev
+            .flat_map(|(stream, content)| {
+                let content = match content.strip_suffix(b"\n") {
+                    Some(content) => content,
+                    None => content,
+                };
+                let lines_rev = content
+                    .lines()
+                    .rev()
+                    .flat_map(|line| line.chunks(job_output_content_width).rev());
+                lines_rev.map(|line| (*stream, bstr::BStr::new(line)))
+            })
+            .take(num_job_output_lines)
+            .collect::<Vec<_>>();
+
+        let mut job_output_lines = vec![];
+        let mut last_job_id = None;
+        for (stream, line) in lines_with_streams_rev.iter().rev() {
+            // Merge job labels for consecutive lines for the same job
+            let gutter = if last_job_id == Some(stream.job_id) {
+                format!("{:1$}│ ", "", JOB_LABEL_WIDTH)
+            } else {
+                let job = jobs.get(&stream.job_id);
+                let child_id = match job {
+                    Some(Job::Process { status, .. }) => status.child_id(),
+                    _ => None,
+                };
+                let job_label = match child_id {
+                    Some(child_id) => format!("{child_id}"),
+                    None => "?".to_string(),
+                };
+                let job_label = string_with_width(&job_label, JOB_LABEL_WIDTH, "…");
+
+                format!("{job_label:0$}│ ", JOB_LABEL_WIDTH)
+            };
+
+            // Pick a color based on the job ID
+            let gutter_color = match stream.job_id.0 % 6 {
+                0 => superconsole::style::Color::Red,
+                1 => superconsole::style::Color::Green,
+                2 => superconsole::style::Color::Yellow,
+                3 => superconsole::style::Color::Blue,
+                4 => superconsole::style::Color::Magenta,
+                5 => superconsole::style::Color::Cyan,
+                _ => unreachable!(),
+            };
+
+            let styled_line = superconsole::Line::from_iter([
+                superconsole::Span::new_colored_lossy(&gutter, gutter_color),
+                superconsole::Span::new_unstyled_lossy(line),
+            ]);
+            job_output_lines.push(styled_line);
+
+            last_job_id = Some(stream.job_id)
+        }
 
         let elapsed = self.start.elapsed().human_duration();
         let summary_line = match mode {
@@ -458,7 +490,8 @@ impl superconsole::Component for JobsComponent {
             }
         };
 
-        let lines = terminal_lines
+        let lines = job_output_lines
+            .into_iter()
             .chain(jobs_lines.into_iter().flatten())
             .chain(summary_line)
             .collect();
@@ -606,13 +639,41 @@ fn cmp_job_entries(
     })
 }
 
+fn string_with_width<'a>(s: &'a str, num_chars: usize, replacement: &str) -> Cow<'a, str> {
+    if num_chars == 0 {
+        return Cow::Borrowed("");
+    }
+
+    let s_chars = s.chars().count();
+
+    match s_chars.cmp(&num_chars) {
+        std::cmp::Ordering::Equal => Cow::Borrowed(s),
+        std::cmp::Ordering::Less => Cow::Owned(format!("{s:0$}", num_chars)),
+        std::cmp::Ordering::Greater => {
+            let replacement_chars = replacement.chars().count();
+            let keep_chars = num_chars.saturating_sub(replacement_chars);
+
+            let left_chars = keep_chars / 2;
+            let right_chars = keep_chars.saturating_sub(left_chars);
+
+            let new_chars = s
+                .chars()
+                .take(left_chars)
+                .chain(replacement.chars().take(num_chars))
+                .chain(s.chars().skip(s_chars.saturating_sub(right_chars)));
+
+            Cow::Owned(new_chars.collect())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
 
     use crate::reporter::job::ProcessStream::{self, Stderr, Stdout};
 
-    use super::{JobId, JobOutputContents, JobOutputStream};
+    use super::{string_with_width, JobId, JobOutputContents, JobOutputStream};
 
     fn job_stream(id: usize, stream: ProcessStream) -> JobOutputStream {
         JobOutputStream {
@@ -702,5 +763,46 @@ mod tests {
                 (job_stream(2, Stdout), "jk\n".into()),
             ]
         );
+    }
+
+    #[test]
+    fn test_string_with_width() {
+        assert_eq!(string_with_width("abcd", 10, "-"), "abcd      ");
+        assert_eq!(string_with_width("abcd", 4, "-"), "abcd");
+        assert_eq!(string_with_width("abcd", 3, "-"), "a-d");
+        assert_eq!(string_with_width("abcd", 1, "-"), "-");
+        assert_eq!(string_with_width("abcd", 0, "-"), "");
+
+        assert_eq!(string_with_width("abcde", 10, "-"), "abcde     ");
+        assert_eq!(string_with_width("abcde", 5, "-"), "abcde");
+        assert_eq!(string_with_width("abcde", 3, "-"), "a-e");
+        assert_eq!(string_with_width("abcde", 1, "-"), "-");
+        assert_eq!(string_with_width("abcde", 0, "-"), "");
+
+        assert_eq!(string_with_width("abcd", 10, "…"), "abcd      ");
+        assert_eq!(string_with_width("abcd", 4, "…"), "abcd");
+        assert_eq!(string_with_width("abcd", 3, "…"), "a…d");
+        assert_eq!(string_with_width("abcd", 1, "…"), "…");
+        assert_eq!(string_with_width("abcd", 0, "…"), "");
+
+        assert_eq!(string_with_width("abcde", 10, "…"), "abcde     ");
+        assert_eq!(string_with_width("abcde", 5, "…"), "abcde");
+        assert_eq!(string_with_width("abcde", 3, "…"), "a…e");
+        assert_eq!(string_with_width("abcde", 1, "…"), "…");
+        assert_eq!(string_with_width("abcde", 0, "…"), "");
+
+        assert_eq!(string_with_width("abcdef", 10, "..."), "abcdef    ");
+        assert_eq!(string_with_width("abcdef", 6, "..."), "abcdef");
+        assert_eq!(string_with_width("abcdef", 5, "..."), "a...f");
+        assert_eq!(string_with_width("abcdef", 3, "..."), "...");
+        assert_eq!(string_with_width("abcdef", 1, "..."), ".");
+        assert_eq!(string_with_width("abcdef", 0, "..."), "");
+
+        assert_eq!(string_with_width("abcdefg", 10, "..."), "abcdefg   ");
+        assert_eq!(string_with_width("abcdefg", 7, "..."), "abcdefg");
+        assert_eq!(string_with_width("abcdefg", 5, "..."), "a...g");
+        assert_eq!(string_with_width("abcdefg", 3, "..."), "...");
+        assert_eq!(string_with_width("abcdefg", 1, "..."), ".");
+        assert_eq!(string_with_width("abcdefg", 0, "..."), "");
     }
 }
