@@ -15,6 +15,7 @@ use crate::{
         CompleteProcessTemplateComponent, CompressionFormat, DirectoryError, DownloadRecipe, Meta,
         ProcessRecipe, ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
     },
+    reporter::job::{NewJob, ProcessPacket, ProcessStatus, UpdateJob},
     sandbox::{
         HostPathMode, SandboxExecutionConfig, SandboxPath, SandboxPathOptions, SandboxTemplate,
         SandboxTemplateComponent,
@@ -578,8 +579,8 @@ async fn run_sandboxed_self_exec(
     let mut stdout = child.stdout.take().expect("failed to get stdout");
     let mut stderr = child.stderr.take().expect("failed to get stderr");
 
-    let mut job_status = crate::reporter::ProcessStatus::Running { child_id, start };
-    let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Process {
+    let mut job_status = ProcessStatus::Running { child_id, start };
+    let job_id = brioche.reporter.add_job(NewJob::Process {
         status: job_status.clone(),
     });
 
@@ -595,12 +596,12 @@ async fn run_sandboxed_self_exec(
                     bytes_read = stdout.read(&mut stdout_buffer) => {
                         let buffer = &stdout_buffer[..bytes_read?];
                         write_stdout.write_all(buffer).await?;
-                        crate::reporter::ProcessPacket::Stdout(buffer.to_vec())
+                        ProcessPacket::Stdout(buffer.to_vec())
                     }
                     bytes_read = stderr.read(&mut stderr_buffer) => {
                         let buffer = &stderr_buffer[..bytes_read?];
                         write_stderr.write_all(buffer).await?;
-                        crate::reporter::ProcessPacket::Stdout(buffer.to_vec())
+                        ProcessPacket::Stdout(buffer.to_vec())
                     }
                 };
 
@@ -610,7 +611,7 @@ async fn run_sandboxed_self_exec(
 
                 brioche.reporter.update_job(
                     job_id,
-                    crate::reporter::UpdateJob::Process {
+                    UpdateJob::Process {
                         packet: Some(packet).into(),
                         status: job_status.clone(),
                     },
@@ -624,14 +625,14 @@ async fn run_sandboxed_self_exec(
     let output = child.wait_with_output().await;
     let status = output.as_ref().ok().map(|output| output.status);
 
-    job_status = crate::reporter::ProcessStatus::Exited {
+    job_status = ProcessStatus::Exited {
         child_id,
         status,
         elapsed: start.elapsed(),
     };
     brioche.reporter.update_job(
         job_id,
-        crate::reporter::UpdateJob::Process {
+        UpdateJob::Process {
             packet: None.into(),
             status: job_status,
         },

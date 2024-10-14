@@ -1,7 +1,7 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Context as _;
-use brioche_core::{fs_utils, project::ProjectLocking, reporter::ConsoleReporterKind};
+use brioche_core::{fs_utils, project::ProjectLocking, reporter::console::ConsoleReporterKind};
 use clap::Parser;
 use human_repr::HumanDuration;
 use tracing::Instrument;
@@ -47,7 +47,7 @@ pub struct BuildArgs {
 
 pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
-        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?;
     reporter.set_is_evaluating(true);
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())

@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use brioche_core::{project::ProjectLocking, reporter::ConsoleReporterKind};
+use brioche_core::{project::ProjectLocking, reporter::console::ConsoleReporterKind};
 use clap::Parser;
 use human_repr::HumanDuration;
 use tracing::Instrument;
@@ -44,7 +44,7 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = if args.quiet {
         brioche_core::reporter::start_null_reporter()
     } else {
-        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?
+        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?
     };
     reporter.set_is_evaluating(true);
 

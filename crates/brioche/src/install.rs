@@ -6,7 +6,7 @@ use brioche_core::project::ProjectHash;
 use brioche_core::project::ProjectLocking;
 use brioche_core::project::ProjectValidation;
 use brioche_core::project::Projects;
-use brioche_core::reporter::ConsoleReporterKind;
+use brioche_core::reporter::console::ConsoleReporterKind;
 use brioche_core::reporter::Reporter;
 use brioche_core::Brioche;
 use clap::Parser;
@@ -35,7 +35,7 @@ pub struct InstallArgs {
 
 pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
-        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?;
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .build()

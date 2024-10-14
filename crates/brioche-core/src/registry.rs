@@ -12,6 +12,7 @@ use crate::{
     blob::BlobHash,
     project::{Project, ProjectHash},
     recipe::{Artifact, Recipe, RecipeHash},
+    reporter::job::{NewJob, UpdateJob},
     Brioche,
 };
 
@@ -358,12 +359,10 @@ pub async fn fetch_bake_references(
         return Ok(());
     }
 
-    let job_id = brioche
-        .reporter
-        .add_job(crate::reporter::NewJob::RegistryFetch {
-            total_blobs: unknown_blobs.len(),
-            total_recipes: unknown_recipes.len(),
-        });
+    let job_id = brioche.reporter.add_job(NewJob::RegistryFetch {
+        total_blobs: unknown_blobs.len(),
+        total_recipes: unknown_recipes.len(),
+    });
 
     let fetch_blobs_fut = futures::stream::iter(unknown_blobs)
         .map(Ok)
@@ -376,7 +375,7 @@ pub async fn fetch_bake_references(
 
                 brioche.reporter.update_job(
                     job_id,
-                    crate::reporter::UpdateJob::RegistryFetchAdd {
+                    UpdateJob::RegistryFetchAdd {
                         blobs_fetched: 1,
                         recipes_fetched: 0,
                     },
@@ -401,7 +400,7 @@ pub async fn fetch_bake_references(
 
                 brioche.reporter.update_job(
                     job_id,
-                    crate::reporter::UpdateJob::RegistryFetchAdd {
+                    UpdateJob::RegistryFetchAdd {
                         blobs_fetched: 0,
                         recipes_fetched: 1,
                     },
@@ -420,7 +419,7 @@ pub async fn fetch_bake_references(
 
     brioche
         .reporter
-        .update_job(job_id, crate::reporter::UpdateJob::RegistryFetchFinish);
+        .update_job(job_id, UpdateJob::RegistryFetchFinish);
 
     Ok(())
 }
@@ -433,12 +432,10 @@ pub async fn fetch_recipes_deep(
     let mut pending_recipes = recipes;
     let mut checked_recipes = HashSet::new();
 
-    let job_id = brioche
-        .reporter
-        .add_job(crate::reporter::NewJob::RegistryFetch {
-            total_blobs: 0,
-            total_recipes: 0,
-        });
+    let job_id = brioche.reporter.add_job(NewJob::RegistryFetch {
+        total_blobs: 0,
+        total_recipes: 0,
+    });
 
     let mut total_to_fetch = 0;
 
@@ -457,7 +454,7 @@ pub async fn fetch_recipes_deep(
         total_to_fetch += unknown_recipes.len();
         brioche.reporter.update_job(
             job_id,
-            crate::reporter::UpdateJob::RegistryFetchUpdate {
+            UpdateJob::RegistryFetchUpdate {
                 complete_blobs: None,
                 complete_recipes: None,
                 total_blobs: None,
@@ -485,7 +482,7 @@ pub async fn fetch_recipes_deep(
 
                     brioche.reporter.update_job(
                         job_id,
-                        crate::reporter::UpdateJob::RegistryFetchAdd {
+                        UpdateJob::RegistryFetchAdd {
                             blobs_fetched: 0,
                             recipes_fetched: 1,
                         },
@@ -512,7 +509,7 @@ pub async fn fetch_recipes_deep(
 
     brioche
         .reporter
-        .update_job(job_id, crate::reporter::UpdateJob::RegistryFetchFinish);
+        .update_job(job_id, UpdateJob::RegistryFetchFinish);
 
     Ok(())
 }
@@ -553,12 +550,10 @@ pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow:
         return Ok(());
     }
 
-    let job_id = brioche
-        .reporter
-        .add_job(crate::reporter::NewJob::RegistryFetch {
-            total_blobs: unknown_blobs.len(),
-            total_recipes: 0,
-        });
+    let job_id = brioche.reporter.add_job(NewJob::RegistryFetch {
+        total_blobs: unknown_blobs.len(),
+        total_recipes: 0,
+    });
 
     futures::stream::iter(unknown_blobs)
         .map(Ok)
@@ -571,7 +566,7 @@ pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow:
 
                 brioche.reporter.update_job(
                     job_id,
-                    crate::reporter::UpdateJob::RegistryFetchAdd {
+                    UpdateJob::RegistryFetchAdd {
                         blobs_fetched: 1,
                         recipes_fetched: 0,
                     },
@@ -584,7 +579,7 @@ pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow:
 
     brioche
         .reporter
-        .update_job(job_id, crate::reporter::UpdateJob::RegistryFetchFinish);
+        .update_job(job_id, UpdateJob::RegistryFetchFinish);
 
     Ok(())
 }
