@@ -574,12 +574,15 @@ async fn run_sandboxed_self_exec(
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
-    let start = std::time::Instant::now();
+    let started_at = std::time::Instant::now();
     let child_id = child.id();
     let mut stdout = child.stdout.take().expect("failed to get stdout");
     let mut stderr = child.stderr.take().expect("failed to get stderr");
 
-    let mut job_status = ProcessStatus::Running { child_id, start };
+    let mut job_status = ProcessStatus::Running {
+        child_id,
+        started_at,
+    };
     let job_id = brioche.reporter.add_job(NewJob::Process {
         status: job_status.clone(),
     });
@@ -628,7 +631,8 @@ async fn run_sandboxed_self_exec(
     job_status = ProcessStatus::Exited {
         child_id,
         status,
-        elapsed: start.elapsed(),
+        started_at,
+        finished_at: std::time::Instant::now(),
     };
     brioche.reporter.update_job(
         job_id,

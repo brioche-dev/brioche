@@ -23,9 +23,10 @@ pub async fn download(
 
     tracing::debug!(%url, "starting download");
 
-    let job_id = brioche
-        .reporter
-        .add_job(NewJob::Download { url: url.clone() });
+    let job_id = brioche.reporter.add_job(NewJob::Download {
+        url: url.clone(),
+        started_at: std::time::Instant::now(),
+    });
 
     let response = brioche.download_client.get(url.clone()).send().await?;
     let response = response.error_for_status()?;
@@ -57,6 +58,7 @@ pub async fn download(
                     job_id,
                     UpdateJob::Download {
                         progress_percent: Some(progress_percent),
+                        finished_at: None,
                     },
                 );
             }
@@ -78,6 +80,7 @@ pub async fn download(
         job_id,
         UpdateJob::Download {
             progress_percent: Some(100),
+            finished_at: Some(std::time::Instant::now()),
         },
     );
 

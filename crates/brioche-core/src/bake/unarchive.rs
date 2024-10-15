@@ -28,7 +28,9 @@ pub async fn bake_unarchive(
 
     tracing::debug!(%blob_hash, archive = ?unarchive.archive, compression = ?unarchive.compression, "starting unarchive");
 
-    let job_id = brioche.reporter.add_job(NewJob::Unarchive);
+    let job_id = brioche.reporter.add_job(NewJob::Unarchive {
+        started_at: std::time::Instant::now(),
+    });
 
     let archive_path = {
         let mut permit = crate::blob::get_save_blob_permit().await?;
@@ -61,9 +63,13 @@ pub async fn bake_unarchive(
                 let estimated_progress =
                     position as f64 / (uncompressed_archive_size as f64).max(1.0);
                 let progress_percent = (estimated_progress * 100.0).min(99.0) as u8;
-                brioche
-                    .reporter
-                    .update_job(job_id, UpdateJob::Unarchive { progress_percent });
+                brioche.reporter.update_job(
+                    job_id,
+                    UpdateJob::Unarchive {
+                        progress_percent,
+                        finished_at: None,
+                    },
+                );
 
                 let entry = match archive_entry.header().entry_type() {
                     tar::EntryType::Regular => {
@@ -177,6 +183,7 @@ pub async fn bake_unarchive(
             job_id,
             UpdateJob::Unarchive {
                 progress_percent: 100,
+                finished_at: Some(std::time::Instant::now()),
             },
         );
 

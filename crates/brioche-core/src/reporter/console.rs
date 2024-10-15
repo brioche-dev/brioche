@@ -234,10 +234,10 @@ impl ConsoleReporter {
                 jobs.insert(id, new_job);
             }
             ConsoleReporter::Plain { partial_lines: _ } => match job {
-                NewJob::Download { url } => {
+                NewJob::Download { url, started_at: _ } => {
                     eprintln!("Downloading {}", url);
                 }
-                NewJob::Unarchive => {}
+                NewJob::Unarchive { started_at: _ } => {}
                 NewJob::Process { status } => {
                     if let Some(child_id) = status.child_id() {
                         eprintln!("Started process {child_id}");
@@ -248,6 +248,7 @@ impl ConsoleReporter {
                 NewJob::RegistryFetch {
                     total_blobs,
                     total_recipes,
+                    started_at: _,
                 } => {
                     eprintln!(
                         "Fetching {total_blobs} blob{} / {total_recipes} recipe{} from registry",
@@ -284,13 +285,13 @@ impl ConsoleReporter {
                 let _ = job.update(update);
             }
             ConsoleReporter::Plain { partial_lines } => match update {
-                UpdateJob::Download { progress_percent } => {
-                    if progress_percent == Some(100) {
+                UpdateJob::Download { finished_at, .. } => {
+                    if finished_at.is_some() {
                         eprintln!("Finished download");
                     }
                 }
-                UpdateJob::Unarchive { progress_percent } => {
-                    if progress_percent == 100 {
+                UpdateJob::Unarchive { finished_at, .. } => {
+                    if finished_at.is_some() {
                         eprintln!("Unarchive");
                     }
                 }
@@ -325,7 +326,7 @@ impl ConsoleReporter {
                 }
                 UpdateJob::RegistryFetchAdd { .. } => {}
                 UpdateJob::RegistryFetchUpdate { .. } => {}
-                UpdateJob::RegistryFetchFinish => {
+                UpdateJob::RegistryFetchFinish { .. } => {
                     eprintln!("Finished fetching from registry");
                 }
             },
@@ -507,6 +508,8 @@ impl<'a> superconsole::Component for JobComponent<'a> {
             Job::Download {
                 url,
                 progress_percent,
+                started_at: _,
+                finished_at: _,
             } => {
                 let message = match progress_percent {
                     Some(100) => {
@@ -521,7 +524,11 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 };
                 superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
             }
-            Job::Unarchive { progress_percent } => {
+            Job::Unarchive {
+                progress_percent,
+                started_at: _,
+                finished_at: _,
+            } => {
                 let message = if *progress_percent == 100 {
                     "[100%] Unarchived".to_string()
                 } else {
@@ -537,7 +544,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                     .child_id()
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| "?".to_string());
-                let elapsed = DisplayDuration(status.elapsed());
+                let elapsed = DisplayDuration(job.elapsed());
                 let elapsed_span = superconsole::Span::new_colored_lossy(
                     &format!("{elapsed:>6.8}"),
                     superconsole::style::Color::Grey,
@@ -545,7 +552,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
 
                 let indicator_span = match status {
                     ProcessStatus::Running { .. } => {
-                        let spinner = spinner(status.elapsed());
+                        let spinner = spinner(job.elapsed());
                         superconsole::Span::new_colored_lossy(
                             spinner,
                             superconsole::style::Color::Blue,
@@ -583,6 +590,8 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 total_blobs,
                 complete_recipes,
                 total_recipes,
+                started_at: _,
+                finished_at: _,
             } => {
                 let blob_percent = if *total_blobs > 0 {
                     (*complete_blobs as f64 / *total_blobs as f64) * 100.0

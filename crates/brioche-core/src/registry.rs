@@ -362,6 +362,7 @@ pub async fn fetch_bake_references(
     let job_id = brioche.reporter.add_job(NewJob::RegistryFetch {
         total_blobs: unknown_blobs.len(),
         total_recipes: unknown_recipes.len(),
+        started_at: std::time::Instant::now(),
     });
 
     let fetch_blobs_fut = futures::stream::iter(unknown_blobs)
@@ -417,9 +418,12 @@ pub async fn fetch_bake_references(
 
     crate::recipe::save_recipes(&brioche, new_recipes).await?;
 
-    brioche
-        .reporter
-        .update_job(job_id, UpdateJob::RegistryFetchFinish);
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::RegistryFetchFinish {
+            finished_at: std::time::Instant::now(),
+        },
+    );
 
     Ok(())
 }
@@ -435,6 +439,7 @@ pub async fn fetch_recipes_deep(
     let job_id = brioche.reporter.add_job(NewJob::RegistryFetch {
         total_blobs: 0,
         total_recipes: 0,
+        started_at: std::time::Instant::now(),
     });
 
     let mut total_to_fetch = 0;
@@ -507,9 +512,12 @@ pub async fn fetch_recipes_deep(
         crate::recipe::save_recipes(brioche, new_recipes).await?;
     }
 
-    brioche
-        .reporter
-        .update_job(job_id, UpdateJob::RegistryFetchFinish);
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::RegistryFetchFinish {
+            finished_at: std::time::Instant::now(),
+        },
+    );
 
     Ok(())
 }
@@ -553,6 +561,7 @@ pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow:
     let job_id = brioche.reporter.add_job(NewJob::RegistryFetch {
         total_blobs: unknown_blobs.len(),
         total_recipes: 0,
+        started_at: std::time::Instant::now(),
     });
 
     futures::stream::iter(unknown_blobs)
@@ -577,9 +586,12 @@ pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow:
         })
         .await?;
 
-    brioche
-        .reporter
-        .update_job(job_id, UpdateJob::RegistryFetchFinish);
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::RegistryFetchFinish {
+            finished_at: std::time::Instant::now(),
+        },
+    );
 
     Ok(())
 }

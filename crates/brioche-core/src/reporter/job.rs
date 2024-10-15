@@ -6,14 +6,18 @@ use debug_ignore::DebugIgnore;
 pub enum NewJob {
     Download {
         url: url::Url,
+        started_at: std::time::Instant,
     },
-    Unarchive,
+    Unarchive {
+        started_at: std::time::Instant,
+    },
     Process {
         status: ProcessStatus,
     },
     RegistryFetch {
         total_blobs: usize,
         total_recipes: usize,
+        started_at: std::time::Instant,
     },
 }
 
@@ -21,9 +25,11 @@ pub enum NewJob {
 pub enum UpdateJob {
     Download {
         progress_percent: Option<u8>,
+        finished_at: Option<std::time::Instant>,
     },
     Unarchive {
         progress_percent: u8,
+        finished_at: Option<std::time::Instant>,
     },
     Process {
         packet: DebugIgnore<Option<ProcessPacket>>,
@@ -39,7 +45,9 @@ pub enum UpdateJob {
         complete_blobs: Option<usize>,
         complete_recipes: Option<usize>,
     },
-    RegistryFetchFinish,
+    RegistryFetchFinish {
+        finished_at: std::time::Instant,
+    },
 }
 
 #[derive(Debug)]
@@ -47,9 +55,13 @@ pub enum Job {
     Download {
         url: url::Url,
         progress_percent: Option<u8>,
+        started_at: std::time::Instant,
+        finished_at: Option<std::time::Instant>,
     },
     Unarchive {
         progress_percent: u8,
+        started_at: std::time::Instant,
+        finished_at: Option<std::time::Instant>,
     },
     Process {
         packet_queue: DebugIgnore<Arc<RwLock<Vec<ProcessPacket>>>>,
@@ -60,18 +72,24 @@ pub enum Job {
         total_blobs: usize,
         complete_recipes: usize,
         total_recipes: usize,
+        started_at: std::time::Instant,
+        finished_at: Option<std::time::Instant>,
     },
 }
 
 impl Job {
     pub fn new(new: NewJob) -> Self {
         match new {
-            NewJob::Download { url } => Self::Download {
+            NewJob::Download { url, started_at } => Self::Download {
                 url,
                 progress_percent: Some(0),
+                started_at,
+                finished_at: None,
             },
-            NewJob::Unarchive => Self::Unarchive {
+            NewJob::Unarchive { started_at } => Self::Unarchive {
                 progress_percent: 0,
+                started_at,
+                finished_at: None,
             },
             NewJob::Process { status } => Self::Process {
                 packet_queue: Default::default(),
@@ -80,11 +98,14 @@ impl Job {
             NewJob::RegistryFetch {
                 total_blobs,
                 total_recipes,
+                started_at,
             } => Self::RegistryFetch {
                 complete_blobs: 0,
                 total_blobs,
                 complete_recipes: 0,
                 total_recipes,
+                started_at,
+                finished_at: None,
             },
         }
     }
@@ -93,25 +114,33 @@ impl Job {
         match update {
             UpdateJob::Download {
                 progress_percent: new_progress_percent,
+                finished_at: new_finished_at,
             } => {
                 let Self::Download {
-                    progress_percent, ..
+                    progress_percent,
+                    finished_at,
+                    ..
                 } = self
                 else {
                     anyhow::bail!("tried to update a non-download job with a download update");
                 };
                 *progress_percent = new_progress_percent;
+                *finished_at = new_finished_at;
             }
             UpdateJob::Unarchive {
                 progress_percent: new_progress_percent,
+                finished_at: new_finished_at,
             } => {
                 let Self::Unarchive {
-                    progress_percent, ..
+                    progress_percent,
+                    finished_at,
+                    ..
                 } = self
                 else {
                     anyhow::bail!("tried to update a non-unarchive job with an unarchive update");
                 };
                 *progress_percent = new_progress_percent;
+                *finished_at = new_finished_at;
             }
             UpdateJob::Process {
                 mut packet,
@@ -162,6 +191,8 @@ impl Job {
                     total_recipes,
                     complete_blobs,
                     complete_recipes,
+                    started_at: _,
+                    finished_at: _,
                 } = self
                 else {
                     anyhow::bail!(
@@ -182,12 +213,16 @@ impl Job {
                     *complete_recipes = new_complete_recipes;
                 }
             }
-            UpdateJob::RegistryFetchFinish => {
+            UpdateJob::RegistryFetchFinish {
+                finished_at: new_finished_at,
+            } => {
                 let Self::RegistryFetch {
                     complete_blobs,
                     total_blobs,
                     complete_recipes,
                     total_recipes,
+                    started_at: _,
+                    finished_at,
                 } = self
                 else {
                     anyhow::bail!(
@@ -197,29 +232,56 @@ impl Job {
 
                 *complete_blobs = *total_blobs;
                 *complete_recipes = *total_recipes;
+                *finished_at = Some(new_finished_at);
             }
         }
 
         Ok(())
     }
 
-    pub fn is_complete(&self) -> bool {
+    fn started_at(&self) -> std::time::Instant {
         match self {
-            Job::Download {
-                progress_percent, ..
-            } => progress_percent.map(|p| p >= 100).unwrap_or(false),
-            Job::Unarchive { progress_percent } => *progress_percent >= 100,
+            Job::Download { started_at, .. }
+            | Job::Unarchive { started_at, .. }
+            | Job::RegistryFetch { started_at, .. } => *started_at,
             Job::Process {
-                status,
-                packet_queue: _,
-            } => matches!(status, ProcessStatus::Exited { .. }),
-            Job::RegistryFetch {
-                complete_blobs,
-                total_blobs,
-                complete_recipes,
-                total_recipes,
-            } => total_blobs == complete_blobs && total_recipes == complete_recipes,
+                status: ProcessStatus::Running { started_at, .. },
+                ..
+            } => *started_at,
+            Job::Process {
+                status: ProcessStatus::Exited { started_at, .. },
+                ..
+            } => *started_at,
         }
+    }
+
+    fn finished_at(&self) -> Option<std::time::Instant> {
+        match self {
+            Job::Download { finished_at, .. }
+            | Job::Unarchive { finished_at, .. }
+            | Job::RegistryFetch { finished_at, .. } => *finished_at,
+            Job::Process {
+                status: ProcessStatus::Running { .. },
+                ..
+            } => None,
+            Job::Process {
+                status: ProcessStatus::Exited { finished_at, .. },
+                ..
+            } => Some(*finished_at),
+        }
+    }
+
+    pub fn elapsed(&self) -> std::time::Duration {
+        let started_at = self.started_at();
+        if let Some(finished_at) = self.finished_at() {
+            finished_at.duration_since(started_at)
+        } else {
+            started_at.elapsed()
+        }
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.finished_at().is_some()
     }
 
     // Returns a priority for the job type. 0 is the lowest priority. Higher
@@ -257,12 +319,13 @@ pub enum ProcessStream {
 pub enum ProcessStatus {
     Running {
         child_id: Option<u32>,
-        start: std::time::Instant,
+        started_at: std::time::Instant,
     },
     Exited {
         child_id: Option<u32>,
         status: Option<std::process::ExitStatus>,
-        elapsed: std::time::Duration,
+        started_at: std::time::Instant,
+        finished_at: std::time::Instant,
     },
 }
 
@@ -271,13 +334,6 @@ impl ProcessStatus {
         match self {
             ProcessStatus::Running { child_id, .. } => *child_id,
             ProcessStatus::Exited { child_id, .. } => *child_id,
-        }
-    }
-
-    pub fn elapsed(&self) -> std::time::Duration {
-        match self {
-            ProcessStatus::Running { start, .. } => start.elapsed(),
-            ProcessStatus::Exited { elapsed, .. } => *elapsed,
         }
     }
 }
