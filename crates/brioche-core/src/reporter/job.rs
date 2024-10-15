@@ -1,8 +1,6 @@
 use std::sync::{Arc, RwLock};
 
 use debug_ignore::DebugIgnore;
-use human_repr::HumanDuration as _;
-use joinery::JoinableIterator as _;
 
 #[derive(Debug)]
 pub enum NewJob {
@@ -232,127 +230,6 @@ impl Job {
             Job::Download { .. } | Job::RegistryFetch { .. } => 1,
             Job::Process { .. } => 2,
         }
-    }
-}
-
-impl superconsole::Component for Job {
-    fn draw_unchecked(
-        &self,
-        _dimensions: superconsole::Dimensions,
-        _mode: superconsole::DrawMode,
-    ) -> anyhow::Result<superconsole::Lines> {
-        let lines = match self {
-            Job::Download {
-                url,
-                progress_percent,
-            } => {
-                let message = match progress_percent {
-                    Some(100) => {
-                        format!("[100%] Downloaded {url}")
-                    }
-                    Some(progress_percent) => {
-                        format!("[{progress_percent:>3}%] Downloading {url}")
-                    }
-                    None => {
-                        format!("[???%] Downloading {url}")
-                    }
-                };
-                superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
-            }
-            Job::Unarchive { progress_percent } => {
-                let message = if *progress_percent == 100 {
-                    "[100%] Unarchived".to_string()
-                } else {
-                    format!("[{progress_percent:>3}%] Unarchiving")
-                };
-                superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
-            }
-            Job::Process {
-                packet_queue: _,
-                status,
-            } => {
-                let child_id = status
-                    .child_id()
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "?".to_string());
-                let elapsed = status.elapsed().human_duration();
-                let message = match status {
-                    ProcessStatus::Running { .. } => {
-                        format!("Process {child_id} [{elapsed}]")
-                    }
-                    ProcessStatus::Exited { status, .. } => {
-                        let status = status
-                            .as_ref()
-                            .and_then(|status| status.code())
-                            .map(|c| c.to_string())
-                            .unwrap_or_else(|| "?".to_string());
-                        format!("Process {child_id} [{elapsed} Exited {status}]")
-                    }
-                };
-
-                superconsole::Lines::from_iter(std::iter::once(superconsole::Line::sanitized(
-                    &message,
-                )))
-            }
-            Job::RegistryFetch {
-                complete_blobs,
-                total_blobs,
-                complete_recipes,
-                total_recipes,
-            } => {
-                let blob_percent = if *total_blobs > 0 {
-                    (*complete_blobs as f64 / *total_blobs as f64) * 100.0
-                } else {
-                    100.0
-                };
-                let recipe_percent = if *total_recipes > 0 {
-                    (*complete_recipes as f64 / *total_recipes as f64) * 100.0
-                } else {
-                    100.0
-                };
-                let total_percent = (recipe_percent * 0.2 + blob_percent * 0.8) as u8;
-                let verb = if self.is_complete() {
-                    "Fetched"
-                } else {
-                    "Fetching"
-                };
-                let fetched_blobs = if *total_blobs == 0 {
-                    None
-                } else if self.is_complete() {
-                    Some(format!(
-                        "{complete_blobs} blob{s}",
-                        s = if *complete_blobs == 1 { "" } else { "s" }
-                    ))
-                } else {
-                    Some(format!(
-                        "{complete_blobs} / {total_blobs} blob{s}",
-                        s = if *total_blobs == 1 { "" } else { "s" }
-                    ))
-                };
-                let fetched_recipes = if *total_recipes == 0 {
-                    None
-                } else if self.is_complete() {
-                    Some(format!(
-                        "{complete_recipes} recipe{s}",
-                        s = if *complete_recipes == 1 { "" } else { "s" }
-                    ))
-                } else {
-                    Some(format!(
-                        "{complete_recipes} / {total_recipes} recipe{s}",
-                        s = if *total_recipes == 1 { "" } else { "s" }
-                    ))
-                };
-                let fetching_message = [fetched_blobs, fetched_recipes]
-                    .into_iter()
-                    .flatten()
-                    .join_with(" + ");
-                let message =
-                    format!("[{total_percent:>3}%] {verb} {fetching_message} from registry",);
-                superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
-            }
-        };
-
-        Ok(lines)
     }
 }
 
