@@ -451,15 +451,7 @@ impl superconsole::Component for JobsComponent {
             };
 
             // Pick a color based on the job ID
-            let gutter_color = match stream.job_id.0 % 6 {
-                0 => superconsole::style::Color::Red,
-                1 => superconsole::style::Color::Green,
-                2 => superconsole::style::Color::Yellow,
-                3 => superconsole::style::Color::Blue,
-                4 => superconsole::style::Color::Magenta,
-                5 => superconsole::style::Color::Cyan,
-                _ => unreachable!(),
-            };
+            let gutter_color = job_color(stream.job_id);
 
             let styled_line = superconsole::Line::from_iter([
                 superconsole::Span::new_colored_lossy(&gutter, gutter_color),
@@ -665,6 +657,19 @@ fn string_with_width<'a>(s: &'a str, num_chars: usize, replacement: &str) -> Cow
             Cow::Owned(new_chars.collect())
         }
     }
+}
+
+fn job_color(job_id: JobId) -> superconsole::style::Color {
+    const JOB_COLORS: &[superconsole::style::Color] = &[
+        superconsole::style::Color::Red,
+        superconsole::style::Color::Green,
+        superconsole::style::Color::Yellow,
+        superconsole::style::Color::Blue,
+        superconsole::style::Color::Magenta,
+        superconsole::style::Color::Cyan,
+    ];
+
+    JOB_COLORS[job_id.0 % JOB_COLORS.len()]
 }
 
 #[cfg(test)]
