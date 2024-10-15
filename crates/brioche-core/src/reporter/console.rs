@@ -10,6 +10,7 @@ use std::{
 use bstr::{BString, ByteSlice};
 use joinery::JoinableIterator as _;
 use opentelemetry::trace::TracerProvider as _;
+use superconsole::style::Stylize;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
 use crate::utils::DisplayDuration;
@@ -499,10 +500,16 @@ struct JobComponent<'a>(JobId, &'a Job);
 impl<'a> superconsole::Component for JobComponent<'a> {
     fn draw_unchecked(
         &self,
-        _dimensions: superconsole::Dimensions,
+        dimensions: superconsole::Dimensions,
         _mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
         let &JobComponent(job_id, job) = self;
+
+        let elapsed = DisplayDuration(job.elapsed());
+        let elapsed_span = superconsole::Span::new_colored_lossy(
+            &format!("{elapsed:>6.8}"),
+            superconsole::style::Color::Grey,
+        );
 
         let lines = match job {
             Job::Download {
@@ -511,18 +518,44 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 started_at: _,
                 finished_at: _,
             } => {
-                let message = match progress_percent {
-                    Some(100) => {
-                        format!("[100%] Downloaded {url}")
-                    }
-                    Some(progress_percent) => {
-                        format!("[{progress_percent:>3}%] Downloading {url}")
-                    }
-                    None => {
-                        format!("[???%] Downloading {url}")
-                    }
+                let percentage_span = match progress_percent {
+                    Some(percent) => superconsole::Span::new_unstyled_lossy(
+                        lazy_format::lazy_format!("{percent:>3}%"),
+                    ),
+                    None => superconsole::Span::new_unstyled_lossy("???%"),
                 };
-                superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
+
+                let indicator = if job.is_complete() {
+                    IndicatorKind::Complete
+                } else {
+                    IndicatorKind::Spinner(job.elapsed())
+                };
+
+                let mut line = superconsole::Line::from_iter([
+                    elapsed_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                    indicator_span(indicator),
+                    superconsole::Span::new_unstyled_lossy(" Download  "),
+                    percentage_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                ]);
+
+                let remaining_width = dimensions
+                    .width
+                    .saturating_sub(1)
+                    .saturating_sub(line.len());
+
+                let truncated_url = string_with_width(url.as_str(), remaining_width, "…");
+
+                let progress_bar_progress = progress_percent.unwrap_or(0) as f64 / 100.0;
+
+                line.extend(progress_bar_spans(
+                    &truncated_url,
+                    remaining_width,
+                    progress_bar_progress,
+                ));
+
+                superconsole::Lines::from_iter([line])
             }
             Job::Unarchive {
                 progress_percent,
@@ -544,32 +577,16 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                     .child_id()
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| "?".to_string());
-                let elapsed = DisplayDuration(job.elapsed());
-                let elapsed_span = superconsole::Span::new_colored_lossy(
-                    &format!("{elapsed:>6.8}"),
-                    superconsole::style::Color::Grey,
-                );
 
-                let indicator_span = match status {
-                    ProcessStatus::Running { .. } => {
-                        let spinner = spinner(job.elapsed());
-                        superconsole::Span::new_colored_lossy(
-                            spinner,
-                            superconsole::style::Color::Blue,
-                        )
-                    }
+                let indicator = match status {
+                    ProcessStatus::Running { .. } => IndicatorKind::Spinner(job.elapsed()),
                     ProcessStatus::Exited { status, .. } => {
                         let is_success = status.is_some_and(|status| status.success());
+
                         if is_success {
-                            superconsole::Span::new_colored_lossy(
-                                "✓",
-                                superconsole::style::Color::Green,
-                            )
+                            IndicatorKind::Complete
                         } else {
-                            superconsole::Span::new_colored_lossy(
-                                "✕",
-                                superconsole::style::Color::Red,
-                            )
+                            IndicatorKind::Failed
                         }
                     }
                 };
@@ -580,7 +597,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 superconsole::Lines::from_iter([superconsole::Line::from_iter([
                     elapsed_span,
                     superconsole::Span::new_unstyled_lossy(" "),
-                    indicator_span,
+                    indicator_span(indicator),
                     superconsole::Span::new_unstyled_lossy(" Process "),
                     child_id_span,
                 ])])
@@ -828,6 +845,52 @@ fn job_color(job_id: JobId) -> superconsole::style::Color {
     ];
 
     JOB_COLORS[job_id.0 % JOB_COLORS.len()]
+}
+
+#[derive(Debug, Clone, Copy)]
+enum IndicatorKind {
+    Spinner(std::time::Duration),
+    Complete,
+    Failed,
+}
+
+fn indicator_span(kind: IndicatorKind) -> superconsole::Span {
+    match kind {
+        IndicatorKind::Spinner(elapsed) => {
+            let spinner = spinner(elapsed);
+            superconsole::Span::new_colored_lossy(spinner, superconsole::style::Color::Blue)
+        }
+        IndicatorKind::Complete => {
+            superconsole::Span::new_colored_lossy("✓", superconsole::style::Color::Green)
+        }
+        IndicatorKind::Failed => {
+            superconsole::Span::new_colored_lossy("✕", superconsole::style::Color::Red)
+        }
+    }
+}
+
+fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [superconsole::Span; 2] {
+    let filled = ((width as f64) * progress) as usize;
+
+    let padded = format!("{interior:0$.0$}", width);
+    let split_offset = padded
+        .char_indices()
+        .find_map(
+            |(index, _)| {
+                if index >= filled {
+                    Some(index)
+                } else {
+                    None
+                }
+            },
+        )
+        .unwrap_or(0);
+    let (filled_part, unfilled_part) = padded.split_at(split_offset);
+
+    [
+        superconsole::Span::new_styled_lossy(filled_part.to_string().dark_grey().negative()),
+        superconsole::Span::new_colored_lossy(unfilled_part, superconsole::style::Color::DarkGrey),
+    ]
 }
 
 fn spinner(duration: std::time::Duration) -> &'static str {
