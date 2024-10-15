@@ -1,10 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashMap},
-    sync::{
-        atomic::{AtomicBool, AtomicUsize},
-        Arc,
-    },
+    sync::{atomic::AtomicUsize, Arc},
 };
 
 use bstr::{BString, ByteSlice};
@@ -42,12 +39,10 @@ pub fn start_console_reporter(
     );
 
     let start = std::time::Instant::now();
-    let is_evaluating = Arc::new(AtomicBool::new(false));
 
     let reporter = Reporter {
         start,
         num_jobs: Arc::new(AtomicUsize::new(0)),
-        is_evaluating: is_evaluating.clone(),
         tx: tx.clone(),
     };
     let guard = ReporterGuard {
@@ -74,7 +69,6 @@ pub fn start_console_reporter(
                 Some(console) => {
                     let root = JobsComponent {
                         start,
-                        is_evaluating,
                         jobs,
                         job_outputs: Arc::new(tokio::sync::RwLock::new(JobOutputContents::new(
                             1024 * 1024,
@@ -361,7 +355,6 @@ const JOB_LABEL_WIDTH: usize = 7;
 
 struct JobsComponent {
     start: std::time::Instant,
-    is_evaluating: Arc<AtomicBool>,
     jobs: Arc<tokio::sync::RwLock<HashMap<JobId, Job>>>,
     job_outputs: Arc<tokio::sync::RwLock<JobOutputContents>>,
 }

@@ -50,7 +50,6 @@ pub struct BuildArgs {
 pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
         brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?;
-    reporter.set_is_evaluating(true);
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep_temps)
@@ -110,7 +109,6 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         )
         .await?;
 
-        reporter.set_is_evaluating(false);
         let artifact = brioche_core::bake::bake(
             &brioche,
             recipe,

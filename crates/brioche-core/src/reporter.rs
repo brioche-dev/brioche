@@ -1,7 +1,4 @@
-use std::sync::{
-    atomic::{AtomicBool, AtomicUsize},
-    Arc,
-};
+use std::sync::{atomic::AtomicUsize, Arc};
 
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
@@ -36,7 +33,6 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     let reporter = Reporter {
         start: std::time::Instant::now(),
         num_jobs: Arc::new(AtomicUsize::new(0)),
-        is_evaluating: Arc::new(AtomicBool::new(false)),
         tx: tx.clone(),
     };
     let guard = ReporterGuard {
@@ -84,7 +80,6 @@ pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     let reporter = Reporter {
         start: std::time::Instant::now(),
         num_jobs: Arc::new(AtomicUsize::new(0)),
-        is_evaluating: Arc::new(AtomicBool::new(false)),
         tx: tx.clone(),
     };
     let guard = ReporterGuard {
@@ -120,7 +115,6 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
     let reporter = Reporter {
         start: std::time::Instant::now(),
         num_jobs: Arc::new(AtomicUsize::new(0)),
-        is_evaluating: Arc::new(AtomicBool::new(false)),
         tx: tx.clone(),
     };
     let guard = ReporterGuard {
@@ -173,18 +167,12 @@ pub struct JobId(usize);
 pub struct Reporter {
     start: std::time::Instant,
     num_jobs: Arc<AtomicUsize>,
-    is_evaluating: Arc<AtomicBool>,
     tx: tokio::sync::mpsc::UnboundedSender<ReportEvent>,
 }
 
 impl Reporter {
     pub fn emit(&self, lines: superconsole::Lines) {
         let _ = self.tx.send(ReportEvent::Emit { lines });
-    }
-
-    pub fn set_is_evaluating(&self, is_evaluating: bool) {
-        self.is_evaluating
-            .store(is_evaluating, std::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn add_job(&self, job: job::NewJob) -> JobId {

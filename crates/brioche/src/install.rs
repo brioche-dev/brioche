@@ -86,9 +86,6 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                 )
                 .await;
 
-                // Ensure the reporter is no longer evaluating, in case of an error
-                reporter.set_is_evaluating(false);
-
                 consolidate_result(&reporter, &project_name, result, &mut error_result);
             }
             Err(e) => {
@@ -120,9 +117,6 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                     &install_options,
                 )
                 .await;
-
-                // Ensure the reporter is no longer evaluating, in case of an error
-                reporter.set_is_evaluating(false);
 
                 consolidate_result(&reporter, &project_name, result, &mut error_result);
             }
@@ -158,8 +152,6 @@ async fn run_install(
     options: &InstallOptions,
 ) -> Result<bool, anyhow::Error> {
     async {
-        reporter.set_is_evaluating(true);
-
         // If the `--locked` flag is used, validate that all lockfiles are
         // up-to-date. Otherwise, write any out-of-date lockfiles
         if options.locked {
@@ -199,8 +191,6 @@ async fn run_install(
         let recipe =
             brioche_core::script::evaluate::evaluate(brioche, projects, project_hash, export)
                 .await?;
-
-        reporter.set_is_evaluating(false);
 
         let artifact = brioche_core::bake::bake(
             brioche,
