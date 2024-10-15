@@ -1,9 +1,11 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Context as _;
-use brioche_core::{fs_utils, project::ProjectLocking, reporter::console::ConsoleReporterKind};
+use brioche_core::{
+    fs_utils, project::ProjectLocking, reporter::console::ConsoleReporterKind,
+    utils::DisplayDuration,
+};
 use clap::Parser;
-use human_repr::HumanDuration;
 use tracing::Instrument;
 
 #[derive(Debug, Parser)]
@@ -121,7 +123,7 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 
         guard.shutdown_console().await;
 
-        let elapsed = reporter.elapsed().human_duration();
+        let elapsed = DisplayDuration(reporter.elapsed());
         let num_jobs = reporter.num_jobs();
         let jobs_message = match num_jobs {
             0 => "(no new jobs)".to_string(),
@@ -166,7 +168,7 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                 num_new_bakes,
             } = brioche_core::sync::wait_for_in_progress_syncs(&brioche).await?;
 
-            let wait_duration = wait_start.elapsed().human_duration();
+            let wait_duration = DisplayDuration(wait_start.elapsed());
             println!("In-progress sync waited for {wait_duration} and synced:");
             println!("  {num_new_blobs} blobs");
             println!("  {num_new_recipes} recipes");
@@ -176,7 +178,7 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 
             let sync_start = std::time::Instant::now();
             brioche_core::sync::sync_project(&brioche, project_hash, &args.export).await?;
-            let sync_duration = sync_start.elapsed().human_duration();
+            let sync_duration = DisplayDuration(sync_start.elapsed());
             println!("Finished sync in {sync_duration}");
         }
 

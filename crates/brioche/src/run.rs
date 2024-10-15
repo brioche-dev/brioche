@@ -1,9 +1,10 @@
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use brioche_core::{project::ProjectLocking, reporter::console::ConsoleReporterKind};
+use brioche_core::{
+    project::ProjectLocking, reporter::console::ConsoleReporterKind, utils::DisplayDuration,
+};
 use clap::Parser;
-use human_repr::HumanDuration;
 use tracing::Instrument;
 
 #[derive(Debug, Parser)]
@@ -118,7 +119,7 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
 
         guard.shutdown_console().await;
 
-        let elapsed = reporter.elapsed().human_duration();
+        let elapsed = DisplayDuration(reporter.elapsed());
         let num_jobs = reporter.num_jobs();
         let jobs_message = match num_jobs {
             0 => "(no new jobs)".to_string(),

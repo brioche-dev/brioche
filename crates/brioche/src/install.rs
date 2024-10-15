@@ -8,9 +8,9 @@ use brioche_core::project::ProjectValidation;
 use brioche_core::project::Projects;
 use brioche_core::reporter::console::ConsoleReporterKind;
 use brioche_core::reporter::Reporter;
+use brioche_core::utils::DisplayDuration;
 use brioche_core::Brioche;
 use clap::Parser;
-use human_repr::HumanDuration;
 use tracing::Instrument;
 
 use crate::consolidate_result;
@@ -212,7 +212,7 @@ async fn run_install(
         )
         .await?;
 
-        let elapsed = reporter.elapsed().human_duration();
+        let elapsed = DisplayDuration(reporter.elapsed());
         let num_jobs = reporter.num_jobs();
         let jobs_message = match num_jobs {
             0 => "(no new jobs)".to_string(),

@@ -8,10 +8,11 @@ use std::{
 };
 
 use bstr::{BString, ByteSlice};
-use human_repr::HumanDuration as _;
 use joinery::JoinableIterator as _;
 use opentelemetry::trace::TracerProvider as _;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
+
+use crate::utils::DisplayDuration;
 
 use super::{
     job::{Job, NewJob, ProcessStatus, ProcessStream, UpdateJob},
@@ -463,7 +464,7 @@ impl superconsole::Component for JobsComponent {
             last_job_id = Some(stream.job_id)
         }
 
-        let elapsed = self.start.elapsed().human_duration();
+        let elapsed = DisplayDuration(self.start.elapsed());
         let summary_line = match mode {
             superconsole::DrawMode::Normal => {
                 let summary_line = format!(
@@ -536,9 +537,9 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                     .child_id()
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| "?".to_string());
-                let elapsed = status.elapsed().human_duration();
+                let elapsed = DisplayDuration(status.elapsed());
                 let elapsed_span = superconsole::Span::new_colored_lossy(
-                    &elapsed.to_string(),
+                    &format!("{elapsed:>6.8}"),
                     superconsole::style::Color::Grey,
                 );
 
