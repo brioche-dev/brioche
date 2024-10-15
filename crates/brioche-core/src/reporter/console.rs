@@ -562,12 +562,41 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 started_at: _,
                 finished_at: _,
             } => {
-                let message = if *progress_percent == 100 {
-                    "[100%] Unarchived".to_string()
+                let percentage_span = superconsole::Span::new_unstyled_lossy(
+                    lazy_format::lazy_format!("{progress_percent:>3}%"),
+                );
+
+                let indicator = if job.is_complete() {
+                    IndicatorKind::Complete
                 } else {
-                    format!("[{progress_percent:>3}%] Unarchiving")
+                    IndicatorKind::Spinner(job.elapsed())
                 };
-                superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
+
+                let mut line = superconsole::Line::from_iter([
+                    elapsed_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                    indicator_span(indicator),
+                    superconsole::Span::new_unstyled_lossy(" Unarchive "),
+                    percentage_span,
+                ]);
+
+                if !job.is_complete() {
+                    let remaining_width = dimensions
+                        .width
+                        .saturating_sub(1)
+                        .saturating_sub(line.len());
+
+                    let progress_bar_progress = *progress_percent as f64 / 100.0;
+
+                    line.push(superconsole::Span::new_unstyled_lossy(" "));
+                    line.extend(progress_bar_spans(
+                        "",
+                        remaining_width,
+                        progress_bar_progress,
+                    ));
+                }
+
+                superconsole::Lines::from_iter([line])
             }
             Job::Process {
                 packet_queue: _,
@@ -610,55 +639,86 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 started_at: _,
                 finished_at: _,
             } => {
-                let blob_percent = if *total_blobs > 0 {
-                    (*complete_blobs as f64 / *total_blobs as f64) * 100.0
+                let blob_progress = if *total_blobs > 0 {
+                    *complete_blobs as f64 / *total_blobs as f64
                 } else {
-                    100.0
+                    1.0
                 };
-                let recipe_percent = if *total_recipes > 0 {
-                    (*complete_recipes as f64 / *total_recipes as f64) * 100.0
+                let recipe_progress = if *total_recipes > 0 {
+                    *complete_recipes as f64 / *total_recipes as f64
                 } else {
-                    100.0
+                    1.0
                 };
-                let total_percent = (recipe_percent * 0.2 + blob_percent * 0.8) as u8;
-                let verb = if job.is_complete() {
-                    "Fetched"
+                let total_progress = recipe_progress * 0.2 + blob_progress * 0.8;
+                let total_percent = (total_progress * 100.0) as u64;
+
+                let percentage_span = superconsole::Span::new_unstyled_lossy(
+                    lazy_format::lazy_format!("{total_percent:>3}%"),
+                );
+
+                let indicator = if job.is_complete() {
+                    IndicatorKind::Complete
                 } else {
-                    "Fetching"
+                    IndicatorKind::Spinner(job.elapsed())
                 };
-                let fetched_blobs = if *total_blobs == 0 {
-                    None
-                } else if job.is_complete() {
-                    Some(format!(
-                        "{complete_blobs} blob{s}",
-                        s = if *complete_blobs == 1 { "" } else { "s" }
-                    ))
+
+                let mut line = superconsole::Line::from_iter([
+                    elapsed_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                    indicator_span(indicator),
+                    superconsole::Span::new_unstyled_lossy(" Registry  "),
+                    percentage_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                ]);
+
+                let is_fetching_anything = *total_blobs > 0 || *total_recipes > 0;
+                let fetching_message = if is_fetching_anything {
+                    let fetched_blobs = if *total_blobs == 0 {
+                        None
+                    } else if job.is_complete() {
+                        Some(format!(
+                            "{complete_blobs} blob{s}",
+                            s = if *complete_blobs == 1 { "" } else { "s" }
+                        ))
+                    } else {
+                        Some(format!(
+                            "{complete_blobs} / {total_blobs} blob{s}",
+                            s = if *total_blobs == 1 { "" } else { "s" }
+                        ))
+                    };
+                    let fetched_recipes = if *total_recipes == 0 {
+                        None
+                    } else if job.is_complete() {
+                        Some(format!(
+                            "{complete_recipes} recipe{s}",
+                            s = if *complete_recipes == 1 { "" } else { "s" }
+                        ))
+                    } else {
+                        Some(format!(
+                            "{complete_recipes} / {total_recipes} recipe{s}",
+                            s = if *total_recipes == 1 { "" } else { "s" }
+                        ))
+                    };
+                    let fetching_message = [fetched_blobs, fetched_recipes]
+                        .into_iter()
+                        .flatten()
+                        .join_with(" + ");
+                    format!("Fetch {fetching_message} from registry")
                 } else {
-                    Some(format!(
-                        "{complete_blobs} / {total_blobs} blob{s}",
-                        s = if *total_blobs == 1 { "" } else { "s" }
-                    ))
+                    "Fetch from registry".to_string()
                 };
-                let fetched_recipes = if *total_recipes == 0 {
-                    None
-                } else if job.is_complete() {
-                    Some(format!(
-                        "{complete_recipes} recipe{s}",
-                        s = if *complete_recipes == 1 { "" } else { "s" }
-                    ))
-                } else {
-                    Some(format!(
-                        "{complete_recipes} / {total_recipes} recipe{s}",
-                        s = if *total_recipes == 1 { "" } else { "s" }
-                    ))
-                };
-                let fetching_message = [fetched_blobs, fetched_recipes]
-                    .into_iter()
-                    .flatten()
-                    .join_with(" + ");
-                let message =
-                    format!("[{total_percent:>3}%] {verb} {fetching_message} from registry",);
-                superconsole::Lines::from_iter([superconsole::Line::sanitized(&message)])
+
+                let remaining_width = dimensions
+                    .width
+                    .saturating_sub(1)
+                    .saturating_sub(line.len());
+                line.extend(progress_bar_spans(
+                    &fetching_message,
+                    remaining_width,
+                    total_progress,
+                ));
+
+                superconsole::Lines::from_iter([line])
             }
         };
 
@@ -873,19 +933,25 @@ fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [supercons
     let filled = ((width as f64) * progress) as usize;
 
     let padded = format!("{interior:0$.0$}", width);
-    let split_offset = padded
-        .char_indices()
-        .find_map(
-            |(index, _)| {
-                if index >= filled {
-                    Some(index)
-                } else {
-                    None
-                }
-            },
-        )
-        .unwrap_or(0);
-    let (filled_part, unfilled_part) = padded.split_at(split_offset);
+    let (filled_part, unfilled_part) = if progress <= 0.0 {
+        ("", &*padded)
+    } else if progress >= 1.0 {
+        (&*padded, "")
+    } else {
+        let split_offset = padded
+            .char_indices()
+            .find_map(
+                |(index, _)| {
+                    if index >= filled {
+                        Some(index)
+                    } else {
+                        None
+                    }
+                },
+            )
+            .unwrap_or(0);
+        padded.split_at(split_offset)
+    };
 
     [
         superconsole::Span::new_styled_lossy(filled_part.to_string().dark_grey().negative()),
