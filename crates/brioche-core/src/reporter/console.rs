@@ -389,8 +389,8 @@ impl superconsole::Component for JobsComponent {
             .take(max_visible_jobs);
 
         let jobs_lines = job_list
-            .map(|(_, job)| {
-                JobComponent(job).draw(
+            .map(|(job_id, job)| {
+                JobComponent(**job_id, job).draw(
                     superconsole::Dimensions {
                         width: dimensions.width,
                         height: 1,
@@ -492,7 +492,7 @@ impl superconsole::Component for JobsComponent {
     }
 }
 
-struct JobComponent<'a>(&'a Job);
+struct JobComponent<'a>(JobId, &'a Job);
 
 impl<'a> superconsole::Component for JobComponent<'a> {
     fn draw_unchecked(
@@ -500,7 +500,8 @@ impl<'a> superconsole::Component for JobComponent<'a> {
         _dimensions: superconsole::Dimensions,
         _mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
-        let job = &self.0;
+        let &JobComponent(job_id, job) = self;
+
         let lines = match job {
             Job::Download {
                 url,
@@ -536,23 +537,45 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                     .map(|id| id.to_string())
                     .unwrap_or_else(|| "?".to_string());
                 let elapsed = status.elapsed().human_duration();
-                let message = match status {
+                let elapsed_span = superconsole::Span::new_colored_lossy(
+                    &elapsed.to_string(),
+                    superconsole::style::Color::Grey,
+                );
+
+                let indicator_span = match status {
                     ProcessStatus::Running { .. } => {
-                        format!("Process {child_id} [{elapsed}]")
+                        let spinner = spinner(status.elapsed());
+                        superconsole::Span::new_colored_lossy(
+                            spinner,
+                            superconsole::style::Color::Blue,
+                        )
                     }
                     ProcessStatus::Exited { status, .. } => {
-                        let status = status
-                            .as_ref()
-                            .and_then(|status| status.code())
-                            .map(|c| c.to_string())
-                            .unwrap_or_else(|| "?".to_string());
-                        format!("Process {child_id} [{elapsed} Exited {status}]")
+                        let is_success = status.is_some_and(|status| status.success());
+                        if is_success {
+                            superconsole::Span::new_colored_lossy(
+                                "✓",
+                                superconsole::style::Color::Green,
+                            )
+                        } else {
+                            superconsole::Span::new_colored_lossy(
+                                "✕",
+                                superconsole::style::Color::Red,
+                            )
+                        }
                     }
                 };
 
-                superconsole::Lines::from_iter(std::iter::once(superconsole::Line::sanitized(
-                    &message,
-                )))
+                let child_id_span =
+                    superconsole::Span::new_colored_lossy(&child_id, job_color(job_id));
+
+                superconsole::Lines::from_iter([superconsole::Line::from_iter([
+                    elapsed_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                    indicator_span,
+                    superconsole::Span::new_unstyled_lossy(" Process "),
+                    child_id_span,
+                ])])
             }
             Job::RegistryFetch {
                 complete_blobs,
@@ -795,6 +818,11 @@ fn job_color(job_id: JobId) -> superconsole::style::Color {
     ];
 
     JOB_COLORS[job_id.0 % JOB_COLORS.len()]
+}
+
+fn spinner(duration: std::time::Duration) -> &'static str {
+    const SPINNERS: &[&str] = &["◜", "◝", "◞", "◟"];
+    SPINNERS[(duration.as_millis() / 100) as usize % SPINNERS.len()]
 }
 
 #[cfg(test)]
