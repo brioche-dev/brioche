@@ -373,7 +373,6 @@ impl superconsole::Component for JobsComponent {
         mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
         let jobs = self.jobs.blocking_read();
-        let num_jobs = jobs.len();
 
         let max_visible_jobs = std::cmp::max(dimensions.height.saturating_sub(15), 3);
 
@@ -383,8 +382,8 @@ impl superconsole::Component for JobsComponent {
         let job_partition_point = job_list.partition_point(|&(_, job)| !job.is_complete());
         let (incomplete_jobs, complete_jobs) = job_list.split_at(job_partition_point);
 
+        let num_incomplete_jobs = incomplete_jobs.len();
         let num_complete_jobs = complete_jobs.len();
-        let is_evaluating = self.is_evaluating.load(std::sync::atomic::Ordering::SeqCst);
 
         let job_list = incomplete_jobs
             .iter()
@@ -466,17 +465,36 @@ impl superconsole::Component for JobsComponent {
             last_job_id = Some(stream.job_id)
         }
 
-        let elapsed = DisplayDuration(self.start.elapsed());
         let summary_line = match mode {
             superconsole::DrawMode::Normal => {
-                let summary_line = format!(
-                    "[{elapsed}] {num_complete_jobs} / {num_jobs}{or_more} job{s} complete",
-                    s = if num_jobs == 1 { "" } else { "s" },
-                    or_more = if is_evaluating { "+" } else { "" },
+                let elapsed_span = superconsole::Span::new_colored_lossy(
+                    &format!("{:>6}", DisplayDuration(self.start.elapsed())),
+                    superconsole::style::Color::Grey,
                 );
-                Some(superconsole::Line::from_iter([summary_line
-                    .try_into()
-                    .unwrap()]))
+                let running_jobs_span = superconsole::Span::new_colored_lossy(
+                    &format!("{num_incomplete_jobs:3} running"),
+                    if num_incomplete_jobs > 0 {
+                        superconsole::style::Color::Blue
+                    } else {
+                        superconsole::style::Color::Grey
+                    },
+                );
+                let complete_jobs_span = superconsole::Span::new_colored_lossy(
+                    &format!("{num_complete_jobs:3} complete"),
+                    if num_complete_jobs > 0 {
+                        superconsole::style::Color::Green
+                    } else {
+                        superconsole::style::Color::Grey
+                    },
+                );
+                let line = superconsole::Line::from_iter([
+                    elapsed_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                    complete_jobs_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                    running_jobs_span,
+                ]);
+                Some(line)
             }
             superconsole::DrawMode::Final => {
                 // Don't show the summary line on the final draw. The final
