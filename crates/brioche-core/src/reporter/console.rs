@@ -467,9 +467,8 @@ impl superconsole::Component for JobsComponent {
 
         let summary_line = match mode {
             superconsole::DrawMode::Normal => {
-                let elapsed_span = superconsole::Span::new_colored_lossy(
-                    &format!("{:>6}", DisplayDuration(self.start.elapsed())),
-                    superconsole::style::Color::Grey,
+                let elapsed_span = superconsole::Span::new_unstyled_lossy(
+                    lazy_format::lazy_format!("{:>6}", DisplayDuration(self.start.elapsed())),
                 );
                 let running_jobs_span = superconsole::Span::new_colored_lossy(
                     &format!("{num_incomplete_jobs:3} running"),
@@ -526,7 +525,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
         let elapsed = DisplayDuration(job.elapsed());
         let elapsed_span = superconsole::Span::new_colored_lossy(
             &format!("{elapsed:>6.8}"),
-            superconsole::style::Color::Grey,
+            superconsole::style::Color::DarkGrey,
         );
 
         let lines = match job {
