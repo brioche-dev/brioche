@@ -31,8 +31,10 @@ pub enum UpdateJob {
         progress_percent: u8,
         finished_at: Option<std::time::Instant>,
     },
-    Process {
-        packet: DebugIgnore<Option<ProcessPacket>>,
+    ProcessPushPacket {
+        packet: DebugIgnore<ProcessPacket>,
+    },
+    ProcessUpdateStatus {
         status: ProcessStatus,
     },
     RegistryFetchAdd {
@@ -142,24 +144,29 @@ impl Job {
                 *progress_percent = new_progress_percent;
                 *finished_at = new_finished_at;
             }
-            UpdateJob::Process {
-                mut packet,
-                status: new_status,
-            } => {
+            UpdateJob::ProcessPushPacket { packet } => {
                 let Self::Process {
                     packet_queue,
+                    status: _,
+                } = self
+                else {
+                    anyhow::bail!("tried to update a non-process job with a process update");
+                };
+
+                let mut packet_queue = packet_queue.write().map_err(|_| {
+                    anyhow::anyhow!("failed to lock process packet queue for writing")
+                })?;
+                packet_queue.push(packet.0);
+            }
+            UpdateJob::ProcessUpdateStatus { status: new_status } => {
+                let Self::Process {
+                    packet_queue: _,
                     status,
                 } = self
                 else {
                     anyhow::bail!("tried to update a non-process job with a process update");
                 };
 
-                if let Some(packet) = packet.take() {
-                    let mut packet_queue = packet_queue.write().map_err(|_| {
-                        anyhow::anyhow!("failed to lock process packet queue for writing")
-                    })?;
-                    packet_queue.push(packet);
-                }
                 *status = new_status;
             }
             UpdateJob::RegistryFetchAdd {
@@ -239,19 +246,12 @@ impl Job {
         Ok(())
     }
 
-    fn started_at(&self) -> std::time::Instant {
+    fn started_at(&self) -> Option<std::time::Instant> {
         match self {
             Job::Download { started_at, .. }
             | Job::Unarchive { started_at, .. }
-            | Job::RegistryFetch { started_at, .. } => *started_at,
-            Job::Process {
-                status: ProcessStatus::Running { started_at, .. },
-                ..
-            } => *started_at,
-            Job::Process {
-                status: ProcessStatus::Exited { started_at, .. },
-                ..
-            } => *started_at,
+            | Job::RegistryFetch { started_at, .. } => Some(*started_at),
+            Job::Process { status, .. } => status.launched_at(),
         }
     }
 
@@ -260,24 +260,18 @@ impl Job {
             Job::Download { finished_at, .. }
             | Job::Unarchive { finished_at, .. }
             | Job::RegistryFetch { finished_at, .. } => *finished_at,
-            Job::Process {
-                status: ProcessStatus::Running { .. },
-                ..
-            } => None,
-            Job::Process {
-                status: ProcessStatus::Exited { finished_at, .. },
-                ..
-            } => Some(*finished_at),
+            Job::Process { status, .. } => status.finished_running_at(),
         }
     }
 
-    pub fn elapsed(&self) -> std::time::Duration {
-        let started_at = self.started_at();
-        if let Some(finished_at) = self.finished_at() {
+    pub fn elapsed(&self) -> Option<std::time::Duration> {
+        let started_at = self.started_at()?;
+        let elapsed = if let Some(finished_at) = self.finished_at() {
             finished_at.duration_since(started_at)
         } else {
             started_at.elapsed()
-        }
+        };
+        Some(elapsed)
     }
 
     pub fn is_complete(&self) -> bool {
@@ -317,23 +311,119 @@ pub enum ProcessStream {
 
 #[derive(Debug, Clone)]
 pub enum ProcessStatus {
+    Preparing {
+        started_at: std::time::Instant,
+    },
     Running {
         child_id: Option<u32>,
         started_at: std::time::Instant,
+        launched_at: std::time::Instant,
     },
-    Exited {
+    Ran {
         child_id: Option<u32>,
-        status: Option<std::process::ExitStatus>,
         started_at: std::time::Instant,
+        launched_at: std::time::Instant,
+        finished_running_at: std::time::Instant,
+    },
+    Finished {
+        child_id: Option<u32>,
+        started_at: std::time::Instant,
+        launched_at: std::time::Instant,
+        finished_running_at: std::time::Instant,
         finished_at: std::time::Instant,
     },
 }
 
 impl ProcessStatus {
+    fn launched_at(&self) -> Option<std::time::Instant> {
+        match self {
+            Self::Preparing { .. } => None,
+            Self::Running { launched_at, .. }
+            | Self::Ran { launched_at, .. }
+            | Self::Finished { launched_at, .. } => Some(*launched_at),
+        }
+    }
+
+    fn finished_running_at(&self) -> Option<std::time::Instant> {
+        match self {
+            Self::Preparing { .. } | Self::Running { .. } => None,
+            Self::Ran {
+                finished_running_at,
+                ..
+            }
+            | Self::Finished {
+                finished_running_at,
+                ..
+            } => Some(*finished_running_at),
+        }
+    }
+
     pub fn child_id(&self) -> Option<u32> {
         match self {
-            ProcessStatus::Running { child_id, .. } => *child_id,
-            ProcessStatus::Exited { child_id, .. } => *child_id,
+            ProcessStatus::Preparing { .. } => None,
+            ProcessStatus::Running { child_id, .. }
+            | ProcessStatus::Ran { child_id, .. }
+            | ProcessStatus::Finished { child_id, .. } => *child_id,
         }
+    }
+
+    pub fn to_running(
+        &mut self,
+        launched_at: std::time::Instant,
+        child_id: Option<u32>,
+    ) -> anyhow::Result<()> {
+        let Self::Preparing { started_at } = *self else {
+            anyhow::bail!("expected ProcessStatus to be Preparing");
+        };
+
+        *self = Self::Running {
+            child_id,
+            started_at,
+            launched_at,
+        };
+
+        Ok(())
+    }
+
+    pub fn to_ran(&mut self, finished_running_at: std::time::Instant) -> anyhow::Result<()> {
+        let Self::Running {
+            child_id,
+            started_at,
+            launched_at,
+        } = *self
+        else {
+            anyhow::bail!("expected ProcessStatus to be Running");
+        };
+
+        *self = Self::Ran {
+            child_id,
+            started_at,
+            launched_at,
+            finished_running_at,
+        };
+
+        Ok(())
+    }
+
+    pub fn to_finished(&mut self, finished_at: std::time::Instant) -> anyhow::Result<()> {
+        let Self::Ran {
+            child_id,
+            started_at,
+            launched_at,
+            finished_running_at,
+        } = *self
+        else {
+            anyhow::bail!("expected ProcessStatus to be Ran");
+        };
+
+        *self = Self::Finished {
+            child_id,
+            started_at,
+            launched_at,
+            finished_running_at,
+            finished_at,
+        };
+
+        Ok(())
     }
 }

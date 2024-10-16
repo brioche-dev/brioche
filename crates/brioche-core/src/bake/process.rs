@@ -15,7 +15,10 @@ use crate::{
         CompleteProcessTemplateComponent, CompressionFormat, DirectoryError, DownloadRecipe, Meta,
         ProcessRecipe, ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
     },
-    reporter::job::{NewJob, ProcessPacket, ProcessStatus, UpdateJob},
+    reporter::{
+        job::{NewJob, ProcessPacket, ProcessStatus, UpdateJob},
+        JobId,
+    },
     sandbox::{
         HostPathMode, SandboxExecutionConfig, SandboxPath, SandboxPathOptions, SandboxTemplate,
         SandboxTemplateComponent,
@@ -289,6 +292,12 @@ pub async fn bake_process(
     let _permit = brioche.process_semaphore.acquire().await;
     tracing::debug!("acquired process semaphore permit");
 
+    let started_at = std::time::Instant::now();
+    let mut job_status = ProcessStatus::Preparing { started_at };
+    let job_id = brioche.reporter.add_job(NewJob::Process {
+        status: job_status.clone(),
+    });
+
     let hash = Recipe::CompleteProcess(process.clone()).hash();
 
     let temp_dir = brioche.home.join("process-temp");
@@ -503,9 +512,17 @@ pub async fn bake_process(
     };
 
     let result = if brioche.self_exec_processes {
-        run_sandboxed_self_exec(brioche, sandbox_config, stdout_file, stderr_file).await
+        run_sandboxed_self_exec(
+            brioche,
+            sandbox_config,
+            job_id,
+            &mut job_status,
+            stdout_file,
+            stderr_file,
+        )
+        .await
     } else {
-        run_sandboxed_inline(sandbox_config).await
+        run_sandboxed_inline(brioche, sandbox_config, job_id, &mut job_status).await
     };
 
     match result {
@@ -542,10 +559,31 @@ pub async fn bake_process(
         bake_dir.remove().await?;
     }
 
+    job_status.to_finished(std::time::Instant::now())?;
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::ProcessUpdateStatus {
+            status: job_status.clone(),
+        },
+    );
+
     Ok(result.value)
 }
 
-async fn run_sandboxed_inline(sandbox_config: SandboxExecutionConfig) -> anyhow::Result<()> {
+async fn run_sandboxed_inline(
+    brioche: &Brioche,
+    sandbox_config: SandboxExecutionConfig,
+    job_id: JobId,
+    job_status: &mut ProcessStatus,
+) -> anyhow::Result<()> {
+    job_status.to_running(std::time::Instant::now(), None)?;
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::ProcessUpdateStatus {
+            status: job_status.clone(),
+        },
+    );
+
     let status =
         tokio::task::spawn_blocking(|| crate::sandbox::run_sandbox(sandbox_config)).await??;
 
@@ -554,12 +592,22 @@ async fn run_sandboxed_inline(sandbox_config: SandboxExecutionConfig) -> anyhow:
         "sandboxed process exited with non-zero status code"
     );
 
+    job_status.to_ran(std::time::Instant::now())?;
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::ProcessUpdateStatus {
+            status: job_status.clone(),
+        },
+    );
+
     Ok(())
 }
 
 async fn run_sandboxed_self_exec(
     brioche: &Brioche,
     sandbox_config: SandboxExecutionConfig,
+    job_id: JobId,
+    job_status: &mut ProcessStatus,
     write_stdout: impl tokio::io::AsyncWrite + Send + Sync + 'static,
     write_stderr: impl tokio::io::AsyncWrite + Send + Sync + 'static,
 ) -> anyhow::Result<()> {
@@ -574,18 +622,17 @@ async fn run_sandboxed_self_exec(
         .stderr(std::process::Stdio::piped())
         .spawn()?;
 
-    let started_at = std::time::Instant::now();
     let child_id = child.id();
     let mut stdout = child.stdout.take().expect("failed to get stdout");
     let mut stderr = child.stderr.take().expect("failed to get stderr");
 
-    let mut job_status = ProcessStatus::Running {
-        child_id,
-        started_at,
-    };
-    let job_id = brioche.reporter.add_job(NewJob::Process {
-        status: job_status.clone(),
-    });
+    job_status.to_running(std::time::Instant::now(), child_id)?;
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::ProcessUpdateStatus {
+            status: job_status.clone(),
+        },
+    );
 
     tokio::task::spawn({
         let brioche = brioche.clone();
@@ -614,11 +661,10 @@ async fn run_sandboxed_self_exec(
 
                 brioche.reporter.update_job(
                     job_id,
-                    UpdateJob::Process {
-                        packet: Some(packet).into(),
-                        status: job_status.clone(),
+                    UpdateJob::ProcessPushPacket {
+                        packet: packet.into(),
                     },
-                )
+                );
             }
 
             anyhow::Ok(())
@@ -626,26 +672,19 @@ async fn run_sandboxed_self_exec(
     });
 
     let output = child.wait_with_output().await;
-    let status = output.as_ref().ok().map(|output| output.status);
-
-    job_status = ProcessStatus::Exited {
-        child_id,
-        status,
-        started_at,
-        finished_at: std::time::Instant::now(),
-    };
-    brioche.reporter.update_job(
-        job_id,
-        UpdateJob::Process {
-            packet: None.into(),
-            status: job_status,
-        },
-    );
 
     let result = output?;
     if !result.status.success() {
         anyhow::bail!("process exited with status code {}", result.status);
     }
+
+    job_status.to_ran(std::time::Instant::now())?;
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::ProcessUpdateStatus {
+            status: job_status.clone(),
+        },
+    );
 
     Ok(())
 }

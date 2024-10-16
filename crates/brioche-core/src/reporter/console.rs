@@ -78,6 +78,7 @@ pub fn start_console_reporter(
                 }
                 None => ConsoleReporter::Plain {
                     partial_lines: HashMap::new(),
+                    child_ids: HashMap::new(),
                 },
             };
 
@@ -203,6 +204,7 @@ enum ConsoleReporter {
         root: JobsComponent,
     },
     Plain {
+        child_ids: HashMap<JobId, Option<u32>>,
         partial_lines: HashMap<JobId, Vec<u8>>,
     },
 }
@@ -213,7 +215,10 @@ impl ConsoleReporter {
             ConsoleReporter::SuperConsole { console, .. } => {
                 console.emit(lines);
             }
-            ConsoleReporter::Plain { partial_lines: _ } => {
+            ConsoleReporter::Plain {
+                partial_lines: _,
+                child_ids: _,
+            } => {
                 for line in lines {
                     eprintln!("{}", line.to_unstyled());
                 }
@@ -228,7 +233,10 @@ impl ConsoleReporter {
                 let new_job = Job::new(job);
                 jobs.insert(id, new_job);
             }
-            ConsoleReporter::Plain { partial_lines: _ } => match job {
+            ConsoleReporter::Plain {
+                partial_lines: _,
+                child_ids: _,
+            } => match job {
                 NewJob::Download { url, started_at: _ } => {
                     eprintln!("Downloading {}", url);
                 }
@@ -258,19 +266,13 @@ impl ConsoleReporter {
     fn update_job(&mut self, id: JobId, update: UpdateJob) {
         match self {
             ConsoleReporter::SuperConsole { root, .. } => {
-                if let UpdateJob::Process { ref packet, .. } = update {
-                    if let Some(packet) = &packet.0 {
-                        let mut job_outputs = root.job_outputs.blocking_write();
-                        let (stream, bytes) = match packet {
-                            super::job::ProcessPacket::Stdout(bytes) => {
-                                (ProcessStream::Stdout, bytes)
-                            }
-                            super::job::ProcessPacket::Stderr(bytes) => {
-                                (ProcessStream::Stderr, bytes)
-                            }
-                        };
-                        job_outputs.append(JobOutputStream { job_id: id, stream }, bytes);
-                    }
+                if let UpdateJob::ProcessPushPacket { ref packet, .. } = update {
+                    let mut job_outputs = root.job_outputs.blocking_write();
+                    let (stream, bytes) = match &packet.0 {
+                        super::job::ProcessPacket::Stdout(bytes) => (ProcessStream::Stdout, bytes),
+                        super::job::ProcessPacket::Stderr(bytes) => (ProcessStream::Stderr, bytes),
+                    };
+                    job_outputs.append(JobOutputStream { job_id: id, stream }, bytes);
                 };
 
                 let mut jobs = root.jobs.blocking_write();
@@ -279,7 +281,10 @@ impl ConsoleReporter {
                 };
                 let _ = job.update(update);
             }
-            ConsoleReporter::Plain { partial_lines } => match update {
+            ConsoleReporter::Plain {
+                partial_lines,
+                child_ids,
+            } => match update {
                 UpdateJob::Download { finished_at, .. } => {
                     if finished_at.is_some() {
                         eprintln!("Finished download");
@@ -290,33 +295,33 @@ impl ConsoleReporter {
                         eprintln!("Unarchive");
                     }
                 }
-                UpdateJob::Process { mut packet, status } => {
-                    let child_id = status
-                        .child_id()
+                UpdateJob::ProcessUpdateStatus { status } => {
+                    let child_id = status.child_id();
+                    child_ids.insert(id, child_id);
+
+                    let child_id = child_id
                         .map(|id| id.to_string())
                         .unwrap_or_else(|| "?".to_string());
 
-                    if let Some(packet) = packet.take() {
-                        let buffer = partial_lines.entry(id).or_default();
-                        buffer.extend_from_slice(packet.bytes());
-                        if let Some((lines, remainder)) = buffer.rsplit_once_str(b"\n") {
-                            let lines = bstr::BStr::new(lines);
-                            for line in lines.lines() {
-                                eprintln!("[{child_id}] {}", bstr::BStr::new(line));
-                            }
-                            *buffer = remainder.to_vec();
-                        }
+                    if let ProcessStatus::Ran { .. } = status {
+                        eprintln!("Process {child_id} finished running");
                     }
+                }
+                UpdateJob::ProcessPushPacket { packet } => {
+                    let child_id = child_ids
+                        .get(&id)
+                        .and_then(|id| *id)
+                        .map(|id| id.to_string())
+                        .unwrap_or_else(|| "?".to_string());
 
-                    match status {
-                        ProcessStatus::Running { .. } => {}
-                        ProcessStatus::Exited { status, .. } => {
-                            if let Some(code) = status.as_ref().and_then(|status| status.code()) {
-                                eprintln!("Process {child_id} exited with code {}", code);
-                            } else {
-                                eprintln!("Process {child_id} exited");
-                            }
+                    let buffer = partial_lines.entry(id).or_default();
+                    buffer.extend_from_slice(packet.bytes());
+                    if let Some((lines, remainder)) = buffer.rsplit_once_str(b"\n") {
+                        let lines = bstr::BStr::new(lines);
+                        for line in lines.lines() {
+                            eprintln!("[{child_id}] {}", bstr::BStr::new(line));
                         }
+                        *buffer = remainder.to_vec();
                     }
                 }
                 UpdateJob::RegistryFetchAdd { .. } => {}
@@ -515,11 +520,16 @@ impl<'a> superconsole::Component for JobComponent<'a> {
     ) -> anyhow::Result<superconsole::Lines> {
         let &JobComponent(job_id, job) = self;
 
-        let elapsed = DisplayDuration(job.elapsed());
-        let elapsed_span = superconsole::Span::new_colored_lossy(
-            &format!("{elapsed:>6.8}"),
-            superconsole::style::Color::DarkGrey,
-        );
+        let elapsed_span = match job.elapsed() {
+            Some(elapsed) => {
+                let elapsed = DisplayDuration(elapsed);
+                superconsole::Span::new_colored_lossy(
+                    &format!("{elapsed:>6.8}"),
+                    superconsole::style::Color::DarkGrey,
+                )
+            }
+            None => superconsole::Span::new_unstyled_lossy(lazy_format::lazy_format!("{:>6}", "")),
+        };
 
         let lines = match job {
             Job::Download {
@@ -538,7 +548,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 let indicator = if job.is_complete() {
                     IndicatorKind::Complete
                 } else {
-                    IndicatorKind::Spinner(job.elapsed())
+                    IndicatorKind::Spinner(job.elapsed().unwrap_or_default())
                 };
 
                 let mut line = superconsole::Line::from_iter([
@@ -579,7 +589,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 let indicator = if job.is_complete() {
                     IndicatorKind::Complete
                 } else {
-                    IndicatorKind::Spinner(job.elapsed())
+                    IndicatorKind::Spinner(job.elapsed().unwrap_or_default())
                 };
 
                 let mut line = superconsole::Line::from_iter([
@@ -618,28 +628,66 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                     .unwrap_or_else(|| "?".to_string());
 
                 let indicator = match status {
-                    ProcessStatus::Running { .. } => IndicatorKind::Spinner(job.elapsed()),
-                    ProcessStatus::Exited { status, .. } => {
-                        let is_success = status.is_some_and(|status| status.success());
+                    ProcessStatus::Preparing { started_at } => {
+                        IndicatorKind::PreparingSpinner(started_at.elapsed())
+                    }
+                    ProcessStatus::Running { launched_at, .. } => {
+                        IndicatorKind::Spinner(launched_at.elapsed())
+                    }
+                    ProcessStatus::Ran { .. } | ProcessStatus::Finished { .. } => {
+                        IndicatorKind::Complete
+                    }
+                };
 
-                        if is_success {
-                            IndicatorKind::Complete
+                let note_span = match status {
+                    ProcessStatus::Preparing { started_at } => {
+                        let preparing_duration = started_at.elapsed();
+                        if preparing_duration > std::time::Duration::from_secs(1) {
+                            Some(superconsole::Span::new_colored_lossy(
+                                &format!(
+                                    " (preparing for {})",
+                                    DisplayDuration(preparing_duration)
+                                ),
+                                superconsole::style::Color::DarkGrey,
+                            ))
                         } else {
-                            IndicatorKind::Failed
+                            None
                         }
                     }
+                    ProcessStatus::Ran {
+                        finished_running_at,
+                        ..
+                    } => {
+                        let finishing_duration = finished_running_at.elapsed();
+                        if finishing_duration > std::time::Duration::from_secs(1) {
+                            Some(superconsole::Span::new_colored_lossy(
+                                &format!(
+                                    " (finishing up for {})",
+                                    DisplayDuration(finishing_duration)
+                                ),
+                                superconsole::style::Color::DarkGrey,
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                    ProcessStatus::Running { .. } | ProcessStatus::Finished { .. } => None,
                 };
 
                 let child_id_span =
                     superconsole::Span::new_colored_lossy(&child_id, job_color(job_id));
 
-                superconsole::Lines::from_iter([superconsole::Line::from_iter([
-                    elapsed_span,
-                    superconsole::Span::new_unstyled_lossy(" "),
-                    indicator_span(indicator),
-                    superconsole::Span::new_unstyled_lossy(" Process "),
-                    child_id_span,
-                ])])
+                superconsole::Lines::from_iter([superconsole::Line::from_iter(
+                    [
+                        elapsed_span,
+                        superconsole::Span::new_unstyled_lossy(" "),
+                        indicator_span(indicator),
+                        superconsole::Span::new_unstyled_lossy(" Process "),
+                        child_id_span,
+                    ]
+                    .into_iter()
+                    .chain(note_span),
+                )])
             }
             Job::RegistryFetch {
                 complete_blobs,
@@ -669,7 +717,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                 let indicator = if job.is_complete() {
                     IndicatorKind::Complete
                 } else {
-                    IndicatorKind::Spinner(job.elapsed())
+                    IndicatorKind::Spinner(job.elapsed().unwrap_or_default())
                 };
 
                 let mut line = superconsole::Line::from_iter([
@@ -919,22 +967,23 @@ fn job_color(job_id: JobId) -> superconsole::style::Color {
 
 #[derive(Debug, Clone, Copy)]
 enum IndicatorKind {
+    PreparingSpinner(std::time::Duration),
     Spinner(std::time::Duration),
     Complete,
-    Failed,
 }
 
 fn indicator_span(kind: IndicatorKind) -> superconsole::Span {
     match kind {
         IndicatorKind::Spinner(elapsed) => {
-            let spinner = spinner(elapsed);
+            let spinner = spinner(elapsed, 100);
             superconsole::Span::new_colored_lossy(spinner, superconsole::style::Color::Blue)
+        }
+        IndicatorKind::PreparingSpinner(elapsed) => {
+            let spinner = spinner(elapsed, 200);
+            superconsole::Span::new_colored_lossy(spinner, superconsole::style::Color::Grey)
         }
         IndicatorKind::Complete => {
             superconsole::Span::new_colored_lossy("✓", superconsole::style::Color::Green)
-        }
-        IndicatorKind::Failed => {
-            superconsole::Span::new_colored_lossy("✕", superconsole::style::Color::Red)
         }
     }
 }
@@ -969,9 +1018,9 @@ fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [supercons
     ]
 }
 
-fn spinner(duration: std::time::Duration) -> &'static str {
+fn spinner(duration: std::time::Duration, speed: u128) -> &'static str {
     const SPINNERS: &[&str] = &["◜", "◝", "◞", "◟"];
-    SPINNERS[(duration.as_millis() / 100) as usize % SPINNERS.len()]
+    SPINNERS[(duration.as_millis() / speed) as usize % SPINNERS.len()]
 }
 
 #[cfg(test)]
