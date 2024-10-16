@@ -954,12 +954,10 @@ fn string_with_width<'a>(s: &'a str, num_chars: usize, replacement: &str) -> Cow
 
 fn job_color(job_id: JobId) -> superconsole::style::Color {
     const JOB_COLORS: &[superconsole::style::Color] = &[
-        superconsole::style::Color::Red,
-        superconsole::style::Color::Green,
+        superconsole::style::Color::Cyan,
+        superconsole::style::Color::Magenta,
         superconsole::style::Color::Yellow,
         superconsole::style::Color::Blue,
-        superconsole::style::Color::Magenta,
-        superconsole::style::Color::Cyan,
     ];
 
     JOB_COLORS[job_id.0 % JOB_COLORS.len()]
