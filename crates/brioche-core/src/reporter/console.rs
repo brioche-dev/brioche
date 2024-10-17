@@ -433,7 +433,7 @@ impl superconsole::Component for JobsComponent {
         dimensions: superconsole::Dimensions,
         mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
-        let max_visible_jobs = std::cmp::max(dimensions.height.saturating_sub(15), 3);
+        let max_visible_jobs: usize = 4;
 
         let mut job_list: Vec<_> = self.jobs.iter().collect();
         job_list.sort_by(cmp_job_entries);
@@ -444,9 +444,14 @@ impl superconsole::Component for JobsComponent {
         let num_incomplete_jobs = incomplete_jobs.len();
         let num_complete_jobs = complete_jobs.len();
 
+        // Ensure we show at least one complete job (if there are any)
+        let min_complete_jobs = std::cmp::min(num_complete_jobs, 1);
+        let max_incomplete_jobs = max_visible_jobs.saturating_sub(min_complete_jobs);
+
         let job_list = incomplete_jobs
             .iter()
-            .chain(complete_jobs.iter().take(3))
+            .take(max_incomplete_jobs)
+            .chain(complete_jobs)
             .take(max_visible_jobs);
 
         let jobs_lines = job_list
@@ -976,24 +981,28 @@ fn cmp_job_entries(
     (a_id, a_job): &(&JobId, &Job),
     (b_id, b_job): &(&JobId, &Job),
 ) -> std::cmp::Ordering {
-    let a_is_complete = a_job.is_complete();
-    let b_is_complete = b_job.is_complete();
+    let a_finalized_at = a_job.finalized_at();
+    let b_finalized_at = b_job.finalized_at();
 
-    // Show incomplete jobs first
-    a_is_complete.cmp(&b_is_complete).then_with(|| {
-        if a_is_complete {
-            // If both jobs are complete, then show the highest priority jobs
-            // first, then show the newest job first
+    // Show unfinalized jobs first
+    match (a_finalized_at, b_finalized_at) {
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (a_finalized_at, b_finalized_at) => {
+            // Show higher priority jobs first
             a_job
                 .job_type_priority()
                 .cmp(&b_job.job_type_priority())
                 .reverse()
-                .then_with(|| a_id.cmp(b_id).reverse())
-        } else {
-            // If neither jobs is complete, then show the oldest job first
-            a_id.cmp(b_id)
+                .then_with(|| {
+                    // Show more recently finalized jobs first
+                    a_finalized_at.cmp(&b_finalized_at).reverse().then_with(|| {
+                        // Show newer jobs first
+                        a_id.cmp(b_id)
+                    })
+                })
         }
-    })
+    }
 }
 
 fn string_with_width<'a>(s: &'a str, num_chars: usize, replacement: &str) -> Cow<'a, str> {

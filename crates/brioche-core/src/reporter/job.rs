@@ -273,6 +273,15 @@ impl Job {
         }
     }
 
+    pub fn finalized_at(&self) -> Option<std::time::Instant> {
+        match self {
+            Job::Download { finished_at, .. }
+            | Job::Unarchive { finished_at, .. }
+            | Job::RegistryFetch { finished_at, .. } => *finished_at,
+            Job::Process { status, .. } => status.finalized_at(),
+        }
+    }
+
     pub fn elapsed(&self) -> Option<std::time::Duration> {
         let started_at = self.started_at()?;
         let elapsed = if let Some(finished_at) = self.finished_at() {
@@ -292,8 +301,7 @@ impl Job {
     pub fn job_type_priority(&self) -> u8 {
         match self {
             Job::Unarchive { .. } => 0,
-            Job::Download { .. } | Job::RegistryFetch { .. } => 1,
-            Job::Process { .. } => 2,
+            Job::Download { .. } | Job::RegistryFetch { .. } | Job::Process { .. } => 2,
         }
     }
 }
@@ -368,6 +376,13 @@ impl ProcessStatus {
             Self::Ran { finished_at, .. } | Self::Finalized { finished_at, .. } => {
                 Some(*finished_at)
             }
+        }
+    }
+
+    fn finalized_at(&self) -> Option<std::time::Instant> {
+        match self {
+            Self::Preparing { .. } | Self::Running { .. } | Self::Ran { .. } => None,
+            Self::Finalized { finalized_at, .. } => Some(*finalized_at),
         }
     }
 
