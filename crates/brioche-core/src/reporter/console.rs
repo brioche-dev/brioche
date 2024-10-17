@@ -28,7 +28,6 @@ pub enum ConsoleReporterKind {
 pub fn start_console_reporter(
     kind: ConsoleReporterKind,
 ) -> anyhow::Result<(Reporter, ReporterGuard)> {
-    let jobs = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let queued_lines = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
@@ -53,7 +52,6 @@ pub fn start_console_reporter(
 
     std::thread::spawn({
         let queued_lines = queued_lines.clone();
-        let jobs = jobs.clone();
         move || {
             let superconsole = match kind {
                 ConsoleReporterKind::Auto => superconsole::SuperConsole::new(),
@@ -65,21 +63,19 @@ pub fn start_console_reporter(
                 )),
                 ConsoleReporterKind::Plain => None,
             };
+
+            let jobs = HashMap::new();
+            let job_outputs = JobOutputContents::new(1024 * 1024);
             let mut console = match superconsole {
                 Some(console) => {
                     let root = JobsComponent {
                         start,
                         jobs,
-                        job_outputs: Arc::new(tokio::sync::RwLock::new(JobOutputContents::new(
-                            1024 * 1024,
-                        ))),
+                        job_outputs,
                     };
                     ConsoleReporter::SuperConsole { console, root }
                 }
-                None => ConsoleReporter::Plain {
-                    jobs,
-                    job_outputs: JobOutputContents::new(1024 * 1024),
-                },
+                None => ConsoleReporter::Plain { jobs, job_outputs },
             };
 
             let mut running = true;
@@ -204,7 +200,7 @@ enum ConsoleReporter {
         root: JobsComponent,
     },
     Plain {
-        jobs: Arc<tokio::sync::RwLock<HashMap<JobId, Job>>>,
+        jobs: HashMap<JobId, Job>,
         job_outputs: JobOutputContents,
     },
 }
@@ -226,9 +222,8 @@ impl ConsoleReporter {
     fn add_job(&mut self, id: JobId, job: NewJob) {
         match self {
             ConsoleReporter::SuperConsole { root, .. } => {
-                let mut jobs = root.jobs.blocking_write();
                 let new_job = Job::new(job);
-                jobs.insert(id, new_job);
+                root.jobs.insert(id, new_job);
             }
             ConsoleReporter::Plain { jobs, .. } => {
                 match &job {
@@ -243,14 +238,13 @@ impl ConsoleReporter {
                         started_at: _,
                     } => {
                         eprintln!(
-                        "Fetching {total_blobs} blob{} / {total_recipes} recipe{} from registry",
-                        if *total_blobs == 1 { "" } else { "s" },
-                        if *total_recipes == 1 { "" } else { "s" },
-                    );
+                            "Fetching {total_blobs} blob{} / {total_recipes} recipe{} from registry",
+                            if *total_blobs == 1 { "" } else { "s" },
+                            if *total_recipes == 1 { "" } else { "s" },
+                        );
                     }
                 }
 
-                let mut jobs = jobs.blocking_write();
                 let new_job = Job::new(job);
                 jobs.insert(id, new_job);
             }
@@ -261,22 +255,20 @@ impl ConsoleReporter {
         match self {
             ConsoleReporter::SuperConsole { root, .. } => {
                 if let UpdateJob::ProcessPushPacket { ref packet, .. } = update {
-                    let mut job_outputs = root.job_outputs.blocking_write();
                     let (stream, bytes) = match &packet.0 {
                         super::job::ProcessPacket::Stdout(bytes) => (ProcessStream::Stdout, bytes),
                         super::job::ProcessPacket::Stderr(bytes) => (ProcessStream::Stderr, bytes),
                     };
-                    job_outputs.append(JobOutputStream { job_id: id, stream }, bytes);
+                    root.job_outputs
+                        .append(JobOutputStream { job_id: id, stream }, bytes);
                 };
 
-                let mut jobs = root.jobs.blocking_write();
-                let Some(job) = jobs.get_mut(&id) else {
+                let Some(job) = root.jobs.get_mut(&id) else {
                     return;
                 };
                 let _ = job.update(update);
             }
             ConsoleReporter::Plain { jobs, job_outputs } => {
-                let mut jobs = jobs.blocking_write();
                 let Some(job) = jobs.get(&id) else {
                     return;
                 };
@@ -431,8 +423,8 @@ const JOB_LABEL_WIDTH: usize = 7;
 
 struct JobsComponent {
     start: std::time::Instant,
-    jobs: Arc<tokio::sync::RwLock<HashMap<JobId, Job>>>,
-    job_outputs: Arc<tokio::sync::RwLock<JobOutputContents>>,
+    jobs: HashMap<JobId, Job>,
+    job_outputs: JobOutputContents,
 }
 
 impl superconsole::Component for JobsComponent {
@@ -441,11 +433,9 @@ impl superconsole::Component for JobsComponent {
         dimensions: superconsole::Dimensions,
         mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
-        let jobs = self.jobs.blocking_read();
-
         let max_visible_jobs = std::cmp::max(dimensions.height.saturating_sub(15), 3);
 
-        let mut job_list: Vec<_> = jobs.iter().collect();
+        let mut job_list: Vec<_> = self.jobs.iter().collect();
         job_list.sort_by(cmp_job_entries);
 
         let job_partition_point = job_list.partition_point(|&(_, job)| !job.is_complete());
@@ -475,14 +465,13 @@ impl superconsole::Component for JobsComponent {
             .height
             .saturating_sub(jobs_lines.len())
             .saturating_sub(3);
-        let job_outputs = self.job_outputs.blocking_read();
 
         let job_output_content_width = dimensions
             .width
             .saturating_sub(JOB_LABEL_WIDTH)
             .saturating_sub(4);
 
-        let contents_rev = Some(job_outputs.contents.iter().rev())
+        let contents_rev = Some(self.job_outputs.contents.iter().rev())
             .filter(|_| job_output_content_width > 0)
             .into_iter()
             .flatten();
@@ -508,7 +497,7 @@ impl superconsole::Component for JobsComponent {
             let gutter = if last_job_id == Some(stream.job_id) {
                 format!("{:1$}│ ", "", JOB_LABEL_WIDTH)
             } else {
-                let job = jobs.get(&stream.job_id);
+                let job = self.jobs.get(&stream.job_id);
                 let child_id = match job {
                     Some(Job::Process { status, .. }) => status.child_id(),
                     _ => None,
