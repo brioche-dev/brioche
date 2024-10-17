@@ -658,12 +658,12 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                         finished_running_at,
                         ..
                     } => {
-                        let finishing_duration = finished_running_at.elapsed();
-                        if finishing_duration > std::time::Duration::from_secs(1) {
+                        let finalizing_duration = finished_running_at.elapsed();
+                        if finalizing_duration > std::time::Duration::from_secs(1) {
                             Some(superconsole::Span::new_colored_lossy(
                                 &format!(
-                                    " (finishing up for {})",
-                                    DisplayDuration(finishing_duration)
+                                    " (finalizing for {})",
+                                    DisplayDuration(finalizing_duration)
                                 ),
                                 superconsole::style::Color::DarkGrey,
                             ))
