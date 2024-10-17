@@ -264,7 +264,7 @@ impl Job {
         }
     }
 
-    fn finished_at(&self) -> Option<std::time::Instant> {
+    pub fn finished_at(&self) -> Option<std::time::Instant> {
         match self {
             Job::Download { finished_at, .. }
             | Job::Unarchive { finished_at, .. }
@@ -276,7 +276,7 @@ impl Job {
     pub fn elapsed(&self) -> Option<std::time::Duration> {
         let started_at = self.started_at()?;
         let elapsed = if let Some(finished_at) = self.finished_at() {
-            finished_at.duration_since(started_at)
+            finished_at.saturating_duration_since(started_at)
         } else {
             started_at.elapsed()
         };

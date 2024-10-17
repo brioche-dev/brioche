@@ -591,15 +591,26 @@ impl<'a> superconsole::Component for JobComponent<'a> {
     ) -> anyhow::Result<superconsole::Lines> {
         let &JobComponent(job_id, job) = self;
 
-        let elapsed_span = match job.elapsed() {
-            Some(elapsed) => {
+        let elapsed_span = match (job.started_at(), job.finished_at()) {
+            (Some(started_at), Some(finished_at)) => {
+                let elapsed = finished_at.saturating_duration_since(started_at);
                 let elapsed = DisplayDuration(elapsed);
                 superconsole::Span::new_colored_lossy(
                     &format!("{elapsed:>6.8}"),
                     superconsole::style::Color::DarkGrey,
                 )
             }
-            None => superconsole::Span::new_unstyled_lossy(lazy_format::lazy_format!("{:>6}", "")),
+            (Some(started_at), None) => {
+                let elapsed = started_at.elapsed();
+                let elapsed = DisplayDuration(elapsed);
+                superconsole::Span::new_colored_lossy(
+                    &format!("{elapsed:>6.8}"),
+                    superconsole::style::Color::Grey,
+                )
+            }
+            (None, _) => {
+                superconsole::Span::new_unstyled_lossy(lazy_format::lazy_format!("{:>6}", ""))
+            }
         };
 
         let lines = match job {
