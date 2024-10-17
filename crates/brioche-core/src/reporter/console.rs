@@ -241,13 +241,7 @@ impl ConsoleReporter {
                     eprintln!("Downloading {}", url);
                 }
                 NewJob::Unarchive { started_at: _ } => {}
-                NewJob::Process { status } => {
-                    if let Some(child_id) = status.child_id() {
-                        eprintln!("Started process {child_id}");
-                    } else {
-                        eprintln!("Started process");
-                    }
-                }
+                NewJob::Process { status: _ } => {}
                 NewJob::RegistryFetch {
                     total_blobs,
                     total_recipes,
@@ -297,14 +291,58 @@ impl ConsoleReporter {
                 }
                 UpdateJob::ProcessUpdateStatus { status } => {
                     let child_id = status.child_id();
-                    child_ids.insert(id, child_id);
+                    child_ids.insert(id, status.child_id());
 
-                    let child_id = child_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| "?".to_string());
+                    let child_id_label = lazy_format::lazy_format! {
+                        match (child_id) {
+                            Some(child_id) => "{child_id}",
+                            None => "?"
+                        }
+                    };
 
-                    if let ProcessStatus::Ran { .. } = status {
-                        eprintln!("Process {child_id} finished running");
+                    match status {
+                        ProcessStatus::Preparing { .. } => {}
+                        ProcessStatus::Running {
+                            started_at,
+                            launched_at,
+                            ..
+                        } => {
+                            let launch_duration = launched_at.saturating_duration_since(started_at);
+                            if launch_duration > std::time::Duration::from_secs(1) {
+                                eprintln!(
+                                    "Prepared process {child_id_label} in {}",
+                                    DisplayDuration(launch_duration)
+                                );
+                            }
+
+                            eprintln!("Launched process {child_id_label}");
+                        }
+                        ProcessStatus::Ran {
+                            launched_at,
+                            finished_running_at,
+                            ..
+                        } => {
+                            let run_duration =
+                                finished_running_at.saturating_duration_since(launched_at);
+                            eprintln!(
+                                "Process {child_id_label} ran in {}",
+                                DisplayDuration(run_duration)
+                            );
+                        }
+                        ProcessStatus::Finished {
+                            finished_running_at,
+                            finished_at,
+                            ..
+                        } => {
+                            let finalize_duration =
+                                finished_at.saturating_duration_since(finished_running_at);
+                            if finalize_duration > std::time::Duration::from_secs(1) {
+                                eprintln!(
+                                    "Process {child_id_label} finalized in {}",
+                                    DisplayDuration(finalize_duration)
+                                );
+                            }
+                        }
                     }
                 }
                 UpdateJob::ProcessPushPacket { packet } => {
