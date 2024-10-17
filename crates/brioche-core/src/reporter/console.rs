@@ -284,15 +284,13 @@ impl ConsoleReporter {
                 match &update {
                     UpdateJob::Download { finished_at, .. } => {
                         if let Some(finished_at) = finished_at {
-                            let elapsed =
-                                finished_at.saturating_duration_since(job.initially_started_at());
+                            let elapsed = finished_at.saturating_duration_since(job.created_at());
                             eprintln!("Finished download in {}", DisplayDuration(elapsed));
                         }
                     }
                     UpdateJob::Unarchive { finished_at, .. } => {
                         if let Some(finished_at) = finished_at {
-                            let elapsed =
-                                finished_at.saturating_duration_since(job.initially_started_at());
+                            let elapsed = finished_at.saturating_duration_since(job.created_at());
                             eprintln!("Finished unarchiving in {}", DisplayDuration(elapsed));
                         }
                     }
@@ -309,12 +307,12 @@ impl ConsoleReporter {
                         match status {
                             ProcessStatus::Preparing { .. } => {}
                             ProcessStatus::Running {
+                                created_at,
                                 started_at,
-                                launched_at,
                                 ..
                             } => {
                                 let launch_duration =
-                                    launched_at.saturating_duration_since(*started_at);
+                                    started_at.saturating_duration_since(*created_at);
                                 if launch_duration > std::time::Duration::from_secs(1) {
                                     eprintln!(
                                         "Prepared process {child_id_label} in {}",
@@ -325,24 +323,24 @@ impl ConsoleReporter {
                                 eprintln!("Launched process {child_id_label}");
                             }
                             ProcessStatus::Ran {
-                                launched_at,
-                                finished_running_at,
+                                started_at,
+                                finished_at,
                                 ..
                             } => {
                                 let run_duration =
-                                    finished_running_at.saturating_duration_since(*launched_at);
+                                    finished_at.saturating_duration_since(*started_at);
                                 eprintln!(
                                     "Process {child_id_label} ran in {}",
                                     DisplayDuration(run_duration)
                                 );
                             }
-                            ProcessStatus::Finished {
-                                finished_running_at,
+                            ProcessStatus::Finalized {
                                 finished_at,
+                                finalized_at,
                                 ..
                             } => {
                                 let finalize_duration =
-                                    finished_at.saturating_duration_since(*finished_running_at);
+                                    finalized_at.saturating_duration_since(*finished_at);
                                 if finalize_duration > std::time::Duration::from_secs(1) {
                                     eprintln!(
                                         "Process {child_id_label} finalized in {}",
@@ -390,8 +388,7 @@ impl ConsoleReporter {
                     UpdateJob::RegistryFetchAdd { .. } => {}
                     UpdateJob::RegistryFetchUpdate { .. } => {}
                     UpdateJob::RegistryFetchFinish { finished_at } => {
-                        let elapsed =
-                            finished_at.saturating_duration_since(job.initially_started_at());
+                        let elapsed = finished_at.saturating_duration_since(job.created_at());
                         eprintln!(
                             "Finished fetching from registry in {}",
                             DisplayDuration(elapsed)
@@ -702,20 +699,20 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                     .unwrap_or_else(|| "?".to_string());
 
                 let indicator = match status {
-                    ProcessStatus::Preparing { started_at } => {
-                        IndicatorKind::PreparingSpinner(started_at.elapsed())
+                    ProcessStatus::Preparing { created_at } => {
+                        IndicatorKind::PreparingSpinner(created_at.elapsed())
                     }
-                    ProcessStatus::Running { launched_at, .. } => {
-                        IndicatorKind::Spinner(launched_at.elapsed())
+                    ProcessStatus::Running { started_at, .. } => {
+                        IndicatorKind::Spinner(started_at.elapsed())
                     }
-                    ProcessStatus::Ran { .. } | ProcessStatus::Finished { .. } => {
+                    ProcessStatus::Ran { .. } | ProcessStatus::Finalized { .. } => {
                         IndicatorKind::Complete
                     }
                 };
 
                 let note_span = match status {
-                    ProcessStatus::Preparing { started_at } => {
-                        let preparing_duration = started_at.elapsed();
+                    ProcessStatus::Preparing { created_at } => {
+                        let preparing_duration = created_at.elapsed();
                         if preparing_duration > std::time::Duration::from_secs(1) {
                             Some(superconsole::Span::new_colored_lossy(
                                 &format!(
@@ -728,11 +725,8 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                             None
                         }
                     }
-                    ProcessStatus::Ran {
-                        finished_running_at,
-                        ..
-                    } => {
-                        let finalizing_duration = finished_running_at.elapsed();
+                    ProcessStatus::Ran { finished_at, .. } => {
+                        let finalizing_duration = finished_at.elapsed();
                         if finalizing_duration > std::time::Duration::from_secs(1) {
                             Some(superconsole::Span::new_colored_lossy(
                                 &format!(
@@ -745,7 +739,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
                             None
                         }
                     }
-                    ProcessStatus::Running { .. } | ProcessStatus::Finished { .. } => None,
+                    ProcessStatus::Running { .. } | ProcessStatus::Finalized { .. } => None,
                 };
 
                 let child_id_span =

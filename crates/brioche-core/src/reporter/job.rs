@@ -246,12 +246,12 @@ impl Job {
         Ok(())
     }
 
-    pub fn initially_started_at(&self) -> std::time::Instant {
+    pub fn created_at(&self) -> std::time::Instant {
         match self {
             Job::Download { started_at, .. }
             | Job::Unarchive { started_at, .. }
             | Job::RegistryFetch { started_at, .. } => *started_at,
-            Job::Process { status, .. } => status.initially_started_at(),
+            Job::Process { status, .. } => status.created_at(),
         }
     }
 
@@ -260,7 +260,7 @@ impl Job {
             Job::Download { started_at, .. }
             | Job::Unarchive { started_at, .. }
             | Job::RegistryFetch { started_at, .. } => Some(*started_at),
-            Job::Process { status, .. } => status.launched_at(),
+            Job::Process { status, .. } => status.started_at(),
         }
     }
 
@@ -269,7 +269,7 @@ impl Job {
             Job::Download { finished_at, .. }
             | Job::Unarchive { finished_at, .. }
             | Job::RegistryFetch { finished_at, .. } => *finished_at,
-            Job::Process { status, .. } => status.finished_running_at(),
+            Job::Process { status, .. } => status.finished_at(),
         }
     }
 
@@ -321,58 +321,53 @@ pub enum ProcessStream {
 #[derive(Debug, Clone)]
 pub enum ProcessStatus {
     Preparing {
-        started_at: std::time::Instant,
+        created_at: std::time::Instant,
     },
     Running {
         child_id: Option<u32>,
+        created_at: std::time::Instant,
         started_at: std::time::Instant,
-        launched_at: std::time::Instant,
     },
     Ran {
         child_id: Option<u32>,
+        created_at: std::time::Instant,
         started_at: std::time::Instant,
-        launched_at: std::time::Instant,
-        finished_running_at: std::time::Instant,
-    },
-    Finished {
-        child_id: Option<u32>,
-        started_at: std::time::Instant,
-        launched_at: std::time::Instant,
-        finished_running_at: std::time::Instant,
         finished_at: std::time::Instant,
+    },
+    Finalized {
+        child_id: Option<u32>,
+        created_at: std::time::Instant,
+        started_at: std::time::Instant,
+        finished_at: std::time::Instant,
+        finalized_at: std::time::Instant,
     },
 }
 
 impl ProcessStatus {
-    fn initially_started_at(&self) -> std::time::Instant {
+    fn created_at(&self) -> std::time::Instant {
         match self {
-            Self::Preparing { started_at }
-            | Self::Running { started_at, .. }
-            | Self::Ran { started_at, .. }
-            | Self::Finished { started_at, .. } => *started_at,
+            Self::Preparing { created_at }
+            | Self::Running { created_at, .. }
+            | Self::Ran { created_at, .. }
+            | Self::Finalized { created_at, .. } => *created_at,
         }
     }
 
-    fn launched_at(&self) -> Option<std::time::Instant> {
+    fn started_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Preparing { .. } => None,
-            Self::Running { launched_at, .. }
-            | Self::Ran { launched_at, .. }
-            | Self::Finished { launched_at, .. } => Some(*launched_at),
+            Self::Running { started_at, .. }
+            | Self::Ran { started_at, .. }
+            | Self::Finalized { started_at, .. } => Some(*started_at),
         }
     }
 
-    fn finished_running_at(&self) -> Option<std::time::Instant> {
+    fn finished_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Preparing { .. } | Self::Running { .. } => None,
-            Self::Ran {
-                finished_running_at,
-                ..
+            Self::Ran { finished_at, .. } | Self::Finalized { finished_at, .. } => {
+                Some(*finished_at)
             }
-            | Self::Finished {
-                finished_running_at,
-                ..
-            } => Some(*finished_running_at),
         }
     }
 
@@ -381,33 +376,33 @@ impl ProcessStatus {
             ProcessStatus::Preparing { .. } => None,
             ProcessStatus::Running { child_id, .. }
             | ProcessStatus::Ran { child_id, .. }
-            | ProcessStatus::Finished { child_id, .. } => *child_id,
+            | ProcessStatus::Finalized { child_id, .. } => *child_id,
         }
     }
 
     pub fn to_running(
         &mut self,
-        launched_at: std::time::Instant,
+        started_at: std::time::Instant,
         child_id: Option<u32>,
     ) -> anyhow::Result<()> {
-        let Self::Preparing { started_at } = *self else {
+        let Self::Preparing { created_at } = *self else {
             anyhow::bail!("expected ProcessStatus to be Preparing");
         };
 
         *self = Self::Running {
             child_id,
+            created_at,
             started_at,
-            launched_at,
         };
 
         Ok(())
     }
 
-    pub fn to_ran(&mut self, finished_running_at: std::time::Instant) -> anyhow::Result<()> {
+    pub fn to_ran(&mut self, finished_at: std::time::Instant) -> anyhow::Result<()> {
         let Self::Running {
             child_id,
+            created_at,
             started_at,
-            launched_at,
         } = *self
         else {
             anyhow::bail!("expected ProcessStatus to be Running");
@@ -415,31 +410,31 @@ impl ProcessStatus {
 
         *self = Self::Ran {
             child_id,
+            created_at,
             started_at,
-            launched_at,
-            finished_running_at,
+            finished_at,
         };
 
         Ok(())
     }
 
-    pub fn to_finished(&mut self, finished_at: std::time::Instant) -> anyhow::Result<()> {
+    pub fn to_finalized(&mut self, finalized_at: std::time::Instant) -> anyhow::Result<()> {
         let Self::Ran {
             child_id,
+            created_at,
             started_at,
-            launched_at,
-            finished_running_at,
+            finished_at,
         } = *self
         else {
             anyhow::bail!("expected ProcessStatus to be Ran");
         };
 
-        *self = Self::Finished {
+        *self = Self::Finalized {
             child_id,
+            created_at,
             started_at,
-            launched_at,
-            finished_running_at,
             finished_at,
+            finalized_at,
         };
 
         Ok(())

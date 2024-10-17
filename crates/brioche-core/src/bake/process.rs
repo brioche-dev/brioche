@@ -292,8 +292,8 @@ pub async fn bake_process(
     let _permit = brioche.process_semaphore.acquire().await;
     tracing::debug!("acquired process semaphore permit");
 
-    let started_at = std::time::Instant::now();
-    let mut job_status = ProcessStatus::Preparing { started_at };
+    let created_at = std::time::Instant::now();
+    let mut job_status = ProcessStatus::Preparing { created_at };
     let job_id = brioche.reporter.add_job(NewJob::Process {
         status: job_status.clone(),
     });
@@ -559,7 +559,7 @@ pub async fn bake_process(
         bake_dir.remove().await?;
     }
 
-    job_status.to_finished(std::time::Instant::now())?;
+    job_status.to_finalized(std::time::Instant::now())?;
     brioche.reporter.update_job(
         job_id,
         UpdateJob::ProcessUpdateStatus {
