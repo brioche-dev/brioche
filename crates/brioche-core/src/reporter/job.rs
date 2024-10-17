@@ -246,7 +246,16 @@ impl Job {
         Ok(())
     }
 
-    fn started_at(&self) -> Option<std::time::Instant> {
+    pub fn initially_started_at(&self) -> std::time::Instant {
+        match self {
+            Job::Download { started_at, .. }
+            | Job::Unarchive { started_at, .. }
+            | Job::RegistryFetch { started_at, .. } => *started_at,
+            Job::Process { status, .. } => status.initially_started_at(),
+        }
+    }
+
+    pub fn started_at(&self) -> Option<std::time::Instant> {
         match self {
             Job::Download { started_at, .. }
             | Job::Unarchive { started_at, .. }
@@ -335,6 +344,15 @@ pub enum ProcessStatus {
 }
 
 impl ProcessStatus {
+    fn initially_started_at(&self) -> std::time::Instant {
+        match self {
+            Self::Preparing { started_at }
+            | Self::Running { started_at, .. }
+            | Self::Ran { started_at, .. }
+            | Self::Finished { started_at, .. } => *started_at,
+        }
+    }
+
     fn launched_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Preparing { .. } => None,
