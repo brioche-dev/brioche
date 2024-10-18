@@ -673,6 +673,10 @@ async fn run_sandboxed_self_exec(
 
     let output = child.wait_with_output().await;
 
+    brioche
+        .reporter
+        .update_job(job_id, UpdateJob::ProcessFlushPackets);
+
     let result = output?;
     if !result.status.success() {
         anyhow::bail!("process exited with status code {}", result.status);

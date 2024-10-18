@@ -280,6 +280,15 @@ impl ConsoleReporter {
                     };
                     root.job_outputs
                         .append(JobOutputStream { job_id: id, stream }, bytes);
+                } else if let UpdateJob::ProcessFlushPackets = update {
+                    root.job_outputs.flush_stream(JobOutputStream {
+                        job_id: id,
+                        stream: ProcessStream::Stdout,
+                    });
+                    root.job_outputs.flush_stream(JobOutputStream {
+                        job_id: id,
+                        stream: ProcessStream::Stderr,
+                    });
                 };
 
                 let Some(job) = root.jobs.get_mut(&id) else {
@@ -373,27 +382,21 @@ impl ConsoleReporter {
                         job_outputs.append(JobOutputStream { job_id: id, stream }, bytes);
 
                         while let Some((stream, content)) = job_outputs.pop_contents() {
-                            let stream_job = jobs.get(&stream.job_id);
-                            let stream_child_id = match stream_job {
-                                Some(Job::Process { status, .. }) => status.child_id(),
-                                _ => None,
-                            };
-                            let stream_child_id_label = lazy_format::lazy_format! {
-                                match (stream_child_id) {
-                                    Some(child_id) => "{child_id}",
-                                    None => "?"
-                                }
-                            };
+                            print_job_content(jobs, &stream, &content);
+                        }
+                    }
+                    UpdateJob::ProcessFlushPackets => {
+                        job_outputs.flush_stream(JobOutputStream {
+                            job_id: id,
+                            stream: ProcessStream::Stdout,
+                        });
+                        job_outputs.flush_stream(JobOutputStream {
+                            job_id: id,
+                            stream: ProcessStream::Stderr,
+                        });
 
-                            let content = match content.strip_suffix(b"\n") {
-                                Some(content) => content,
-                                None => &*content,
-                            };
-
-                            for line in content.lines() {
-                                let line = bstr::BStr::new(line);
-                                eprintln!("[{stream_child_id_label}] {line}");
-                            }
+                        while let Some((stream, content)) = job_outputs.pop_contents() {
+                            print_job_content(jobs, &stream, &content);
                         }
                     }
                     UpdateJob::RegistryFetchAdd { .. } => {}
@@ -435,6 +438,32 @@ impl ConsoleReporter {
         }
 
         anyhow::Ok(())
+    }
+}
+
+fn print_job_content(jobs: &HashMap<JobId, Job>, stream: &JobOutputStream, content: &[u8]) {
+    let content = bstr::BStr::new(content);
+
+    let job = jobs.get(&stream.job_id);
+    let child_id = match job {
+        Some(Job::Process { status, .. }) => status.child_id(),
+        _ => None,
+    };
+    let child_id_label = lazy_format::lazy_format! {
+        match (child_id) {
+            Some(child_id) => "{child_id}",
+            None => "?"
+        }
+    };
+
+    let content = match content.strip_suffix(b"\n") {
+        Some(content) => content,
+        None => content,
+    };
+
+    for line in content.lines() {
+        let line = bstr::BStr::new(line);
+        eprintln!("[{child_id_label}] {line}");
     }
 }
 
@@ -983,6 +1012,38 @@ impl JobOutputContents {
         }
 
         self.total_bytes = std::cmp::min(new_total_bytes, self.max_bytes);
+    }
+
+    fn flush_stream(&mut self, stream: JobOutputStream) {
+        // Get any partial content that should be flushed
+        let Some(partial_content) = self.partial_contents.remove(&stream) else {
+            return;
+        };
+
+        // We aren't adding or removing any bytes, so no need to truncate
+        // or drop old data first
+
+        let prior_content = self
+            .contents
+            .last_mut()
+            .and_then(|(content_stream, content)| {
+                if *content_stream == stream {
+                    Some(content)
+                } else {
+                    None
+                }
+            });
+
+        if let Some(prior_content) = prior_content {
+            // If the most recent content is from the same job, then just
+            // append the flushed content
+
+            prior_content.extend_from_slice(&partial_content);
+        } else {
+            // Otherwise, add a new content entry
+
+            self.contents.push((stream, partial_content));
+        }
     }
 
     fn pop_contents(&mut self) -> Option<(JobOutputStream, bstr::BString)> {

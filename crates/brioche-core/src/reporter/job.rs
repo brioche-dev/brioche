@@ -34,6 +34,7 @@ pub enum UpdateJob {
     ProcessPushPacket {
         packet: DebugIgnore<ProcessPacket>,
     },
+    ProcessFlushPackets,
     ProcessUpdateStatus {
         status: ProcessStatus,
     },
@@ -158,6 +159,7 @@ impl Job {
                 })?;
                 packet_queue.push(packet.0);
             }
+            UpdateJob::ProcessFlushPackets => {}
             UpdateJob::ProcessUpdateStatus { status: new_status } => {
                 let Self::Process {
                     packet_queue: _,
