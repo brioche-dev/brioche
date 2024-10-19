@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf, process::ExitCode, sync::Arc};
 
 use brioche_core::{
     project::{ProjectLocking, ProjectValidation},
-    reporter::ConsoleReporterKind,
+    reporter::console::ConsoleReporterKind,
 };
 use clap::Parser;
 
@@ -193,7 +193,7 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
     }
 
     let (reporter, mut guard) =
-        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Plain)?;
+        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Plain)?;
 
     let brioche = brioche_core::BriocheBuilder::new(reporter).build().await?;
     let projects = brioche_core::project::Projects::default();

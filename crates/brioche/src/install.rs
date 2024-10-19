@@ -6,11 +6,11 @@ use brioche_core::project::ProjectHash;
 use brioche_core::project::ProjectLocking;
 use brioche_core::project::ProjectValidation;
 use brioche_core::project::Projects;
-use brioche_core::reporter::ConsoleReporterKind;
+use brioche_core::reporter::console::ConsoleReporterKind;
 use brioche_core::reporter::Reporter;
+use brioche_core::utils::DisplayDuration;
 use brioche_core::Brioche;
 use clap::Parser;
-use human_repr::HumanDuration;
 use tracing::Instrument;
 
 use crate::consolidate_result;
@@ -35,7 +35,7 @@ pub struct InstallArgs {
 
 pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
-        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?;
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .build()
@@ -86,9 +86,6 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                 )
                 .await;
 
-                // Ensure the reporter is no longer evaluating, in case of an error
-                reporter.set_is_evaluating(false);
-
                 consolidate_result(&reporter, &project_name, result, &mut error_result);
             }
             Err(e) => {
@@ -120,9 +117,6 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                     &install_options,
                 )
                 .await;
-
-                // Ensure the reporter is no longer evaluating, in case of an error
-                reporter.set_is_evaluating(false);
 
                 consolidate_result(&reporter, &project_name, result, &mut error_result);
             }
@@ -158,8 +152,6 @@ async fn run_install(
     options: &InstallOptions,
 ) -> Result<bool, anyhow::Error> {
     async {
-        reporter.set_is_evaluating(true);
-
         // If the `--locked` flag is used, validate that all lockfiles are
         // up-to-date. Otherwise, write any out-of-date lockfiles
         if options.locked {
@@ -200,8 +192,6 @@ async fn run_install(
             brioche_core::script::evaluate::evaluate(brioche, projects, project_hash, export)
                 .await?;
 
-        reporter.set_is_evaluating(false);
-
         let artifact = brioche_core::bake::bake(
             brioche,
             recipe,
@@ -212,7 +202,7 @@ async fn run_install(
         )
         .await?;
 
-        let elapsed = reporter.elapsed().human_duration();
+        let elapsed = DisplayDuration(reporter.elapsed());
         let num_jobs = reporter.num_jobs();
         let jobs_message = match num_jobs {
             0 => "(no new jobs)".to_string(),

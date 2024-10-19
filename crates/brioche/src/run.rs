@@ -1,9 +1,10 @@
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use brioche_core::{project::ProjectLocking, reporter::ConsoleReporterKind};
+use brioche_core::{
+    project::ProjectLocking, reporter::console::ConsoleReporterKind, utils::DisplayDuration,
+};
 use clap::Parser;
-use human_repr::HumanDuration;
 use tracing::Instrument;
 
 #[derive(Debug, Parser)]
@@ -44,9 +45,8 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = if args.quiet {
         brioche_core::reporter::start_null_reporter()
     } else {
-        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?
+        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?
     };
-    reporter.set_is_evaluating(true);
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep_temps)
@@ -105,7 +105,6 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
         )
         .await?;
 
-        reporter.set_is_evaluating(false);
         let artifact = brioche_core::bake::bake(
             &brioche,
             recipe,
@@ -118,7 +117,7 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
 
         guard.shutdown_console().await;
 
-        let elapsed = reporter.elapsed().human_duration();
+        let elapsed = DisplayDuration(reporter.elapsed());
         let num_jobs = reporter.num_jobs();
         let jobs_message = match num_jobs {
             0 => "(no new jobs)".to_string(),

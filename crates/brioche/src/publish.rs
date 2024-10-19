@@ -2,7 +2,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 use brioche_core::{
     project::{ProjectHash, ProjectLocking, ProjectValidation, Projects},
-    reporter::{ConsoleReporterKind, Reporter},
+    reporter::{console::ConsoleReporterKind, Reporter},
     Brioche,
 };
 use clap::Parser;
@@ -18,7 +18,7 @@ pub struct PublishArgs {
 
 pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) =
-        brioche_core::reporter::start_console_reporter(ConsoleReporterKind::Auto)?;
+        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?;
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .build()

@@ -1,6 +1,6 @@
+use crate::utils::DisplayDuration;
 use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
-use human_repr::HumanDuration;
 
 use crate::{
     project::ProjectHash,
@@ -65,7 +65,7 @@ pub async fn sync_bakes(
     if verbose {
         println!(
             "Collected refs in {} ({num_recipe_refs} recipes, {num_blob_refs} blobs)",
-            start_refs.elapsed().human_duration()
+            DisplayDuration(start_refs.elapsed())
         );
     }
 
@@ -107,7 +107,7 @@ pub async fn sync_bakes(
     if verbose {
         println!(
             "Finished syncing {num_new_bakes} / {num_bakes} bakes in {}",
-            start_bakes.elapsed().human_duration()
+            DisplayDuration(start_bakes.elapsed())
         );
     }
 
@@ -183,7 +183,7 @@ pub async fn sync_recipe_references(
     if verbose {
         println!(
             "Finished syncing {num_new_blobs} / {num_total_blobs} blobs in {}",
-            start_blobs.elapsed().human_duration()
+            DisplayDuration(start_blobs.elapsed())
         );
     }
 
@@ -216,7 +216,7 @@ pub async fn sync_recipe_references(
     if verbose {
         println!(
             "Finished syncing {num_new_recipes} / {num_total_recipes} recipes in {}",
-            start_recipes.elapsed().human_duration()
+            DisplayDuration(start_recipes.elapsed())
         );
     }
 
@@ -282,7 +282,7 @@ pub async fn sync_project_references(
     if verbose {
         println!(
             "Finished syncing {num_new_blobs} / {num_total_blobs} loaded blobs in {}",
-            start_blobs.elapsed().human_duration()
+            DisplayDuration(start_blobs.elapsed())
         );
     }
 
@@ -310,7 +310,7 @@ pub async fn sync_project_references(
     if verbose {
         println!(
             "Finished syncing {num_new_projects} / {num_total_projects} projects in {}",
-            start_projects.elapsed().human_duration()
+            DisplayDuration(start_projects.elapsed())
         );
     }
 

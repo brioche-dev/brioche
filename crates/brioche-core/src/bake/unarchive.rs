@@ -6,6 +6,7 @@ use bstr::BString;
 use crate::{
     blob::BlobHash,
     recipe::{Artifact, Directory, File, Meta, Unarchive, WithMeta},
+    reporter::job::{NewJob, UpdateJob},
     Brioche,
 };
 
@@ -27,7 +28,9 @@ pub async fn bake_unarchive(
 
     tracing::debug!(%blob_hash, archive = ?unarchive.archive, compression = ?unarchive.compression, "starting unarchive");
 
-    let job_id = brioche.reporter.add_job(crate::reporter::NewJob::Unarchive);
+    let job_id = brioche.reporter.add_job(NewJob::Unarchive {
+        started_at: std::time::Instant::now(),
+    });
 
     let archive_path = {
         let mut permit = crate::blob::get_save_blob_permit().await?;
@@ -62,7 +65,10 @@ pub async fn bake_unarchive(
                 let progress_percent = (estimated_progress * 100.0).min(99.0) as u8;
                 brioche.reporter.update_job(
                     job_id,
-                    crate::reporter::UpdateJob::Unarchive { progress_percent },
+                    UpdateJob::Unarchive {
+                        progress_percent,
+                        finished_at: None,
+                    },
                 );
 
                 let entry = match archive_entry.header().entry_type() {
@@ -175,8 +181,9 @@ pub async fn bake_unarchive(
 
         brioche.reporter.update_job(
             job_id,
-            crate::reporter::UpdateJob::Unarchive {
+            UpdateJob::Unarchive {
                 progress_percent: 100,
+                finished_at: Some(std::time::Instant::now()),
             },
         );
 
