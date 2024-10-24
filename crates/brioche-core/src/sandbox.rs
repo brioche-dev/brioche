@@ -5,7 +5,7 @@ use crate::encoding::{AsPath, TickEncoded};
 mod linux;
 
 #[serde_with::serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxExecutionConfig {
     #[serde_as(as = "AsPath<TickEncoded>")]
@@ -41,14 +41,14 @@ pub struct SandboxPathOptions {
     pub guest_path_hint: bstr::BString,
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxTemplate {
     pub components: Vec<SandboxTemplateComponent>,
 }
 
 #[serde_with::serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "camelCase")]
 pub enum SandboxTemplateComponent {
@@ -66,6 +66,7 @@ pub enum HostPathMode {
     ReadWriteCreate,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExitStatus {
     Code(i8),
     Signal(i32),

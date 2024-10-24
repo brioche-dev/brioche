@@ -18,6 +18,7 @@ pub mod fs_utils;
 pub mod input;
 pub mod output;
 pub mod platform;
+pub mod process_events;
 pub mod project;
 pub mod publish;
 pub mod recipe;
