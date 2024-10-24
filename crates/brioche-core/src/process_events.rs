@@ -246,6 +246,9 @@ where
                     return Err(ProcessEventReadError::InvalidEventLength { marker });
                 };
 
+                // Validate the length before allocating and reading
+                ProcessOutputEvent::validate_length(content_length)?;
+
                 let elapsed = self.read_duration().await?;
                 let mut content = vec![0u8; content_length];
                 self.read_fill(&mut content).await?;
@@ -253,11 +256,8 @@ where
                 let content = bstr::BString::new(content);
                 let content = Cow::Owned(content);
 
-                ProcessEvent::Output(ProcessOutputEvent {
-                    elapsed,
-                    stream: ProcessStream::Stdout,
-                    content,
-                })
+                let event = ProcessOutputEvent::new(elapsed, ProcessStream::Stdout, content)?;
+                ProcessEvent::Output(event)
             }
             ProcessEventKind::Stderr => {
                 let content_length = marker.length.checked_sub(4);
@@ -265,6 +265,9 @@ where
                     return Err(ProcessEventReadError::InvalidEventLength { marker });
                 };
 
+                // Validate the length before allocating and reading
+                ProcessOutputEvent::validate_length(content_length)?;
+
                 let elapsed = self.read_duration().await?;
                 let mut content = vec![0u8; content_length];
                 self.read_fill(&mut content).await?;
@@ -272,11 +275,8 @@ where
                 let content = bstr::BString::new(content);
                 let content = Cow::Owned(content);
 
-                ProcessEvent::Output(ProcessOutputEvent {
-                    elapsed,
-                    stream: ProcessStream::Stderr,
-                    content,
-                })
+                let event = ProcessOutputEvent::new(elapsed, ProcessStream::Stderr, content)?;
+                ProcessEvent::Output(event)
             }
             ProcessEventKind::Exited => {
                 if marker.length != 5 {
@@ -575,7 +575,68 @@ pub struct ProcessSpawnedEvent {
 pub struct ProcessOutputEvent<'a> {
     pub elapsed: Duration,
     pub stream: ProcessStream,
-    pub content: Cow<'a, bstr::BStr>,
+    content: Cow<'a, bstr::BStr>,
+}
+
+impl<'a> ProcessOutputEvent<'a> {
+    pub const MAX_CONTENT_LENGTH: usize = 1024 * 1024;
+
+    fn validate_length(length: usize) -> Result<(), CreateProcessOutputEventError> {
+        if length == 0 {
+            return Err(CreateProcessOutputEventError::EmptyContent);
+        } else if length > Self::MAX_CONTENT_LENGTH {
+            return Err(CreateProcessOutputEventError::ContentTooLong {
+                max_length: Self::MAX_CONTENT_LENGTH,
+                actual_length: length,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub fn new(
+        elapsed: Duration,
+        stream: ProcessStream,
+        content: Cow<'a, bstr::BStr>,
+    ) -> Result<Self, CreateProcessOutputEventError> {
+        Self::validate_length(content.len())?;
+
+        Ok(Self {
+            elapsed,
+            stream,
+            content,
+        })
+    }
+
+    pub fn content(&self) -> &bstr::BStr {
+        bstr::BStr::new(&**self.content)
+    }
+}
+
+pub fn create_process_output_events(
+    elapsed: Duration,
+    stream: ProcessStream,
+    content: &[u8],
+) -> impl Iterator<Item = ProcessOutputEvent<'_>> {
+    content
+        .chunks(ProcessOutputEvent::MAX_CONTENT_LENGTH)
+        .map(move |chunk| ProcessOutputEvent {
+            elapsed,
+            stream,
+            content: Cow::Borrowed(bstr::BStr::new(chunk)),
+        })
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CreateProcessOutputEventError {
+    #[error("output content is empty")]
+    EmptyContent,
+
+    #[error("output content is too long (max length is {max_length}, got {actual_length})")]
+    ContentTooLong {
+        max_length: usize,
+        actual_length: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -610,6 +671,9 @@ pub enum ProcessEventReadError {
     #[error("process event file appears to be corrupted: invalid length of {} for event {:?}", marker.length, marker.kind)]
     InvalidEventLength { marker: ProcessEventMarker },
 
+    #[error(transparent)]
+    InvalidProcessOutput(#[from] CreateProcessOutputEventError),
+
     #[error("tried to read event marker, but tried to seek outside of the file")]
     MisalignedEvent,
 
@@ -627,14 +691,15 @@ mod tests {
     use jiff::Zoned;
 
     use crate::{
+        process_events::CreateProcessOutputEventError,
         recipe::{CompleteProcessRecipe, CompleteProcessTemplate, Meta},
         reporter::job::ProcessStream,
         sandbox::{ExitStatus, SandboxExecutionConfig, SandboxPath, SandboxPathOptions},
     };
 
     use super::{
-        ProcessEvent, ProcessEventDescription, ProcessEventReader, ProcessEventWriter,
-        ProcessExitedEvent, ProcessOutputEvent, ProcessSpawnedEvent,
+        create_process_output_events, ProcessEvent, ProcessEventDescription, ProcessEventReader,
+        ProcessEventWriter, ProcessExitedEvent, ProcessOutputEvent, ProcessSpawnedEvent,
     };
 
     pub fn default_complete_process() -> CompleteProcessRecipe {
@@ -684,16 +749,22 @@ mod tests {
                 elapsed: Duration::from_secs(1),
                 pid: 123,
             }),
-            ProcessEvent::Output(ProcessOutputEvent {
-                elapsed: Duration::from_secs(2),
-                stream: ProcessStream::Stdout,
-                content: Cow::Owned("foo".into()),
-            }),
-            ProcessEvent::Output(ProcessOutputEvent {
-                elapsed: Duration::from_secs(3),
-                stream: ProcessStream::Stderr,
-                content: Cow::Owned("bar".into()),
-            }),
+            ProcessEvent::Output(
+                ProcessOutputEvent::new(
+                    Duration::from_secs(2),
+                    ProcessStream::Stdout,
+                    Cow::Owned("foo".into()),
+                )
+                .unwrap(),
+            ),
+            ProcessEvent::Output(
+                ProcessOutputEvent::new(
+                    Duration::from_secs(3),
+                    ProcessStream::Stderr,
+                    Cow::Owned("bar".into()),
+                )
+                .unwrap(),
+            ),
             ProcessEvent::Exited(ProcessExitedEvent {
                 elapsed: Duration::from_secs(4),
                 exit_status: ExitStatus::Code(0),
@@ -934,5 +1005,88 @@ mod tests {
         assert_eq!(read_events, events);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_process_event_create_output_event() {
+        let result =
+            ProcessOutputEvent::new(Duration::ZERO, ProcessStream::Stdout, Cow::Owned("".into()));
+        assert_matches::assert_matches!(result, Err(CreateProcessOutputEventError::EmptyContent));
+
+        let result = ProcessOutputEvent::new(
+            Duration::ZERO,
+            ProcessStream::Stdout,
+            Cow::Owned("aaaa".into()),
+        );
+        assert_eq!(result.unwrap().content(), "aaaa");
+
+        let result = ProcessOutputEvent::new(
+            Duration::ZERO,
+            ProcessStream::Stdout,
+            Cow::Owned(vec![0; ProcessOutputEvent::MAX_CONTENT_LENGTH].into()),
+        );
+        assert_eq!(
+            result.unwrap().content().len(),
+            ProcessOutputEvent::MAX_CONTENT_LENGTH
+        );
+
+        let result = ProcessOutputEvent::new(
+            Duration::ZERO,
+            ProcessStream::Stdout,
+            Cow::Owned(vec![0; ProcessOutputEvent::MAX_CONTENT_LENGTH + 1].into()),
+        );
+        assert_matches::assert_matches!(
+            result.err(),
+            Some(CreateProcessOutputEventError::ContentTooLong { .. })
+        );
+    }
+
+    #[test]
+    fn test_process_event_create_output_events() {
+        let event_lengths =
+            create_process_output_events(Duration::ZERO, ProcessStream::Stdout, &[0; 0])
+                .map(|event| event.content().len())
+                .collect::<Vec<_>>();
+        assert!(event_lengths.is_empty());
+
+        let event_lengths =
+            create_process_output_events(Duration::ZERO, ProcessStream::Stdout, &[0; 5])
+                .map(|event| event.content().len())
+                .collect::<Vec<_>>();
+        assert_eq!(event_lengths, [5]);
+
+        let event_lengths = create_process_output_events(
+            Duration::ZERO,
+            ProcessStream::Stdout,
+            &[0; ProcessOutputEvent::MAX_CONTENT_LENGTH],
+        )
+        .map(|event| event.content().len())
+        .collect::<Vec<_>>();
+        assert_eq!(event_lengths, [ProcessOutputEvent::MAX_CONTENT_LENGTH]);
+
+        let event_lengths = create_process_output_events(
+            Duration::ZERO,
+            ProcessStream::Stdout,
+            &[0; ProcessOutputEvent::MAX_CONTENT_LENGTH + 1],
+        )
+        .map(|event| event.content().len())
+        .collect::<Vec<_>>();
+        assert_eq!(event_lengths, [ProcessOutputEvent::MAX_CONTENT_LENGTH, 1]);
+
+        let event_lengths = create_process_output_events(
+            Duration::ZERO,
+            ProcessStream::Stdout,
+            &[0; (ProcessOutputEvent::MAX_CONTENT_LENGTH * 2) + 5],
+        )
+        .map(|event| event.content().len())
+        .collect::<Vec<_>>();
+        assert_eq!(
+            event_lengths,
+            [
+                ProcessOutputEvent::MAX_CONTENT_LENGTH,
+                ProcessOutputEvent::MAX_CONTENT_LENGTH,
+                5,
+            ]
+        );
     }
 }
