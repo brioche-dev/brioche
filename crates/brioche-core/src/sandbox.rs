@@ -83,6 +83,20 @@ impl ExitStatus {
             _ => None,
         }
     }
+
+    pub fn try_from_status(status: std::process::ExitStatus) -> Option<Self> {
+        use std::os::unix::process::ExitStatusExt as _;
+
+        #[allow(clippy::manual_map)]
+        if let Some(code) = status.code() {
+            let code: i8 = code.try_into().ok()?;
+            Some(Self::Code(code))
+        } else if let Some(signal) = status.signal() {
+            Some(Self::Signal(signal))
+        } else {
+            None
+        }
+    }
 }
 
 pub fn run_sandbox(exec: SandboxExecutionConfig) -> anyhow::Result<ExitStatus> {
