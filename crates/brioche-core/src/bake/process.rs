@@ -513,7 +513,8 @@ pub async fn bake_process(
     let events_path = bake_dir.path().join("events.bin");
     let event_writer = tokio::fs::File::create(&events_path).await?;
     let event_writer = tokio::io::BufWriter::new(event_writer);
-    let mut event_writer = crate::process_events::ProcessEventWriter::new(event_writer).await?;
+    let mut event_writer =
+        crate::process_events::writer::ProcessEventWriter::new(event_writer).await?;
 
     let events_started_at = std::time::Instant::now();
     let process_descirption = ProcessEventDescription {
@@ -624,7 +625,7 @@ async fn run_sandboxed_self_exec(
     job_id: JobId,
     job_status: &mut ProcessStatus,
     events_started_at: std::time::Instant,
-    event_writer: &mut crate::process_events::ProcessEventWriter<
+    event_writer: &mut crate::process_events::writer::ProcessEventWriter<
         impl tokio::io::AsyncWrite + Unpin,
     >,
 ) -> anyhow::Result<()> {
