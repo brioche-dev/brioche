@@ -60,7 +60,7 @@ where
         // Break the content into the part containing complete lines, and the
         // part that's made up of only partial lines
         let (complete_content, partial_content) = match content.rsplit_once_str("\n") {
-            Some((complete, pending)) => (Some(complete), pending),
+            Some((complete, partial)) => (Some(complete), partial),
             None => (None, content),
         };
 
@@ -105,7 +105,7 @@ where
         }
 
         if let Some(complete_content) = complete_content {
-            let prior_pending = self.partial_append.remove(&stream);
+            let prior_partial = self.partial_append.remove(&stream);
             let prior_content = self
                 .contents
                 .back_mut()
@@ -118,11 +118,11 @@ where
                 });
 
             if let Some(prior_content) = prior_content {
-                // If the most recent content is from the same job, then just
-                // append the pending content and new content to the end
+                // If the most recent content is from the same stream, then
+                // just append the partial content and new content to the end
 
-                if let Some(prior_pending) = prior_pending {
-                    prior_content.extend_from_slice(&prior_pending);
+                if let Some(prior_partial) = prior_partial {
+                    prior_content.extend_from_slice(&prior_partial);
                 }
                 prior_content.extend_from_slice(complete_content);
                 prior_content.push(b'\n');
@@ -130,8 +130,8 @@ where
                 // Otherwise, add a new content entry
 
                 let mut bytes = bstr::BString::default();
-                if let Some(prior_pending) = prior_pending {
-                    bytes.extend_from_slice(&prior_pending);
+                if let Some(prior_partial) = prior_partial {
+                    bytes.extend_from_slice(&prior_partial);
                 }
                 bytes.extend_from_slice(complete_content);
                 bytes.push(b'\n');
@@ -158,7 +158,7 @@ where
 
         // Break the content into the part containing complete lines, and the
         // part that's made up of only partial lines. We do this before
-        // truncation to properly detect when to flush pending lines
+        // truncation to properly detect when to flush partial lines
         let (partial_content, complete_content) = match content.split_once_str("\n") {
             Some((partial, complete)) => (partial, Some(complete)),
             None => (content, None),
@@ -221,6 +221,9 @@ where
                 });
 
             if let Some(content) = prior_content {
+                // If the most recent content is from the same stream, then
+                // prepend the partial content and new content to the beginning
+
                 let tail = std::mem::take(content);
 
                 content.extend_from_slice(complete_content);
@@ -229,6 +232,8 @@ where
                 }
                 content.extend_from_slice(&tail);
             } else {
+                // Otherwise, add a new content entry
+
                 let mut content = bstr::BString::default();
 
                 content.extend_from_slice(complete_content);
@@ -241,19 +246,10 @@ where
         }
 
         match self.partial_prepend.entry(stream) {
-            std::collections::btree_map::Entry::Vacant(entry) => {
-                let mut content = bstr::BString::default();
-
-                content.extend_from_slice(partial_content);
-                if let Some(separator) = separator {
-                    content.extend_from_slice(separator);
-                }
-
-                if !content.is_empty() {
-                    entry.insert(content);
-                }
-            }
             std::collections::btree_map::Entry::Occupied(entry) => {
+                // If there's already partial content for the stream,
+                // add the new partial content to the beginning
+
                 let content = entry.into_mut();
 
                 if !partial_content.is_empty() {
@@ -267,10 +263,27 @@ where
                     content.extend_from_slice(separator);
                 }
             }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                // Otherwise, build a new partial content entry
+
+                let mut content = bstr::BString::default();
+
+                content.extend_from_slice(partial_content);
+                if let Some(separator) = separator {
+                    content.extend_from_slice(separator);
+                }
+
+                // Only add the partial content if we have something to add
+                if !content.is_empty() {
+                    entry.insert(content);
+                }
+            }
         }
     }
 
     pub fn flush_stream(&mut self, stream: K) {
+        // If there's partial content to prepend, then add it
+        // to the beginning of the stream
         if let Some(mut content) = self.partial_prepend.remove(&stream) {
             let prior_content = self
                 .contents
@@ -284,14 +297,19 @@ where
                 });
 
             if let Some(prior_content) = prior_content {
+                // If the first content entry is from the same stream, add the
+                // partial content to the beginning of it
                 let tail = std::mem::take(prior_content);
                 content.extend_from_slice(&tail);
                 *prior_content = content;
             } else {
+                // Otherwise, prepend a new content entry
                 self.contents.push_front((stream.clone(), content));
             }
         }
 
+        // If there's partial content to append, then add it
+        // to the end of the stream
         if let Some(tail) = self.partial_append.remove(&stream) {
             let prior_content = self
                 .contents
@@ -305,8 +323,11 @@ where
                 });
 
             if let Some(prior_content) = prior_content {
+                // If the last content entry is from the same stream, add the
+                // partial content to the end of it
                 prior_content.extend_from_slice(&tail);
             } else {
+                // Otherwise, append a new content entry
                 self.contents.push_back((stream, tail));
             }
         }
