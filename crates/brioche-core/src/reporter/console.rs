@@ -1,16 +1,16 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::HashMap,
     sync::{atomic::AtomicUsize, Arc},
 };
 
-use bstr::{BString, ByteSlice};
+use bstr::ByteSlice;
 use joinery::JoinableIterator as _;
 use opentelemetry::trace::TracerProvider as _;
 use superconsole::style::Stylize;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
-use crate::utils::DisplayDuration;
+use crate::utils::{output_buffer::OutputBuffer, DisplayDuration};
 
 use super::{
     job::{Job, NewJob, ProcessStatus, ProcessStream, UpdateJob},
@@ -72,7 +72,7 @@ pub fn start_console_reporter(
             };
 
             let jobs = HashMap::new();
-            let job_outputs = JobOutputContents::new(1024 * 1024);
+            let job_outputs = OutputBuffer::new(1024 * 1024);
             let mut console = match superconsole {
                 Some(console) => {
                     let root = JobsComponent {
@@ -220,7 +220,7 @@ enum ConsoleReporter {
     },
     Plain {
         jobs: HashMap<JobId, Job>,
-        job_outputs: JobOutputContents,
+        job_outputs: OutputBuffer<JobOutputStream>,
     },
 }
 
@@ -472,7 +472,7 @@ const JOB_LABEL_WIDTH: usize = 7;
 struct JobsComponent {
     start: std::time::Instant,
     jobs: HashMap<JobId, Job>,
-    job_outputs: JobOutputContents,
+    job_outputs: OutputBuffer<JobOutputStream>,
 }
 
 impl superconsole::Component for JobsComponent {
@@ -524,7 +524,7 @@ impl superconsole::Component for JobsComponent {
             .saturating_sub(JOB_LABEL_WIDTH)
             .saturating_sub(4);
 
-        let contents_rev = Some(self.job_outputs.contents.iter().rev())
+        let contents_rev = Some(self.job_outputs.contents().rev())
             .filter(|_| job_output_content_width > 0)
             .into_iter()
             .flatten();
@@ -905,157 +905,6 @@ impl<'a> superconsole::Component for JobComponent<'a> {
     }
 }
 
-struct JobOutputContents {
-    total_bytes: usize,
-    max_bytes: usize,
-    contents: VecDeque<(JobOutputStream, BString)>,
-    partial_contents: BTreeMap<JobOutputStream, BString>,
-}
-
-impl JobOutputContents {
-    fn new(max_bytes: usize) -> Self {
-        Self {
-            total_bytes: 0,
-            max_bytes,
-            contents: VecDeque::new(),
-            partial_contents: BTreeMap::new(),
-        }
-    }
-
-    fn append(&mut self, stream: JobOutputStream, content: impl AsRef<[u8]>) {
-        let content = content.as_ref();
-
-        // Truncate content so that it fits within `max_bytes`
-        let content_start = content.len().saturating_sub(self.max_bytes);
-        let content = &content[content_start..];
-
-        // Break the content into the part containing complete lines, and the
-        // part that's made up of only partial lines
-        let (complete_content, partial_content) = match content.rsplit_once_str("\n") {
-            Some((complete, b"")) => (Some(complete), b"".as_ref()),
-            Some((complete, pending)) => (Some(complete), pending),
-            None => (None, content),
-        };
-
-        // Drop old content until we have enough free space to add the new content
-        let new_total_bytes = self.total_bytes.saturating_add(content.len());
-        let mut drop_bytes = new_total_bytes.saturating_sub(self.max_bytes);
-        while drop_bytes > 0 {
-            // Get the oldest content
-            let oldest_content = self
-                .contents
-                .get_mut(0)
-                .map(|(_, content)| content)
-                .or_else(|| self.partial_contents.values_mut().next());
-            let Some(oldest_content) = oldest_content else {
-                break;
-            };
-
-            if oldest_content.len() > drop_bytes {
-                // If the oldest content is longer than the total number of
-                // bytes need to drop, then remove the bytes at the start, then
-                // we're done
-                oldest_content.drain(0..drop_bytes);
-                break;
-            } else {
-                // Otherwise, remove the content and continue
-                let (_, removed_content) = self.contents.pop_front().unwrap();
-                drop_bytes -= removed_content.len();
-            }
-        }
-
-        if let Some(complete_content) = complete_content {
-            let prior_pending = self.partial_contents.remove(&stream);
-            let prior_content = self
-                .contents
-                .back_mut()
-                .and_then(|(content_stream, content)| {
-                    if *content_stream == stream {
-                        Some(content)
-                    } else {
-                        None
-                    }
-                });
-
-            if let Some(prior_content) = prior_content {
-                // If the most recent content is from the same job, then just
-                // append the pending content and new content to the end
-
-                if let Some(prior_pending) = prior_pending {
-                    prior_content.extend_from_slice(&prior_pending);
-                }
-                prior_content.extend_from_slice(complete_content);
-                prior_content.push(b'\n');
-            } else {
-                // Otherwise, add a new content entry
-
-                let mut bytes = bstr::BString::default();
-                if let Some(prior_pending) = prior_pending {
-                    bytes.extend_from_slice(&prior_pending);
-                }
-                bytes.extend_from_slice(complete_content);
-                bytes.push(b'\n');
-
-                self.contents.push_back((stream, bytes));
-            }
-        }
-
-        if !partial_content.is_empty() {
-            match self.partial_contents.entry(stream) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(partial_content.into());
-                }
-                std::collections::btree_map::Entry::Occupied(entry) => {
-                    entry.into_mut().extend_from_slice(partial_content);
-                }
-            }
-        }
-
-        self.total_bytes = std::cmp::min(new_total_bytes, self.max_bytes);
-    }
-
-    fn flush_stream(&mut self, stream: JobOutputStream) {
-        // Get any partial content that should be flushed
-        let Some(partial_content) = self.partial_contents.remove(&stream) else {
-            return;
-        };
-
-        // We aren't adding or removing any bytes, so no need to truncate
-        // or drop old data first
-
-        let prior_content = self
-            .contents
-            .back_mut()
-            .and_then(|(content_stream, content)| {
-                if *content_stream == stream {
-                    Some(content)
-                } else {
-                    None
-                }
-            });
-
-        if let Some(prior_content) = prior_content {
-            // If the most recent content is from the same job, then just
-            // append the flushed content
-
-            prior_content.extend_from_slice(&partial_content);
-        } else {
-            // Otherwise, add a new content entry
-
-            self.contents.push_back((stream, partial_content));
-        }
-    }
-
-    fn pop_contents(&mut self) -> Option<(JobOutputStream, bstr::BString)> {
-        let content = self.contents.pop_front();
-        if let Some((_, content)) = &content {
-            self.total_bytes = self.total_bytes.saturating_sub(content.len());
-        }
-
-        content
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct JobOutputStream {
     pub job_id: JobId,
@@ -1189,101 +1038,7 @@ fn spinner(duration: std::time::Duration, speed: u128) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
-    use crate::reporter::job::ProcessStream::{self, Stderr, Stdout};
-
-    use super::{string_with_width, JobId, JobOutputContents, JobOutputStream};
-
-    fn job_stream(id: usize, stream: ProcessStream) -> JobOutputStream {
-        JobOutputStream {
-            job_id: JobId(id),
-            stream,
-        }
-    }
-
-    #[test]
-    fn test_job_output_contents_basic() {
-        let mut contents = JobOutputContents::new(100);
-        contents.append(job_stream(1, Stdout), "a\nb\nc");
-
-        assert_eq!(contents.total_bytes, 5);
-        assert_eq!(
-            contents.contents,
-            [(job_stream(1, Stdout), "a\nb\n".into())],
-        );
-        assert_eq!(
-            contents.partial_contents,
-            BTreeMap::from_iter([(job_stream(1, Stdout), "c".into())])
-        );
-    }
-
-    #[test]
-    fn test_job_output_interleaved() {
-        let mut contents = JobOutputContents::new(100);
-
-        contents.append(job_stream(1, Stdout), "a\nb\nc");
-        contents.append(job_stream(1, Stderr), "d\ne\nf");
-        contents.append(job_stream(2, Stdout), "g\nh\ni");
-        contents.append(job_stream(2, Stdout), "j\nk\nl");
-        contents.append(job_stream(2, Stderr), "m\nn\no");
-        contents.append(job_stream(2, Stderr), "p\nq\nr");
-        contents.append(job_stream(1, Stdout), "s\nt\nu");
-        contents.append(job_stream(1, Stderr), "v\nw\nx");
-
-        assert_eq!(contents.total_bytes, 40);
-        assert_eq!(
-            contents.contents,
-            [
-                (job_stream(1, Stdout), "a\nb\n".into()),
-                (job_stream(1, Stderr), "d\ne\n".into()),
-                (job_stream(2, Stdout), "g\nh\nij\nk\n".into()),
-                (job_stream(2, Stderr), "m\nn\nop\nq\n".into()),
-                (job_stream(1, Stdout), "cs\nt\n".into()),
-                (job_stream(1, Stderr), "fv\nw\n".into()),
-            ]
-        );
-        assert_eq!(
-            contents.partial_contents,
-            BTreeMap::from_iter([
-                (job_stream(1, Stdout), "u".into()),
-                (job_stream(1, Stderr), "x".into()),
-                (job_stream(2, Stdout), "l".into()),
-                (job_stream(2, Stderr), "r".into()),
-            ])
-        );
-    }
-
-    #[test]
-    fn test_job_output_drop_oldest() {
-        let mut contents = JobOutputContents::new(10);
-
-        contents.append(job_stream(1, Stdout), "a\n");
-        contents.append(job_stream(2, Stdout), "bcdefghij\n");
-
-        assert_eq!(contents.total_bytes, 10);
-        assert_eq!(
-            contents.contents,
-            [(job_stream(2, Stdout), "bcdefghij\n".into())]
-        );
-    }
-
-    #[test]
-    fn test_job_output_truncate_oldest() {
-        let mut contents = JobOutputContents::new(10);
-
-        contents.append(job_stream(1, Stdout), "abcdefghi\n");
-        contents.append(job_stream(2, Stdout), "jk\n");
-
-        assert_eq!(contents.total_bytes, 10);
-        assert_eq!(
-            contents.contents,
-            [
-                (job_stream(1, Stdout), "defghi\n".into()),
-                (job_stream(2, Stdout), "jk\n".into()),
-            ]
-        );
-    }
+    use super::string_with_width;
 
     #[test]
     fn test_string_with_width() {
