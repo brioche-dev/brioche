@@ -264,4 +264,61 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn test_output_buffer_flush() {
+        let mut output = JobOutputBuffer::new(10);
+
+        output.append(job_stream(1, Stdout), "a\nb\nc");
+
+        assert_eq!(output.total_bytes, 5);
+        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())],);
+        assert_eq!(
+            output.partial_contents,
+            HashMap::from_iter([(job_stream(1, Stdout), "c".into())]),
+        );
+
+        output.flush_stream(job_stream(1, Stdout));
+
+        assert_eq!(output.total_bytes, 5);
+        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\nc".into())]);
+        assert!(output.partial_contents.is_empty());
+
+        output.append(job_stream(1, Stdout), "d\ne\n");
+
+        assert_eq!(
+            output.contents,
+            [(job_stream(1, Stdout), "a\nb\ncd\ne\n".into())]
+        );
+        assert!(output.partial_contents.is_empty());
+    }
+
+    #[test]
+    fn test_output_buffer_pop_contents() {
+        let mut contents = JobOutputBuffer::new(12);
+
+        contents.append(job_stream(1, Stdout), "a\nb\nc");
+        contents.append(job_stream(2, Stderr), "d\ne\nf");
+
+        assert_eq!(
+            contents.pop_contents(),
+            Some((job_stream(1, Stdout), "a\nb\n".into()))
+        );
+
+        assert_eq!(contents.total_bytes, 6);
+        assert_eq!(
+            contents.contents,
+            [(job_stream(2, Stderr), "d\ne\n".into())]
+        );
+        assert_eq!(
+            contents.partial_contents,
+            [
+                (job_stream(1, Stdout), "c".into()),
+                (job_stream(2, Stderr), "f".into())
+            ]
+            .iter()
+            .cloned()
+            .collect()
+        )
+    }
 }
