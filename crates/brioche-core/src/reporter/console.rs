@@ -72,7 +72,7 @@ pub fn start_console_reporter(
             };
 
             let jobs = HashMap::new();
-            let job_outputs = OutputBuffer::new(1024 * 1024);
+            let job_outputs = OutputBuffer::with_max_capacity(1024 * 1024);
             let mut console = match superconsole {
                 Some(console) => {
                     let root = JobsComponent {

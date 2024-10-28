@@ -10,7 +10,7 @@ where
     K: Clone + Eq + Hash,
 {
     total_bytes: usize,
-    max_bytes: usize,
+    max_bytes: Option<usize>,
     contents: VecDeque<(K, BString)>,
     partial_contents: HashMap<K, BString>,
 }
@@ -19,10 +19,19 @@ impl<K> OutputBuffer<K>
 where
     K: Clone + Eq + Hash,
 {
-    pub fn new(max_bytes: usize) -> Self {
+    pub fn with_max_capacity(max_bytes: usize) -> Self {
         Self {
             total_bytes: 0,
-            max_bytes,
+            max_bytes: Some(max_bytes),
+            contents: VecDeque::new(),
+            partial_contents: HashMap::new(),
+        }
+    }
+
+    pub fn with_unlimited_capacity() -> Self {
+        Self {
+            total_bytes: 0,
+            max_bytes: None,
             contents: VecDeque::new(),
             partial_contents: HashMap::new(),
         }
@@ -32,8 +41,13 @@ where
         let content = content.as_ref();
 
         // Truncate content so that it fits within `max_bytes`
-        let content_start = content.len().saturating_sub(self.max_bytes);
-        let content = &content[content_start..];
+        let content = match self.max_bytes {
+            Some(max_bytes) => {
+                let content_start = content.len().saturating_sub(max_bytes);
+                &content[content_start..]
+            }
+            None => content,
+        };
 
         // Break the content into the part containing complete lines, and the
         // part that's made up of only partial lines
@@ -44,7 +58,10 @@ where
 
         // Drop old content until we have enough free space to add the new content
         let new_total_bytes = self.total_bytes.saturating_add(content.len());
-        let mut drop_bytes = new_total_bytes.saturating_sub(self.max_bytes);
+        let mut drop_bytes = self
+            .max_bytes
+            .map(|max_bytes| new_total_bytes.saturating_sub(max_bytes))
+            .unwrap_or(0);
         while drop_bytes > 0 {
             // Get the oldest content
             let oldest_content = self
@@ -116,7 +133,10 @@ where
             }
         }
 
-        self.total_bytes = std::cmp::min(new_total_bytes, self.max_bytes);
+        self.total_bytes = match self.max_bytes {
+            Some(max_bytes) => std::cmp::min(new_total_bytes, max_bytes),
+            None => new_total_bytes,
+        };
     }
 
     pub fn flush_stream(&mut self, stream: K) {
@@ -187,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_output_buffer_basic() {
-        let mut output = JobOutputBuffer::new(100);
+        let mut output = JobOutputBuffer::with_unlimited_capacity();
         output.append(job_stream(1, Stdout), "a\nb\nc");
 
         assert_eq!(output.total_bytes, 5);
@@ -200,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_output_buffer_interleaved() {
-        let mut output = JobOutputBuffer::new(100);
+        let mut output = JobOutputBuffer::with_unlimited_capacity();
 
         output.append(job_stream(1, Stdout), "a\nb\nc");
         output.append(job_stream(1, Stderr), "d\ne\nf");
@@ -236,9 +256,13 @@ mod tests {
 
     #[test]
     fn test_output_buffer_drop_oldest() {
-        let mut output = JobOutputBuffer::new(10);
+        let mut output = JobOutputBuffer::with_max_capacity(10);
 
         output.append(job_stream(1, Stdout), "a\n");
+
+        assert_eq!(output.total_bytes, 2);
+        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\n".into())]);
+
         output.append(job_stream(2, Stdout), "bcdefghij\n");
 
         assert_eq!(output.total_bytes, 10);
@@ -250,9 +274,16 @@ mod tests {
 
     #[test]
     fn test_output_buffer_truncate_oldest() {
-        let mut output = JobOutputBuffer::new(10);
+        let mut output = JobOutputBuffer::with_max_capacity(10);
 
         output.append(job_stream(1, Stdout), "abcdefghi\n");
+
+        assert_eq!(output.total_bytes, 10);
+        assert_eq!(
+            output.contents,
+            [(job_stream(1, Stdout), "abcdefghi\n".into()),]
+        );
+
         output.append(job_stream(2, Stdout), "jk\n");
 
         assert_eq!(output.total_bytes, 10);
@@ -267,7 +298,7 @@ mod tests {
 
     #[test]
     fn test_output_buffer_flush() {
-        let mut output = JobOutputBuffer::new(10);
+        let mut output = JobOutputBuffer::with_unlimited_capacity();
 
         output.append(job_stream(1, Stdout), "a\nb\nc");
 
@@ -295,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_output_buffer_pop_contents() {
-        let mut contents = JobOutputBuffer::new(12);
+        let mut contents = JobOutputBuffer::with_unlimited_capacity();
 
         contents.append(job_stream(1, Stdout), "a\nb\nc");
         contents.append(job_stream(2, Stderr), "d\ne\nf");
