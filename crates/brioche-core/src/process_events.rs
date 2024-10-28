@@ -24,6 +24,7 @@ use crate::{
     sandbox::SandboxExecutionConfig,
 };
 
+pub mod display;
 pub mod reader;
 pub mod writer;
 
