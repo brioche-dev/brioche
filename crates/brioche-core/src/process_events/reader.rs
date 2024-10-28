@@ -204,7 +204,61 @@ where
         Ok(Some(event))
     }
 
-    pub async fn seek_to_end(&mut self) -> std::io::Result<()>
+    pub async fn skip_next_event(&mut self) -> Result<bool, ProcessEventReadError>
+    where
+        R: tokio::io::AsyncSeek,
+    {
+        // Read the next marker, or return if there's no next event
+        let marker = self.read_next_marker().await?;
+        let Some(marker) = marker else {
+            return Ok(false);
+        };
+
+        // Skip past the next event and the end marker for the event
+        let next_event_offset = marker
+            .length
+            .checked_add(PROCESS_EVENT_MARKER_LENGTH)
+            .and_then(|offset| offset.try_into().ok())
+            .ok_or_else(|| ProcessEventReadError::LengthOutOfRange {
+                length: marker.length as _,
+            })?;
+
+        self.reader
+            .seek(std::io::SeekFrom::Current(next_event_offset))
+            .await?;
+
+        Ok(true)
+    }
+
+    pub async fn skip_previous_event(&mut self) -> Result<bool, ProcessEventReadError>
+    where
+        R: tokio::io::AsyncSeek,
+    {
+        // Read the previous marker, or return if there's no previous event
+        let previous_marker_result = self.read_previous_marker().await?;
+        let Some((marker, marker_start_offset)) = previous_marker_result else {
+            return Ok(false);
+        };
+
+        // Skip before the previous event and the start marker for the event
+        let previous_event_offset = marker
+            .length
+            .checked_add(PROCESS_EVENT_MARKER_LENGTH)
+            .and_then(|offset| offset.try_into().ok())
+            .ok_or_else(|| ProcessEventReadError::LengthOutOfRange {
+                length: marker.length as _,
+            })?;
+
+        self.reader
+            .seek(std::io::SeekFrom::Start(
+                marker_start_offset.saturating_sub(previous_event_offset),
+            ))
+            .await?;
+
+        Ok(true)
+    }
+
+    pub async fn seek_to_end(&mut self) -> Result<(), ProcessEventReadError>
     where
         R: tokio::io::AsyncSeek,
     {
