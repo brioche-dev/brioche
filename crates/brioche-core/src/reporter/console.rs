@@ -381,7 +381,7 @@ impl ConsoleReporter {
                         };
                         job_outputs.append(JobOutputStream { job_id: id, stream }, bytes);
 
-                        while let Some((stream, content)) = job_outputs.pop_contents() {
+                        while let Some((stream, content)) = job_outputs.pop_front() {
                             print_job_content(jobs, &stream, &content);
                         }
                     }
@@ -395,7 +395,7 @@ impl ConsoleReporter {
                             stream: ProcessStream::Stderr,
                         });
 
-                        while let Some((stream, content)) = job_outputs.pop_contents() {
+                        while let Some((stream, content)) = job_outputs.pop_front() {
                             print_job_content(jobs, &stream, &content);
                         }
                     }

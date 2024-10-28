@@ -339,7 +339,7 @@ where
             .map(|(stream, content)| (stream, bstr::BStr::new(content)))
     }
 
-    pub fn pop_contents(&mut self) -> Option<(K, bstr::BString)> {
+    pub fn pop_front(&mut self) -> Option<(K, bstr::BString)> {
         let content = self.contents.pop_front();
         if let Some((_, content)) = &content {
             self.total_bytes = self.total_bytes.saturating_sub(content.len());
@@ -698,14 +698,14 @@ mod tests {
     }
 
     #[test]
-    fn test_output_buffer_pop_contents() {
+    fn test_output_buffer_pop_front() {
         let mut contents = JobOutputBuffer::with_unlimited_capacity();
 
         contents.append(job_stream(1, Stdout), "a\nb\nc");
         contents.append(job_stream(2, Stderr), "d\ne\nf");
 
         assert_eq!(
-            contents.pop_contents(),
+            contents.pop_front(),
             Some((job_stream(1, Stdout), "a\nb\n".into()))
         );
 
