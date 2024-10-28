@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, VecDeque},
     sync::{atomic::AtomicUsize, Arc},
 };
 
@@ -908,7 +908,7 @@ impl<'a> superconsole::Component for JobComponent<'a> {
 struct JobOutputContents {
     total_bytes: usize,
     max_bytes: usize,
-    contents: Vec<(JobOutputStream, BString)>,
+    contents: VecDeque<(JobOutputStream, BString)>,
     partial_contents: BTreeMap<JobOutputStream, BString>,
 }
 
@@ -917,7 +917,7 @@ impl JobOutputContents {
         Self {
             total_bytes: 0,
             max_bytes,
-            contents: Vec::new(),
+            contents: VecDeque::new(),
             partial_contents: BTreeMap::new(),
         }
     }
@@ -959,7 +959,7 @@ impl JobOutputContents {
                 break;
             } else {
                 // Otherwise, remove the content and continue
-                let (_, removed_content) = self.contents.remove(0);
+                let (_, removed_content) = self.contents.pop_front().unwrap();
                 drop_bytes -= removed_content.len();
             }
         }
@@ -968,7 +968,7 @@ impl JobOutputContents {
             let prior_pending = self.partial_contents.remove(&stream);
             let prior_content = self
                 .contents
-                .last_mut()
+                .back_mut()
                 .and_then(|(content_stream, content)| {
                     if *content_stream == stream {
                         Some(content)
@@ -996,7 +996,7 @@ impl JobOutputContents {
                 bytes.extend_from_slice(complete_content);
                 bytes.push(b'\n');
 
-                self.contents.push((stream, bytes));
+                self.contents.push_back((stream, bytes));
             }
         }
 
@@ -1025,7 +1025,7 @@ impl JobOutputContents {
 
         let prior_content = self
             .contents
-            .last_mut()
+            .back_mut()
             .and_then(|(content_stream, content)| {
                 if *content_stream == stream {
                     Some(content)
@@ -1042,12 +1042,12 @@ impl JobOutputContents {
         } else {
             // Otherwise, add a new content entry
 
-            self.contents.push((stream, partial_content));
+            self.contents.push_back((stream, partial_content));
         }
     }
 
     fn pop_contents(&mut self) -> Option<(JobOutputStream, bstr::BString)> {
-        let content = self.contents.pop();
+        let content = self.contents.pop_back();
         if let Some((_, content)) = &content {
             self.total_bytes = self.total_bytes.saturating_sub(content.len());
         }
