@@ -17,7 +17,8 @@ where
     total_bytes: usize,
     max_bytes: Option<usize>,
     contents: VecDeque<(K, BString)>,
-    partial_contents: BTreeMap<K, BString>,
+    partial_append: BTreeMap<K, BString>,
+    partial_prepend: BTreeMap<K, BString>,
 }
 
 impl<K> OutputBuffer<K>
@@ -29,7 +30,8 @@ where
             total_bytes: 0,
             max_bytes: Some(max_bytes),
             contents: VecDeque::new(),
-            partial_contents: BTreeMap::new(),
+            partial_append: BTreeMap::new(),
+            partial_prepend: BTreeMap::new(),
         }
     }
 
@@ -38,7 +40,8 @@ where
             total_bytes: 0,
             max_bytes: None,
             contents: VecDeque::new(),
-            partial_contents: BTreeMap::new(),
+            partial_append: BTreeMap::new(),
+            partial_prepend: BTreeMap::new(),
         }
     }
 
@@ -70,11 +73,12 @@ where
         while drop_bytes > 0 {
             // Get the oldest content
             let oldest_content = self
-                .contents
-                .get_mut(0)
-                .map(|(_, content)| content)
+                .partial_prepend
+                .first_entry()
+                .map(|entry| entry.into_mut())
+                .or_else(|| self.contents.get_mut(0).map(|(_, content)| content))
                 .or_else(|| {
-                    self.partial_contents
+                    self.partial_append
                         .first_entry()
                         .map(|entry| entry.into_mut())
                 });
@@ -91,16 +95,17 @@ where
             } else {
                 // Otherwise, remove the content and continue
                 let (_, removed_content) = self
-                    .contents
-                    .pop_front()
-                    .or_else(|| self.partial_contents.pop_first())
+                    .partial_prepend
+                    .pop_first()
+                    .or_else(|| self.contents.pop_front())
+                    .or_else(|| self.partial_append.pop_first())
                     .unwrap();
                 drop_bytes -= removed_content.len();
             }
         }
 
         if let Some(complete_content) = complete_content {
-            let prior_pending = self.partial_contents.remove(&stream);
+            let prior_pending = self.partial_append.remove(&stream);
             let prior_content = self
                 .contents
                 .back_mut()
@@ -136,14 +141,10 @@ where
         }
 
         if !partial_content.is_empty() {
-            match self.partial_contents.entry(stream) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(partial_content.into());
-                }
-                std::collections::btree_map::Entry::Occupied(entry) => {
-                    entry.into_mut().extend_from_slice(partial_content);
-                }
-            }
+            self.partial_append
+                .entry(stream)
+                .or_default()
+                .extend_from_slice(partial_content);
         }
 
         self.total_bytes = match self.max_bytes {
@@ -155,70 +156,159 @@ where
     pub fn prepend(&mut self, stream: K, content: impl AsRef<[u8]>) {
         let content = content.as_ref();
 
-        let content = match self.max_bytes {
-            Some(max_bytes) => {
-                let content_start = content.len().saturating_sub(max_bytes);
-                &content[content_start..]
-            }
-            None => content,
+        // Break the content into the part containing complete lines, and the
+        // part that's made up of only partial lines. We do this before
+        // truncation to properly detect when to flush pending lines
+        let (partial_content, complete_content) = match content.split_once_str("\n") {
+            Some((partial, complete)) => (partial, Some(complete)),
+            None => (content, None),
         };
 
-        if content.is_empty() {
-            return;
+        let separator = complete_content.map(|_| &b"\n"[..]);
+
+        // Truncate content so that it fits within the remaining bytes.
+        // Since the content we're prepending is by definition the oldest
+        // content, we don't need to drop or truncate any other content
+        let (partial_content, complete_content, separator) = match self.max_bytes {
+            Some(max_bytes) => {
+                // If we have any complete content, truncate it so it fits
+                // within the remaining space
+                let remaining_bytes = max_bytes.saturating_sub(self.total_bytes);
+                let complete_content = complete_content.map(|complete| {
+                    let content_start = complete.len().saturating_sub(remaining_bytes);
+                    &complete[content_start..]
+                });
+                let complete_content_length =
+                    complete_content.map(|complete| complete.len()).unwrap_or(0);
+
+                // If we have a separator (newline) to add, truncate it
+                // so it fits within the remaining space
+                let remaining_bytes = remaining_bytes.saturating_sub(complete_content_length);
+                let separator = separator.map(|separator| {
+                    let separator_start = separator.len().saturating_sub(remaining_bytes);
+                    &separator[separator_start..]
+                });
+                let separator_length = separator.map(|separator| separator.len()).unwrap_or(0);
+
+                // Truncate the partial content to fit within whatever
+                // space we have left over
+                let remaining_bytes = remaining_bytes.saturating_sub(separator_length);
+                let partial_content_start = partial_content.len().saturating_sub(remaining_bytes);
+                let partial_content = &partial_content[partial_content_start..];
+
+                (partial_content, complete_content, separator)
+            }
+            None => (partial_content, complete_content, separator),
+        };
+
+        self.total_bytes = self
+            .total_bytes
+            .saturating_add(partial_content.len())
+            .saturating_add(complete_content.map(|content| content.len()).unwrap_or(0))
+            .saturating_add(separator.map(|separator| separator.len()).unwrap_or(0));
+
+        if let Some(complete_content) = complete_content {
+            let prior_partial = self.partial_prepend.remove(&stream);
+            let prior_content = self
+                .contents
+                .front_mut()
+                .and_then(|(content_stream, content)| {
+                    if *content_stream == stream {
+                        Some(content)
+                    } else {
+                        None
+                    }
+                });
+
+            if let Some(content) = prior_content {
+                let tail = std::mem::take(content);
+
+                content.extend_from_slice(complete_content);
+                if let Some(prior_partial) = prior_partial {
+                    content.extend_from_slice(&prior_partial);
+                }
+                content.extend_from_slice(&tail);
+            } else {
+                let mut content = bstr::BString::default();
+
+                content.extend_from_slice(complete_content);
+                if let Some(prior_partial) = prior_partial {
+                    content.extend_from_slice(&prior_partial);
+                }
+
+                self.contents.push_front((stream.clone(), content));
+            }
         }
 
-        self.total_bytes = self.total_bytes.saturating_add(content.len());
+        match self.partial_prepend.entry(stream) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                let mut content = bstr::BString::default();
 
-        let prior_content = self
-            .contents
-            .front_mut()
-            .and_then(|(content_stream, content)| {
-                if *content_stream == stream {
-                    Some(content)
-                } else {
-                    None
+                content.extend_from_slice(partial_content);
+                if let Some(separator) = separator {
+                    content.extend_from_slice(separator);
                 }
-            });
 
-        if let Some(prior_content) = prior_content {
-            let tail = std::mem::take(prior_content);
-            let mut full_content = bstr::BString::from(content);
-            full_content.extend_from_slice(&tail);
-            *prior_content = full_content;
-        } else {
-            self.contents.push_front((stream, content.into()));
+                if !content.is_empty() {
+                    entry.insert(content);
+                }
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                let content = entry.into_mut();
+
+                if !partial_content.is_empty() {
+                    let tail = std::mem::take(content);
+
+                    content.extend_from_slice(partial_content);
+                    content.extend_from_slice(&tail);
+                }
+
+                if let Some(separator) = separator {
+                    content.extend_from_slice(separator);
+                }
+            }
         }
     }
 
     pub fn flush_stream(&mut self, stream: K) {
-        // Get any partial content that should be flushed
-        let Some(partial_content) = self.partial_contents.remove(&stream) else {
-            return;
-        };
+        if let Some(mut content) = self.partial_prepend.remove(&stream) {
+            let prior_content = self
+                .contents
+                .front_mut()
+                .and_then(|(content_stream, content)| {
+                    if *content_stream == stream {
+                        Some(content)
+                    } else {
+                        None
+                    }
+                });
 
-        // We aren't adding or removing any bytes, so no need to truncate
-        // or drop old data first
+            if let Some(prior_content) = prior_content {
+                let tail = std::mem::take(prior_content);
+                content.extend_from_slice(&tail);
+                *prior_content = content;
+            } else {
+                self.contents.push_front((stream.clone(), content));
+            }
+        }
 
-        let prior_content = self
-            .contents
-            .back_mut()
-            .and_then(|(content_stream, content)| {
-                if *content_stream == stream {
-                    Some(content)
-                } else {
-                    None
-                }
-            });
+        if let Some(tail) = self.partial_append.remove(&stream) {
+            let prior_content = self
+                .contents
+                .back_mut()
+                .and_then(|(content_stream, content)| {
+                    if *content_stream == stream {
+                        Some(content)
+                    } else {
+                        None
+                    }
+                });
 
-        if let Some(prior_content) = prior_content {
-            // If the most recent content is from the same job, then just
-            // append the flushed content
-
-            prior_content.extend_from_slice(&partial_content);
-        } else {
-            // Otherwise, add a new content entry
-
-            self.contents.push_back((stream, partial_content));
+            if let Some(prior_content) = prior_content {
+                prior_content.extend_from_slice(&tail);
+            } else {
+                self.contents.push_back((stream, tail));
+            }
         }
     }
 
@@ -264,7 +354,7 @@ mod tests {
         assert_eq!(output.total_bytes, 5);
         assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())],);
         assert_eq!(
-            output.partial_contents,
+            output.partial_append,
             BTreeMap::from_iter([(job_stream(1, Stdout), "c".into())])
         );
     }
@@ -295,7 +385,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            output.partial_contents,
+            output.partial_append,
             BTreeMap::from_iter([
                 (job_stream(1, Stdout), "u".into()),
                 (job_stream(1, Stderr), "x".into()),
@@ -336,7 +426,7 @@ mod tests {
         assert_eq!(output.total_bytes, 5);
         assert!(output.contents.is_empty());
         assert_eq!(
-            output.partial_contents,
+            output.partial_append,
             BTreeMap::from_iter([
                 (job_stream(1, Stdout), "a".into()),
                 (job_stream(2, Stdout), "b".into()),
@@ -351,7 +441,7 @@ mod tests {
         assert_eq!(output.total_bytes, 5);
         assert!(output.contents.is_empty());
         assert_eq!(
-            output.partial_contents,
+            output.partial_append,
             BTreeMap::from_iter([
                 (job_stream(2, Stdout), "b".into()),
                 (job_stream(3, Stdout), "c".into()),
@@ -366,7 +456,7 @@ mod tests {
         assert_eq!(output.total_bytes, 5);
         assert!(output.contents.is_empty());
         assert_eq!(
-            output.partial_contents,
+            output.partial_append,
             BTreeMap::from_iter([
                 (job_stream(3, Stdout), "c".into()),
                 (job_stream(4, Stdout), "d".into()),
@@ -405,71 +495,133 @@ mod tests {
     fn test_output_buffer_prepend() {
         let mut output = JobOutputBuffer::with_unlimited_capacity();
 
-        output.prepend(job_stream(1, Stdout), "a\nb\nc");
+        output.prepend(job_stream(1, Stdout), "x\ny\nz");
 
         assert_eq!(output.total_bytes, 5);
+        assert_eq!(output.contents, [(job_stream(1, Stdout), "y\nz".into()),]);
         assert_eq!(
-            output.contents,
-            [(job_stream(1, Stdout), "a\nb\nc".into()),]
+            output.partial_prepend,
+            BTreeMap::from_iter([(job_stream(1, Stdout), "x\n".into())])
         );
-        assert!(output.partial_contents.is_empty());
 
-        output.prepend(job_stream(2, Stderr), "d\ne\nf");
+        output.prepend(job_stream(2, Stderr), "\nX\nY\nZ");
 
-        assert_eq!(output.total_bytes, 10);
-        assert_eq!(
-            output.contents,
-            [
-                (job_stream(2, Stderr), "d\ne\nf".into()),
-                (job_stream(1, Stdout), "a\nb\nc".into()),
-            ]
-        );
-        assert!(output.partial_contents.is_empty());
-
-        output.prepend(job_stream(2, Stderr), "x\ny\nz");
-        assert_eq!(output.total_bytes, 15);
+        assert_eq!(output.total_bytes, 11);
         assert_eq!(
             output.contents,
             [
-                (job_stream(2, Stderr), "x\ny\nzd\ne\nf".into()),
-                (job_stream(1, Stdout), "a\nb\nc".into()),
+                (job_stream(2, Stderr), "X\nY\nZ".into()),
+                (job_stream(1, Stdout), "y\nz".into()),
             ]
         );
-        assert!(output.partial_contents.is_empty());
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "x\n".into()),
+                (job_stream(2, Stderr), "\n".into()),
+            ])
+        );
+
+        output.prepend(job_stream(1, Stdout), "w");
+        assert_eq!(output.total_bytes, 12);
+        assert_eq!(
+            output.contents,
+            [
+                (job_stream(2, Stderr), "X\nY\nZ".into()),
+                (job_stream(1, Stdout), "y\nz".into()),
+            ]
+        );
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "wx\n".into()),
+                (job_stream(2, Stderr), "\n".into()),
+            ])
+        );
+
+        output.prepend(job_stream(1, Stdout), "t\nu\nv");
+
+        assert_eq!(output.total_bytes, 17);
+        assert_eq!(
+            output.contents,
+            [
+                (job_stream(1, Stdout), "u\nvwx\n".into()),
+                (job_stream(2, Stderr), "X\nY\nZ".into()),
+                (job_stream(1, Stdout), "y\nz".into()),
+            ]
+        );
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "t\n".into()),
+                (job_stream(2, Stderr), "\n".into()),
+            ])
+        );
+
+        output.prepend(job_stream(1, Stdout), "\nqrs\n");
+
+        assert_eq!(output.total_bytes, 22);
+        assert_eq!(
+            output.contents,
+            [
+                (job_stream(1, Stdout), "qrs\nt\nu\nvwx\n".into()),
+                (job_stream(2, Stderr), "X\nY\nZ".into()),
+                (job_stream(1, Stdout), "y\nz".into()),
+            ]
+        );
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "\n".into()),
+                (job_stream(2, Stderr), "\n".into()),
+            ])
+        );
     }
 
     #[test]
     fn test_output_buffer_prepend_truncate() {
         let mut output = JobOutputBuffer::with_max_capacity(12);
 
-        output.prepend(job_stream(1, Stdout), "a\nb\nc");
+        output.prepend(job_stream(1, Stdout), "x\ny\nz");
 
         assert_eq!(output.total_bytes, 5);
-        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\nc".into())]);
-        assert!(output.partial_contents.is_empty());
+        assert_eq!(output.contents, [(job_stream(1, Stdout), "y\nz".into())]);
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([(job_stream(1, Stdout), "x\n".into()),]),
+        );
 
-        output.prepend(job_stream(2, Stderr), "d\ne\nf");
+        output.prepend(job_stream(2, Stderr), "X\nY\nZ");
 
         assert_eq!(output.total_bytes, 10);
         assert_eq!(
             output.contents,
             [
-                (job_stream(2, Stderr), "d\ne\nf".into()),
-                (job_stream(1, Stdout), "a\nb\nc".into()),
+                (job_stream(2, Stderr), "Y\nZ".into()),
+                (job_stream(1, Stdout), "y\nz".into()),
             ]
         );
-        assert!(output.partial_contents.is_empty());
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "x\n".into()),
+                (job_stream(2, Stderr), "X\n".into()),
+            ]),
+        );
 
-        output.prepend(job_stream(2, Stderr), "x\ny\nz");
-        assert_eq!(output.total_bytes, 15);
+        output.prepend(job_stream(2, Stderr), "T\nU\nVW");
+        assert_eq!(output.total_bytes, 12);
         assert_eq!(
             output.contents,
             [
-                (job_stream(2, Stderr), "x\ny\nzd\ne\nf".into()),
-                (job_stream(1, Stdout), "a\nb\nc".into()),
+                (job_stream(2, Stderr), "VWX\nY\nZ".into()),
+                (job_stream(1, Stdout), "y\nz".into()),
             ]
         );
-        assert!(output.partial_contents.is_empty());
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([(job_stream(1, Stdout), "x\n".into()),]),
+        );
     }
 
     #[test]
@@ -481,15 +633,17 @@ mod tests {
         assert_eq!(output.total_bytes, 5);
         assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())],);
         assert_eq!(
-            output.partial_contents,
+            output.partial_append,
             BTreeMap::from_iter([(job_stream(1, Stdout), "c".into())]),
         );
+        assert!(output.partial_prepend.is_empty());
 
         output.flush_stream(job_stream(1, Stdout));
 
         assert_eq!(output.total_bytes, 5);
         assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\nc".into())]);
-        assert!(output.partial_contents.is_empty());
+        assert!(output.partial_append.is_empty());
+        assert!(output.partial_prepend.is_empty());
 
         output.append(job_stream(1, Stdout), "d\ne\n");
 
@@ -497,7 +651,29 @@ mod tests {
             output.contents,
             [(job_stream(1, Stdout), "a\nb\ncd\ne\n".into())]
         );
-        assert!(output.partial_contents.is_empty());
+        assert!(output.partial_append.is_empty());
+        assert!(output.partial_prepend.is_empty());
+
+        output.prepend(job_stream(1, Stdout), "X\nY\nZ");
+
+        assert_eq!(
+            output.contents,
+            [(job_stream(1, Stdout), "Y\nZa\nb\ncd\ne\n".into())]
+        );
+        assert!(output.partial_append.is_empty());
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([(job_stream(1, Stdout), "X\n".into())])
+        );
+
+        output.flush_stream(job_stream(1, Stdout));
+
+        assert_eq!(
+            output.contents,
+            [(job_stream(1, Stdout), "X\nY\nZa\nb\ncd\ne\n".into())]
+        );
+        assert!(output.partial_append.is_empty());
+        assert!(output.partial_prepend.is_empty());
     }
 
     #[test]
@@ -518,7 +694,7 @@ mod tests {
             [(job_stream(2, Stderr), "d\ne\n".into())]
         );
         assert_eq!(
-            contents.partial_contents,
+            contents.partial_append,
             [
                 (job_stream(1, Stdout), "c".into()),
                 (job_stream(2, Stderr), "f".into())
