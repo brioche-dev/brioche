@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    hash::Hash,
-};
+use std::collections::{BTreeMap, VecDeque};
 
 use bstr::{BString, ByteSlice as _};
 
@@ -15,24 +12,24 @@ use bstr::{BString, ByteSlice as _};
 /// limit. The oldest data is removed from the buffer first.
 pub struct OutputBuffer<K>
 where
-    K: Clone + Eq + Hash,
+    K: Clone + Ord,
 {
     total_bytes: usize,
     max_bytes: Option<usize>,
     contents: VecDeque<(K, BString)>,
-    partial_contents: HashMap<K, BString>,
+    partial_contents: BTreeMap<K, BString>,
 }
 
 impl<K> OutputBuffer<K>
 where
-    K: Clone + Eq + Hash,
+    K: Clone + Ord,
 {
     pub fn with_max_capacity(max_bytes: usize) -> Self {
         Self {
             total_bytes: 0,
             max_bytes: Some(max_bytes),
             contents: VecDeque::new(),
-            partial_contents: HashMap::new(),
+            partial_contents: BTreeMap::new(),
         }
     }
 
@@ -41,7 +38,7 @@ where
             total_bytes: 0,
             max_bytes: None,
             contents: VecDeque::new(),
-            partial_contents: HashMap::new(),
+            partial_contents: BTreeMap::new(),
         }
     }
 
@@ -76,7 +73,11 @@ where
                 .contents
                 .get_mut(0)
                 .map(|(_, content)| content)
-                .or_else(|| self.partial_contents.values_mut().next());
+                .or_else(|| {
+                    self.partial_contents
+                        .first_entry()
+                        .map(|entry| entry.into_mut())
+                });
             let Some(oldest_content) = oldest_content else {
                 break;
             };
@@ -89,7 +90,11 @@ where
                 break;
             } else {
                 // Otherwise, remove the content and continue
-                let (_, removed_content) = self.contents.pop_front().unwrap();
+                let (_, removed_content) = self
+                    .contents
+                    .pop_front()
+                    .or_else(|| self.partial_contents.pop_first())
+                    .unwrap();
                 drop_bytes -= removed_content.len();
             }
         }
@@ -132,10 +137,10 @@ where
 
         if !partial_content.is_empty() {
             match self.partial_contents.entry(stream) {
-                std::collections::hash_map::Entry::Vacant(entry) => {
+                std::collections::btree_map::Entry::Vacant(entry) => {
                     entry.insert(partial_content.into());
                 }
-                std::collections::hash_map::Entry::Occupied(entry) => {
+                std::collections::btree_map::Entry::Occupied(entry) => {
                     entry.into_mut().extend_from_slice(partial_content);
                 }
             }
@@ -235,13 +240,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     use crate::reporter::job::ProcessStream::{self, Stderr, Stdout};
 
     type JobOutputBuffer = super::OutputBuffer<JobOutputStream>;
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     struct JobOutputStream {
         job_id: usize,
         stream: ProcessStream,
@@ -260,7 +265,7 @@ mod tests {
         assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())],);
         assert_eq!(
             output.partial_contents,
-            HashMap::from_iter([(job_stream(1, Stdout), "c".into())])
+            BTreeMap::from_iter([(job_stream(1, Stdout), "c".into())])
         );
     }
 
@@ -291,7 +296,7 @@ mod tests {
         );
         assert_eq!(
             output.partial_contents,
-            HashMap::from_iter([
+            BTreeMap::from_iter([
                 (job_stream(1, Stdout), "u".into()),
                 (job_stream(1, Stderr), "x".into()),
                 (job_stream(2, Stdout), "l".into()),
@@ -315,6 +320,60 @@ mod tests {
         assert_eq!(
             output.contents,
             [(job_stream(2, Stdout), "bcdefghij\n".into())]
+        );
+    }
+
+    #[test]
+    fn test_output_buffer_drop_partial_oldest() {
+        let mut output = JobOutputBuffer::with_max_capacity(5);
+
+        output.append(job_stream(1, Stdout), "a");
+        output.append(job_stream(2, Stdout), "b");
+        output.append(job_stream(3, Stdout), "c");
+        output.append(job_stream(4, Stdout), "d");
+        output.append(job_stream(5, Stdout), "e");
+
+        assert_eq!(output.total_bytes, 5);
+        assert!(output.contents.is_empty());
+        assert_eq!(
+            output.partial_contents,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "a".into()),
+                (job_stream(2, Stdout), "b".into()),
+                (job_stream(3, Stdout), "c".into()),
+                (job_stream(4, Stdout), "d".into()),
+                (job_stream(5, Stdout), "e".into()),
+            ])
+        );
+
+        output.append(job_stream(6, Stdout), "f");
+
+        assert_eq!(output.total_bytes, 5);
+        assert!(output.contents.is_empty());
+        assert_eq!(
+            output.partial_contents,
+            BTreeMap::from_iter([
+                (job_stream(2, Stdout), "b".into()),
+                (job_stream(3, Stdout), "c".into()),
+                (job_stream(4, Stdout), "d".into()),
+                (job_stream(5, Stdout), "e".into()),
+                (job_stream(6, Stdout), "f".into()),
+            ]),
+        );
+
+        output.append(job_stream(7, Stdout), "g");
+
+        assert_eq!(output.total_bytes, 5);
+        assert!(output.contents.is_empty());
+        assert_eq!(
+            output.partial_contents,
+            BTreeMap::from_iter([
+                (job_stream(3, Stdout), "c".into()),
+                (job_stream(4, Stdout), "d".into()),
+                (job_stream(5, Stdout), "e".into()),
+                (job_stream(6, Stdout), "f".into()),
+                (job_stream(7, Stdout), "g".into()),
+            ]),
         );
     }
 
@@ -423,7 +482,7 @@ mod tests {
         assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())],);
         assert_eq!(
             output.partial_contents,
-            HashMap::from_iter([(job_stream(1, Stdout), "c".into())]),
+            BTreeMap::from_iter([(job_stream(1, Stdout), "c".into())]),
         );
 
         output.flush_stream(job_stream(1, Stdout));
