@@ -5,6 +5,14 @@ use std::{
 
 use bstr::{BString, ByteSlice as _};
 
+/// A type that buffers streams of data similar to a terminal. Each stream's
+/// output is buffered separately, keyed with an arbitrary stream type (`K`).
+/// When adding data to the buffer, complete lines are written to the output
+/// and the remainder is stored in a partial buffer, until it's either flushed
+/// explicitly or until more data is added to form a complete line.
+///
+/// The buffer can also limit the total number of bytes stored to some upper
+/// limit. The oldest data is removed from the buffer first.
 pub struct OutputBuffer<K>
 where
     K: Clone + Eq + Hash,
