@@ -347,6 +347,15 @@ where
 
         content
     }
+
+    pub fn pop_back(&mut self) -> Option<(K, bstr::BString)> {
+        let content = self.contents.pop_back();
+        if let Some((_, content)) = &content {
+            self.total_bytes = self.total_bytes.saturating_sub(content.len());
+        }
+
+        content
+    }
 }
 
 #[cfg(test)]
@@ -699,30 +708,101 @@ mod tests {
 
     #[test]
     fn test_output_buffer_pop_front() {
-        let mut contents = JobOutputBuffer::with_unlimited_capacity();
+        let mut output = JobOutputBuffer::with_unlimited_capacity();
 
-        contents.append(job_stream(1, Stdout), "a\nb\nc");
-        contents.append(job_stream(2, Stderr), "d\ne\nf");
+        output.append(job_stream(1, Stdout), "a\nb\nc");
+        output.append(job_stream(2, Stderr), "d\ne\nf");
 
         assert_eq!(
-            contents.pop_front(),
+            output.pop_front(),
             Some((job_stream(1, Stdout), "a\nb\n".into()))
         );
 
-        assert_eq!(contents.total_bytes, 6);
+        assert_eq!(output.total_bytes, 6);
+        assert_eq!(output.contents, [(job_stream(2, Stderr), "d\ne\n".into())]);
         assert_eq!(
-            contents.contents,
-            [(job_stream(2, Stderr), "d\ne\n".into())]
-        );
-        assert_eq!(
-            contents.partial_append,
-            [
+            output.partial_append,
+            BTreeMap::from_iter([
                 (job_stream(1, Stdout), "c".into()),
                 (job_stream(2, Stderr), "f".into())
-            ]
-            .iter()
-            .cloned()
-            .collect()
-        )
+            ])
+        );
+
+        assert_eq!(
+            output.pop_front(),
+            Some((job_stream(2, Stderr), "d\ne\n".into()))
+        );
+
+        assert_eq!(output.total_bytes, 2);
+        assert!(output.contents.is_empty());
+        assert_eq!(
+            output.partial_append,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "c".into()),
+                (job_stream(2, Stderr), "f".into())
+            ])
+        );
+
+        assert_eq!(output.pop_front(), None);
+
+        assert_eq!(output.total_bytes, 2);
+        assert!(output.contents.is_empty());
+        assert_eq!(
+            output.partial_append,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "c".into()),
+                (job_stream(2, Stderr), "f".into())
+            ])
+        );
+    }
+
+    #[test]
+    fn test_output_buffer_pop_back() {
+        let mut output = JobOutputBuffer::with_unlimited_capacity();
+
+        output.prepend(job_stream(1, Stdout), "a\nb\nc");
+        output.prepend(job_stream(2, Stderr), "d\ne\nf");
+
+        assert_eq!(
+            output.pop_back(),
+            Some((job_stream(1, Stdout), "b\nc".into()))
+        );
+
+        assert_eq!(output.total_bytes, 7);
+        assert_eq!(output.contents, [(job_stream(2, Stderr), "e\nf".into())]);
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "a\n".into()),
+                (job_stream(2, Stderr), "d\n".into())
+            ])
+        );
+
+        assert_eq!(
+            output.pop_back(),
+            Some((job_stream(2, Stderr), "e\nf".into()))
+        );
+
+        assert_eq!(output.total_bytes, 4);
+        assert!(output.contents.is_empty());
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "a\n".into()),
+                (job_stream(2, Stderr), "d\n".into())
+            ])
+        );
+
+        assert_eq!(output.pop_back(), None);
+
+        assert_eq!(output.total_bytes, 4);
+        assert!(output.contents.is_empty());
+        assert_eq!(
+            output.partial_prepend,
+            BTreeMap::from_iter([
+                (job_stream(1, Stdout), "a\n".into()),
+                (job_stream(2, Stderr), "d\n".into())
+            ])
+        );
     }
 }
