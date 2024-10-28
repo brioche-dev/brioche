@@ -139,6 +139,44 @@ where
         };
     }
 
+    pub fn prepend(&mut self, stream: K, content: impl AsRef<[u8]>) {
+        let content = content.as_ref();
+
+        let content = match self.max_bytes {
+            Some(max_bytes) => {
+                let content_start = content.len().saturating_sub(max_bytes);
+                &content[content_start..]
+            }
+            None => content,
+        };
+
+        if content.is_empty() {
+            return;
+        }
+
+        self.total_bytes = self.total_bytes.saturating_add(content.len());
+
+        let prior_content = self
+            .contents
+            .front_mut()
+            .and_then(|(content_stream, content)| {
+                if *content_stream == stream {
+                    Some(content)
+                } else {
+                    None
+                }
+            });
+
+        if let Some(prior_content) = prior_content {
+            let tail = std::mem::take(prior_content);
+            let mut full_content = bstr::BString::from(content);
+            full_content.extend_from_slice(&tail);
+            *prior_content = full_content;
+        } else {
+            self.contents.push_front((stream, content.into()));
+        }
+    }
+
     pub fn flush_stream(&mut self, stream: K) {
         // Get any partial content that should be flushed
         let Some(partial_content) = self.partial_contents.remove(&stream) else {
@@ -294,6 +332,77 @@ mod tests {
                 (job_stream(2, Stdout), "jk\n".into()),
             ]
         );
+    }
+
+    #[test]
+    fn test_output_buffer_prepend() {
+        let mut output = JobOutputBuffer::with_unlimited_capacity();
+
+        output.prepend(job_stream(1, Stdout), "a\nb\nc");
+
+        assert_eq!(output.total_bytes, 5);
+        assert_eq!(
+            output.contents,
+            [(job_stream(1, Stdout), "a\nb\nc".into()),]
+        );
+        assert!(output.partial_contents.is_empty());
+
+        output.prepend(job_stream(2, Stderr), "d\ne\nf");
+
+        assert_eq!(output.total_bytes, 10);
+        assert_eq!(
+            output.contents,
+            [
+                (job_stream(2, Stderr), "d\ne\nf".into()),
+                (job_stream(1, Stdout), "a\nb\nc".into()),
+            ]
+        );
+        assert!(output.partial_contents.is_empty());
+
+        output.prepend(job_stream(2, Stderr), "x\ny\nz");
+        assert_eq!(output.total_bytes, 15);
+        assert_eq!(
+            output.contents,
+            [
+                (job_stream(2, Stderr), "x\ny\nzd\ne\nf".into()),
+                (job_stream(1, Stdout), "a\nb\nc".into()),
+            ]
+        );
+        assert!(output.partial_contents.is_empty());
+    }
+
+    #[test]
+    fn test_output_buffer_prepend_truncate() {
+        let mut output = JobOutputBuffer::with_max_capacity(12);
+
+        output.prepend(job_stream(1, Stdout), "a\nb\nc");
+
+        assert_eq!(output.total_bytes, 5);
+        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\nc".into())]);
+        assert!(output.partial_contents.is_empty());
+
+        output.prepend(job_stream(2, Stderr), "d\ne\nf");
+
+        assert_eq!(output.total_bytes, 10);
+        assert_eq!(
+            output.contents,
+            [
+                (job_stream(2, Stderr), "d\ne\nf".into()),
+                (job_stream(1, Stdout), "a\nb\nc".into()),
+            ]
+        );
+        assert!(output.partial_contents.is_empty());
+
+        output.prepend(job_stream(2, Stderr), "x\ny\nz");
+        assert_eq!(output.total_bytes, 15);
+        assert_eq!(
+            output.contents,
+            [
+                (job_stream(2, Stderr), "x\ny\nzd\ne\nf".into()),
+                (job_stream(1, Stdout), "a\nb\nc".into()),
+            ]
+        );
+        assert!(output.partial_contents.is_empty());
     }
 
     #[test]
