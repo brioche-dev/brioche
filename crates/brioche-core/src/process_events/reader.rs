@@ -294,11 +294,11 @@ where
         Ok(Duration::from_millis(milliseconds.into()))
     }
 
-    async fn try_read_fill(&mut self, mut buf: &mut [u8]) -> std::io::Result<usize> {
+    async fn try_read_fill(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut total_bytes_read = 0;
 
         loop {
-            buf = &mut buf[total_bytes_read..];
+            let buf = &mut buf[total_bytes_read..];
             if buf.is_empty() {
                 break;
             }
