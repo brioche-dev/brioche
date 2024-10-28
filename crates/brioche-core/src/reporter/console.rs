@@ -1047,7 +1047,7 @@ impl JobOutputContents {
     }
 
     fn pop_contents(&mut self) -> Option<(JobOutputStream, bstr::BString)> {
-        let content = self.contents.pop_back();
+        let content = self.contents.pop_front();
         if let Some((_, content)) = &content {
             self.total_bytes = self.total_bytes.saturating_sub(content.len());
         }
