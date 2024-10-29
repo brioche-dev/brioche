@@ -17,11 +17,11 @@ pub struct LogsArgs {
     reverse: bool,
 }
 
-pub async fn logs(args: LogsArgs) -> anyhow::Result<()> {
-    let input = tokio::fs::File::open(&args.path).await?;
-    let input = tokio::io::BufReader::new(input);
+pub fn logs(args: LogsArgs) -> anyhow::Result<()> {
+    let input = std::fs::File::open(&args.path)?;
+    let input = std::io::BufReader::new(input);
 
-    let mut reader = brioche_core::process_events::reader::ProcessEventReader::new(input).await?;
+    let mut reader = brioche_core::process_events::reader::ProcessEventReader::new(input)?;
 
     display_events(
         &mut reader,
@@ -29,8 +29,7 @@ pub async fn logs(args: LogsArgs) -> anyhow::Result<()> {
             limit: args.limit,
             reverse: args.reverse,
         },
-    )
-    .await?;
+    )?;
 
     Ok(())
 }

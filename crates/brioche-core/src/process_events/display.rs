@@ -11,12 +11,12 @@ pub struct DisplayEventsOptions {
     pub limit: Option<usize>,
 }
 
-pub async fn display_events<R>(
+pub fn display_events<R>(
     reader: &mut ProcessEventReader<R>,
     options: DisplayEventsOptions,
 ) -> anyhow::Result<()>
 where
-    R: tokio::io::AsyncRead + tokio::io::AsyncSeek + Unpin,
+    R: std::io::Read + std::io::Seek,
 {
     let mut initial_events = VecDeque::new();
     let mut spawned_at = std::time::Duration::ZERO;
@@ -27,7 +27,7 @@ where
     // events to avoid seeking back to the beginning (if reading reverse,
     // then those events will be read again later on).
     for _ in 0..2 {
-        let event = reader.read_next_event().await;
+        let event = reader.read_next_event();
 
         if let Ok(Some(ProcessEvent::Spawned(event))) = &event {
             spawned_at = event.elapsed;
@@ -39,7 +39,7 @@ where
     }
 
     if options.reverse {
-        reader.seek_to_end().await?;
+        reader.seek_to_end()?;
     }
 
     let mut output = OutputBuffer::<ProcessStream>::with_unlimited_capacity();
@@ -50,11 +50,11 @@ where
         }
 
         let event = if options.reverse {
-            reader.read_previous_event().await?
+            reader.read_previous_event()?
         } else if let Some(event) = initial_events.pop_front() {
             event?
         } else {
-            reader.read_next_event().await?
+            reader.read_next_event()?
         };
 
         let Some(event) = event else {

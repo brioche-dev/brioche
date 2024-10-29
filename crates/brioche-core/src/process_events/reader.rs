@@ -1,7 +1,5 @@
 use std::{borrow::Cow, time::Duration};
 
-use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
-
 use crate::reporter::job::ProcessStream;
 
 use super::{
@@ -11,19 +9,19 @@ use super::{
 
 pub struct ProcessEventReader<R>
 where
-    R: tokio::io::AsyncRead + Unpin,
+    R: std::io::Read,
 {
     reader: R,
 }
 
 impl<R> ProcessEventReader<R>
 where
-    R: tokio::io::AsyncRead + Unpin,
+    R: std::io::Read,
 {
-    pub async fn new(mut reader: R) -> Result<Self, ProcessEventReadError> {
+    pub fn new(mut reader: R) -> Result<Self, ProcessEventReadError> {
         let mut magic_bytes = [0u8; PROCESS_EVENT_MAGIC.len()];
 
-        reader.read_exact(&mut magic_bytes).await?;
+        reader.read_exact(&mut magic_bytes)?;
 
         let magic_bytes = bstr::BStr::new(&magic_bytes);
         if magic_bytes != PROCESS_EVENT_MAGIC {
@@ -36,11 +34,11 @@ where
         Ok(Self { reader })
     }
 
-    pub async fn read_next_event(
+    pub fn read_next_event(
         &mut self,
     ) -> Result<Option<ProcessEvent<'static>>, ProcessEventReadError> {
         // Read the next marker, or return if there's no next event
-        let marker = self.read_next_marker().await?;
+        let marker = self.read_next_marker()?;
         let Some(marker) = marker else {
             return Ok(None);
         };
@@ -49,7 +47,7 @@ where
         let event = match marker.kind {
             ProcessEventKind::Description => {
                 let mut description_bytes = vec![0u8; marker.length];
-                self.read_fill(&mut description_bytes).await?;
+                self.read_fill(&mut description_bytes)?;
                 let description = serde_json::from_slice(&description_bytes)?;
 
                 ProcessEvent::Description(description)
@@ -59,8 +57,8 @@ where
                     return Err(ProcessEventReadError::InvalidEventLength { marker });
                 }
 
-                let elapsed = self.read_duration().await?;
-                let pid = self.read_u32().await?;
+                let elapsed = self.read_duration()?;
+                let pid = self.read_u32()?;
 
                 ProcessEvent::Spawned(ProcessSpawnedEvent { elapsed, pid })
             }
@@ -73,9 +71,9 @@ where
                 // Validate the length before allocating and reading
                 ProcessOutputEvent::validate_length(content_length)?;
 
-                let elapsed = self.read_duration().await?;
+                let elapsed = self.read_duration()?;
                 let mut content = vec![0u8; content_length];
-                self.read_fill(&mut content).await?;
+                self.read_fill(&mut content)?;
 
                 let content = bstr::BString::new(content);
                 let content = Cow::Owned(content);
@@ -92,9 +90,9 @@ where
                 // Validate the length before allocating and reading
                 ProcessOutputEvent::validate_length(content_length)?;
 
-                let elapsed = self.read_duration().await?;
+                let elapsed = self.read_duration()?;
                 let mut content = vec![0u8; content_length];
-                self.read_fill(&mut content).await?;
+                self.read_fill(&mut content)?;
 
                 let content = bstr::BString::new(content);
                 let content = Cow::Owned(content);
@@ -107,8 +105,8 @@ where
                     return Err(ProcessEventReadError::InvalidEventLength { marker });
                 }
 
-                let elapsed = self.read_duration().await?;
-                let code = self.read_i8().await?;
+                let elapsed = self.read_duration()?;
+                let code = self.read_i8()?;
 
                 ProcessEvent::Exited(ProcessExitedEvent {
                     elapsed,
@@ -120,8 +118,8 @@ where
                     return Err(ProcessEventReadError::InvalidEventLength { marker });
                 }
 
-                let elapsed = self.read_duration().await?;
-                let signal = self.read_i32().await?;
+                let elapsed = self.read_duration()?;
+                let signal = self.read_i32()?;
 
                 ProcessEvent::Exited(ProcessExitedEvent {
                     elapsed,
@@ -132,7 +130,7 @@ where
 
         // Each event ends with a copy of its marker, so read the next
         // marker and ensure it matches the start marker that we read
-        let end_marker = self.read_next_marker().await?;
+        let end_marker = self.read_next_marker()?;
         let Some(end_marker) = end_marker else {
             return Err(ProcessEventReadError::CutOff);
         };
@@ -147,16 +145,16 @@ where
         Ok(Some(event))
     }
 
-    pub async fn read_previous_event(
+    pub fn read_previous_event(
         &mut self,
     ) -> Result<Option<ProcessEvent<'static>>, ProcessEventReadError>
     where
-        R: tokio::io::AsyncSeek,
+        R: std::io::Seek,
     {
         // Read the previous marker by seeking backwards. If the current
         // position is right after the magic bytes, exit early because there
         // are no earlier events.
-        let previous_marker_result = self.read_previous_marker().await?;
+        let previous_marker_result = self.read_previous_marker()?;
         let Some((end_marker, end_marker_start_pos)) = previous_marker_result else {
             return Ok(None);
         };
@@ -185,12 +183,11 @@ where
 
         // Seek to the position of the start marker for the event
         self.reader
-            .seek(std::io::SeekFrom::Start(start_marker_start_pos))
-            .await?;
+            .seek(std::io::SeekFrom::Start(start_marker_start_pos))?;
 
         // Read the event (something went terribly wrong if this returned
         // `None`)
-        let event = self.read_next_event().await?;
+        let event = self.read_next_event()?;
         let Some(event) = event else {
             return Err(ProcessEventReadError::CutOff);
         };
@@ -198,18 +195,17 @@ where
         // Seek back to the position of the start marker for the event. From
         // the start, the seek position is one event earlier than it was
         self.reader
-            .seek(std::io::SeekFrom::Start(start_marker_start_pos))
-            .await?;
+            .seek(std::io::SeekFrom::Start(start_marker_start_pos))?;
 
         Ok(Some(event))
     }
 
-    pub async fn skip_next_event(&mut self) -> Result<bool, ProcessEventReadError>
+    pub fn skip_next_event(&mut self) -> Result<bool, ProcessEventReadError>
     where
-        R: tokio::io::AsyncSeek,
+        R: std::io::Seek,
     {
         // Read the next marker, or return if there's no next event
-        let marker = self.read_next_marker().await?;
+        let marker = self.read_next_marker()?;
         let Some(marker) = marker else {
             return Ok(false);
         };
@@ -224,18 +220,17 @@ where
             })?;
 
         self.reader
-            .seek(std::io::SeekFrom::Current(next_event_offset))
-            .await?;
+            .seek(std::io::SeekFrom::Current(next_event_offset))?;
 
         Ok(true)
     }
 
-    pub async fn skip_previous_event(&mut self) -> Result<bool, ProcessEventReadError>
+    pub fn skip_previous_event(&mut self) -> Result<bool, ProcessEventReadError>
     where
-        R: tokio::io::AsyncSeek,
+        R: std::io::Seek,
     {
         // Read the previous marker, or return if there's no previous event
-        let previous_marker_result = self.read_previous_marker().await?;
+        let previous_marker_result = self.read_previous_marker()?;
         let Some((marker, marker_start_offset)) = previous_marker_result else {
             return Ok(false);
         };
@@ -249,29 +244,25 @@ where
                 length: marker.length as _,
             })?;
 
-        self.reader
-            .seek(std::io::SeekFrom::Start(
-                marker_start_offset.saturating_sub(previous_event_offset),
-            ))
-            .await?;
+        self.reader.seek(std::io::SeekFrom::Start(
+            marker_start_offset.saturating_sub(previous_event_offset),
+        ))?;
 
         Ok(true)
     }
 
-    pub async fn seek_to_end(&mut self) -> Result<(), ProcessEventReadError>
+    pub fn seek_to_end(&mut self) -> Result<(), ProcessEventReadError>
     where
-        R: tokio::io::AsyncSeek,
+        R: std::io::Seek,
     {
-        self.reader.seek(std::io::SeekFrom::End(0)).await?;
+        self.reader.seek(std::io::SeekFrom::End(0))?;
         Ok(())
     }
 
-    async fn read_next_marker(
-        &mut self,
-    ) -> Result<Option<ProcessEventMarker>, ProcessEventReadError> {
+    fn read_next_marker(&mut self) -> Result<Option<ProcessEventMarker>, ProcessEventReadError> {
         // Read enough bytes for the next marker
         let mut marker_bytes = [0u8; PROCESS_EVENT_MARKER_LENGTH];
-        let marker_bytes_len = self.try_read_fill(&mut marker_bytes).await?;
+        let marker_bytes_len = self.try_read_fill(&mut marker_bytes)?;
         let marker_bytes = &marker_bytes[0..marker_bytes_len];
 
         // If we didn't read anything, then we're at the end of the reader,
@@ -285,13 +276,13 @@ where
         Ok(Some(start_marker))
     }
 
-    async fn read_previous_marker(
+    fn read_previous_marker(
         &mut self,
     ) -> Result<Option<(ProcessEventMarker, u64)>, ProcessEventReadError>
     where
-        R: tokio::io::AsyncSeek,
+        R: std::io::Seek,
     {
-        let current_pos = self.reader.stream_position().await?;
+        let current_pos = self.reader.stream_position()?;
         let initial_start_pos: u64 = PROCESS_EVENT_MAGIC.len().try_into().unwrap();
 
         // If we're right after the magic bytes, then there's no previous
@@ -310,10 +301,9 @@ where
 
         // Seek to the start of the marker, then read it
         self.reader
-            .seek(std::io::SeekFrom::Start(marker_start_pos))
-            .await?;
+            .seek(std::io::SeekFrom::Start(marker_start_pos))?;
 
-        let marker = self.read_next_marker().await?;
+        let marker = self.read_next_marker()?;
 
         let Some(marker) = marker else {
             return Err(ProcessEventReadError::CutOff);
@@ -322,33 +312,33 @@ where
         Ok(Some((marker, marker_start_pos)))
     }
 
-    async fn read_u32(&mut self) -> Result<u32, ProcessEventReadError> {
+    fn read_u32(&mut self) -> Result<u32, ProcessEventReadError> {
         let mut bytes = [0; 4];
-        self.read_fill(&mut bytes).await?;
+        self.read_fill(&mut bytes)?;
 
         Ok(u32::from_be_bytes(bytes))
     }
 
-    async fn read_i8(&mut self) -> Result<i8, ProcessEventReadError> {
+    fn read_i8(&mut self) -> Result<i8, ProcessEventReadError> {
         let mut bytes = [0; 1];
-        self.read_fill(&mut bytes).await?;
+        self.read_fill(&mut bytes)?;
 
         Ok(i8::from_be_bytes(bytes))
     }
 
-    async fn read_i32(&mut self) -> Result<i32, ProcessEventReadError> {
+    fn read_i32(&mut self) -> Result<i32, ProcessEventReadError> {
         let mut bytes = [0; 4];
-        self.read_fill(&mut bytes).await?;
+        self.read_fill(&mut bytes)?;
 
         Ok(i32::from_be_bytes(bytes))
     }
 
-    async fn read_duration(&mut self) -> Result<Duration, ProcessEventReadError> {
-        let milliseconds = self.read_u32().await?;
+    fn read_duration(&mut self) -> Result<Duration, ProcessEventReadError> {
+        let milliseconds = self.read_u32()?;
         Ok(Duration::from_millis(milliseconds.into()))
     }
 
-    async fn try_read_fill(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+    fn try_read_fill(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let mut total_bytes_read = 0;
 
         loop {
@@ -357,7 +347,7 @@ where
                 break;
             }
 
-            let bytes_read = self.reader.read(buf).await?;
+            let bytes_read = self.reader.read(buf)?;
             total_bytes_read += bytes_read;
 
             if bytes_read == 0 {
@@ -368,8 +358,8 @@ where
         Ok(total_bytes_read)
     }
 
-    async fn read_fill(&mut self, buf: &mut [u8]) -> Result<(), ProcessEventReadError> {
-        let read_len = self.try_read_fill(buf).await?;
+    fn read_fill(&mut self, buf: &mut [u8]) -> Result<(), ProcessEventReadError> {
+        let read_len = self.try_read_fill(buf)?;
         if read_len != buf.len() {
             return Err(ProcessEventReadError::CutOff);
         }

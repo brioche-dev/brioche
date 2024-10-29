@@ -129,9 +129,9 @@ async fn test_process_event_read_and_write_empty() -> anyhow::Result<()> {
     let mut read_events = vec![];
     {
         let reader = std::io::Cursor::new(&buffer);
-        let mut reader = ProcessEventReader::new(reader).await?;
+        let mut reader = ProcessEventReader::new(reader)?;
 
-        while let Some(event) = reader.read_next_event().await? {
+        while let Some(event) = reader.read_next_event()? {
             read_events.push(event);
         }
     }
@@ -164,9 +164,9 @@ async fn test_process_event_read_and_write_minimal() -> anyhow::Result<()> {
     let mut read_events = vec![];
     {
         let reader = std::io::Cursor::new(&buffer);
-        let mut reader = ProcessEventReader::new(reader).await?;
+        let mut reader = ProcessEventReader::new(reader)?;
 
-        while let Some(event) = reader.read_next_event().await? {
+        while let Some(event) = reader.read_next_event()? {
             read_events.push(event);
         }
     }
@@ -197,9 +197,9 @@ async fn test_process_event_read_and_write_sequence() -> anyhow::Result<()> {
     let mut read_events = vec![];
     {
         let reader = std::io::Cursor::new(&buffer);
-        let mut reader = ProcessEventReader::new(reader).await?;
+        let mut reader = ProcessEventReader::new(reader)?;
 
-        while let Some(event) = reader.read_next_event().await? {
+        while let Some(event) = reader.read_next_event()? {
             read_events.push(event);
         }
     }
@@ -230,9 +230,9 @@ async fn test_process_event_read_and_write_sequence_with_signal() -> anyhow::Res
     let mut read_events = vec![];
     {
         let reader = std::io::Cursor::new(&buffer);
-        let mut reader = ProcessEventReader::new(reader).await?;
+        let mut reader = ProcessEventReader::new(reader)?;
 
-        while let Some(event) = reader.read_next_event().await? {
+        while let Some(event) = reader.read_next_event()? {
             read_events.push(event);
         }
     }
@@ -263,11 +263,11 @@ async fn test_process_event_read_reverse() -> anyhow::Result<()> {
     let mut read_events = vec![];
     {
         let reader = std::io::Cursor::new(&buffer);
-        let mut reader = ProcessEventReader::new(reader).await?;
+        let mut reader = ProcessEventReader::new(reader)?;
 
-        reader.seek_to_end().await?;
+        reader.seek_to_end()?;
 
-        while let Some(event) = reader.read_previous_event().await? {
+        while let Some(event) = reader.read_previous_event()? {
             read_events.push(event);
         }
     }
@@ -304,13 +304,13 @@ async fn test_process_event_read_first_then_reverse() -> anyhow::Result<()> {
     let mut read_events = vec![];
     {
         let reader = std::io::Cursor::new(&buffer);
-        let mut reader = ProcessEventReader::new(reader).await?;
+        let mut reader = ProcessEventReader::new(reader)?;
 
-        first_event = reader.read_next_event().await?;
+        first_event = reader.read_next_event()?;
 
-        reader.seek_to_end().await?;
+        reader.seek_to_end()?;
 
-        while let Some(event) = reader.read_previous_event().await? {
+        while let Some(event) = reader.read_previous_event()? {
             read_events.push(event);
         }
     }
