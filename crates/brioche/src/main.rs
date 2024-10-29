@@ -9,8 +9,8 @@ use clap::Parser;
 mod build;
 mod check;
 mod format;
-mod inspect_process;
 mod install;
+mod jobs;
 mod lsp;
 mod publish;
 mod run;
@@ -36,6 +36,10 @@ enum Args {
     #[command(name = "fmt")]
     Format(format::FormatArgs),
 
+    /// Show information about jobs, such as failed builds
+    #[command(subcommand)]
+    Jobs(jobs::JobsSubcommand),
+
     /// Publish a project to a registry
     Publish(publish::PublishArgs),
 
@@ -44,9 +48,6 @@ enum Args {
 
     /// Update Brioche itself
     SelfUpdate(self_update::SelfUpdateArgs),
-
-    /// Inspect a process that ran during a build
-    InspectProcess(inspect_process::InspectProcessArgs),
 
     /// Internal tool: analyze a project
     #[command(hide = true)]
@@ -141,15 +142,7 @@ fn main() -> anyhow::Result<ExitCode> {
                 Ok(ExitCode::FAILURE)
             }
         }
-        Args::InspectProcess(args) => {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()?;
-
-            rt.block_on(inspect_process::inspect_process(args))?;
-
-            Ok(ExitCode::SUCCESS)
-        }
+        Args::Jobs(command) => jobs::jobs(command),
         Args::Analyze(args) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()

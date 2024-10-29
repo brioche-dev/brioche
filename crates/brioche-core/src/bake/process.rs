@@ -550,7 +550,7 @@ pub async fn bake_process(
         Err(error) => {
             return Err(error).with_context(|| {
                 format!(
-                    "process failed, view full output by runing `brioche inspect-process {}`",
+                    "process failed, view full output by runing `brioche jobs logs {}`",
                     events_path.display(),
                 )
             });

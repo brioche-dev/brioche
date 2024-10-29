@@ -4,7 +4,7 @@ use brioche_core::process_events::display::{display_events, DisplayEventsOptions
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-pub struct InspectProcessArgs {
+pub struct LogsArgs {
     path: PathBuf,
 
     #[clap(long)]
@@ -14,7 +14,7 @@ pub struct InspectProcessArgs {
     reverse: bool,
 }
 
-pub async fn inspect_process(args: InspectProcessArgs) -> anyhow::Result<()> {
+pub async fn logs(args: LogsArgs) -> anyhow::Result<()> {
     let input = tokio::fs::File::open(&args.path).await?;
     let input = tokio::io::BufReader::new(input);
 
