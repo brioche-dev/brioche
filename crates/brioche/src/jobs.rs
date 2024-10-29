@@ -6,6 +6,7 @@ mod logs;
 
 #[derive(Debug, Subcommand)]
 pub enum JobsSubcommand {
+    /// View logs for a job
     Logs(logs::LogsArgs),
 }
 
