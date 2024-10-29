@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use bstr::ByteSlice;
 
 use crate::{reporter::job::ProcessStream, utils::output_buffer::OutputBuffer};
@@ -16,6 +18,26 @@ pub async fn display_events<R>(
 where
     R: tokio::io::AsyncRead + tokio::io::AsyncSeek + Unpin,
 {
+    let mut initial_events = VecDeque::new();
+    let mut spawned_at = std::time::Duration::ZERO;
+
+    // Read the first two events first to look for the "spawned" event so
+    // we can get adjust the "elapsed" durations relative to the spawn time
+    // instead of the initial time. If reading forward, we queue these
+    // events to avoid seeking back to the beginning (if reading reverse,
+    // then those events will be read again later on).
+    for _ in 0..2 {
+        let event = reader.read_next_event().await;
+
+        if let Ok(Some(ProcessEvent::Spawned(event))) = &event {
+            spawned_at = event.elapsed;
+        }
+
+        if !options.reverse {
+            initial_events.push_back(event);
+        }
+    }
+
     if options.reverse {
         reader.seek_to_end().await?;
     }
@@ -29,6 +51,8 @@ where
 
         let event = if options.reverse {
             reader.read_previous_event().await?
+        } else if let Some(event) = initial_events.pop_front() {
+            event?
         } else {
             reader.read_next_event().await?
         };
@@ -78,9 +102,18 @@ where
                 }
             }
             ProcessEvent::Spawned(event) => {
-                let elapsed = crate::utils::DisplayDuration(event.elapsed);
+                // This should (normally) show as an elapsed duration of zero,
+                // since we tried to find the "spawned" event as the basis
+                // for durations
+                let elapsed = event.elapsed.saturating_sub(spawned_at);
+                let elapsed = crate::utils::DisplayDuration(elapsed);
 
-                println!("[{elapsed}] [spawned process with pid {}]", event.pid);
+                let preparation_elapsed = crate::utils::DisplayDuration(event.elapsed);
+
+                println!(
+                    "[{elapsed}] [spawned process with pid {}, preparation took {preparation_elapsed}]",
+                    event.pid
+                );
 
                 if let Some(ref mut limit) = limit {
                     *limit = limit.saturating_sub(1);
@@ -103,7 +136,8 @@ where
                         break;
                     };
 
-                    let elapsed = crate::utils::DisplayDuration(event.elapsed);
+                    let elapsed = event.elapsed.saturating_sub(spawned_at);
+                    let elapsed = crate::utils::DisplayDuration(elapsed);
 
                     for line in content.lines() {
                         let line = bstr::BStr::new(line);
@@ -119,7 +153,8 @@ where
                 }
             }
             ProcessEvent::Exited(event) => {
-                let elapsed = crate::utils::DisplayDuration(event.elapsed);
+                let elapsed = event.elapsed.saturating_sub(spawned_at);
+                let elapsed = crate::utils::DisplayDuration(elapsed);
 
                 match event.exit_status {
                     crate::sandbox::ExitStatus::Code(code) => {
