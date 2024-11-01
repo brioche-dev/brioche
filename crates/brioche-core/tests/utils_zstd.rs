@@ -1,5 +1,6 @@
 use std::io::{Read as _, Seek as _};
 
+use assert_matches::assert_matches;
 use brioche_core::utils::zstd::{ZstdSeekableDecoder, ZstdSeekableEncoder};
 use proptest::prelude::*;
 use tokio::io::AsyncWriteExt as _;
@@ -84,4 +85,15 @@ proptest! {
             assert!(seekable_decoded == data[(data.len() - pos)..], "decoded data does not match data");
         });
     }
+}
+
+#[tokio::test]
+async fn test_utils_zstd_decode_seekable_non_seekable_file_error() {
+    let data = (0..1024u16)
+        .flat_map(|i| i.to_le_bytes())
+        .collect::<Vec<u8>>();
+    let encoded = zstd::encode_all(&data[..], 3).unwrap();
+
+    let result = ZstdSeekableDecoder::new(Box::new(std::io::Cursor::new(&encoded[..]))).map(|_| ());
+    assert_matches!(result, Err(_));
 }
