@@ -1,8 +1,12 @@
 use std::{
+    io::{BufRead as _, Read as _},
+    ops::Range,
     pin::Pin,
     sync::OnceLock,
     task::{ready, Poll},
 };
+
+use zstd::stream::raw::Operation as _;
 
 pin_project_lite::pin_project! {
     pub struct ZstdSeekableEncoder<W> {
@@ -219,4 +223,238 @@ impl<'a, R> std::io::Seek for ZstdSeekableDecoder<'a, R> {
             }
         }
     }
+}
+
+pub struct ZstdLinearDecoder<R> {
+    reader: R,
+    frames: Vec<ZstdFrameInfo>,
+    current_frame: ZstdCurrentFrame,
+    input_buffer: Vec<u8>,
+    input_tail: usize,
+    output_buffer: Vec<u8>,
+}
+
+impl<R> ZstdLinearDecoder<R> {
+    pub fn new(reader: R) -> anyhow::Result<Self> {
+        let input_buffer_size = zstd::zstd_safe::CCtx::in_size();
+        let input_buffer = vec![0; input_buffer_size];
+        let output_buffer_size = zstd::zstd_safe::DCtx::out_size();
+        let output_buffer = Vec::with_capacity(output_buffer_size);
+        let current_frame = ZstdCurrentFrame::initial_frame()?;
+
+        Ok(Self {
+            reader,
+            frames: vec![],
+            current_frame,
+            input_buffer,
+            input_tail: 0,
+            output_buffer,
+        })
+    }
+}
+
+impl<R> std::io::Read for ZstdLinearDecoder<R>
+where
+    R: std::io::Read,
+{
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let filled = self.fill_buf()?;
+        let consumed = filled.len().min(buf.len());
+
+        buf[..consumed].copy_from_slice(&filled[..consumed]);
+        self.consume(consumed);
+        Ok(consumed)
+    }
+}
+
+impl<R> std::io::BufRead for ZstdLinearDecoder<R>
+where
+    R: std::io::Read,
+{
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        loop {
+            let unread = self.current_frame.unread().map_err(std::io::Error::other)?;
+            if !unread.is_empty() {
+                // HACK: This should be `return Ok(unread)` but that
+                // causes a borrow checker error
+                break;
+            }
+
+            match self.current_frame.state {
+                ZstdCurrentFrameState::Finished => {
+                    let frame_index = self.current_frame.frame_index;
+                    let frame_info = self.current_frame.finish().map_err(std::io::Error::other)?;
+
+                    if self.frames.get(frame_index).is_none() {
+                        self.frames.insert(frame_index, frame_info);
+                    }
+                }
+                ZstdCurrentFrameState::Failed => {
+                    return Err(std::io::Error::other("zstd decoder failed while decoding"))?;
+                }
+                ZstdCurrentFrameState::InProgress => {
+                    let mut input = &self.input_buffer[..self.input_tail];
+                    if input.is_empty() {
+                        let input_tail = &mut self.input_buffer[self.input_tail..];
+                        let input_read_length = self.reader.read(input_tail)?;
+                        self.input_tail += input_read_length;
+                        input = &self.input_buffer[..self.input_tail];
+                    }
+
+                    if input.is_empty() {
+                        if self.current_frame.decompressed.is_empty() {
+                            break;
+                        } else {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::UnexpectedEof,
+                                "unexpected end of input while decoding zstd",
+                            ));
+                        }
+                    }
+                    self.output_buffer.clear();
+
+                    let mut decode_in = zstd::stream::raw::InBuffer::around(input);
+                    let mut decode_out =
+                        zstd::stream::raw::OutBuffer::around(&mut self.output_buffer);
+                    let result = self
+                        .current_frame
+                        .decoder
+                        .run(&mut decode_in, &mut decode_out);
+
+                    let decompressed_length = decode_out.as_slice().len();
+                    self.current_frame
+                        .decompressed
+                        .extend_from_slice(decode_out.as_slice());
+
+                    let input_head = decode_in.pos();
+                    self.input_buffer
+                        .copy_within(input_head..self.input_tail, 0);
+                    self.input_tail -= input_head;
+
+                    match result {
+                        Ok(0) => {
+                            self.current_frame.state = ZstdCurrentFrameState::Finished;
+                        }
+                        Ok(_) => {}
+                        Err(_) => {
+                            self.current_frame.state = ZstdCurrentFrameState::Failed;
+                        }
+                    }
+
+                    if decompressed_length > 0 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        let unread = self.current_frame.unread().map_err(std::io::Error::other)?;
+        Ok(unread)
+    }
+
+    fn consume(&mut self, amt: usize) {
+        let amt: u64 = amt.try_into().expect("amt out of range");
+        let new_frame_offset = self
+            .current_frame
+            .cursor_decompressed_frame_offset
+            .checked_add(amt)
+            .expect("frame offset out of range");
+        let decompressed_len: u64 = self
+            .current_frame
+            .decompressed
+            .len()
+            .try_into()
+            .expect("decompressed.len() out of range");
+        assert!(new_frame_offset <= decompressed_len);
+
+        self.current_frame.cursor_decompressed_frame_offset = new_frame_offset;
+    }
+}
+
+struct ZstdFrameInfo {
+    compressed_range: Range<u64>,
+    decompressed_range: Range<u64>,
+}
+
+struct ZstdCurrentFrame {
+    decoder: zstd::stream::raw::Decoder<'static>,
+    frame_index: usize,
+    cursor_decompressed_frame_offset: u64,
+    compressed_offset: u64,
+    decompressed_offset: u64,
+    compressed_length: u64,
+    decompressed: Vec<u8>,
+    state: ZstdCurrentFrameState,
+}
+
+impl ZstdCurrentFrame {
+    fn initial_frame() -> anyhow::Result<Self> {
+        let decoder = zstd::stream::raw::Decoder::new()?;
+
+        Ok(Self {
+            decoder,
+            frame_index: 0,
+            cursor_decompressed_frame_offset: 0,
+            compressed_offset: 0,
+            compressed_length: 0,
+            decompressed_offset: 0,
+            decompressed: vec![],
+            state: ZstdCurrentFrameState::InProgress,
+        })
+    }
+
+    fn unread(&self) -> anyhow::Result<&[u8]> {
+        let cursor_offset: usize = self.cursor_decompressed_frame_offset.try_into()?;
+        let unread = &self.decompressed[cursor_offset..];
+        Ok(unread)
+    }
+
+    fn finish(&mut self) -> anyhow::Result<ZstdFrameInfo> {
+        anyhow::ensure!(
+            matches!(self.state, ZstdCurrentFrameState::Finished),
+            "called .finish(), but frame is not yet finished"
+        );
+
+        let decompressed_len: u64 = self.decompressed.len().try_into()?;
+
+        let compressed_start = self.compressed_offset;
+        let compressed_end = compressed_start + self.compressed_length;
+        let decompressed_start = self.decompressed_offset;
+        let decompressed_end = decompressed_start + decompressed_len;
+
+        let compressed_range = compressed_start..compressed_end;
+        let decompressed_range = decompressed_start..decompressed_end;
+
+        let Self {
+            decoder,
+            frame_index,
+            cursor_decompressed_frame_offset,
+            compressed_offset,
+            decompressed_offset,
+            compressed_length,
+            decompressed,
+            state,
+        } = self;
+
+        decoder.reinit()?;
+        *frame_index += 1;
+        *cursor_decompressed_frame_offset = 0;
+        *compressed_offset = compressed_end;
+        *compressed_length = 0;
+        *decompressed_offset = decompressed_end;
+        decompressed.clear();
+        *state = ZstdCurrentFrameState::InProgress;
+
+        Ok(ZstdFrameInfo {
+            compressed_range,
+            decompressed_range,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ZstdCurrentFrameState {
+    InProgress,
+    Finished,
+    Failed,
 }
