@@ -1,5 +1,6 @@
 use std::fmt::Write as _;
 
+pub mod io;
 pub mod output_buffer;
 pub mod zstd;
 
