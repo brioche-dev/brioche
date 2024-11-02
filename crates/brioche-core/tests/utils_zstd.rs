@@ -119,6 +119,23 @@ proptest! {
             assert!(decoded == data, "decoded data does not match data");
         });
     }
+
+    #[test]
+    fn test_utils_zstd_linear_decode_resume(data in arb_data(), level in 1i32..10, split_at in 1..(MAX_DATA_SIZE * 2)) {
+        let encoded = zstd::encode_all(&data[..], level).unwrap();
+
+        let split_at = split_at.min(encoded.len());
+        let (first, second) = encoded.split_at(split_at);
+
+        let mut decoder = ZstdLinearDecoder::new(first).unwrap();
+        let mut decoded = vec![];
+        let _ = decoder.read_to_end(&mut decoded);
+        assert!(decoder.reader().is_empty());
+        *decoder.reader_mut() = second;
+        decoder.read_to_end(&mut decoded).unwrap();
+
+        assert!(decoded == data, "decoded data does not match data");
+    }
 }
 
 #[tokio::test]

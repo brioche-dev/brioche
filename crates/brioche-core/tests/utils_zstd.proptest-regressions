@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc c03fb966a33f4005973fe09b59385a25822a56ae29a3fc8c59d82e7deb67f2eb # shrinks to data = [], level = 1, frame_size = 1
+cc d19f79e6d83c31fb8bde6227a55586a639ed9fd49ac39a3f226cf1f68bfffbd4 # shrinks to data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 4, 0, 0, 0, 0, 5, 0, 0, 0, 0, 6, 0, 0, 0, 0, 7, 0, 0, 0, 0, 8, 0, 0, 0, 0, 9, 0, 0, 1, 1, 1, 1, 2, 1, 1, 2, 27, 28, 10, 11, 7, 2, 12, 1, 6, 29, 7, 41, 36, 42, 21, 13, 37, 9, 43, 44, 14, 15, 16, 48, 159, 114, 119, 6, 20, 142, 137, 160, 251, 222, 147, 165, 91, 173, 8, 158, 206, 87, 193, 79, 251, 184, 83, 199, 2, 119, 55], level = 8, split_at = 121

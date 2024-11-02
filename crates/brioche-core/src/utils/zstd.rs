@@ -251,6 +251,14 @@ impl<R> ZstdLinearDecoder<R> {
             output_buffer,
         })
     }
+
+    pub fn reader(&self) -> &R {
+        &self.reader
+    }
+
+    pub fn reader_mut(&mut self) -> &mut R {
+        &mut self.reader
+    }
 }
 
 impl<R> std::io::Read for ZstdLinearDecoder<R>
