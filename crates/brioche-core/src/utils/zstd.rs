@@ -403,7 +403,8 @@ impl<R> ZstdLinearDecoder<R> {
     where
         R: std::io::Seek,
     {
-        if self.frames.len() == self.current_frame.frame_index {
+        let last_frame_index = self.frames.len().saturating_sub(1);
+        if self.current_frame.frame_index >= last_frame_index {
             // Current frame is already the latest
             return Ok(self.current_frame.decompressed_pos());
         }
@@ -496,24 +497,13 @@ where
             }
 
             match self.current_frame.state {
-                ZstdCurrentFrameState::Finished => {
-                    // Current frame is finished, so update the internal
-                    // decoder to start the next frame
-                    let frame_index = self.current_frame.frame_index;
-                    let frame_info = self.current_frame.finish().map_err(std::io::Error::other)?;
-
-                    // Save the info for the finished frame if it's new
-                    if self.frames.get(frame_index).is_none() {
-                        self.frames.insert(frame_index, frame_info);
-                    }
-                }
                 ZstdCurrentFrameState::Failed => {
                     // Decoding failed. Conservatively, we return an
                     // error since the underlying zstd decoder could be
                     // in a weird state
                     return Err(std::io::Error::other("zstd decoder failed while decoding"))?;
                 }
-                ZstdCurrentFrameState::InProgress => {
+                ZstdCurrentFrameState::InProgress | ZstdCurrentFrameState::Finished => {
                     // Get the buffered input that hasn't been decoded yet
                     let mut input = &self.input_buffer[..self.input_tail];
 
@@ -530,10 +520,9 @@ where
                         // Still no data to decode, which means we've decoded
                         // everything and the underlying reader doesn't have
                         // any more data
-
-                        if self.current_frame.decompressed.is_empty() {
-                            // If we're at the start of a new frame, then
-                            // we're done
+                        if self.current_frame.is_between_frames() {
+                            // If we're between frames, then we reached the
+                            // end of a valid stream
                             break;
                         } else {
                             // We don't have any more data but the underlying
@@ -548,62 +537,30 @@ where
                         }
                     }
 
-                    // Decode from the (buffered) input data
-                    let mut decode_in = zstd::stream::raw::InBuffer::around(input);
-
-                    // Reserve more space in the decompressed data buffer for
-                    // the decoder's output
-                    let decompressed_reserved = zstd::zstd_safe::CCtx::out_size();
-                    self.current_frame
-                        .decompressed
-                        .reserve(decompressed_reserved);
-
-                    // Decode into the decompressed buffer
-                    let decompressed_start_pos = self.current_frame.decompressed.len();
-                    let mut decode_out = zstd::stream::raw::OutBuffer::around_pos(
-                        &mut self.current_frame.decompressed,
-                        decompressed_start_pos,
-                    );
-
-                    // Decode! This is where we do the actual decompression!
-                    let result = self
+                    // Decode the input data
+                    let decode_outcome = self
                         .current_frame
-                        .decoder
-                        .run(&mut decode_in, &mut decode_out);
+                        .decode(input)
+                        .map_err(std::io::Error::other)?;
 
                     // "Slide" the input buffer over, so the start is the
                     // data that the decoder hasn't consumed yet
-                    let input_head = decode_in.pos();
+                    let input_head = decode_outcome.input_consumed;
                     self.input_buffer
                         .copy_within(input_head..self.input_tail, 0);
                     self.input_tail -= input_head;
 
-                    // Track how much compressed data we've consumed so far
-                    let input_head_u64: u64 =
-                        input_head.try_into().map_err(std::io::Error::other)?;
-                    self.current_frame.compressed_length += input_head_u64;
-
-                    match result {
-                        Ok(0) => {
-                            // Decoder indicated that we finished the
-                            // current frame
-                            self.current_frame.state = ZstdCurrentFrameState::Finished;
-                        }
-                        Ok(_) => {}
-                        Err(_) => {
-                            // Decoder failed!
-                            self.current_frame.state = ZstdCurrentFrameState::Failed;
+                    // If the decoder finished a frame and this is a new
+                    // frame, then add it to the list of decoded frames
+                    if let Some((frame_index, frame_info)) = decode_outcome.finished_frame {
+                        if self.frames.get(frame_index).is_none() {
+                            self.frames.insert(frame_index, frame_info);
                         }
                     }
 
                     // If we decoded any data, then we've got some buffered
                     // data that we can now return, so we're done
-                    let newly_decompressed = self
-                        .current_frame
-                        .decompressed
-                        .len()
-                        .saturating_sub(decompressed_start_pos);
-                    if newly_decompressed > 0 {
+                    if decode_outcome.output_produced > 0 {
                         break;
                     }
                 }
@@ -785,14 +742,15 @@ impl ZstdCurrentFrame {
         self.decompressed_start_pos + self.frame_pos
     }
 
-    /// Finish the frame to prepare to decode the next frame, clearing any internal state. Returns info for the just-finished frame.
-    fn finish(&mut self) -> anyhow::Result<ZstdFrameInfo> {
+    fn finished(&mut self) -> anyhow::Result<(usize, ZstdFrameInfo)> {
         anyhow::ensure!(
-            matches!(self.state, ZstdCurrentFrameState::Finished),
-            "called .finish(), but frame is not yet finished"
+            matches!(self.state, ZstdCurrentFrameState::InProgress),
+            "called .finish(), but frame is not in progress"
         );
 
         let decompressed_len: u64 = self.decompressed.len().try_into()?;
+
+        self.state = ZstdCurrentFrameState::Finished;
 
         let compressed_start = self.compressed_start_pos;
         let compressed_end = compressed_start + self.compressed_length;
@@ -801,6 +759,100 @@ impl ZstdCurrentFrame {
 
         let compressed_range = compressed_start..compressed_end;
         let decompressed_range = decompressed_start..decompressed_end;
+
+        let frame_info = ZstdFrameInfo {
+            compressed_range,
+            decompressed_range,
+        };
+        Ok((self.frame_index, frame_info))
+    }
+
+    fn is_between_frames(&self) -> bool {
+        matches!(self.state, ZstdCurrentFrameState::Finished) || self.compressed_length == 0
+    }
+
+    fn decode(&mut self, input: &[u8]) -> anyhow::Result<ZstdCurrentFrameDecodeOutcome> {
+        match self.state {
+            ZstdCurrentFrameState::InProgress => {}
+            ZstdCurrentFrameState::Finished => {
+                // We're at the end of a frame, so start the next frame
+                // before decoding
+                self.start_next_frame()?;
+            }
+            ZstdCurrentFrameState::Failed => {
+                anyhow::bail!("tried decoding, but decoding current frame previously failed");
+            }
+        }
+
+        // Decode from the input
+        let mut decode_in = zstd::stream::raw::InBuffer::around(input);
+
+        // Reserve more space in the decompressed data buffer for
+        // the decoder's output
+        let decompressed_reserved = zstd::zstd_safe::CCtx::out_size();
+        self.decompressed.reserve(decompressed_reserved);
+
+        // Decode into the decompressed buffer
+        let decompressed_start_pos = self.decompressed.len();
+        let mut decode_out = zstd::stream::raw::OutBuffer::around_pos(
+            &mut self.decompressed,
+            decompressed_start_pos,
+        );
+
+        // Decode! This is where we do the actual decompression!
+        let result = self.decoder.run(&mut decode_in, &mut decode_out);
+
+        // Track how much compressed data we consumed
+        let input_consumed = decode_in.pos();
+        let input_consumed_u64: u64 = input_consumed.try_into().map_err(std::io::Error::other)?;
+        self.compressed_length += input_consumed_u64;
+
+        // Track how much decompressed data we produced
+        let output_produced = self
+            .decompressed
+            .len()
+            .saturating_sub(decompressed_start_pos);
+
+        let finished_frame = match result {
+            Ok(0) => {
+                // Mark the current frame as finished
+                let finished = match self.finished() {
+                    Ok(finished) => finished,
+                    Err(error) => {
+                        self.state = ZstdCurrentFrameState::Failed;
+                        return Err(error);
+                    }
+                };
+                Some(finished)
+            }
+            Ok(_) => None,
+            Err(_) => {
+                // Decoder failed!
+                self.state = ZstdCurrentFrameState::Failed;
+                None
+            }
+        };
+
+        Ok(ZstdCurrentFrameDecodeOutcome {
+            input_consumed,
+            output_produced,
+            finished_frame,
+        })
+    }
+
+    /// Finish the frame to prepare to decode the next frame, clearing any internal state.
+    fn start_next_frame(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            matches!(self.state, ZstdCurrentFrameState::Finished),
+            "called .start_next_frame(), but frame is not yet finished"
+        );
+
+        let decompressed_len: u64 = self.decompressed.len().try_into()?;
+
+        let compressed_start = self.compressed_start_pos;
+        let compressed_end = compressed_start + self.compressed_length;
+        let decompressed_start = self.decompressed_start_pos;
+        let decompressed_end = decompressed_start + decompressed_len;
 
         let Self {
             decoder,
@@ -822,10 +874,7 @@ impl ZstdCurrentFrame {
         decompressed.clear();
         *state = ZstdCurrentFrameState::InProgress;
 
-        Ok(ZstdFrameInfo {
-            compressed_range,
-            decompressed_range,
-        })
+        Ok(())
     }
 
     /// Indicates that the underlying reader has been reset to the start
@@ -864,4 +913,10 @@ enum ZstdCurrentFrameState {
     InProgress,
     Finished,
     Failed,
+}
+
+struct ZstdCurrentFrameDecodeOutcome {
+    input_consumed: usize,
+    output_produced: usize,
+    finished_frame: Option<(usize, ZstdFrameInfo)>,
 }

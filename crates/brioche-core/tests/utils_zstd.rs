@@ -256,6 +256,39 @@ proptest! {
             assert_matches!(result, Err(_));
         }
     }
+
+    #[test]
+    fn test_utils_zstd_linear_decode_seek_with_non_seekable_with_one_frame((data, pos) in arb_data_with_cursor_position()) {
+        prop_assume!(!data.is_empty());
+
+        let encoded = zstd::encode_all(&data[..], 0).unwrap();
+
+        let mut decoder = ZstdLinearDecoder::new(NotSeekable(&encoded[..])).unwrap();
+        let mut decoded = vec![];
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert!(decoded == data, "decoded data does not match data");
+
+        let cursor = decoder.seek(std::io::SeekFrom::Start(0)).unwrap();
+        assert_eq!(cursor, 0);
+
+        decoded.clear();
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert!(decoded == data, "decoded data does not match data");
+
+        let cursor = decoder.seek(std::io::SeekFrom::Start(pos as u64)).unwrap();
+        assert_eq!(cursor, pos as u64);
+
+        decoded.clear();
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert!(decoded == data[pos..], "decoded data does not match data");
+
+        let cursor = decoder.seek(std::io::SeekFrom::End(0)).unwrap();
+        assert_eq!(cursor, data.len() as u64);
+
+        decoded.clear();
+        decoder.read_to_end(&mut decoded).unwrap();
+        assert!(decoded.is_empty(), "expected to decode nothing when at end position");
+    }
 }
 
 #[tokio::test]
