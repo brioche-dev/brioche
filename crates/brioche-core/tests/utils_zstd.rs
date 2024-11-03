@@ -19,6 +19,31 @@ prop_compose! {
     }
 }
 
+fn arb_encoded_data_with_cursor_position() -> impl Strategy<Value = (EncodedData, usize)> {
+    prop::collection::vec(any::<u8>(), 0..=MAX_DATA_SIZE).prop_flat_map(|data| {
+        let encoded_data = zstd::encode_all(&data[..], 0).unwrap();
+        let encoded_len = encoded_data.len();
+        let encoded_data = EncodedData {
+            encoded: encoded_data,
+            decoded: data,
+        };
+        (Just(encoded_data), 0..=encoded_len)
+    })
+}
+
+fn arb_frames_with_cursor_position() -> impl Strategy<Value = (Vec<Vec<u8>>, usize)> {
+    any::<Vec<Vec<u8>>>().prop_flat_map(|frames| {
+        let total_len = frames.iter().map(|frame| frame.len()).sum::<usize>();
+        (Just(frames), 0..=total_len)
+    })
+}
+
+#[derive(Debug, Clone)]
+struct EncodedData {
+    encoded: Vec<u8>,
+    decoded: Vec<u8>,
+}
+
 proptest! {
     #[test]
     fn test_utils_zstd_encode_seekable(data in arb_data(), level in 1usize..10, frame_size in 1..MAX_DATA_SIZE) {
@@ -121,11 +146,8 @@ proptest! {
     }
 
     #[test]
-    fn test_utils_zstd_linear_decode_resume(data in arb_data(), level in 1i32..10, split_at in 1..(MAX_DATA_SIZE * 2)) {
-        let encoded = zstd::encode_all(&data[..], level).unwrap();
-
-        let split_at = split_at.min(encoded.len());
-        let (first, second) = encoded.split_at(split_at);
+    fn test_utils_zstd_linear_decode_resume((data, pos) in arb_encoded_data_with_cursor_position()) {
+        let (first, second) = data.encoded.split_at(pos);
 
         let mut decoder = ZstdLinearDecoder::new(first).unwrap();
         let mut decoded = vec![];
@@ -134,7 +156,50 @@ proptest! {
         *decoder.reader_mut() = second;
         decoder.read_to_end(&mut decoded).unwrap();
 
+        assert!(decoded == data.decoded, "decoded data does not match data");
+    }
+
+    #[test]
+    fn test_utils_zstd_linear_decode_seek((frames, pos) in arb_frames_with_cursor_position()) {
+        let mut encoded = vec![];
+        for frame in &frames {
+            let mut encoder = zstd::Encoder::new(&mut encoded, 0).unwrap().auto_finish();
+            encoder.write_all(frame).unwrap();
+        }
+
+        let data: Vec<u8> = frames.iter().flatten().copied().collect::<Vec<_>>();
+
+        let mut decoded = vec![];
+        let mut decoder = ZstdLinearDecoder::new(std::io::Cursor::new(&encoded)).unwrap();
+        let cursor = decoder.seek(std::io::SeekFrom::Start(pos as u64)).unwrap();
+        let _ = decoder.read_to_end(&mut decoded);
+        assert_eq!(cursor, pos as u64);
+        assert!(decoded == data[pos..], "decoded data does not match data");
+
+        decoded.clear();
+        let cursor = decoder.seek(std::io::SeekFrom::Start(0)).unwrap();
+        let _ = decoder.read_to_end(&mut decoded);
+        assert_eq!(cursor, 0);
         assert!(decoded == data, "decoded data does not match data");
+
+        decoded.clear();
+        let cursor = decoder.seek(std::io::SeekFrom::Current(-(pos as i64))).unwrap();
+        let _ = decoder.read_to_end(&mut decoded);
+        assert_eq!(cursor, (data.len() - pos) as u64);
+        assert!(decoded == data[(data.len() - pos)..], "decoded data does not match data");
+
+        decoded.clear();
+        let cursor = decoder.seek(std::io::SeekFrom::End(-(pos as i64))).unwrap();
+        let _ = decoder.read_to_end(&mut decoded);
+        assert_eq!(cursor, (data.len() - pos) as u64);
+        assert!(decoded == data[(data.len() - pos)..], "decoded data does not match data");
+
+        decoded.clear();
+        let mut decoder = ZstdLinearDecoder::new(std::io::Cursor::new(&encoded)).unwrap();
+        let cursor = decoder.seek(std::io::SeekFrom::End(-(pos as i64))).unwrap();
+        let _ = decoder.read_to_end(&mut decoded);
+        assert_eq!(cursor, (data.len() - pos) as u64);
+        assert!(decoded == data[(data.len() - pos)..], "decoded data does not match data");
     }
 }
 

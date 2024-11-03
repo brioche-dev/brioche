@@ -1,11 +1,12 @@
 use std::{
-    io::{BufRead as _, Read as _},
+    io::BufRead as _,
     ops::Range,
     pin::Pin,
     sync::OnceLock,
     task::{ready, Poll},
 };
 
+use anyhow::Context as _;
 use zstd::stream::raw::Operation as _;
 
 pin_project_lite::pin_project! {
@@ -176,21 +177,20 @@ impl<'a, R> std::io::Seek for ZstdSeekableDecoder<'a, R> {
                 let decompressed_length = match self.decompressed_length {
                     Some(decompressed_length) => decompressed_length,
                     None => {
-                        let num_frames = dbg!(self.seekable.get_num_frames());
+                        let num_frames = self.seekable.get_num_frames();
 
                         let last_frame_index = num_frames.checked_sub(1);
                         let decompressed_length = last_frame_index
                             .map(|last_frame_index| {
-                                let last_frame_offset = dbg!(self
+                                let last_frame_offset = self
                                     .seekable
-                                    .get_frame_decompressed_offset(last_frame_index));
-                                let last_frame_size = dbg!(self
-                                    .seekable
-                                    .get_frame_decompressed_size(last_frame_index));
+                                    .get_frame_decompressed_offset(last_frame_index);
+                                let last_frame_size =
+                                    self.seekable.get_frame_decompressed_size(last_frame_index);
                                 let last_frame_size: u64 =
-                                    dbg!(last_frame_size.try_into().map_err(|_| {
+                                    last_frame_size.try_into().map_err(|_| {
                                         std::io::Error::other("invalid zstd frame size")
-                                    })?);
+                                    })?;
 
                                 let decompressed_length = last_frame_offset
                                     .checked_add(last_frame_size)
@@ -211,7 +211,7 @@ impl<'a, R> std::io::Seek for ZstdSeekableDecoder<'a, R> {
                 let cursor: u64 = decompressed_length
                     .checked_add_signed(offset)
                     .ok_or_else(|| std::io::Error::other("tried to seek out of range"))?;
-                self.cursor = dbg!(cursor);
+                self.cursor = cursor;
                 Ok(self.cursor)
             }
             std::io::SeekFrom::Current(offset) => {
@@ -258,6 +258,73 @@ impl<R> ZstdLinearDecoder<R> {
 
     pub fn reader_mut(&mut self) -> &mut R {
         &mut self.reader
+    }
+
+    fn jump_to_end(&mut self) -> anyhow::Result<u64>
+    where
+        R: std::io::Read,
+    {
+        let mut cursor = self.current_frame.decompressed_offset
+            + self.current_frame.cursor_decompressed_frame_offset;
+
+        loop {
+            let filled_buf = self.fill_buf()?;
+            if filled_buf.is_empty() {
+                break;
+            }
+
+            let filled_len = filled_buf.len();
+            let filled_len_u64: u64 = filled_len.try_into()?;
+            cursor += filled_len_u64;
+            self.consume(filled_len);
+        }
+
+        Ok(cursor)
+    }
+
+    fn seek_into_latest_frame(&mut self) -> anyhow::Result<u64>
+    where
+        R: std::io::Seek,
+    {
+        // Current frame is already the latest
+        if self.frames.len() == self.current_frame.frame_index {
+            return Ok(self.current_frame.cursor());
+        }
+
+        let latest_frame_index = self
+            .frames
+            .len()
+            .checked_sub(1)
+            .expect("frame list is empty but current frame is not the latest");
+        let latest_frame = &self.frames[latest_frame_index];
+
+        self.input_tail = 0;
+        self.reader.seek(std::io::SeekFrom::Start(
+            latest_frame.compressed_range.start,
+        ))?;
+        let cursor = self
+            .current_frame
+            .seeked_to(latest_frame_index, latest_frame)?;
+        Ok(cursor)
+    }
+
+    fn seek_into_frame(&mut self, frame_index: usize) -> anyhow::Result<u64>
+    where
+        R: std::io::Seek,
+    {
+        if self.current_frame.frame_index == frame_index {
+            return Ok(self.current_frame.cursor());
+        }
+        let frame = self
+            .frames
+            .get(frame_index)
+            .context("frame index out of range")?;
+
+        self.input_tail = 0;
+        self.reader
+            .seek(std::io::SeekFrom::Start(frame.compressed_range.start))?;
+        let cursor = self.current_frame.seeked_to(frame_index, frame)?;
+        Ok(cursor)
     }
 }
 
@@ -339,6 +406,10 @@ where
                         .copy_within(input_head..self.input_tail, 0);
                     self.input_tail -= input_head;
 
+                    let input_head_u64: u64 =
+                        input_head.try_into().map_err(std::io::Error::other)?;
+                    self.current_frame.compressed_length += input_head_u64;
+
                     match result {
                         Ok(0) => {
                             self.current_frame.state = ZstdCurrentFrameState::Finished;
@@ -379,6 +450,85 @@ where
     }
 }
 
+impl<R> std::io::Seek for ZstdLinearDecoder<R>
+where
+    R: std::io::Read + std::io::Seek,
+{
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        let target_cursor = match pos {
+            std::io::SeekFrom::Start(offset) => offset,
+            std::io::SeekFrom::Current(offset) => {
+                let current_cursor = self.current_frame.cursor();
+                current_cursor
+                    .checked_add_signed(offset)
+                    .ok_or_else(|| std::io::Error::other("seek out of range"))?
+            }
+            std::io::SeekFrom::End(offset) => {
+                self.seek_into_latest_frame()
+                    .map_err(std::io::Error::other)?;
+                let end_cursor = self.jump_to_end().map_err(std::io::Error::other)?;
+                end_cursor
+                    .checked_add_signed(offset)
+                    .ok_or_else(|| std::io::Error::other("seek out of range"))?
+            }
+        };
+
+        let current_frame_start = self.current_frame.decompressed_offset;
+        let current_frame_loaded_length: u64 = self
+            .current_frame
+            .decompressed
+            .len()
+            .try_into()
+            .map_err(std::io::Error::other)?;
+        let current_frame_end = current_frame_start + current_frame_loaded_length;
+        if (current_frame_start..current_frame_end).contains(&target_cursor) {
+            let new_frame_offset = target_cursor - current_frame_start;
+            self.current_frame.cursor_decompressed_frame_offset = new_frame_offset;
+
+            Ok(target_cursor)
+        } else {
+            let matched_frame = self
+                .frames
+                .iter()
+                .enumerate()
+                .find(|(_, info)| info.decompressed_range.contains(&target_cursor));
+            let mut current_cursor = match matched_frame {
+                Some((frame_index, _)) => self
+                    .seek_into_frame(frame_index)
+                    .map_err(std::io::Error::other)?,
+                None => self
+                    .seek_into_latest_frame()
+                    .map_err(std::io::Error::other)?,
+            };
+            assert!(current_cursor <= target_cursor);
+
+            while current_cursor < target_cursor {
+                let filled_buf = self.fill_buf()?;
+
+                if filled_buf.is_empty() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        format!("unexpected EOF while seeking to cursor position {target_cursor}"),
+                    ));
+                }
+
+                let filled_buf_len = filled_buf.len();
+                let filled_buf_len_u64: u64 =
+                    filled_buf_len.try_into().map_err(std::io::Error::other)?;
+                let consumed = filled_buf_len_u64.min(target_cursor - current_cursor);
+                let consumed_usize: usize = consumed.try_into().map_err(std::io::Error::other)?;
+
+                self.consume(consumed_usize);
+                current_cursor += consumed;
+            }
+
+            assert_eq!(current_cursor, target_cursor);
+            Ok(target_cursor)
+        }
+    }
+}
+
+#[derive(Debug)]
 struct ZstdFrameInfo {
     compressed_range: Range<u64>,
     decompressed_range: Range<u64>,
@@ -415,6 +565,10 @@ impl ZstdCurrentFrame {
         let cursor_offset: usize = self.cursor_decompressed_frame_offset.try_into()?;
         let unread = &self.decompressed[cursor_offset..];
         Ok(unread)
+    }
+
+    fn cursor(&self) -> u64 {
+        self.decompressed_offset + self.cursor_decompressed_frame_offset
     }
 
     fn finish(&mut self) -> anyhow::Result<ZstdFrameInfo> {
@@ -457,6 +611,34 @@ impl ZstdCurrentFrame {
             compressed_range,
             decompressed_range,
         })
+    }
+
+    fn seeked_to(
+        &mut self,
+        new_frame_index: usize,
+        frame_info: &ZstdFrameInfo,
+    ) -> anyhow::Result<u64> {
+        let Self {
+            decoder,
+            frame_index,
+            cursor_decompressed_frame_offset,
+            compressed_offset,
+            decompressed_offset,
+            compressed_length,
+            decompressed,
+            state,
+        } = self;
+
+        decoder.reinit()?;
+        *frame_index = new_frame_index;
+        *cursor_decompressed_frame_offset = 0;
+        *compressed_offset = frame_info.compressed_range.start;
+        *compressed_length = 0;
+        *decompressed_offset = frame_info.decompressed_range.start;
+        decompressed.clear();
+        *state = ZstdCurrentFrameState::InProgress;
+
+        Ok(frame_info.decompressed_range.start)
     }
 }
 
