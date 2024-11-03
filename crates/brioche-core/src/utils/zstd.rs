@@ -233,15 +233,12 @@ pub struct ZstdLinearDecoder<R> {
     current_frame: ZstdCurrentFrame,
     input_buffer: Vec<u8>,
     input_tail: usize,
-    output_buffer: Vec<u8>,
 }
 
 impl<R> ZstdLinearDecoder<R> {
     pub fn new(reader: R) -> anyhow::Result<Self> {
         let input_buffer_size = zstd::zstd_safe::CCtx::in_size();
         let input_buffer = vec![0; input_buffer_size];
-        let output_buffer_size = zstd::zstd_safe::DCtx::out_size();
-        let output_buffer = Vec::with_capacity(output_buffer_size);
         let current_frame = ZstdCurrentFrame::initial_frame()?;
 
         Ok(Self {
@@ -250,7 +247,6 @@ impl<R> ZstdLinearDecoder<R> {
             current_frame,
             input_buffer,
             input_tail: 0,
-            output_buffer,
         })
     }
 
@@ -391,20 +387,21 @@ where
                             ));
                         }
                     }
-                    self.output_buffer.clear();
 
+                    let decompressed_start_pos = self.current_frame.decompressed.len();
+                    let decompressed_reserved = zstd::zstd_safe::CCtx::out_size();
+                    self.current_frame
+                        .decompressed
+                        .reserve(decompressed_reserved);
                     let mut decode_in = zstd::stream::raw::InBuffer::around(input);
-                    let mut decode_out =
-                        zstd::stream::raw::OutBuffer::around(&mut self.output_buffer);
+                    let mut decode_out = zstd::stream::raw::OutBuffer::around_pos(
+                        &mut self.current_frame.decompressed,
+                        decompressed_start_pos,
+                    );
                     let result = self
                         .current_frame
                         .decoder
                         .run(&mut decode_in, &mut decode_out);
-
-                    let decompressed_length = decode_out.as_slice().len();
-                    self.current_frame
-                        .decompressed
-                        .extend_from_slice(decode_out.as_slice());
 
                     let input_head = decode_in.pos();
                     self.input_buffer
@@ -425,7 +422,12 @@ where
                         }
                     }
 
-                    if decompressed_length > 0 {
+                    let newly_decompressed = self
+                        .current_frame
+                        .decompressed
+                        .len()
+                        .saturating_sub(decompressed_start_pos);
+                    if newly_decompressed > 0 {
                         break;
                     }
                 }
