@@ -18,9 +18,10 @@ pub struct LogsArgs {
 }
 
 pub fn logs(args: LogsArgs) -> anyhow::Result<()> {
-    let input = std::fs::File::open(&args.path)?;
-    let input = std::io::BufReader::new(input);
-    let input = brioche_core::utils::zstd::ZstdSeekableDecoder::new(Box::new(input))?;
+    let input = brioche_core::utils::zstd::ZstdSmartDecoder::create(|| {
+        let input = std::fs::File::open(&args.path)?;
+        anyhow::Ok(std::io::BufReader::new(input))
+    })?;
 
     let mut reader = brioche_core::process_events::reader::ProcessEventReader::new(input)?;
 
