@@ -152,6 +152,70 @@ where
     }
 }
 
+pub enum ZstdSmartDecoder<'a, R> {
+    Seekable(ZstdSeekableDecoder<'a, R>),
+    Linear(ZstdLinearDecoder<R>),
+}
+
+impl<'a, R> ZstdSmartDecoder<'a, R> {
+    pub fn create<E>(mut f: impl FnMut() -> Result<R, E>) -> anyhow::Result<Self>
+    where
+        R: std::io::BufRead + std::io::Seek,
+        E: Into<anyhow::Error>,
+    {
+        // Build the reader
+        let mut reader = f().map_err(|e| e.into())?;
+
+        // Determine if the reader supports seeking by trying to get the
+        // current position
+        let current_pos = reader.stream_position();
+        if let Ok(current_pos) = current_pos {
+            // The reader is seekable, so try to create a seekable decoder.
+            // This will fail if the reader doesn't end with a seek table.
+            if let Ok(decoder) = ZstdSeekableDecoder::new(Box::new(reader)) {
+                return Ok(Self::Seekable(decoder));
+            }
+
+            // Building a seekable decoder failed, so construct a new reader.
+            // This is necessary because trying to create the seekable decoder
+            // consumed the original reader
+            reader = f().map_err(|e| e.into())?;
+
+            // Try seeking back to the same position the first reader
+            // started at. This is a small help if `f()` returns the same
+            // underlying reader
+            let _ = reader.seek(std::io::SeekFrom::Start(current_pos));
+        }
+
+        let decoder = ZstdLinearDecoder::new(reader)?;
+        Ok(Self::Linear(decoder))
+    }
+}
+
+impl<'a, R> std::io::Read for ZstdSmartDecoder<'a, R>
+where
+    R: std::io::Read,
+{
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            ZstdSmartDecoder::Seekable(decoder) => decoder.read(buf),
+            ZstdSmartDecoder::Linear(decoder) => decoder.read(buf),
+        }
+    }
+}
+
+impl<'a, R> std::io::Seek for ZstdSmartDecoder<'a, R>
+where
+    R: std::io::Read + std::io::Seek,
+{
+    fn seek(&mut self, pos: std::io::SeekFrom) -> Result<u64, std::io::Error> {
+        match self {
+            ZstdSmartDecoder::Seekable(decoder) => decoder.seek(pos),
+            ZstdSmartDecoder::Linear(decoder) => decoder.seek(pos),
+        }
+    }
+}
+
 pub struct ZstdSeekableDecoder<'a, R> {
     seekable: zstd_seekable::Seekable<'a, R>,
     pos: u64,
