@@ -47,24 +47,6 @@ where
     }
 }
 
-#[diagnostic::on_unimplemented(
-    message = "The type `{Self}` does not implement `std::io::Seek`",
-    label = "`{Self}` is not seekable",
-    note = "Wrap the type with `NotSeekable` for use with non-seekable types"
-)]
-pub trait TrySeek {
-    fn try_seek(&mut self, pos: std::io::SeekFrom) -> Option<std::io::Result<u64>>;
-}
-
-impl<T> TrySeek for T
-where
-    T: std::io::Seek,
-{
-    fn try_seek(&mut self, pos: std::io::SeekFrom) -> Option<std::io::Result<u64>> {
-        Some(self.seek(pos))
-    }
-}
-
 pub struct NotSeekable<T>(pub T);
 
 impl<T> std::io::Read for NotSeekable<T>
@@ -102,8 +84,8 @@ where
     }
 }
 
-impl<T> TrySeek for NotSeekable<T> {
-    fn try_seek(&mut self, _pos: std::io::SeekFrom) -> Option<std::io::Result<u64>> {
-        None
+impl<T> std::io::Seek for NotSeekable<T> {
+    fn seek(&mut self, _pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        Err(std::io::Error::other("tried to seek NonSeekable type"))
     }
 }

@@ -9,8 +9,6 @@ use std::{
 use anyhow::Context as _;
 use zstd::stream::raw::Operation as _;
 
-use super::io::TrySeek;
-
 pin_project_lite::pin_project! {
     pub struct ZstdSeekableEncoder<W> {
         #[pin]
@@ -339,7 +337,7 @@ impl<R> ZstdLinearDecoder<R> {
     /// this is a no-op. Returns the offset from the start of the stream.
     fn seek_into_latest_frame(&mut self) -> anyhow::Result<u64>
     where
-        R: TrySeek,
+        R: std::io::Seek,
     {
         if self.frames.len() == self.current_frame.frame_index {
             // Current frame is already the latest
@@ -358,11 +356,9 @@ impl<R> ZstdLinearDecoder<R> {
         self.input_tail = 0;
 
         // Seek to the compressed offset to the frame
-        self.reader
-            .try_seek(std::io::SeekFrom::Start(
-                latest_frame.compressed_range.start,
-            ))
-            .context("reader does not support seeking")??;
+        self.reader.seek(std::io::SeekFrom::Start(
+            latest_frame.compressed_range.start,
+        ))?;
 
         // Reset the internal decoder and offsets
         let pos = self
@@ -377,7 +373,7 @@ impl<R> ZstdLinearDecoder<R> {
     /// Returns the offset from the start of the stream.
     fn seek_into_frame(&mut self, frame_index: usize) -> anyhow::Result<u64>
     where
-        R: TrySeek,
+        R: std::io::Seek,
     {
         if self.current_frame.frame_index == frame_index {
             // Current frame is already the target frame
@@ -395,8 +391,7 @@ impl<R> ZstdLinearDecoder<R> {
 
         // Seek to the compressed offset to the frame
         self.reader
-            .try_seek(std::io::SeekFrom::Start(frame.compressed_range.start))
-            .context("reader does not support seeking")??;
+            .seek(std::io::SeekFrom::Start(frame.compressed_range.start))?;
 
         // Reset the internal decoder and offsets
         let pos = self.current_frame.seeked_to(frame_index, frame)?;
@@ -577,7 +572,7 @@ where
 
 impl<R> std::io::Seek for ZstdLinearDecoder<R>
 where
-    R: std::io::Read + TrySeek,
+    R: std::io::Read + std::io::Seek,
 {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         // Get the target position relative to the start of the stream
