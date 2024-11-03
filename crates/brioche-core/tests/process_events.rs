@@ -13,14 +13,14 @@ use brioche_core::{
     sandbox::{ExitStatus, SandboxExecutionConfig, SandboxPath, SandboxPathOptions},
 };
 
-pub fn default_complete_process() -> CompleteProcessRecipe {
+pub fn example_complete_process() -> CompleteProcessRecipe {
     CompleteProcessRecipe {
         command: CompleteProcessTemplate { components: vec![] },
         args: vec![],
         env: Default::default(),
         work_dir: Default::default(),
         output_scaffold: None,
-        platform: brioche_core::platform::current_platform(),
+        platform: brioche_core::platform::Platform::X86_64Linux,
         is_unsafe: false,
         networking: false,
     }
@@ -28,7 +28,7 @@ pub fn default_complete_process() -> CompleteProcessRecipe {
 
 fn example_process_event_description() -> ProcessEventDescription<'static> {
     ProcessEventDescription {
-        recipe: Cow::Owned(default_complete_process()),
+        recipe: Cow::Owned(example_complete_process()),
         meta: Cow::Owned(Meta::default()),
         sandbox_config: Cow::Owned(SandboxExecutionConfig {
             sandbox_root: Default::default(),
