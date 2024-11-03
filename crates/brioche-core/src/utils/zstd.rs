@@ -9,6 +9,8 @@ use std::{
 use anyhow::Context as _;
 use zstd::stream::raw::Operation as _;
 
+use super::io::TrySeek;
+
 pin_project_lite::pin_project! {
     pub struct ZstdSeekableEncoder<W> {
         #[pin]
@@ -284,7 +286,7 @@ impl<R> ZstdLinearDecoder<R> {
 
     fn seek_into_latest_frame(&mut self) -> anyhow::Result<u64>
     where
-        R: std::io::Seek,
+        R: TrySeek,
     {
         // Current frame is already the latest
         if self.frames.len() == self.current_frame.frame_index {
@@ -299,9 +301,11 @@ impl<R> ZstdLinearDecoder<R> {
         let latest_frame = &self.frames[latest_frame_index];
 
         self.input_tail = 0;
-        self.reader.seek(std::io::SeekFrom::Start(
-            latest_frame.compressed_range.start,
-        ))?;
+        self.reader
+            .try_seek(std::io::SeekFrom::Start(
+                latest_frame.compressed_range.start,
+            ))
+            .context("reader does not support seeking")??;
         let cursor = self
             .current_frame
             .seeked_to(latest_frame_index, latest_frame)?;
@@ -310,7 +314,7 @@ impl<R> ZstdLinearDecoder<R> {
 
     fn seek_into_frame(&mut self, frame_index: usize) -> anyhow::Result<u64>
     where
-        R: std::io::Seek,
+        R: TrySeek,
     {
         if self.current_frame.frame_index == frame_index {
             return Ok(self.current_frame.cursor());
@@ -322,7 +326,8 @@ impl<R> ZstdLinearDecoder<R> {
 
         self.input_tail = 0;
         self.reader
-            .seek(std::io::SeekFrom::Start(frame.compressed_range.start))?;
+            .try_seek(std::io::SeekFrom::Start(frame.compressed_range.start))
+            .context("reader does not support seeking")??;
         let cursor = self.current_frame.seeked_to(frame_index, frame)?;
         Ok(cursor)
     }
@@ -452,7 +457,7 @@ where
 
 impl<R> std::io::Seek for ZstdLinearDecoder<R>
 where
-    R: std::io::Read + std::io::Seek,
+    R: std::io::Read + TrySeek,
 {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         let target_cursor = match pos {

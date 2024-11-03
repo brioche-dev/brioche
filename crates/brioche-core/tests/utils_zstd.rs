@@ -1,7 +1,10 @@
 use std::io::{Read as _, Seek as _, Write as _};
 
 use assert_matches::assert_matches;
-use brioche_core::utils::zstd::{ZstdLinearDecoder, ZstdSeekableDecoder, ZstdSeekableEncoder};
+use brioche_core::utils::{
+    io::NotSeekable,
+    zstd::{ZstdLinearDecoder, ZstdSeekableDecoder, ZstdSeekableEncoder},
+};
 use proptest::prelude::*;
 use tokio::io::AsyncWriteExt as _;
 
@@ -200,6 +203,58 @@ proptest! {
         let _ = decoder.read_to_end(&mut decoded);
         assert_eq!(cursor, (data.len() - pos) as u64);
         assert!(decoded == data[(data.len() - pos)..], "decoded data does not match data");
+    }
+
+    #[test]
+    fn test_utils_zstd_linear_decode_seek_with_non_seekable((frames, pos) in arb_frames_with_cursor_position()) {
+        let data: Vec<u8> = frames.iter().flatten().copied().collect::<Vec<_>>();
+        prop_assume!((0..data.len()).contains(&pos));
+
+        let mut encoded = vec![];
+        for frame in &frames {
+            let mut encoder = zstd::Encoder::new(&mut encoded, 0).unwrap().auto_finish();
+            encoder.write_all(frame).unwrap();
+        }
+
+        let mut next_frame_start = 0usize;
+        let mut frames_iter = frames.iter();
+        let frame_start;
+        let frame_end;
+        loop {
+            let frame = frames_iter.next().unwrap();
+            let start = next_frame_start;
+            next_frame_start += frame.len();
+
+            if (start..next_frame_start).contains(&pos) {
+                frame_start = start;
+                frame_end = next_frame_start;
+                break;
+            }
+        }
+
+        let mut decoder = ZstdLinearDecoder::new(NotSeekable(&encoded[..])).unwrap();
+        let cursor = decoder.seek(std::io::SeekFrom::Start(frame_end as u64)).unwrap();
+        assert_eq!(cursor, frame_end as u64);
+
+        let cursor = decoder.seek(std::io::SeekFrom::Start(pos as u64)).unwrap();
+        assert_eq!(cursor, pos as u64);
+
+        let cursor = decoder.seek(std::io::SeekFrom::Start(frame_start as u64)).unwrap();
+        assert_eq!(cursor, frame_start as u64);
+
+        let mut decoded = vec![];
+        let _ = decoder.read_to_end(&mut decoded);
+        assert!(decoded == data[frame_start..], "decoded data does not match data");
+
+        let past_frame_end = Some(frame_end + 1).filter(|pos| *pos <= data.len());
+        if let Some(past_frame_end) = past_frame_end {
+            let mut decoder = ZstdLinearDecoder::new(NotSeekable(&encoded[..])).unwrap();
+            let cursor = decoder.seek(std::io::SeekFrom::Start(past_frame_end as u64)).unwrap();
+            assert_eq!(cursor, past_frame_end as u64);
+
+            let result = decoder.seek(std::io::SeekFrom::Start(pos as u64));
+            assert_matches!(result, Err(_));
+        }
     }
 }
 
