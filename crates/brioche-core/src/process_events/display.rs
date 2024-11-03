@@ -9,6 +9,7 @@ use super::{reader::ProcessEventReader, ProcessEvent};
 pub struct DisplayEventsOptions {
     pub reverse: bool,
     pub limit: Option<usize>,
+    pub follow_events: Option<std::sync::mpsc::Receiver<anyhow::Result<()>>>,
 }
 
 pub fn display_events<R>(
@@ -44,21 +45,66 @@ where
 
     let mut output = OutputBuffer::<ProcessStream>::with_unlimited_capacity();
     let mut limit = options.limit;
+    let mut reached_exited_event = false;
     loop {
         if limit == Some(0) {
             break;
         }
 
+        // Try reading the next event (or previous if we're reading backwards)
+        let pos = reader.pos();
         let event = if options.reverse {
-            reader.read_previous_event()?
+            reader.read_previous_event()
         } else if let Some(event) = initial_events.pop_front() {
-            event?
+            event
         } else {
-            reader.read_next_event()?
+            reader.read_next_event()
         };
 
-        let Some(event) = event else {
-            break;
+        // Get the event, or break or retry depending on the configured
+        // options
+        let event = match event {
+            Ok(Some(event)) => event,
+            Ok(None) => {
+                // No next event, meaning we reached EOF
+
+                // If we've already seen the "exited" event, then we're done
+                if reached_exited_event {
+                    break;
+                }
+
+                if let Some(follow_events) = &options.follow_events {
+                    // If `--follow` was used, wait for the next notification,
+                    // then retry
+                    follow_events.recv()??;
+                    continue;
+                } else {
+                    // We're at end of file, so we're done
+                    break;
+                }
+            }
+            Err(error) if error.is_unexpected_eof() => {
+                // We got an "unexpected EOF" error
+
+                if let Some(follow_events) = &options.follow_events {
+                    // If `--follow` was used, wait for the next notification
+                    follow_events.recv()??;
+
+                    // Seek to the position we were at before trying to read
+                    // the next event
+                    reader.seek_to_pos(pos)?;
+
+                    // Retry the read
+                    continue;
+                } else {
+                    // Otherwise, just bubble up the error
+                    return Err(error.into());
+                }
+            }
+            Err(error) => {
+                // For other kinds of errors, bubble it up
+                return Err(error.into());
+            }
         };
 
         match event {
@@ -153,6 +199,7 @@ where
                 }
             }
             ProcessEvent::Exited(event) => {
+                reached_exited_event = true;
                 let elapsed = event.elapsed.saturating_sub(spawned_at);
                 let elapsed = crate::utils::DisplayDuration(elapsed);
 

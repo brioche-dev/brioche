@@ -211,3 +211,13 @@ pub enum ProcessEventReadError {
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
 }
+
+impl ProcessEventReadError {
+    pub fn is_unexpected_eof(&self) -> bool {
+        match self {
+            Self::IoError(error) => error.kind() == std::io::ErrorKind::UnexpectedEof,
+            Self::CutOff => true,
+            _ => false,
+        }
+    }
+}

@@ -1,6 +1,10 @@
-use std::{borrow::Cow, time::Duration};
+use std::{
+    borrow::Cow,
+    io::{Read as _, Seek as _},
+    time::Duration,
+};
 
-use crate::reporter::job::ProcessStream;
+use crate::{reporter::job::ProcessStream, utils::io::ReadTracker};
 
 use super::{
     ProcessEvent, ProcessEventKind, ProcessEventMarker, ProcessEventReadError, ProcessExitedEvent,
@@ -11,14 +15,15 @@ pub struct ProcessEventReader<R>
 where
     R: std::io::Read,
 {
-    reader: R,
+    reader: ReadTracker<R>,
 }
 
 impl<R> ProcessEventReader<R>
 where
     R: std::io::Read,
 {
-    pub fn new(mut reader: R) -> Result<Self, ProcessEventReadError> {
+    pub fn new(reader: R) -> Result<Self, ProcessEventReadError> {
+        let mut reader = ReadTracker::new(reader);
         let mut magic_bytes = [0u8; PROCESS_EVENT_MAGIC.len()];
 
         reader.read_exact(&mut magic_bytes)?;
@@ -32,6 +37,18 @@ where
         }
 
         Ok(Self { reader })
+    }
+
+    pub fn pos(&self) -> u64 {
+        self.reader.cursor
+    }
+
+    pub fn seek_to_pos(&mut self, pos: u64) -> Result<(), ProcessEventReadError>
+    where
+        R: std::io::Seek,
+    {
+        self.reader.seek(std::io::SeekFrom::Start(pos))?;
+        Ok(())
     }
 
     pub fn read_next_event(

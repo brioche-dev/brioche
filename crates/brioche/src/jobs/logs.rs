@@ -12,6 +12,7 @@ use brioche_core::{
     },
 };
 use clap::Parser;
+use notify::Watcher;
 
 #[derive(Debug, Parser)]
 pub struct LogsArgs {
@@ -25,6 +26,10 @@ pub struct LogsArgs {
     /// Print events in reverse order
     #[clap(short, long)]
     reverse: bool,
+
+    /// Output events as the file grows, until the "exited" event is reached.
+    #[clap(long)]
+    follow: bool,
 }
 
 const ZSTD_FRAME_MAGIC: &[u8] = &[0x28, 0xB5, 0x2F, 0xFD];
@@ -35,6 +40,11 @@ impl<T: std::io::Read + std::io::Seek> ReadSeek for T {}
 
 pub fn logs(args: LogsArgs) -> anyhow::Result<()> {
     let input: Box<dyn ReadSeek> = if args.path.to_str() == Some("-") {
+        anyhow::ensure!(
+            !args.follow,
+            "cannot specify --follow when reading from stdin"
+        );
+
         let mut stdin = std::io::stdin().lock();
         let format = detect_format(&mut stdin)?;
 
@@ -74,11 +84,30 @@ pub fn logs(args: LogsArgs) -> anyhow::Result<()> {
 
     let mut reader = brioche_core::process_events::reader::ProcessEventReader::new(input)?;
 
+    let mut watcher;
+    let follow_events = if args.follow {
+        let (tx, rx) = std::sync::mpsc::channel();
+        watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+            let result = match event {
+                Ok(_) => Ok(()),
+                Err(err) => Err(anyhow::anyhow!(err)),
+            };
+            let _ = tx.send(result);
+        })?;
+
+        watcher.watch(&args.path, notify::RecursiveMode::NonRecursive)?;
+
+        Some(rx)
+    } else {
+        None
+    };
+
     display_events(
         &mut reader,
         DisplayEventsOptions {
             limit: args.limit,
             reverse: args.reverse,
+            follow_events,
         },
     )?;
 
