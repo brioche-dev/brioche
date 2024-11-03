@@ -78,17 +78,17 @@ where
                 written_length += self.write_duration(event.elapsed).await?;
                 written_length += self.write_bytes(&event.content).await?;
             }
-            ProcessEvent::Exited(exited) => match exited.exit_status {
+            ProcessEvent::Exited(exited) => match &exited.exit_status {
                 crate::sandbox::ExitStatus::Code(code) => {
                     marker = ProcessEventMarker {
                         kind: ProcessEventKind::Exited,
-                        length: 5,
+                        length: 8,
                     };
 
                     self.write_event_marker(marker).await?;
 
                     written_length += self.write_duration(exited.elapsed).await?;
-                    written_length += self.write_i8(code).await?;
+                    written_length += self.write_i32(*code).await?;
                 }
                 crate::sandbox::ExitStatus::Signal(siginal) => {
                     marker = ProcessEventMarker {
@@ -99,7 +99,18 @@ where
                     self.write_event_marker(marker).await?;
 
                     written_length += self.write_duration(exited.elapsed).await?;
-                    written_length += self.write_i32(siginal).await?;
+                    written_length += self.write_i32(*siginal).await?;
+                }
+                crate::sandbox::ExitStatus::Other { message } => {
+                    marker = ProcessEventMarker {
+                        kind: ProcessEventKind::ExitedWithMessage,
+                        length: 4 + message.len(),
+                    };
+
+                    self.write_event_marker(marker).await?;
+
+                    written_length += self.write_duration(exited.elapsed).await?;
+                    written_length += self.write_bytes(message.as_bytes()).await?;
                 }
             },
         }
@@ -124,11 +135,6 @@ where
         self.writer.write_u32(length).await?;
 
         Ok(())
-    }
-
-    async fn write_i8(&mut self, n: i8) -> anyhow::Result<usize> {
-        self.writer.write_i8(n).await?;
-        Ok(1)
     }
 
     async fn write_i32(&mut self, n: i32) -> anyhow::Result<usize> {

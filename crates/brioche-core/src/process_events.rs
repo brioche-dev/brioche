@@ -53,6 +53,7 @@ enum ProcessEventKind {
     Stderr = 4,
     Exited = 5,
     ExitedWithSignal = 6,
+    ExitedWithMessage = 7,
 }
 
 pub const PROCESS_EVENT_MAGIC: &str = "brioche_process_events v0       ";
@@ -155,7 +156,7 @@ impl<'a> ProcessOutputEvent<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessExitedEvent {
     pub elapsed: Duration,
     pub exit_status: crate::sandbox::ExitStatus,
@@ -207,6 +208,9 @@ pub enum ProcessEventReadError {
 
     #[error(transparent)]
     IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
 
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),

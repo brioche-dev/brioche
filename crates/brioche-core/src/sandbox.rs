@@ -66,10 +66,11 @@ pub enum HostPathMode {
     ReadWriteCreate,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExitStatus {
-    Code(i8),
+    Code(i32),
     Signal(i32),
+    Other { message: String },
 }
 
 impl ExitStatus {
@@ -79,22 +80,25 @@ impl ExitStatus {
 
     pub fn code(&self) -> Option<i32> {
         match self {
-            Self::Code(code) => Some((*code).into()),
+            Self::Code(code) => Some(*code),
             _ => None,
         }
     }
+}
 
-    pub fn try_from_status(status: std::process::ExitStatus) -> Option<Self> {
+impl From<std::process::ExitStatus> for ExitStatus {
+    fn from(status: std::process::ExitStatus) -> Self {
         use std::os::unix::process::ExitStatusExt as _;
 
         #[allow(clippy::manual_map)]
-        if let Some(code) = status.code() {
-            let code: i8 = code.try_into().ok()?;
-            Some(Self::Code(code))
-        } else if let Some(signal) = status.signal() {
-            Some(Self::Signal(signal))
+        if let Some(signal) = status.signal() {
+            Self::Signal(signal)
+        } else if let Some(code) = status.code() {
+            Self::Code(code)
         } else {
-            None
+            Self::Other {
+                message: status.to_string(),
+            }
         }
     }
 }

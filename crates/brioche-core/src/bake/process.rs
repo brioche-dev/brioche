@@ -750,8 +750,7 @@ async fn run_sandboxed_self_exec(
         .reporter
         .update_job(job_id, UpdateJob::ProcessFlushPackets);
 
-    let exit_status = crate::sandbox::ExitStatus::try_from_status(output.status)
-        .unwrap_or(crate::sandbox::ExitStatus::Code(i8::MAX));
+    let exit_status: crate::sandbox::ExitStatus = output.status.into();
     event_writer
         .write_event(&ProcessEvent::Exited(ProcessExitedEvent {
             elapsed: events_started_at.elapsed(),

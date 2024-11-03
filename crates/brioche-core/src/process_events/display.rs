@@ -210,6 +210,9 @@ where
                     crate::sandbox::ExitStatus::Signal(signal) => {
                         println!("[{elapsed}] [process exited with signal {signal}]");
                     }
+                    crate::sandbox::ExitStatus::Other { message } => {
+                        println!("[{elapsed}] [process exited: {message}]");
+                    }
                 }
 
                 if let Some(ref mut limit) = limit {

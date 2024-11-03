@@ -118,12 +118,12 @@ where
                 ProcessEvent::Output(event)
             }
             ProcessEventKind::Exited => {
-                if marker.length != 5 {
+                if marker.length != 8 {
                     return Err(ProcessEventReadError::InvalidEventLength { marker });
                 }
 
                 let elapsed = self.read_duration()?;
-                let code = self.read_i8()?;
+                let code = self.read_i32()?;
 
                 ProcessEvent::Exited(ProcessExitedEvent {
                     elapsed,
@@ -141,6 +141,28 @@ where
                 ProcessEvent::Exited(ProcessExitedEvent {
                     elapsed,
                     exit_status: crate::sandbox::ExitStatus::Signal(signal),
+                })
+            }
+            ProcessEventKind::ExitedWithMessage => {
+                let message_length = marker.length.checked_sub(4);
+                let Some(message_length) = message_length else {
+                    return Err(ProcessEventReadError::InvalidEventLength { marker });
+                };
+
+                // Validate the length before allocating and reading
+                // NOTE: We re-use `ProcessOutputEvent` here for this
+                // message, just to ensure the length is sensible
+                ProcessOutputEvent::validate_length(message_length)?;
+
+                let elapsed = self.read_duration()?;
+                let mut message = vec![0u8; message_length];
+                self.read_fill(&mut message)?;
+
+                let message = String::from_utf8(message)?;
+
+                ProcessEvent::Exited(ProcessExitedEvent {
+                    elapsed,
+                    exit_status: crate::sandbox::ExitStatus::Other { message },
                 })
             }
         };
@@ -334,13 +356,6 @@ where
         self.read_fill(&mut bytes)?;
 
         Ok(u32::from_be_bytes(bytes))
-    }
-
-    fn read_i8(&mut self) -> Result<i8, ProcessEventReadError> {
-        let mut bytes = [0; 1];
-        self.read_fill(&mut bytes)?;
-
-        Ok(i8::from_be_bytes(bytes))
     }
 
     fn read_i32(&mut self) -> Result<i32, ProcessEventReadError> {

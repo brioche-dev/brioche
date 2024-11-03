@@ -113,6 +113,38 @@ fn example_events_with_signal() -> Vec<ProcessEvent<'static>> {
     ]
 }
 
+fn example_events_with_exit_message() -> Vec<ProcessEvent<'static>> {
+    vec![
+        ProcessEvent::Description(example_process_event_description()),
+        ProcessEvent::Spawned(ProcessSpawnedEvent {
+            elapsed: Duration::from_secs(1),
+            pid: 123,
+        }),
+        ProcessEvent::Output(
+            ProcessOutputEvent::new(
+                Duration::from_secs(2),
+                ProcessStream::Stdout,
+                Cow::Owned("foo".into()),
+            )
+            .unwrap(),
+        ),
+        ProcessEvent::Output(
+            ProcessOutputEvent::new(
+                Duration::from_secs(3),
+                ProcessStream::Stderr,
+                Cow::Owned("bar".into()),
+            )
+            .unwrap(),
+        ),
+        ProcessEvent::Exited(ProcessExitedEvent {
+            elapsed: Duration::from_secs(4),
+            exit_status: ExitStatus::Other {
+                message: "exited with unknown error".into(),
+            },
+        }),
+    ]
+}
+
 #[tokio::test]
 async fn test_process_event_read_and_write_empty() -> anyhow::Result<()> {
     let mut buffer = vec![];
@@ -213,6 +245,39 @@ async fn test_process_event_read_and_write_sequence() -> anyhow::Result<()> {
 async fn test_process_event_read_and_write_sequence_with_signal() -> anyhow::Result<()> {
     let mut buffer = vec![];
     let events = example_events_with_signal();
+
+    // Should write the description followed by each event
+    {
+        let writer = std::io::Cursor::new(&mut buffer);
+        let mut writer = ProcessEventWriter::new(writer).await?;
+
+        for event in &events {
+            writer.write_event(event).await?;
+        }
+
+        writer.shutdown().await?;
+    }
+
+    // Should read the description event followed by the other events
+    let mut read_events = vec![];
+    {
+        let reader = std::io::Cursor::new(&buffer);
+        let mut reader = ProcessEventReader::new(reader)?;
+
+        while let Some(event) = reader.read_next_event()? {
+            read_events.push(event);
+        }
+    }
+
+    assert_eq!(read_events, events);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_process_event_read_and_write_sequence_with_exit_message() -> anyhow::Result<()> {
+    let mut buffer = vec![];
+    let events = example_events_with_exit_message();
 
     // Should write the description followed by each event
     {
