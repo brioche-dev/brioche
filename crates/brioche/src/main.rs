@@ -10,6 +10,7 @@ mod build;
 mod check;
 mod format;
 mod install;
+mod jobs;
 mod lsp;
 mod publish;
 mod run;
@@ -34,6 +35,10 @@ enum Args {
     /// Format the Brioche files in a project
     #[command(name = "fmt")]
     Format(format::FormatArgs),
+
+    /// Show information about jobs, such as failed builds
+    #[command(subcommand)]
+    Jobs(jobs::JobsSubcommand),
 
     /// Publish a project to a registry
     Publish(publish::PublishArgs),
@@ -137,6 +142,7 @@ fn main() -> anyhow::Result<ExitCode> {
                 Ok(ExitCode::FAILURE)
             }
         }
+        Args::Jobs(command) => jobs::jobs(command),
         Args::Analyze(args) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.75", features = ["backtrace"] }
+assert_matches = "1.5.0"
 async-compression = { version = "0.4.5", features = ["tokio", "bzip2", "gzip", "xz", "zstd"] }
 async-recursion = "1.0.5"
 biome_formatter = "0.5.7"
@@ -64,13 +65,18 @@ petgraph = "0.6.5"
 wax = { version = "0.6.0", default-features = false }
 gix = { version = "0.66.0", features = ["blocking-network-client", "blocking-http-transport-reqwest"] }
 tar = "0.4.42"
+num_enum = "0.7.3"
+jiff = { version = "0.1.13", features = ["serde"] }
+zstd-seekable = "0.1.23"
+pin-project-lite = "0.2.15"
+zstd = "0.13.1"
 
 [dev-dependencies]
-assert_matches = "1.5.0"
 brioche-test-support = { path = "../brioche-test-support" }
 divan = "0.1.14"
 mockito = "1.2.0"
 pretty_assertions = "1.4.0"
+proptest = "1.5.0"
 zstd = "0.13.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]

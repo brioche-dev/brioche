@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
@@ -7,16 +8,19 @@ use std::{
 use anyhow::Context as _;
 use bstr::ByteVec as _;
 use futures::{StreamExt as _, TryStreamExt as _};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::AsyncReadExt as _;
 
 use crate::{
+    process_events::{
+        ProcessEvent, ProcessEventDescription, ProcessExitedEvent, ProcessSpawnedEvent,
+    },
     recipe::{
         ArchiveFormat, Artifact, CompleteProcessRecipe, CompleteProcessTemplate,
         CompleteProcessTemplateComponent, CompressionFormat, DirectoryError, DownloadRecipe, Meta,
         ProcessRecipe, ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
     },
     reporter::{
-        job::{NewJob, ProcessPacket, ProcessStatus, UpdateJob},
+        job::{NewJob, ProcessPacket, ProcessStatus, ProcessStream, UpdateJob},
         JobId,
     },
     sandbox::{
@@ -308,11 +312,6 @@ pub async fn bake_process(
     let output_dir = bake_dir.path().join("outputs");
     tokio::fs::create_dir(&output_dir).await?;
     let output_path = output_dir.join(format!("output-{hash}"));
-    let stdout_path = bake_dir.path().join("stdout.log");
-    let stderr_path = bake_dir.path().join("stderr.log");
-    let stdout_file = tokio::fs::File::create(&stdout_path).await?;
-    let stderr_file = tokio::fs::File::create(&stderr_path).await?;
-    let status_path = bake_dir.path().join("status.txt");
 
     // Generate a username and home directory in the sandbox based on
     // the process's hash. This is done so processes can't make assumptions
@@ -378,7 +377,7 @@ pub async fn bake_process(
     let create_work_dir_fut = async {
         crate::output::create_output(
             brioche,
-            &crate::recipe::Artifact::Directory(process.work_dir),
+            &crate::recipe::Artifact::Directory(process.work_dir.clone()),
             crate::output::OutputOptions {
                 output_path: &host_work_dir,
                 merge: true,
@@ -450,13 +449,13 @@ pub async fn bake_process(
         guest_temp_dir: &guest_temp_dir,
     };
 
-    let command = build_process_template(brioche, process.command, dirs).await?;
-    let args = futures::stream::iter(process.args)
+    let command = build_process_template(brioche, process.command.clone(), dirs).await?;
+    let args = futures::stream::iter(process.args.clone())
         .then(|arg| build_process_template(brioche, arg, dirs))
         .try_collect::<Vec<_>>()
         .await?;
 
-    let env = futures::stream::iter(process.env)
+    let env = futures::stream::iter(process.env.clone())
         .then(|(key, artifact)| async move {
             let template = build_process_template(brioche, artifact, dirs).await?;
             anyhow::Ok((key, template))
@@ -465,7 +464,7 @@ pub async fn bake_process(
         .await?;
 
     let sandbox_config = SandboxExecutionConfig {
-        sandbox_root: root_dir,
+        sandbox_root: root_dir.clone(),
         include_host_paths: HashMap::from_iter([
             (
                 PathBuf::from("/dev"),
@@ -511,31 +510,49 @@ pub async fn bake_process(
         gid_hint: GUEST_GID_HINT,
     };
 
+    let events_path = bake_dir.path().join("events.bin.zst");
+    let event_writer = tokio::fs::File::create(&events_path).await?;
+    let event_writer = tokio::io::BufWriter::new(event_writer);
+    let event_writer = crate::utils::zstd::ZstdSeekableEncoder::new(event_writer, 3, 1024 * 1024)?;
+    let mut event_writer =
+        crate::process_events::writer::ProcessEventWriter::new(event_writer).await?;
+
+    let events_started_at = std::time::Instant::now();
+    let process_descirption = ProcessEventDescription {
+        created_at: jiff::Zoned::now(),
+        meta: Cow::Borrowed(meta),
+        output_dir: Cow::Borrowed(&*output_dir),
+        root_dir: Cow::Borrowed(&*root_dir),
+        recipe: Cow::Borrowed(&process),
+        sandbox_config: Cow::Borrowed(&sandbox_config),
+    };
+    event_writer
+        .write_event(&ProcessEvent::Description(process_descirption))
+        .await?;
+
     let result = if brioche.self_exec_processes {
         run_sandboxed_self_exec(
             brioche,
             sandbox_config,
             job_id,
             &mut job_status,
-            stdout_file,
-            stderr_file,
+            events_started_at,
+            &mut event_writer,
         )
         .await
     } else {
         run_sandboxed_inline(brioche, sandbox_config, job_id, &mut job_status).await
     };
 
+    event_writer.shutdown().await?;
+
     match result {
         Ok(()) => {}
         Err(error) => {
-            tokio::fs::write(&status_path, error.to_string())
-                .await
-                .context("failed to write process status")?;
             return Err(error).with_context(|| {
                 format!(
-                    "process failed, view full output from these paths:\n- {}\n- {}",
-                    stdout_path.display(),
-                    stderr_path.display()
+                    "process failed, view full output by runing `brioche jobs logs {}`",
+                    events_path.display(),
                 )
             });
         }
@@ -608,8 +625,10 @@ async fn run_sandboxed_self_exec(
     sandbox_config: SandboxExecutionConfig,
     job_id: JobId,
     job_status: &mut ProcessStatus,
-    write_stdout: impl tokio::io::AsyncWrite + Send + Sync + 'static,
-    write_stderr: impl tokio::io::AsyncWrite + Send + Sync + 'static,
+    events_started_at: std::time::Instant,
+    event_writer: &mut crate::process_events::writer::ProcessEventWriter<
+        impl tokio::io::AsyncWrite + Unpin,
+    >,
 ) -> anyhow::Result<()> {
     tracing::debug!(?sandbox_config, "running sandboxed process");
 
@@ -634,52 +653,113 @@ async fn run_sandboxed_self_exec(
         },
     );
 
-    tokio::task::spawn({
-        let brioche = brioche.clone();
-        async move {
-            let mut stdout_buffer = [0; 4096];
-            let mut stderr_buffer = [0; 4096];
-            let mut write_stdout = std::pin::pin!(write_stdout);
-            let mut write_stderr = std::pin::pin!(write_stderr);
-            loop {
-                let packet = tokio::select! {
-                    bytes_read = stdout.read(&mut stdout_buffer) => {
-                        let buffer = &stdout_buffer[..bytes_read?];
-                        write_stdout.write_all(buffer).await?;
-                        ProcessPacket::Stdout(buffer.to_vec())
-                    }
-                    bytes_read = stderr.read(&mut stderr_buffer) => {
-                        let buffer = &stderr_buffer[..bytes_read?];
-                        write_stderr.write_all(buffer).await?;
-                        ProcessPacket::Stderr(buffer.to_vec())
-                    }
-                };
+    event_writer
+        .write_event(&ProcessEvent::Spawned(ProcessSpawnedEvent {
+            elapsed: events_started_at.elapsed(),
+            pid: child_id.unwrap_or(0),
+        }))
+        .await?;
 
-                if packet.bytes().is_empty() {
-                    break;
+    let mut stdout_buffer = vec![0; 1024 * 1024];
+    let mut stderr_buffer = vec![0; 1024 * 1024];
+
+    let wait_with_output_fut = child.wait_with_output();
+    let mut wait_with_output_fut = std::pin::pin!(wait_with_output_fut);
+
+    let output = loop {
+        tokio::select! {
+            bytes_read = stdout.read(&mut stdout_buffer) => {
+                let buffer = &stdout_buffer[..bytes_read?];
+
+                let events = crate::process_events::create_process_output_events(events_started_at.elapsed(), ProcessStream::Stdout, buffer);
+                for event in events {
+                    event_writer.write_event(&crate::process_events::ProcessEvent::Output(event)).await?;
                 }
 
                 brioche.reporter.update_job(
                     job_id,
                     UpdateJob::ProcessPushPacket {
-                        packet: packet.into(),
+                        packet: ProcessPacket::Stdout(buffer.into()).into()
                     },
                 );
             }
+            bytes_read = stderr.read(&mut stderr_buffer) => {
+                let buffer = &stderr_buffer[..bytes_read?];
 
-            anyhow::Ok(())
+                let events = crate::process_events::create_process_output_events(events_started_at.elapsed(), ProcessStream::Stderr, buffer);
+                for event in events {
+                    event_writer.write_event(&crate::process_events::ProcessEvent::Output(event)).await?;
+                }
+
+                brioche.reporter.update_job(
+                    job_id,
+                    UpdateJob::ProcessPushPacket {
+                        packet: ProcessPacket::Stderr(buffer.into()).into()
+                    },
+                );
+            }
+            output = wait_with_output_fut.as_mut() => {
+                break output;
+            },
         }
-    });
+    };
 
-    let output = child.wait_with_output().await;
+    let output = output?;
+
+    if !output.stdout.is_empty() {
+        let events = crate::process_events::create_process_output_events(
+            events_started_at.elapsed(),
+            ProcessStream::Stderr,
+            &output.stdout,
+        );
+        for event in events {
+            event_writer
+                .write_event(&ProcessEvent::Output(event))
+                .await?;
+        }
+
+        brioche.reporter.update_job(
+            job_id,
+            UpdateJob::ProcessPushPacket {
+                packet: ProcessPacket::Stdout(output.stdout).into(),
+            },
+        );
+    }
+
+    if !output.stderr.is_empty() {
+        let events = crate::process_events::create_process_output_events(
+            events_started_at.elapsed(),
+            ProcessStream::Stderr,
+            &output.stderr,
+        );
+        for event in events {
+            event_writer
+                .write_event(&ProcessEvent::Output(event))
+                .await?;
+        }
+
+        brioche.reporter.update_job(
+            job_id,
+            UpdateJob::ProcessPushPacket {
+                packet: ProcessPacket::Stdout(output.stderr).into(),
+            },
+        );
+    }
 
     brioche
         .reporter
         .update_job(job_id, UpdateJob::ProcessFlushPackets);
 
-    let result = output?;
-    if !result.status.success() {
-        anyhow::bail!("process exited with status code {}", result.status);
+    let exit_status: crate::sandbox::ExitStatus = output.status.into();
+    event_writer
+        .write_event(&ProcessEvent::Exited(ProcessExitedEvent {
+            elapsed: events_started_at.elapsed(),
+            exit_status,
+        }))
+        .await?;
+
+    if !output.status.success() {
+        anyhow::bail!("process exited with status code {}", output.status);
     }
 
     job_status.to_ran(std::time::Instant::now())?;

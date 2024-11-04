@@ -155,7 +155,7 @@ pub fn run_sandbox(exec: super::SandboxExecutionConfig) -> anyhow::Result<super:
     let exit_status = child.wait()?;
 
     let exit_status = match exit_status {
-        unshare::ExitStatus::Exited(code) => ExitStatus::Code(code),
+        unshare::ExitStatus::Exited(code) => ExitStatus::Code(code.into()),
         unshare::ExitStatus::Signaled(signal, _) => ExitStatus::Signal(signal as i32),
     };
 

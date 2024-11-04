@@ -1,5 +1,9 @@
 use std::fmt::Write as _;
 
+pub mod io;
+pub mod output_buffer;
+pub mod zstd;
+
 pub fn is_default<T>(value: &T) -> bool
 where
     T: Default + PartialEq,

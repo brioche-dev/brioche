@@ -337,7 +337,7 @@ where
     Ok(num_rows_affected)
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Meta {
     pub source: Option<Vec<StackFrame>>,
 }
@@ -430,7 +430,7 @@ impl std::ops::DerefMut for WithMeta<Artifact> {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StackFrame {
     pub file_name: Option<String>,

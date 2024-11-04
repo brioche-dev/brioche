@@ -5,7 +5,7 @@ use crate::encoding::{AsPath, TickEncoded};
 mod linux;
 
 #[serde_with::serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxExecutionConfig {
     #[serde_as(as = "AsPath<TickEncoded>")]
@@ -41,14 +41,14 @@ pub struct SandboxPathOptions {
     pub guest_path_hint: bstr::BString,
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxTemplate {
     pub components: Vec<SandboxTemplateComponent>,
 }
 
 #[serde_with::serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "camelCase")]
 pub enum SandboxTemplateComponent {
@@ -66,9 +66,11 @@ pub enum HostPathMode {
     ReadWriteCreate,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExitStatus {
-    Code(i8),
+    Code(i32),
     Signal(i32),
+    Other { message: String },
 }
 
 impl ExitStatus {
@@ -78,8 +80,25 @@ impl ExitStatus {
 
     pub fn code(&self) -> Option<i32> {
         match self {
-            Self::Code(code) => Some((*code).into()),
+            Self::Code(code) => Some(*code),
             _ => None,
+        }
+    }
+}
+
+impl From<std::process::ExitStatus> for ExitStatus {
+    fn from(status: std::process::ExitStatus) -> Self {
+        use std::os::unix::process::ExitStatusExt as _;
+
+        #[allow(clippy::manual_map)]
+        if let Some(signal) = status.signal() {
+            Self::Signal(signal)
+        } else if let Some(code) = status.code() {
+            Self::Code(code)
+        } else {
+            Self::Other {
+                message: status.to_string(),
+            }
         }
     }
 }
