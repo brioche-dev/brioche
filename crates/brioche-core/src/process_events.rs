@@ -32,13 +32,13 @@ pub fn create_process_output_events(
     elapsed: Duration,
     stream: ProcessStream,
     content: &[u8],
-) -> impl Iterator<Item = ProcessOutputEvent<'_>> {
+) -> impl Iterator<Item = ProcessOutputEvent<'static>> + '_ {
     content
         .chunks(ProcessOutputEvent::MAX_CONTENT_LENGTH)
         .map(move |chunk| ProcessOutputEvent {
             elapsed,
             stream,
-            content: Cow::Borrowed(bstr::BStr::new(chunk)),
+            content: Cow::Owned(bstr::BString::from(chunk)),
         })
 }
 

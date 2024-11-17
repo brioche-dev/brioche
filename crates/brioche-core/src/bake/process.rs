@@ -511,25 +511,57 @@ pub async fn bake_process(
     };
 
     let events_path = bake_dir.path().join("events.bin.zst");
-    let event_writer = tokio::fs::File::create(&events_path).await?;
-    let event_writer = tokio::io::BufWriter::new(event_writer);
-    let event_writer = zstd_framed::AsyncZstdWriter::builder(event_writer)
-        .with_seek_table(1024 * 1024)
-        .build()?;
-    let mut event_writer =
-        crate::process_events::writer::ProcessEventWriter::new(event_writer).await?;
+    let (mut event_writer_tx, mut event_writer_rx) = tokio::sync::mpsc::channel(100);
+
+    // Spawn a task to write events so we can cleanly shut down the event writer
+    let event_writer_task = brioche.task_tracker.spawn({
+        let events_path = events_path.clone();
+        let cancellation_token = brioche.cancellation_token.clone();
+
+        async move {
+            let event_writer = tokio::fs::File::create(&events_path).await?;
+            let event_writer = tokio::io::BufWriter::new(event_writer);
+            let event_writer = zstd_framed::AsyncZstdWriter::builder(event_writer)
+                .with_seek_table(1024 * 1024)
+                .build()?;
+            let mut event_writer =
+                crate::process_events::writer::ProcessEventWriter::new(event_writer).await?;
+
+            loop {
+                tokio::select! {
+                    event = event_writer_rx.recv() => {
+                        match event {
+                            Some(event) => {
+                                event_writer.write_event(&event).await?;
+                            }
+                            None => {
+                                break;
+                            }
+                        }
+                    }
+                    _ = cancellation_token.cancelled() => {
+                        break;
+                    }
+                }
+            }
+
+            event_writer.shutdown().await?;
+
+            anyhow::Ok(())
+        }
+    });
 
     let events_started_at = std::time::Instant::now();
-    let process_descirption = ProcessEventDescription {
+    let process_description = ProcessEventDescription {
         created_at: jiff::Zoned::now(),
-        meta: Cow::Borrowed(meta),
-        output_dir: Cow::Borrowed(&*output_dir),
-        root_dir: Cow::Borrowed(&*root_dir),
-        recipe: Cow::Borrowed(&process),
-        sandbox_config: Cow::Borrowed(&sandbox_config),
+        meta: Cow::Owned((**meta).clone()),
+        output_dir: Cow::Owned(output_dir),
+        root_dir: Cow::Owned(root_dir),
+        recipe: Cow::Owned(process),
+        sandbox_config: Cow::Owned(sandbox_config.clone()),
     };
-    event_writer
-        .write_event(&ProcessEvent::Description(process_descirption))
+    event_writer_tx
+        .send(ProcessEvent::Description(process_description))
         .await?;
 
     let result = if brioche.self_exec_processes {
@@ -539,14 +571,15 @@ pub async fn bake_process(
             job_id,
             &mut job_status,
             events_started_at,
-            &mut event_writer,
+            &mut event_writer_tx,
         )
         .await
     } else {
         run_sandboxed_inline(brioche, sandbox_config, job_id, &mut job_status).await
     };
 
-    event_writer.shutdown().await?;
+    drop(event_writer_tx);
+    event_writer_task.await??;
 
     match result {
         Ok(()) => {}
@@ -628,9 +661,7 @@ async fn run_sandboxed_self_exec(
     job_id: JobId,
     job_status: &mut ProcessStatus,
     events_started_at: std::time::Instant,
-    event_writer: &mut crate::process_events::writer::ProcessEventWriter<
-        impl tokio::io::AsyncWrite + Unpin,
-    >,
+    event_writer_tx: &mut tokio::sync::mpsc::Sender<ProcessEvent<'static>>,
 ) -> anyhow::Result<()> {
     tracing::debug!(?sandbox_config, "running sandboxed process");
 
@@ -655,8 +686,8 @@ async fn run_sandboxed_self_exec(
         },
     );
 
-    event_writer
-        .write_event(&ProcessEvent::Spawned(ProcessSpawnedEvent {
+    event_writer_tx
+        .send(ProcessEvent::Spawned(ProcessSpawnedEvent {
             elapsed: events_started_at.elapsed(),
             pid: child_id.unwrap_or(0),
         }))
@@ -675,7 +706,7 @@ async fn run_sandboxed_self_exec(
 
                 let events = crate::process_events::create_process_output_events(events_started_at.elapsed(), ProcessStream::Stdout, buffer);
                 for event in events {
-                    event_writer.write_event(&crate::process_events::ProcessEvent::Output(event)).await?;
+                    event_writer_tx.send(crate::process_events::ProcessEvent::Output(event)).await?;
                 }
 
                 brioche.reporter.update_job(
@@ -690,7 +721,7 @@ async fn run_sandboxed_self_exec(
 
                 let events = crate::process_events::create_process_output_events(events_started_at.elapsed(), ProcessStream::Stderr, buffer);
                 for event in events {
-                    event_writer.write_event(&crate::process_events::ProcessEvent::Output(event)).await?;
+                    event_writer_tx.send(crate::process_events::ProcessEvent::Output(event)).await?;
                 }
 
                 brioche.reporter.update_job(
@@ -715,9 +746,7 @@ async fn run_sandboxed_self_exec(
             &output.stdout,
         );
         for event in events {
-            event_writer
-                .write_event(&ProcessEvent::Output(event))
-                .await?;
+            event_writer_tx.send(ProcessEvent::Output(event)).await?;
         }
 
         brioche.reporter.update_job(
@@ -735,9 +764,7 @@ async fn run_sandboxed_self_exec(
             &output.stderr,
         );
         for event in events {
-            event_writer
-                .write_event(&ProcessEvent::Output(event))
-                .await?;
+            event_writer_tx.send(ProcessEvent::Output(event)).await?;
         }
 
         brioche.reporter.update_job(
@@ -753,8 +780,8 @@ async fn run_sandboxed_self_exec(
         .update_job(job_id, UpdateJob::ProcessFlushPackets);
 
     let exit_status: crate::sandbox::ExitStatus = output.status.into();
-    event_writer
-        .write_event(&ProcessEvent::Exited(ProcessExitedEvent {
+    event_writer_tx
+        .send(ProcessEvent::Exited(ProcessExitedEvent {
             elapsed: events_started_at.elapsed(),
             exit_status,
         }))
