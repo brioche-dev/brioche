@@ -41,29 +41,61 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Clone)]
 pub struct Brioche {
     reporter: Reporter,
+
     pub vfs: vfs::Vfs,
+
     db_conn: Arc<Mutex<sqlx::SqliteConnection>>,
+
     /// The directory where all of Brioche's data is stored. Usually configured
     /// to follow the platform's conventions for storing application data, such
     /// as `~/.local/share/brioche` on Linux.
     pub home: PathBuf,
+
     /// Causes Brioche to call itself to execute processes in a sandbox, rather
     /// than using a `tokio::spawn_blocking` thread. This could allow for
     /// running more processes at a time. This option mainly exists because
     /// it needs to be disabled when running tests.
     self_exec_processes: bool,
+
     /// Keep some temporary files that would otherwise be discarded. This is
     /// useful for debugging, where build outputs may succeed but need to be
     /// manually investigated.
     pub keep_temps: bool,
+
     /// Synchronize baked recipes to the registry automatically.
     pub sync_tx: Arc<tokio::sync::mpsc::Sender<SyncMessage>>,
+
     pub cached_recipes: Arc<RwLock<bake::CachedRecipes>>,
+
     pub active_bakes: Arc<RwLock<bake::ActiveBakes>>,
+
     pub process_semaphore: Arc<tokio::sync::Semaphore>,
+
     pub download_semaphore: Arc<tokio::sync::Semaphore>,
+
     pub download_client: reqwest_middleware::ClientWithMiddleware,
+
     pub registry_client: registry::RegistryClient,
+
+    cancellation_token: tokio_util::sync::CancellationToken,
+
+    /// Track running tasks that need to finish before exiting Brioche, even
+    /// on Ctrl-C. Each spawned task should be cancelleable using the
+    /// cancellation token
+    task_tracker: tokio_util::task::TaskTracker,
+}
+
+impl Brioche {
+    /// Tell all running tasks to cancel early. Returns immediately, use
+    /// [Self::wait_for_tasks] to wait until all tasks have stopped.
+    pub fn cancel_tasks(&self) {
+        self.cancellation_token.cancel();
+    }
+
+    pub async fn wait_for_tasks(&self) {
+        self.task_tracker.close();
+        self.task_tracker.wait().await;
+    }
 }
 
 pub struct BriocheBuilder {
@@ -250,6 +282,9 @@ impl BriocheBuilder {
             }
         });
 
+        let cancellation_token = tokio_util::sync::CancellationToken::new();
+        let task_tracker = tokio_util::task::TaskTracker::new();
+
         Ok(Brioche {
             reporter: self.reporter,
             vfs: self.vfs,
@@ -264,6 +299,8 @@ impl BriocheBuilder {
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,
             registry_client,
+            cancellation_token,
+            task_tracker,
         })
     }
 }

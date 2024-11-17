@@ -52,6 +52,8 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
         .keep_temps(args.keep_temps)
         .build()
         .await?;
+    crate::start_shutdown_handler(brioche.clone());
+
     let projects = brioche_core::project::Projects::default();
 
     let locking = if args.locked {
@@ -154,6 +156,8 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
         );
 
         let output = brioche_core::output::create_local_output(&brioche, &artifact.value).await?;
+
+        brioche.wait_for_tasks().await;
 
         Ok(output)
     };

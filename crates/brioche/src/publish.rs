@@ -23,6 +23,8 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .build()
         .await?;
+    crate::start_shutdown_handler(brioche.clone());
+
     let projects = brioche_core::project::Projects::default();
 
     let mut error_result = Option::None;
@@ -52,6 +54,7 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
     }
 
     guard.shutdown_console().await;
+    brioche.wait_for_tasks().await;
 
     let exit_code = if error_result.is_some() {
         ExitCode::FAILURE
