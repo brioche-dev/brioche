@@ -318,3 +318,15 @@ fn consolidate_result(
         _ => {}
     }
 }
+
+/// Start a task that handles Ctrl-C. When Ctrl-C is received, all critical
+/// tasks will be cancelled, and the program will exit once they have all
+/// exited.
+pub fn start_shutdown_handler(brioche: brioche_core::Brioche) {
+    tokio::task::spawn(async move {
+        tokio::signal::ctrl_c().await.unwrap();
+        brioche.cancel_tasks();
+        brioche.wait_for_tasks().await;
+        std::process::exit(1);
+    });
+}

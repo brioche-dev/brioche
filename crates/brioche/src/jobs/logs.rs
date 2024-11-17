@@ -1,15 +1,11 @@
-use std::{io::Seek as _, path::PathBuf};
+use std::path::PathBuf;
 
-use anyhow::Context as _;
 use brioche_core::{
     process_events::{
         display::{display_events, DisplayEventsOptions},
         PROCESS_EVENT_MAGIC,
     },
-    utils::{
-        io::NotSeekable,
-        zstd::{ZstdLinearDecoder, ZstdSmartDecoder},
-    },
+    utils::io::NotSeekable,
 };
 use clap::Parser;
 use notify::Watcher;
@@ -50,33 +46,27 @@ pub fn logs(args: LogsArgs) -> anyhow::Result<()> {
 
         match format {
             LogFileFormat::Zstd => {
-                let decoder = ZstdLinearDecoder::new(stdin)?;
+                let decoder = zstd_framed::ZstdReader::builder_buffered(stdin).build()?;
                 Box::new(NotSeekable(decoder))
             }
             LogFileFormat::Bin => Box::new(NotSeekable(stdin)),
         }
     } else {
-        let mut file = std::fs::File::open(&args.path)?;
-        let can_seek = file.stream_position().is_ok();
+        let file = std::fs::File::open(&args.path)?;
         let mut buf_reader = std::io::BufReader::new(file);
         let format = detect_format(&mut buf_reader)?;
 
         match format {
             LogFileFormat::Zstd => {
-                if can_seek {
-                    let mut file = buf_reader.into_inner();
-                    file.seek(std::io::SeekFrom::Start(0))
-                        .context("failed to seek to start of file")?;
-
-                    let decoder = ZstdSmartDecoder::create(|| {
-                        let file = file.try_clone().context("failed to clone file")?;
-                        anyhow::Ok(std::io::BufReader::new(file))
-                    })?;
-                    Box::new(decoder)
-                } else {
-                    let decoder = ZstdLinearDecoder::new(buf_reader)?;
-                    Box::new(decoder)
+                let seek_table = zstd_framed::table::read_seek_table(&mut buf_reader)
+                    .ok()
+                    .flatten();
+                let mut decoder = zstd_framed::ZstdReader::builder(buf_reader);
+                if let Some(seek_table) = seek_table {
+                    decoder = decoder.with_seek_table(seek_table);
                 }
+                let decoder = decoder.build()?;
+                Box::new(decoder)
             }
             LogFileFormat::Bin => Box::new(buf_reader),
         }

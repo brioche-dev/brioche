@@ -67,16 +67,13 @@ gix = { version = "0.66.0", features = ["blocking-network-client", "blocking-htt
 tar = "0.4.42"
 num_enum = "0.7.3"
 jiff = { version = "0.1.13", features = ["serde"] }
-zstd-seekable = "0.1.23"
-pin-project-lite = "0.2.15"
-zstd = "0.13.1"
+zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
 [dev-dependencies]
 brioche-test-support = { path = "../brioche-test-support" }
 divan = "0.1.14"
 mockito = "1.2.0"
 pretty_assertions = "1.4.0"
-proptest = "1.5.0"
 zstd = "0.13.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]

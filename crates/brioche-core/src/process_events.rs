@@ -16,7 +16,7 @@
 //! which allows for easily reading starting from either end of a file,
 //! and efficiently reading the next or previous event at any point.
 
-use std::{borrow::Cow, path::Path, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use crate::{
     recipe::{CompleteProcessRecipe, Meta},
@@ -32,13 +32,13 @@ pub fn create_process_output_events(
     elapsed: Duration,
     stream: ProcessStream,
     content: &[u8],
-) -> impl Iterator<Item = ProcessOutputEvent<'_>> {
+) -> impl Iterator<Item = ProcessOutputEvent> + '_ {
     content
         .chunks(ProcessOutputEvent::MAX_CONTENT_LENGTH)
         .map(move |chunk| ProcessOutputEvent {
             elapsed,
             stream,
-            content: Cow::Borrowed(bstr::BStr::new(chunk)),
+            content: bstr::BString::from(chunk),
         })
 }
 
@@ -90,21 +90,21 @@ impl ProcessEventMarker {
 const PROCESS_EVENT_MARKER_LENGTH: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProcessEvent<'a> {
-    Description(ProcessEventDescription<'a>),
+pub enum ProcessEvent {
+    Description(ProcessEventDescription),
     Spawned(ProcessSpawnedEvent),
-    Output(ProcessOutputEvent<'a>),
+    Output(ProcessOutputEvent),
     Exited(ProcessExitedEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProcessEventDescription<'a> {
-    pub recipe: Cow<'a, CompleteProcessRecipe>,
-    pub meta: Cow<'a, Meta>,
-    pub sandbox_config: Cow<'a, SandboxExecutionConfig>,
-    pub root_dir: Cow<'a, Path>,
-    pub output_dir: Cow<'a, Path>,
+pub struct ProcessEventDescription {
+    pub recipe: CompleteProcessRecipe,
+    pub meta: Meta,
+    pub sandbox_config: SandboxExecutionConfig,
+    pub root_dir: PathBuf,
+    pub output_dir: PathBuf,
     pub created_at: jiff::Zoned,
 }
 
@@ -115,13 +115,13 @@ pub struct ProcessSpawnedEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProcessOutputEvent<'a> {
+pub struct ProcessOutputEvent {
     pub elapsed: Duration,
     pub stream: ProcessStream,
-    content: Cow<'a, bstr::BStr>,
+    content: bstr::BString,
 }
 
-impl<'a> ProcessOutputEvent<'a> {
+impl ProcessOutputEvent {
     pub const MAX_CONTENT_LENGTH: usize = 1024 * 1024;
 
     fn validate_length(length: usize) -> Result<(), CreateProcessOutputEventError> {
@@ -140,7 +140,7 @@ impl<'a> ProcessOutputEvent<'a> {
     pub fn new(
         elapsed: Duration,
         stream: ProcessStream,
-        content: Cow<'a, bstr::BStr>,
+        content: bstr::BString,
     ) -> Result<Self, CreateProcessOutputEventError> {
         Self::validate_length(content.len())?;
 

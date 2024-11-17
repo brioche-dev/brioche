@@ -29,7 +29,7 @@ where
         Ok(log_writer)
     }
 
-    pub async fn write_event(&mut self, event: &ProcessEvent<'_>) -> anyhow::Result<()> {
+    pub async fn write_event(&mut self, event: &ProcessEvent) -> anyhow::Result<()> {
         // The event marker, which describes the type and length of an event
         let marker;
 

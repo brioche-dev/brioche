@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     io::{Read as _, Seek as _},
     time::Duration,
 };
@@ -51,9 +50,7 @@ where
         Ok(())
     }
 
-    pub fn read_next_event(
-        &mut self,
-    ) -> Result<Option<ProcessEvent<'static>>, ProcessEventReadError> {
+    pub fn read_next_event(&mut self) -> Result<Option<ProcessEvent>, ProcessEventReadError> {
         // Read the next marker, or return if there's no next event
         let marker = self.read_next_marker()?;
         let Some(marker) = marker else {
@@ -93,7 +90,6 @@ where
                 self.read_fill(&mut content)?;
 
                 let content = bstr::BString::new(content);
-                let content = Cow::Owned(content);
 
                 let event = ProcessOutputEvent::new(elapsed, ProcessStream::Stdout, content)?;
                 ProcessEvent::Output(event)
@@ -112,7 +108,6 @@ where
                 self.read_fill(&mut content)?;
 
                 let content = bstr::BString::new(content);
-                let content = Cow::Owned(content);
 
                 let event = ProcessOutputEvent::new(elapsed, ProcessStream::Stderr, content)?;
                 ProcessEvent::Output(event)
@@ -184,9 +179,7 @@ where
         Ok(Some(event))
     }
 
-    pub fn read_previous_event(
-        &mut self,
-    ) -> Result<Option<ProcessEvent<'static>>, ProcessEventReadError>
+    pub fn read_previous_event(&mut self) -> Result<Option<ProcessEvent>, ProcessEventReadError>
     where
         R: std::io::Seek,
     {

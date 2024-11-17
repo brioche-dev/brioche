@@ -56,6 +56,8 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         .sync(args.sync)
         .build()
         .await?;
+    crate::start_shutdown_handler(brioche.clone());
+
     let projects = brioche_core::project::Projects::default();
 
     let locking = if args.locked {
@@ -179,6 +181,8 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
             let sync_duration = DisplayDuration(sync_start.elapsed());
             println!("Finished sync in {sync_duration}");
         }
+
+        brioche.wait_for_tasks().await;
 
         anyhow::Ok(ExitCode::SUCCESS)
     };
