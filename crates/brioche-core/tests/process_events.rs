@@ -1,4 +1,4 @@
-use std::{borrow::Cow, time::Duration};
+use std::time::Duration;
 
 use jiff::Zoned;
 
@@ -26,11 +26,11 @@ pub fn example_complete_process() -> CompleteProcessRecipe {
     }
 }
 
-fn example_process_event_description() -> ProcessEventDescription<'static> {
+fn example_process_event_description() -> ProcessEventDescription {
     ProcessEventDescription {
-        recipe: Cow::Owned(example_complete_process()),
-        meta: Cow::Owned(Meta::default()),
-        sandbox_config: Cow::Owned(SandboxExecutionConfig {
+        recipe: example_complete_process(),
+        meta: Meta::default(),
+        sandbox_config: SandboxExecutionConfig {
             sandbox_root: Default::default(),
             include_host_paths: Default::default(),
             command: Default::default(),
@@ -46,14 +46,14 @@ fn example_process_event_description() -> ProcessEventDescription<'static> {
             gid_hint: 0,
             uid_hint: 0,
             networking: false,
-        }),
+        },
         created_at: Zoned::now(),
         root_dir: Default::default(),
         output_dir: Default::default(),
     }
 }
 
-fn example_events() -> Vec<ProcessEvent<'static>> {
+fn example_events() -> Vec<ProcessEvent> {
     vec![
         ProcessEvent::Description(example_process_event_description()),
         ProcessEvent::Spawned(ProcessSpawnedEvent {
@@ -61,20 +61,12 @@ fn example_events() -> Vec<ProcessEvent<'static>> {
             pid: 123,
         }),
         ProcessEvent::Output(
-            ProcessOutputEvent::new(
-                Duration::from_secs(2),
-                ProcessStream::Stdout,
-                Cow::Owned("foo".into()),
-            )
-            .unwrap(),
+            ProcessOutputEvent::new(Duration::from_secs(2), ProcessStream::Stdout, "foo".into())
+                .unwrap(),
         ),
         ProcessEvent::Output(
-            ProcessOutputEvent::new(
-                Duration::from_secs(3),
-                ProcessStream::Stderr,
-                Cow::Owned("bar".into()),
-            )
-            .unwrap(),
+            ProcessOutputEvent::new(Duration::from_secs(3), ProcessStream::Stderr, "bar".into())
+                .unwrap(),
         ),
         ProcessEvent::Exited(ProcessExitedEvent {
             elapsed: Duration::from_secs(4),
@@ -83,7 +75,7 @@ fn example_events() -> Vec<ProcessEvent<'static>> {
     ]
 }
 
-fn example_events_with_signal() -> Vec<ProcessEvent<'static>> {
+fn example_events_with_signal() -> Vec<ProcessEvent> {
     vec![
         ProcessEvent::Description(example_process_event_description()),
         ProcessEvent::Spawned(ProcessSpawnedEvent {
@@ -91,20 +83,12 @@ fn example_events_with_signal() -> Vec<ProcessEvent<'static>> {
             pid: 123,
         }),
         ProcessEvent::Output(
-            ProcessOutputEvent::new(
-                Duration::from_secs(2),
-                ProcessStream::Stdout,
-                Cow::Owned("foo".into()),
-            )
-            .unwrap(),
+            ProcessOutputEvent::new(Duration::from_secs(2), ProcessStream::Stdout, "foo".into())
+                .unwrap(),
         ),
         ProcessEvent::Output(
-            ProcessOutputEvent::new(
-                Duration::from_secs(3),
-                ProcessStream::Stderr,
-                Cow::Owned("bar".into()),
-            )
-            .unwrap(),
+            ProcessOutputEvent::new(Duration::from_secs(3), ProcessStream::Stderr, "bar".into())
+                .unwrap(),
         ),
         ProcessEvent::Exited(ProcessExitedEvent {
             elapsed: Duration::from_secs(4),
@@ -113,7 +97,7 @@ fn example_events_with_signal() -> Vec<ProcessEvent<'static>> {
     ]
 }
 
-fn example_events_with_exit_message() -> Vec<ProcessEvent<'static>> {
+fn example_events_with_exit_message() -> Vec<ProcessEvent> {
     vec![
         ProcessEvent::Description(example_process_event_description()),
         ProcessEvent::Spawned(ProcessSpawnedEvent {
@@ -121,20 +105,12 @@ fn example_events_with_exit_message() -> Vec<ProcessEvent<'static>> {
             pid: 123,
         }),
         ProcessEvent::Output(
-            ProcessOutputEvent::new(
-                Duration::from_secs(2),
-                ProcessStream::Stdout,
-                Cow::Owned("foo".into()),
-            )
-            .unwrap(),
+            ProcessOutputEvent::new(Duration::from_secs(2), ProcessStream::Stdout, "foo".into())
+                .unwrap(),
         ),
         ProcessEvent::Output(
-            ProcessOutputEvent::new(
-                Duration::from_secs(3),
-                ProcessStream::Stderr,
-                Cow::Owned("bar".into()),
-            )
-            .unwrap(),
+            ProcessOutputEvent::new(Duration::from_secs(3), ProcessStream::Stderr, "bar".into())
+                .unwrap(),
         ),
         ProcessEvent::Exited(ProcessExitedEvent {
             elapsed: Duration::from_secs(4),
@@ -391,21 +367,16 @@ async fn test_process_event_read_first_then_reverse() -> anyhow::Result<()> {
 
 #[test]
 fn test_process_event_create_output_event() {
-    let result =
-        ProcessOutputEvent::new(Duration::ZERO, ProcessStream::Stdout, Cow::Owned("".into()));
+    let result = ProcessOutputEvent::new(Duration::ZERO, ProcessStream::Stdout, "".into());
     assert_matches::assert_matches!(result, Err(CreateProcessOutputEventError::EmptyContent));
 
-    let result = ProcessOutputEvent::new(
-        Duration::ZERO,
-        ProcessStream::Stdout,
-        Cow::Owned("aaaa".into()),
-    );
+    let result = ProcessOutputEvent::new(Duration::ZERO, ProcessStream::Stdout, "aaaa".into());
     assert_eq!(result.unwrap().content(), "aaaa");
 
     let result = ProcessOutputEvent::new(
         Duration::ZERO,
         ProcessStream::Stdout,
-        Cow::Owned(vec![0; ProcessOutputEvent::MAX_CONTENT_LENGTH].into()),
+        vec![0; ProcessOutputEvent::MAX_CONTENT_LENGTH].into(),
     );
     assert_eq!(
         result.unwrap().content().len(),
@@ -415,7 +386,7 @@ fn test_process_event_create_output_event() {
     let result = ProcessOutputEvent::new(
         Duration::ZERO,
         ProcessStream::Stdout,
-        Cow::Owned(vec![0; ProcessOutputEvent::MAX_CONTENT_LENGTH + 1].into()),
+        vec![0; ProcessOutputEvent::MAX_CONTENT_LENGTH + 1].into(),
     );
     assert_matches::assert_matches!(
         result.err(),

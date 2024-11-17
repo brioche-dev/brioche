@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
@@ -554,11 +553,11 @@ pub async fn bake_process(
     let events_started_at = std::time::Instant::now();
     let process_description = ProcessEventDescription {
         created_at: jiff::Zoned::now(),
-        meta: Cow::Owned((**meta).clone()),
-        output_dir: Cow::Owned(output_dir),
-        root_dir: Cow::Owned(root_dir),
-        recipe: Cow::Owned(process),
-        sandbox_config: Cow::Owned(sandbox_config.clone()),
+        meta: (**meta).clone(),
+        output_dir,
+        root_dir,
+        recipe: process,
+        sandbox_config: sandbox_config.clone(),
     };
     event_writer_tx
         .send(ProcessEvent::Description(process_description))
@@ -661,7 +660,7 @@ async fn run_sandboxed_self_exec(
     job_id: JobId,
     job_status: &mut ProcessStatus,
     events_started_at: std::time::Instant,
-    event_writer_tx: &mut tokio::sync::mpsc::Sender<ProcessEvent<'static>>,
+    event_writer_tx: &mut tokio::sync::mpsc::Sender<ProcessEvent>,
 ) -> anyhow::Result<()> {
     tracing::debug!(?sandbox_config, "running sandboxed process");
 
