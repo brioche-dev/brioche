@@ -513,7 +513,9 @@ pub async fn bake_process(
     let events_path = bake_dir.path().join("events.bin.zst");
     let event_writer = tokio::fs::File::create(&events_path).await?;
     let event_writer = tokio::io::BufWriter::new(event_writer);
-    let event_writer = crate::utils::zstd::ZstdSeekableEncoder::new(event_writer, 3, 1024 * 1024)?;
+    let event_writer = zstd_framed::AsyncZstdWriter::builder(event_writer)
+        .with_seek_table(1024 * 1024)
+        .build()?;
     let mut event_writer =
         crate::process_events::writer::ProcessEventWriter::new(event_writer).await?;
 

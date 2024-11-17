@@ -23,6 +23,7 @@ tower-lsp = "0.20.0"
 tracing = "0.1.40"
 ulid = "1.1.2"
 url = { version = "2.5.0", features = ["serde"] }
+zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
 [lints.clippy]
 # Temporarily ignore false positives from `tracing::instrument`, see:
