@@ -406,7 +406,9 @@ pub async fn local_recipes(
     for recipe_batch in recipes.chunks(900) {
         let mut arguments = sqlx::sqlite::SqliteArguments::default();
         for recipe_hash in recipe_batch {
-            arguments.add(recipe_hash.to_string());
+            arguments
+                .add(recipe_hash.to_string())
+                .map_err(|error| anyhow::anyhow!(error))?;
         }
 
         let placeholders = std::iter::repeat("?")

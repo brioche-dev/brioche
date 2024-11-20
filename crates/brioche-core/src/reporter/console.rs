@@ -7,6 +7,7 @@ use std::{
 use bstr::ByteSlice;
 use joinery::JoinableIterator as _;
 use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_otlp::WithHttpConfig;
 use superconsole::style::Stylize;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
@@ -134,14 +135,13 @@ pub fn start_console_reporter(
         opentelemetry::global::set_text_map_propagator(
             opentelemetry_sdk::propagation::TraceContextPropagator::new(),
         );
-        let provider = opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(
-                opentelemetry_otlp::new_exporter()
-                    .http()
-                    .with_http_client(reqwest::Client::new()),
-            )
-            .with_trace_config(opentelemetry_sdk::trace::Config::default().with_resource(
+        let exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_http()
+            .with_http_client(reqwest::Client::new())
+            .build()?;
+        let provider = opentelemetry_sdk::trace::TracerProvider::builder()
+            .with_simple_exporter(exporter)
+            .with_config(opentelemetry_sdk::trace::Config::default().with_resource(
                 opentelemetry_sdk::Resource::default().merge(&opentelemetry_sdk::Resource::new(
                     vec![
                         opentelemetry::KeyValue::new(
@@ -155,7 +155,7 @@ pub fn start_console_reporter(
                     ],
                 )),
             ))
-            .install_simple()?;
+            .build();
 
         Some(
             tracing_opentelemetry::layer()

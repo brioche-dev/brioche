@@ -67,6 +67,9 @@ impl BriocheModuleLoader {
                 imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
                 ..Default::default()
             },
+            &deno_ast::TranspileModuleOptions {
+                module_kind: Some(deno_ast::ModuleKind::Esm),
+            },
             &deno_ast::EmitOptions {
                 source_map: deno_ast::SourceMapOption::Separate,
                 ..Default::default()
@@ -85,15 +88,13 @@ impl BriocheModuleLoader {
                 .context("source map not generated")?;
             entry.insert(ModuleSource {
                 source_contents: contents.clone(),
-                source_map,
+                source_map: source_map.into_bytes(),
             });
         }
 
         Ok(deno_core::ModuleSource::new(
             deno_core::ModuleType::JavaScript,
-            deno_core::ModuleSourceCode::Bytes(
-                transpiled.into_source().source.into_boxed_slice().into(),
-            ),
+            deno_core::ModuleSourceCode::String(transpiled.into_source().text.into()),
             module_specifier,
             None,
         ))
