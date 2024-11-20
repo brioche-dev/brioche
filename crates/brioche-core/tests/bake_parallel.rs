@@ -5,7 +5,7 @@ use brioche_test_support::bake_without_meta;
 async fn test_bake_parallel_no_duplicates() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";

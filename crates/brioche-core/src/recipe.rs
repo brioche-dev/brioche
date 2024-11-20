@@ -205,7 +205,9 @@ pub async fn get_recipes(
             let mut arguments = sqlx::sqlite::SqliteArguments::default();
 
             for recipe_hash in uncached_recipe_batch {
-                arguments.add(recipe_hash.to_string());
+                arguments
+                    .add(recipe_hash.to_string())
+                    .map_err(|error| anyhow::anyhow!(error))?;
             }
 
             let placeholders = std::iter::repeat("?")
@@ -300,8 +302,12 @@ where
         let mut arguments = sqlx::sqlite::SqliteArguments::default();
 
         for recipe in recipe_batch {
-            arguments.add(recipe.hash().to_string());
-            arguments.add(serde_json::to_string(recipe)?);
+            arguments
+                .add(recipe.hash().to_string())
+                .map_err(|error| anyhow::anyhow!(error))?;
+            arguments
+                .add(serde_json::to_string(recipe)?)
+                .map_err(|error| anyhow::anyhow!(error))?;
         }
 
         let placeholders = std::iter::repeat("(?, ?)")

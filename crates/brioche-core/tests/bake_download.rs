@@ -6,7 +6,7 @@ use brioche_test_support::bake_without_meta;
 async fn test_bake_download() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";
@@ -37,7 +37,7 @@ async fn test_bake_download() -> anyhow::Result<()> {
 async fn test_bake_download_cached() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";
@@ -73,7 +73,7 @@ async fn test_bake_download_cached() -> anyhow::Result<()> {
 async fn test_bake_download_rerun_after_failure() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";
@@ -109,7 +109,7 @@ async fn test_bake_download_rerun_after_failure() -> anyhow::Result<()> {
 async fn test_bake_download_different_urls_with_same_hash() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";
@@ -148,7 +148,7 @@ async fn test_bake_download_different_urls_with_same_hash() -> anyhow::Result<()
 async fn test_bake_download_url_changed_hash() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";
@@ -194,7 +194,7 @@ async fn test_bake_download_url_changed_hash() -> anyhow::Result<()> {
 async fn test_bake_download_invalid_hash() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";
@@ -229,7 +229,7 @@ async fn test_bake_download_invalid_hash() -> anyhow::Result<()> {
 async fn test_bake_download_does_not_cache_using_only_hash() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";

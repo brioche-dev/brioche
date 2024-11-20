@@ -1450,7 +1450,7 @@ async fn test_bake_process_networking_disabled(
     brioche: &brioche_core::Brioche,
     _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let hello_endpoint = server
         .mock("GET", "/file.txt")
         .with_body("hello")
@@ -1494,7 +1494,7 @@ async fn test_bake_process_networking_enabled(
     brioche: &brioche_core::Brioche,
     _context: &brioche_test_support::TestContext,
 ) -> anyhow::Result<()> {
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let hello_endpoint = server
         .mock("GET", "/file.txt")
         .with_body("hello")

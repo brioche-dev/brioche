@@ -687,7 +687,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
 async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";
@@ -1097,7 +1097,7 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
-                    // Empty projcet
+                    // Empty project
                 "#,
             )
             .await

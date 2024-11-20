@@ -53,6 +53,7 @@ pub async fn create_output(
     Ok(())
 }
 
+#[allow(clippy::multiple_bound_locations)]
 #[async_recursion::async_recursion]
 #[tracing::instrument(skip(brioche, artifact, link_lock), fields(artifact_hash = %artifact.hash()), err)]
 async fn create_output_inner<'a: 'async_recursion>(
