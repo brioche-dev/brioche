@@ -567,7 +567,7 @@ async fn test_eval_brioche_glob_submodule() -> anyhow::Result<()> {
 async fn test_eval_brioche_download() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let mut server = mockito::Server::new();
+    let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
 
     let hello = "hello";
@@ -645,7 +645,11 @@ async fn test_eval_brioche_download() -> anyhow::Result<()> {
 async fn test_eval_brioche_git_ref() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let mut mock_repo = mockito::Server::new_with_port(1231);
+    let mut mock_repo = mockito::Server::new_with_opts_async(mockito::ServerOpts {
+        port: 1231,
+        ..Default::default()
+    })
+    .await;
     let mock_repo_url = mock_repo.url();
 
     // Mock a git "handshake" server response for protocol version 2
