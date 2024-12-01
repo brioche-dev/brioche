@@ -6,7 +6,6 @@ use brioche_core::project::ProjectHash;
 use brioche_core::project::ProjectLocking;
 use brioche_core::project::ProjectValidation;
 use brioche_core::project::Projects;
-use brioche_core::reporter::console::ConsoleReporterKind;
 use brioche_core::reporter::Reporter;
 use brioche_core::utils::DisplayDuration;
 use brioche_core::Brioche;
@@ -31,11 +30,16 @@ pub struct InstallArgs {
     /// Validate that the lockfile is up-to-date
     #[arg(long)]
     locked: bool,
+
+    /// The output display format.
+    #[arg(long, value_enum, default_value_t)]
+    display: super::DisplayMode,
 }
 
 pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
-    let (reporter, mut guard) =
-        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?;
+    let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
+        args.display.to_console_reporter_kind(),
+    )?;
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .build()
