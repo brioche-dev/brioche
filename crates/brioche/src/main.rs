@@ -331,6 +331,9 @@ enum DisplayMode {
 
     /// Plaintext output.
     Plain,
+
+    /// Plaintext output with less stuff, e.g. by hiding process outputs.
+    PlainReduced,
 }
 
 impl DisplayMode {
@@ -341,6 +344,9 @@ impl DisplayMode {
                 brioche_core::reporter::console::ConsoleReporterKind::SuperConsole
             }
             DisplayMode::Plain => brioche_core::reporter::console::ConsoleReporterKind::Plain,
+            DisplayMode::PlainReduced => {
+                brioche_core::reporter::console::ConsoleReporterKind::PlainReduced
+            }
         }
     }
 }
