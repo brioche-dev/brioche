@@ -318,7 +318,14 @@ pub async fn bake_process(
     // path is fully deterministic.
     let guest_username = format!("brioche-runner-{hash}");
     let guest_home_dir = format!("/home/{guest_username}");
-    set_up_rootfs(brioche, &root_dir, &guest_username, &guest_home_dir).await?;
+    set_up_rootfs(
+        brioche,
+        process.platform,
+        &root_dir,
+        &guest_username,
+        &guest_home_dir,
+    )
+    .await?;
 
     let guest_home_dir = PathBuf::from(guest_home_dir);
     let relative_home_dir = guest_home_dir
@@ -1188,6 +1195,7 @@ async fn append_dependency_envs(
 #[tracing::instrument(skip(brioche))]
 async fn set_up_rootfs(
     brioche: &Brioche,
+    platform: crate::platform::Platform,
     rootfs_dir: &Path,
     guest_username: &str,
     guest_home_dir: &str,
@@ -1200,28 +1208,16 @@ async fn set_up_rootfs(
         link_locals: true,
     };
 
-    let dash = Recipe::Unarchive(Unarchive {
-        archive: ArchiveFormat::Tar,
-        compression: CompressionFormat::Zstd,
-        file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
-            url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/dash_amd64_linux.tar.zstd".parse()?,
-            hash: crate::Hash::Sha256 { value: hex::decode("ff52ae7e883ee4cbb0878f0e17decc18cd80b364147881fb576440e72e0129b2")? }
-        }))),
-    });
-    let env = Recipe::Unarchive(Unarchive {
-        archive: ArchiveFormat::Tar,
-        compression: CompressionFormat::Zstd,
-        file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
-            url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/env_amd64_linux.tar.zstd".parse()?,
-            hash: crate::Hash::Sha256 { value: hex::decode("8f5b15a9b5c695663ca2caefa0077c3889fcf65793c9a20ceca4ab12c7007453")? }
-        }))),
-    });
+    let recipes = process_rootfs_recipes(platform);
 
-    tracing::debug!("resolving rootfs dash/env dependencies");
+    tracing::debug!("resolving rootfs sh/env dependencies");
     let dash_and_env = super::bake(
         brioche,
         WithMeta::without_meta(Recipe::Merge {
-            directories: vec![WithMeta::without_meta(dash), WithMeta::without_meta(env)],
+            directories: vec![
+                WithMeta::without_meta(recipes.sh),
+                WithMeta::without_meta(recipes.env),
+            ],
         }),
         &super::BakeScope::Anonymous,
     )
@@ -1293,6 +1289,36 @@ impl Drop for BakeDir {
     fn drop(&mut self) {
         if let Some(path) = &self.path {
             tracing::info!("keeping temporary bake dir {}", path.display());
+        }
+    }
+}
+
+pub struct ProcessRootfsRecipes {
+    pub sh: Recipe,
+    pub env: Recipe,
+}
+
+pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRootfsRecipes {
+    match platform {
+        crate::platform::Platform::X86_64Linux => {
+            let sh = Recipe::Unarchive(Unarchive {
+                archive: ArchiveFormat::Tar,
+                compression: CompressionFormat::Zstd,
+                file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                    url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/dash_amd64_linux.tar.zstd".parse().unwrap(),
+                    hash: crate::Hash::Sha256 { value: hex::decode("ff52ae7e883ee4cbb0878f0e17decc18cd80b364147881fb576440e72e0129b2").unwrap() }
+                }))),
+            });
+            let env = Recipe::Unarchive(Unarchive {
+                archive: ArchiveFormat::Tar,
+                compression: CompressionFormat::Zstd,
+                file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                    url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/env_amd64_linux.tar.zstd".parse().unwrap(),
+                    hash: crate::Hash::Sha256 { value: hex::decode("8f5b15a9b5c695663ca2caefa0077c3889fcf65793c9a20ceca4ab12c7007453").unwrap() }
+                }))),
+            });
+
+            ProcessRootfsRecipes { sh, env }
         }
     }
 }
