@@ -319,6 +319,38 @@ fn consolidate_result(
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]
+enum DisplayMode {
+    /// Display with console output if stdout is a tty, otherwise use
+    /// plain output.
+    #[default]
+    Auto,
+
+    /// Pretty console-based output.
+    Console,
+
+    /// Plaintext output.
+    Plain,
+
+    /// Plaintext output with less stuff, e.g. by hiding process outputs.
+    PlainReduced,
+}
+
+impl DisplayMode {
+    fn to_console_reporter_kind(self) -> brioche_core::reporter::console::ConsoleReporterKind {
+        match self {
+            DisplayMode::Auto => brioche_core::reporter::console::ConsoleReporterKind::Auto,
+            DisplayMode::Console => {
+                brioche_core::reporter::console::ConsoleReporterKind::SuperConsole
+            }
+            DisplayMode::Plain => brioche_core::reporter::console::ConsoleReporterKind::Plain,
+            DisplayMode::PlainReduced => {
+                brioche_core::reporter::console::ConsoleReporterKind::PlainReduced
+            }
+        }
+    }
+}
+
 /// Start a task that handles Ctrl-C. When Ctrl-C is received, all critical
 /// tasks will be cancelled, and the program will exit once they have all
 /// exited.

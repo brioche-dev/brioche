@@ -24,6 +24,7 @@ pub enum ConsoleReporterKind {
     Auto,
     SuperConsole,
     Plain,
+    PlainReduced,
 }
 
 // Render at 30 fps
@@ -69,13 +70,13 @@ pub fn start_console_reporter(
                         height: 24,
                     },
                 )),
-                ConsoleReporterKind::Plain => None,
+                ConsoleReporterKind::Plain | ConsoleReporterKind::PlainReduced => None,
             };
 
             let jobs = HashMap::new();
             let job_outputs = OutputBuffer::with_max_capacity(1024 * 1024);
-            let mut console = match superconsole {
-                Some(console) => {
+            let mut console = match (superconsole, kind) {
+                (Some(console), _) => {
                     let root = JobsComponent {
                         start,
                         jobs,
@@ -83,7 +84,19 @@ pub fn start_console_reporter(
                     };
                     ConsoleReporter::SuperConsole { console, root }
                 }
-                None => ConsoleReporter::Plain { jobs, job_outputs },
+                (_, ConsoleReporterKind::SuperConsole) => {
+                    unreachable!();
+                }
+                (_, ConsoleReporterKind::Auto | ConsoleReporterKind::Plain) => {
+                    ConsoleReporter::Plain {
+                        jobs,
+                        job_outputs: Some(job_outputs),
+                    }
+                }
+                (_, ConsoleReporterKind::PlainReduced) => ConsoleReporter::Plain {
+                    jobs,
+                    job_outputs: None,
+                },
             };
 
             let mut last_render: Option<std::time::Instant> = None;
@@ -220,7 +233,7 @@ enum ConsoleReporter {
     },
     Plain {
         jobs: HashMap<JobId, Job>,
-        job_outputs: OutputBuffer<JobOutputStream>,
+        job_outputs: Option<OutputBuffer<JobOutputStream>>,
     },
 }
 
@@ -379,24 +392,29 @@ impl ConsoleReporter {
                                 (ProcessStream::Stderr, bytes)
                             }
                         };
-                        job_outputs.append(JobOutputStream { job_id: id, stream }, bytes);
 
-                        while let Some((stream, content)) = job_outputs.pop_front() {
-                            print_job_content(jobs, &stream, &content);
+                        if let Some(job_outputs) = job_outputs {
+                            job_outputs.append(JobOutputStream { job_id: id, stream }, bytes);
+
+                            while let Some((stream, content)) = job_outputs.pop_front() {
+                                print_job_content(jobs, &stream, &content);
+                            }
                         }
                     }
                     UpdateJob::ProcessFlushPackets => {
-                        job_outputs.flush_stream(JobOutputStream {
-                            job_id: id,
-                            stream: ProcessStream::Stdout,
-                        });
-                        job_outputs.flush_stream(JobOutputStream {
-                            job_id: id,
-                            stream: ProcessStream::Stderr,
-                        });
+                        if let Some(job_outputs) = job_outputs {
+                            job_outputs.flush_stream(JobOutputStream {
+                                job_id: id,
+                                stream: ProcessStream::Stdout,
+                            });
+                            job_outputs.flush_stream(JobOutputStream {
+                                job_id: id,
+                                stream: ProcessStream::Stderr,
+                            });
 
-                        while let Some((stream, content)) = job_outputs.pop_front() {
-                            print_job_content(jobs, &stream, &content);
+                            while let Some((stream, content)) = job_outputs.pop_front() {
+                                print_job_content(jobs, &stream, &content);
+                            }
                         }
                     }
                     UpdateJob::RegistryFetchAdd { .. } => {}

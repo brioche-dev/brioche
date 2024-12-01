@@ -1,10 +1,7 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use anyhow::Context as _;
-use brioche_core::{
-    fs_utils, project::ProjectLocking, reporter::console::ConsoleReporterKind,
-    utils::DisplayDuration,
-};
+use brioche_core::{fs_utils, project::ProjectLocking, utils::DisplayDuration};
 use clap::Parser;
 use tracing::Instrument;
 
@@ -45,11 +42,16 @@ pub struct BuildArgs {
     /// Sync / cache baked recipes to the registry during the build
     #[arg(long)]
     sync: bool,
+
+    /// The output display format.
+    #[arg(long, value_enum, default_value_t)]
+    display: super::DisplayMode,
 }
 
 pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
-    let (reporter, mut guard) =
-        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?;
+    let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
+        args.display.to_console_reporter_kind(),
+    )?;
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep_temps)

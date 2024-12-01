@@ -2,7 +2,7 @@ use std::{path::PathBuf, process::ExitCode};
 
 use brioche_core::{
     project::{ProjectHash, ProjectLocking, ProjectValidation, Projects},
-    reporter::{console::ConsoleReporterKind, Reporter},
+    reporter::Reporter,
     Brioche,
 };
 use clap::Parser;
@@ -14,11 +14,16 @@ pub struct PublishArgs {
     /// The path to the project directory to publish
     #[arg(short, long)]
     project: Vec<PathBuf>,
+
+    /// The output display format.
+    #[arg(long, value_enum, default_value_t)]
+    display: super::DisplayMode,
 }
 
 pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
-    let (reporter, mut guard) =
-        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?;
+    let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
+        args.display.to_console_reporter_kind(),
+    )?;
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .build()

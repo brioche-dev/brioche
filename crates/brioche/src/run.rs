@@ -1,9 +1,7 @@
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use brioche_core::{
-    project::ProjectLocking, reporter::console::ConsoleReporterKind, utils::DisplayDuration,
-};
+use brioche_core::{project::ProjectLocking, utils::DisplayDuration};
 use clap::Parser;
 use tracing::Instrument;
 
@@ -36,6 +34,10 @@ pub struct RunArgs {
     #[arg(long)]
     keep_temps: bool,
 
+    /// The output display format.
+    #[arg(long, value_enum, default_value_t)]
+    display: super::DisplayMode,
+
     /// Arguments to pass to the command
     #[arg(last = true)]
     args: Vec<std::ffi::OsString>,
@@ -45,7 +47,9 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = if args.quiet {
         brioche_core::reporter::start_null_reporter()
     } else {
-        brioche_core::reporter::console::start_console_reporter(ConsoleReporterKind::Auto)?
+        brioche_core::reporter::console::start_console_reporter(
+            args.display.to_console_reporter_kind(),
+        )?
     };
 
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
