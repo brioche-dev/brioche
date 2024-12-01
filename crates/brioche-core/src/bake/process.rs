@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context as _;
 use bstr::ByteVec as _;
 use futures::{StreamExt as _, TryStreamExt as _};
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::{
     process_events::{
@@ -528,10 +528,16 @@ pub async fn bake_process(
 
             loop {
                 tokio::select! {
-                    event = event_writer_rx.recv() => {
-                        match event {
-                            Some(event) => {
+                    action = event_writer_rx.recv() => {
+                        match action {
+                            Some(ProcessEventWriterAction::ProcessEvent(event)) => {
                                 event_writer.write_event(&event).await?;
+                            }
+                            Some(ProcessEventWriterAction::FinishFrameAndFlush) => {
+                                let writer = event_writer.inner_mut();
+
+                                writer.finish_frame()?;
+                                writer.flush().await?;
                             }
                             None => {
                                 break;
@@ -560,7 +566,10 @@ pub async fn bake_process(
         sandbox_config: sandbox_config.clone(),
     };
     event_writer_tx
-        .send(ProcessEvent::Description(process_description))
+        .send(ProcessEvent::Description(process_description).into())
+        .await?;
+    event_writer_tx
+        .send(ProcessEventWriterAction::FinishFrameAndFlush)
         .await?;
 
     let result = if brioche.self_exec_processes {
@@ -621,6 +630,17 @@ pub async fn bake_process(
     Ok(result.value)
 }
 
+enum ProcessEventWriterAction {
+    ProcessEvent(ProcessEvent),
+    FinishFrameAndFlush,
+}
+
+impl From<ProcessEvent> for ProcessEventWriterAction {
+    fn from(event: ProcessEvent) -> Self {
+        Self::ProcessEvent(event)
+    }
+}
+
 async fn run_sandboxed_inline(
     brioche: &Brioche,
     sandbox_config: SandboxExecutionConfig,
@@ -660,7 +680,7 @@ async fn run_sandboxed_self_exec(
     job_id: JobId,
     job_status: &mut ProcessStatus,
     events_started_at: std::time::Instant,
-    event_writer_tx: &mut tokio::sync::mpsc::Sender<ProcessEvent>,
+    event_writer_tx: &mut tokio::sync::mpsc::Sender<ProcessEventWriterAction>,
 ) -> anyhow::Result<()> {
     tracing::debug!(?sandbox_config, "running sandboxed process");
 
@@ -686,10 +706,13 @@ async fn run_sandboxed_self_exec(
     );
 
     event_writer_tx
-        .send(ProcessEvent::Spawned(ProcessSpawnedEvent {
-            elapsed: events_started_at.elapsed(),
-            pid: child_id.unwrap_or(0),
-        }))
+        .send(
+            ProcessEvent::Spawned(ProcessSpawnedEvent {
+                elapsed: events_started_at.elapsed(),
+                pid: child_id.unwrap_or(0),
+            })
+            .into(),
+        )
         .await?;
 
     let mut stdout_buffer = vec![0; 1024 * 1024];
@@ -705,7 +728,7 @@ async fn run_sandboxed_self_exec(
 
                 let events = crate::process_events::create_process_output_events(events_started_at.elapsed(), ProcessStream::Stdout, buffer);
                 for event in events {
-                    event_writer_tx.send(crate::process_events::ProcessEvent::Output(event)).await?;
+                    event_writer_tx.send(ProcessEvent::Output(event).into()).await?;
                 }
 
                 brioche.reporter.update_job(
@@ -720,7 +743,7 @@ async fn run_sandboxed_self_exec(
 
                 let events = crate::process_events::create_process_output_events(events_started_at.elapsed(), ProcessStream::Stderr, buffer);
                 for event in events {
-                    event_writer_tx.send(crate::process_events::ProcessEvent::Output(event)).await?;
+                    event_writer_tx.send(ProcessEvent::Output(event).into()).await?;
                 }
 
                 brioche.reporter.update_job(
@@ -745,7 +768,9 @@ async fn run_sandboxed_self_exec(
             &output.stdout,
         );
         for event in events {
-            event_writer_tx.send(ProcessEvent::Output(event)).await?;
+            event_writer_tx
+                .send(ProcessEvent::Output(event).into())
+                .await?;
         }
 
         brioche.reporter.update_job(
@@ -763,7 +788,9 @@ async fn run_sandboxed_self_exec(
             &output.stderr,
         );
         for event in events {
-            event_writer_tx.send(ProcessEvent::Output(event)).await?;
+            event_writer_tx
+                .send(ProcessEvent::Output(event).into())
+                .await?;
         }
 
         brioche.reporter.update_job(
@@ -780,10 +807,13 @@ async fn run_sandboxed_self_exec(
 
     let exit_status: crate::sandbox::ExitStatus = output.status.into();
     event_writer_tx
-        .send(ProcessEvent::Exited(ProcessExitedEvent {
-            elapsed: events_started_at.elapsed(),
-            exit_status,
-        }))
+        .send(
+            ProcessEvent::Exited(ProcessExitedEvent {
+                elapsed: events_started_at.elapsed(),
+                exit_status,
+            })
+            .into(),
+        )
         .await?;
 
     if !output.status.success() {
