@@ -37,7 +37,8 @@ pub async fn brioche_test_with(
     let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
     let builder = BriocheBuilder::new(reporter)
         .home(brioche_home)
-        .registry_client(brioche_core::registry::RegistryClient::new(
+        .registry_client(brioche_core::registry::RegistryClient::new_with_client(
+            reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             registry_server.url().parse().unwrap(),
             brioche_core::registry::RegistryAuthentication::Admin {
                 password: "admin".to_string(),

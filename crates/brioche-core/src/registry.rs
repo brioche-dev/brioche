@@ -51,6 +51,14 @@ impl RegistryClient {
             .with(retry_middleware)
             .build();
 
+        Self::new_with_client(client, url, auth)
+    }
+
+    pub fn new_with_client(
+        client: reqwest_middleware::ClientWithMiddleware,
+        url: url::Url,
+        auth: RegistryAuthentication,
+    ) -> Self {
         Self::Enabled { client, url, auth }
     }
 
