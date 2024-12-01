@@ -38,7 +38,7 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     let guard = ReporterGuard {
         tx,
         shutdown_rx: None,
-        shutdown_opentelemetry: false,
+        opentelemetry_tracer_provider: None,
     };
 
     let (lsp_tx, mut lsp_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -85,7 +85,7 @@ pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     let guard = ReporterGuard {
         tx,
         shutdown_rx: None,
-        shutdown_opentelemetry: false,
+        opentelemetry_tracer_provider: None,
     };
 
     (reporter, guard)
@@ -120,7 +120,7 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
     let guard = ReporterGuard {
         tx,
         shutdown_rx: None,
-        shutdown_opentelemetry: false,
+        opentelemetry_tracer_provider: None,
     };
 
     (reporter, guard)
@@ -129,7 +129,7 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
 pub struct ReporterGuard {
     tx: tokio::sync::mpsc::UnboundedSender<ReportEvent>,
     shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
-    shutdown_opentelemetry: bool,
+    opentelemetry_tracer_provider: Option<opentelemetry_sdk::trace::TracerProvider>,
 }
 
 impl ReporterGuard {
@@ -154,8 +154,8 @@ impl Drop for ReporterGuard {
             });
         }
 
-        if self.shutdown_opentelemetry {
-            opentelemetry::global::shutdown_tracer_provider();
+        if let Some(provider) = &self.opentelemetry_tracer_provider {
+            let _ = provider.shutdown();
         }
     }
 }

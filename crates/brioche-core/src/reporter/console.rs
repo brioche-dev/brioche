@@ -53,11 +53,6 @@ pub fn start_console_reporter(
         num_jobs: Arc::new(AtomicUsize::new(0)),
         tx: tx.clone(),
     };
-    let guard = ReporterGuard {
-        tx,
-        shutdown_rx: Some(shutdown_rx),
-        shutdown_opentelemetry: brioche_otel_enabled,
-    };
 
     std::thread::spawn({
         let queued_lines = queued_lines.clone();
@@ -144,16 +139,16 @@ pub fn start_console_reporter(
         }
     });
 
-    let opentelemetry_layer = if brioche_otel_enabled {
-        opentelemetry::global::set_text_map_propagator(
-            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
-        );
+    let guard;
+    let opentelemetry_layer;
+
+    if brioche_otel_enabled {
         let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
             .with_http_client(reqwest::Client::new())
             .build()?;
         let provider = opentelemetry_sdk::trace::TracerProvider::builder()
-            .with_simple_exporter(exporter)
+            .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
             .with_config(opentelemetry_sdk::trace::Config::default().with_resource(
                 opentelemetry_sdk::Resource::default().merge(&opentelemetry_sdk::Resource::new(
                     vec![
@@ -170,13 +165,23 @@ pub fn start_console_reporter(
             ))
             .build();
 
-        Some(
+        opentelemetry_layer = Some(
             tracing_opentelemetry::layer()
-                .with_tracer(provider.tracer("tracing-opentelemetry"))
+                .with_tracer(provider.tracer("brioche"))
                 .with_filter(tracing_debug_filter()),
-        )
+        );
+        guard = ReporterGuard {
+            tx,
+            shutdown_rx: Some(shutdown_rx),
+            opentelemetry_tracer_provider: Some(provider),
+        };
     } else {
-        None
+        opentelemetry_layer = None;
+        guard = ReporterGuard {
+            tx,
+            shutdown_rx: Some(shutdown_rx),
+            opentelemetry_tracer_provider: None,
+        };
     };
 
     let log_file_layer = match std::env::var_os("BRIOCHE_LOG_OUTPUT") {
