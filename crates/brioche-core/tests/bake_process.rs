@@ -70,6 +70,8 @@ async fn brioche_test() -> (
 
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
+    brioche_test_support::load_rootfs_recipes(&brioche, current_platform()).await;
+
     (brioche, context, lock)
 }
 
