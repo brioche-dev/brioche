@@ -18,6 +18,8 @@ use super::{
     Brioche,
 };
 
+pub use process::{process_rootfs_recipes, ProcessRootfsRecipes};
+
 mod collect_references;
 mod download;
 mod process;

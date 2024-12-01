@@ -1,20 +1,22 @@
 #![allow(unused)]
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
     process::Output,
+    sync::OnceLock,
 };
 
 use brioche_core::{
     blob::{BlobHash, SaveBlobOptions},
     project::{self, ProjectHash, ProjectLocking, ProjectValidation, Projects},
     recipe::{
-        CreateDirectory, Directory, File, ProcessRecipe, ProcessTemplate, ProcessTemplateComponent,
-        Recipe, WithMeta,
+        CreateDirectory, Directory, DownloadRecipe, File, ProcessRecipe, ProcessTemplate,
+        ProcessTemplateComponent, Recipe, WithMeta,
     },
     Brioche, BriocheBuilder,
 };
+use tokio::{io::AsyncSeekExt as _, sync::Mutex};
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
     brioche_test_with(|builder| builder).await
@@ -37,7 +39,8 @@ pub async fn brioche_test_with(
     let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
     let builder = BriocheBuilder::new(reporter)
         .home(brioche_home)
-        .registry_client(brioche_core::registry::RegistryClient::new(
+        .registry_client(brioche_core::registry::RegistryClient::new_with_client(
+            reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             registry_server.url().parse().unwrap(),
             brioche_core::registry::RegistryAuthentication::Admin {
                 password: "admin".to_string(),
@@ -53,6 +56,193 @@ pub async fn brioche_test_with(
         _reporter_guard: reporter_guard,
     };
     (brioche, context)
+}
+
+/// Pre-load rootfs used when baking processes into `brioche`. Each file
+/// will be downloaded to a temporary path and re-used within the same
+/// test run.
+pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::platform::Platform) {
+    static FILES: OnceLock<Mutex<HashMap<DownloadRecipe, Mutex<tokio::fs::File>>>> =
+        OnceLock::new();
+
+    let brioche_core::bake::ProcessRootfsRecipes { sh, env } =
+        brioche_core::bake::process_rootfs_recipes(platform);
+
+    brioche_core::recipe::save_recipes(brioche, vec![sh.clone(), env.clone()])
+        .await
+        .unwrap();
+
+    // Get all inner download recipes from the returned rootfs recipes
+    let mut recipes = VecDeque::from_iter([sh, env]);
+    let mut download_recipes = vec![];
+    while let Some(recipe) = recipes.pop_front() {
+        match recipe {
+            Recipe::Download(download) => {
+                download_recipes.push(download);
+            }
+            Recipe::Unarchive(unarchive) => {
+                recipes.push_back(unarchive.file.value);
+            }
+            Recipe::Process(_) => unimplemented!(),
+            Recipe::CompleteProcess(_) => unimplemented!(),
+            Recipe::CreateFile {
+                content: _,
+                executable: _,
+                resources,
+            } => {
+                recipes.push_back(resources.value);
+            }
+            Recipe::CreateDirectory(directory) => {
+                recipes.extend(directory.entries.into_values().map(|recipe| recipe.value));
+            }
+            Recipe::Cast { recipe, to: _ } => {
+                recipes.push_back(recipe.value);
+            }
+            Recipe::Merge { directories } => {
+                recipes.extend(directories.into_iter().map(|recipe| recipe.value))
+            }
+            Recipe::Peel {
+                directory,
+                depth: _,
+            } => recipes.push_back(directory.value),
+            Recipe::Get { directory, path: _ } => {
+                recipes.push_back(directory.value);
+            }
+            Recipe::Insert {
+                directory,
+                path: _,
+                recipe,
+            } => {
+                recipes.push_back(directory.value);
+                if let Some(recipe) = recipe {
+                    recipes.push_back(recipe.value);
+                }
+            }
+            Recipe::Glob {
+                directory,
+                patterns: _,
+            } => {
+                recipes.push_back(directory.value);
+            }
+            Recipe::SetPermissions {
+                file,
+                executable: _,
+            } => {
+                recipes.push_back(file.value);
+            }
+            Recipe::CollectReferences { recipe } => {
+                recipes.push_back(recipe.value);
+            }
+            Recipe::Proxy(_) => unimplemented!(),
+            Recipe::Sync { recipe } => {
+                recipes.push_back(recipe.value);
+            }
+            Recipe::File {
+                content_blob: _,
+                executable: _,
+                resources: _,
+            } => unimplemented!(),
+            Recipe::Directory(_) => unimplemented!(),
+            Recipe::Symlink { target: _ } => {}
+        }
+    }
+
+    for download in download_recipes {
+        let mut files = FILES.get_or_init(Default::default).lock().await;
+        match files.entry(download.clone()) {
+            std::collections::hash_map::Entry::Occupied(entry) => {
+                // File already exists, get it and rewind to the start
+                let mut file = entry.get().lock().await;
+                file.rewind().await.unwrap();
+
+                // Save the file as a blob
+                let mut permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
+                let blob_hash = brioche_core::blob::save_blob_from_reader(
+                    brioche,
+                    &mut permit,
+                    &mut *file,
+                    brioche_core::blob::SaveBlobOptions::default()
+                        .expected_hash(Some(download.hash.clone())),
+                    &mut vec![],
+                )
+                .await
+                .unwrap();
+
+                // Save a bake result, so the download maps to a file with
+                // the saved blob
+                let input_recipe = brioche_core::recipe::Recipe::Download(download.clone());
+                let output_recipe = brioche_core::recipe::Recipe::File {
+                    content_blob: blob_hash,
+                    executable: false,
+                    resources: Box::new(WithMeta::without_meta(
+                        brioche_core::recipe::Recipe::Directory(Default::default()),
+                    )),
+                };
+                let input_hash = input_recipe.hash();
+                let input_json = serde_json::to_string(&input_recipe).unwrap();
+                let output_hash = output_recipe.hash();
+                let output_json = serde_json::to_string(&output_recipe).unwrap();
+                brioche_core::bake::save_bake_result(
+                    brioche,
+                    input_hash,
+                    &input_json,
+                    output_hash,
+                    &output_json,
+                )
+                .await
+                .unwrap();
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                // Download the recipe and open the blob file
+                let blob_hash = brioche_core::download::download(
+                    brioche,
+                    &download.url,
+                    Some(download.hash.clone()),
+                )
+                .await;
+                let blob_hash = match blob_hash {
+                    Ok(blob_hash) => blob_hash,
+                    Err(error) => {
+                        panic!("failed to download rootfs blob {}: {error:#}", download.url);
+                    }
+                };
+                let blob_path = brioche_core::blob::local_blob_path(brioche, blob_hash);
+                let mut blob_file = tokio::fs::File::open(&blob_path).await.unwrap();
+
+                // Create a temporary file
+                let temp_dir = std::env::temp_dir();
+                let temp_path = temp_dir.join(format!(
+                    "brioche-download-{}-{}",
+                    download.hash,
+                    ulid::Ulid::new()
+                ));
+                let mut temp_file = tokio::fs::File::create_new(&temp_path).await.unwrap();
+
+                // Unlink the temporary file. This will automatically remove
+                // the file when it's closed
+                match tokio::fs::remove_file(&temp_path).await {
+                    Ok(_) => {}
+                    Err(error) => {
+                        panic!(
+                            "failed to unlink temporary path {}: {error:#}",
+                            temp_path.display()
+                        );
+                    }
+                }
+
+                // Copy the downloaded file into the temp file
+                match tokio::io::copy(&mut blob_file, &mut temp_file).await {
+                    Ok(_) => {}
+                    Err(error) => {
+                        panic!("failed to copy blob file for {}: {error:#}", download.url);
+                    }
+                }
+
+                // Keep the temp file open for next time
+                entry.insert(Mutex::new(temp_file));
+            }
+        };
+    }
 }
 
 pub async fn load_project(
