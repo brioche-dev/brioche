@@ -1310,7 +1310,7 @@ impl BakeDir {
         // all files
         crate::fs_utils::set_directory_rwx_recursive(&path)
             .await
-            .context("failed to set permissions for temprorary bake directory")?;
+            .context("failed to set permissions for temporary bake directory")?;
 
         tokio::fs::remove_dir_all(&path)
             .await
