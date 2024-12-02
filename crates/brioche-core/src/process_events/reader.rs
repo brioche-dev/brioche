@@ -247,7 +247,7 @@ where
             .length
             .checked_add(PROCESS_EVENT_MARKER_LENGTH)
             .and_then(|offset| offset.try_into().ok())
-            .ok_or_else(|| ProcessEventReadError::LengthOutOfRange {
+            .ok_or(ProcessEventReadError::LengthOutOfRange {
                 length: marker.length as _,
             })?;
 
@@ -272,7 +272,7 @@ where
             .length
             .checked_add(PROCESS_EVENT_MARKER_LENGTH)
             .and_then(|offset| offset.try_into().ok())
-            .ok_or_else(|| ProcessEventReadError::LengthOutOfRange {
+            .ok_or(ProcessEventReadError::LengthOutOfRange {
                 length: marker.length as _,
             })?;
 
