@@ -149,19 +149,17 @@ pub fn start_console_reporter(
             .build()?;
         let provider = opentelemetry_sdk::trace::TracerProvider::builder()
             .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-            .with_config(opentelemetry_sdk::trace::Config::default().with_resource(
-                opentelemetry_sdk::Resource::default().merge(&opentelemetry_sdk::Resource::new(
-                    vec![
-                        opentelemetry::KeyValue::new(
-                            opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-                            "brioche",
-                        ),
-                        opentelemetry::KeyValue::new(
-                            opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
-                            env!("CARGO_PKG_VERSION"),
-                        ),
-                    ],
-                )),
+            .with_resource(opentelemetry_sdk::Resource::default().merge(
+                &opentelemetry_sdk::Resource::new(vec![
+                    opentelemetry::KeyValue::new(
+                        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                        "brioche",
+                    ),
+                    opentelemetry::KeyValue::new(
+                        opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
+                        env!("CARGO_PKG_VERSION"),
+                    ),
+                ]),
             ))
             .build();
 
