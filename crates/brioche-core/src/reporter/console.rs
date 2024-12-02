@@ -646,7 +646,7 @@ impl superconsole::Component for JobsComponent {
 
 struct JobComponent<'a>(JobId, &'a Job);
 
-impl<'a> superconsole::Component for JobComponent<'a> {
+impl superconsole::Component for JobComponent<'_> {
     fn draw_unchecked(
         &self,
         dimensions: superconsole::Dimensions,
