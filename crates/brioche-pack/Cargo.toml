@@ -8,5 +8,5 @@ bincode = { version = "2.0.0-rc.3" }
 bstr = { version = "1.11.0", features = ["serde"] }
 serde = { version = "1.0.215", features = ["derive"] }
 serde_with = { version = "3.11.0" }
-thiserror = "2.0.3"
+thiserror = "2.0.6"
 tick-encoding = "0.1.2"
