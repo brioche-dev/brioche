@@ -15,7 +15,7 @@ biome_js_syntax = "0.5.7"
 biome_rowan = "0.5.7"
 blake3 = "1.5.5"
 brioche-pack = { path = "../brioche-pack" }
-bstr = { version = "1.11.0", features = ["serde"] }
+bstr = { version = "1.11.1", features = ["serde"] }
 cfg-if = "1.0.0"
 console-subscriber = "0.4.1"
 debug-ignore = "1.0.5"
@@ -40,7 +40,7 @@ reqwest = { version = "0.12.9", default-features = false, features = ["rustls-tl
 reqwest-middleware = { version = "0.4.0", features = ["json"] }
 reqwest-retry = "0.7.0"
 rust-embed = { version = "8.5.0", features = ["debug-embed", "interpolate-folder-path", "include-exclude"] }
-serde = { version = "1.0.215", features = ["derive"] }
+serde = { version = "1.0.216", features = ["derive"] }
 serde_json = "1.0.133"
 serde_v8 = "0.233.0"
 serde_with = { version = "3.11.0", features = ["hex"] }
@@ -48,7 +48,7 @@ sha2 = "0.10.8"
 sqlx = { version = "0.8.2", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "json"] }
 strum = { version = "0.26.3", features = ["derive"] }
 superconsole = "0.2.0"
-thiserror = "2.0.6"
+thiserror = "2.0.7"
 tick-encoding = "0.1.2"
 tokio = { version = "1.42.0", features = ["full", "tracing"] }
 tokio-util = { version = "0.7.13", features = ["compat", "full"] }
