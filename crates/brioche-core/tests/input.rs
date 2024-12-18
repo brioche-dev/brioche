@@ -4,6 +4,7 @@ use std::{
     sync::Arc,
 };
 
+use assert_matches::assert_matches;
 use brioche_core::{
     recipe::{Artifact, Meta},
     Brioche,
@@ -487,6 +488,252 @@ async fn test_input_dir_with_symlink_resources() -> anyhow::Result<()> {
         .await
     );
     assert!(dir_path.is_dir());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_input_dir_with_external_resources() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let dir_path = context.mkdir("test").await;
+    let resource_dir = context.mkdir("resources").await;
+    let input_resource_dir = context.mkdir("input-resources").await;
+
+    let mut top_file = b"top".to_vec();
+    brioche_pack::inject_pack(
+        &mut top_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"fizz".to_vec()],
+        },
+    )?;
+
+    let mut fizz_file = b"fizz".to_vec();
+    brioche_pack::inject_pack(
+        &mut fizz_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"buzz".to_vec()],
+        },
+    )?;
+
+    context.write_file("test/top", &top_file).await;
+    context.write_file("resources/fizz", &fizz_file).await;
+    context.write_file("input-resources/buzz", b"buzz!").await;
+
+    let artifact = create_input_with_resources(
+        &brioche,
+        &dir_path,
+        Some(&resource_dir),
+        &[input_resource_dir],
+        false,
+    )
+    .await?;
+
+    assert_eq!(
+        artifact,
+        brioche_test_support::dir(
+            &brioche,
+            [(
+                "top",
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &top_file).await,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [(
+                            "fizz",
+                            brioche_test_support::file_with_resources(
+                                brioche_test_support::blob(&brioche, &fizz_file).await,
+                                false,
+                                brioche_test_support::dir_value(
+                                    &brioche,
+                                    [(
+                                        "buzz",
+                                        brioche_test_support::file(
+                                            brioche_test_support::blob(&brioche, b"buzz!").await,
+                                            false
+                                        )
+                                    )]
+                                )
+                                .await
+                            )
+                        ),]
+                    )
+                    .await,
+                )
+            ),]
+        )
+        .await
+    );
+    assert!(dir_path.is_dir());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_input_dir_with_internal_resources() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let dir_path = context.mkdir("test").await;
+    let resource_dir = context.mkdir("resources").await;
+
+    let mut top_file = b"top".to_vec();
+    brioche_pack::inject_pack(
+        &mut top_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"fizz".to_vec()],
+        },
+    )?;
+
+    let mut fizz_file = b"fizz".to_vec();
+    brioche_pack::inject_pack(
+        &mut fizz_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"buzz".to_vec()],
+        },
+    )?;
+
+    context.write_file("test/top", &top_file).await;
+    context.write_file("resources/fizz", &fizz_file).await;
+    context.write_file("resources/buzz", b"buzz!").await;
+
+    let artifact =
+        create_input_with_resources(&brioche, &dir_path, Some(&resource_dir), &[], false).await?;
+
+    assert_eq!(
+        artifact,
+        brioche_test_support::dir(
+            &brioche,
+            [(
+                "top",
+                brioche_test_support::file_with_resources(
+                    brioche_test_support::blob(&brioche, &top_file).await,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [(
+                            "fizz",
+                            brioche_test_support::file_with_resources(
+                                brioche_test_support::blob(&brioche, &fizz_file).await,
+                                false,
+                                brioche_test_support::dir_value(
+                                    &brioche,
+                                    [(
+                                        "buzz",
+                                        brioche_test_support::file(
+                                            brioche_test_support::blob(&brioche, b"buzz!").await,
+                                            false
+                                        )
+                                    )]
+                                )
+                                .await
+                            )
+                        ),]
+                    )
+                    .await,
+                )
+            ),]
+        )
+        .await
+    );
+    assert!(dir_path.is_dir());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_input_dir_with_recursive_resource_error() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let dir_path = context.mkdir("test").await;
+    let resource_dir = context.mkdir("resources").await;
+
+    let mut top_file = b"top".to_vec();
+    brioche_pack::inject_pack(
+        &mut top_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"fizz".to_vec()],
+        },
+    )?;
+
+    let mut fizz_file = b"fizz".to_vec();
+    brioche_pack::inject_pack(
+        &mut fizz_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"fizz".to_vec()],
+        },
+    )?;
+
+    context.write_file("test/top", &top_file).await;
+    context.write_file("resources/fizz", &fizz_file).await;
+
+    let result =
+        create_input_with_resources(&brioche, &dir_path, Some(&resource_dir), &[], false).await;
+
+    // Should fail because `fizz` tried to include itself as a resource
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_input_dir_with_mutually_recursive_resource_error() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let dir_path = context.mkdir("test").await;
+    let resource_dir = context.mkdir("resources").await;
+
+    let mut top_file = b"top".to_vec();
+    brioche_pack::inject_pack(
+        &mut top_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"fizz".to_vec()],
+        },
+    )?;
+
+    let mut fizz_file = b"fizz".to_vec();
+    brioche_pack::inject_pack(
+        &mut fizz_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"buzz".to_vec()],
+        },
+    )?;
+
+    let mut buzz_file = b"buzz".to_vec();
+    brioche_pack::inject_pack(
+        &mut buzz_file,
+        &brioche_pack::Pack::Metadata {
+            format: "test".into(),
+            metadata: vec![],
+            resource_paths: vec![b"fizz".to_vec()],
+        },
+    )?;
+
+    context.write_file("test/top", &top_file).await;
+    context.write_file("resources/fizz", &fizz_file).await;
+    context.write_file("resources/buzz", &buzz_file).await;
+
+    let result =
+        create_input_with_resources(&brioche, &dir_path, Some(&resource_dir), &[], false).await;
+
+    // Should fail because `fizz` references `buzz` and `buzz` references `fizz`
+    assert_matches!(result, Err(_));
 
     Ok(())
 }
