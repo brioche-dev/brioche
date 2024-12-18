@@ -352,3 +352,318 @@ async fn test_bake_attach_resources_remove_unused_resources() -> anyhow::Result<
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_bake_attach_resources_layers() -> anyhow::Result<()> {
+    let (brioche, _context) = brioche_test().await;
+
+    let foo_blob = blob_with_resource_paths(&brioche, b"foo", ["a"]).await;
+    let bar_blob = blob_with_resource_paths(&brioche, b"bar", ["b", "c"]).await;
+    let baz_blob = blob_with_resource_paths(&brioche, b"baz", ["a", "c"]).await;
+
+    let a1_blob = brioche_test_support::blob(&brioche, b"a1").await;
+    let b1_blob = brioche_test_support::blob(&brioche, b"b1").await;
+    let c1_blob = brioche_test_support::blob(&brioche, b"c1").await;
+
+    let a2_blob = brioche_test_support::blob(&brioche, b"a2").await;
+    let b2_blob = brioche_test_support::blob(&brioche, b"b2").await;
+    let c2_blob = brioche_test_support::blob(&brioche, b"c2").await;
+
+    let dir = brioche_test_support::dir(
+        &brioche,
+        [
+            ("foo.txt", brioche_test_support::file(foo_blob, false)),
+            ("bar.txt", brioche_test_support::file(bar_blob, false)),
+            ("baz.txt", brioche_test_support::file(baz_blob, false)),
+            ("fizz/foo.txt", brioche_test_support::file(foo_blob, false)),
+            ("fizz/bar.txt", brioche_test_support::file(bar_blob, false)),
+            ("fizz/baz.txt", brioche_test_support::file(baz_blob, false)),
+            (
+                "fizz/buzz/foo.txt",
+                brioche_test_support::file(foo_blob, false),
+            ),
+            (
+                "fizz/buzz/bar.txt",
+                brioche_test_support::file(bar_blob, false),
+            ),
+            (
+                "fizz/buzz/baz.txt",
+                brioche_test_support::file(baz_blob, false),
+            ),
+            (
+                "brioche-resources.d/a",
+                brioche_test_support::file(a1_blob, false),
+            ),
+            (
+                "brioche-resources.d/b",
+                brioche_test_support::file(b1_blob, false),
+            ),
+            (
+                "brioche-resources.d/c",
+                brioche_test_support::file(c1_blob, false),
+            ),
+            (
+                "fizz/brioche-resources.d/b",
+                brioche_test_support::file(b2_blob, false),
+            ),
+            (
+                "fizz/buzz/brioche-resources.d/a",
+                brioche_test_support::file(a2_blob, false),
+            ),
+            (
+                "fizz/buzz/brioche-resources.d/c",
+                brioche_test_support::file(c2_blob, false),
+            ),
+        ],
+    )
+    .await;
+    let recipe = Recipe::AttachResources {
+        recipe: Box::new(without_meta(dir.clone().into())),
+    };
+
+    let expected_output = brioche_test_support::dir(
+        &brioche,
+        [
+            (
+                "foo.txt",
+                brioche_test_support::file_with_resources(
+                    foo_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [("a", brioche_test_support::file(a1_blob, false))],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "bar.txt",
+                brioche_test_support::file_with_resources(
+                    bar_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [
+                            ("b", brioche_test_support::file(b1_blob, false)),
+                            ("c", brioche_test_support::file(c1_blob, false)),
+                        ],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "baz.txt",
+                brioche_test_support::file_with_resources(
+                    baz_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [
+                            ("a", brioche_test_support::file(a1_blob, false)),
+                            ("c", brioche_test_support::file(c1_blob, false)),
+                        ],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "fizz/foo.txt",
+                brioche_test_support::file_with_resources(
+                    foo_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [("a", brioche_test_support::file(a1_blob, false))],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "fizz/bar.txt",
+                brioche_test_support::file_with_resources(
+                    bar_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [
+                            ("b", brioche_test_support::file(b2_blob, false)),
+                            ("c", brioche_test_support::file(c1_blob, false)),
+                        ],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "fizz/baz.txt",
+                brioche_test_support::file_with_resources(
+                    baz_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [
+                            ("a", brioche_test_support::file(a1_blob, false)),
+                            ("c", brioche_test_support::file(c1_blob, false)),
+                        ],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "fizz/buzz/foo.txt",
+                brioche_test_support::file_with_resources(
+                    foo_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [("a", brioche_test_support::file(a2_blob, false))],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "fizz/buzz/bar.txt",
+                brioche_test_support::file_with_resources(
+                    bar_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [
+                            ("b", brioche_test_support::file(b2_blob, false)),
+                            ("c", brioche_test_support::file(c2_blob, false)),
+                        ],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "fizz/buzz/baz.txt",
+                brioche_test_support::file_with_resources(
+                    baz_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [
+                            ("a", brioche_test_support::file(a2_blob, false)),
+                            ("c", brioche_test_support::file(c2_blob, false)),
+                        ],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "brioche-resources.d/a",
+                brioche_test_support::file(a1_blob, false),
+            ),
+            (
+                "brioche-resources.d/b",
+                brioche_test_support::file(b1_blob, false),
+            ),
+            (
+                "brioche-resources.d/c",
+                brioche_test_support::file(c1_blob, false),
+            ),
+            (
+                "fizz/brioche-resources.d/b",
+                brioche_test_support::file(b2_blob, false),
+            ),
+            (
+                "fizz/buzz/brioche-resources.d/a",
+                brioche_test_support::file(a2_blob, false),
+            ),
+            (
+                "fizz/buzz/brioche-resources.d/c",
+                brioche_test_support::file(c2_blob, false),
+            ),
+        ],
+    )
+    .await;
+
+    let output = bake_without_meta(&brioche, recipe).await?;
+
+    assert_eq!(output, expected_output);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bake_attach_resources_with_external_resources() -> anyhow::Result<()> {
+    let (brioche, _context) = brioche_test().await;
+
+    let top_blob = blob_with_resource_paths(&brioche, b"top", ["fizz"]).await;
+    let fizz_blob = blob_with_resource_paths(&brioche, b"fizz", ["buzz"]).await;
+    let buzz_blob = brioche_test_support::blob(&brioche, b"buzz!").await;
+
+    let dir = brioche_test_support::dir(
+        &brioche,
+        [
+            (
+                "inside/top.txt",
+                brioche_test_support::file(top_blob, false),
+            ),
+            (
+                "inside/brioche-resources.d/fizz",
+                brioche_test_support::file(fizz_blob, false),
+            ),
+            (
+                "brioche-resources.d/buzz",
+                brioche_test_support::file(buzz_blob, false),
+            ),
+        ],
+    )
+    .await;
+    let recipe = Recipe::AttachResources {
+        recipe: Box::new(without_meta(dir.clone().into())),
+    };
+
+    let expected_output = brioche_test_support::dir(
+        &brioche,
+        [
+            (
+                "inside/top.txt",
+                brioche_test_support::file_with_resources(
+                    top_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [(
+                            "fizz",
+                            brioche_test_support::file_with_resources(
+                                fizz_blob,
+                                false,
+                                brioche_test_support::dir_value(
+                                    &brioche,
+                                    [("buzz", brioche_test_support::file(buzz_blob, false))],
+                                )
+                                .await,
+                            ),
+                        )],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "inside/brioche-resources.d/fizz",
+                brioche_test_support::file_with_resources(
+                    fizz_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [("buzz", brioche_test_support::file(buzz_blob, false))],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "brioche-resources.d/buzz",
+                brioche_test_support::file(buzz_blob, false),
+            ),
+        ],
+    )
+    .await;
+
+    let output = bake_without_meta(&brioche, recipe).await?;
+
+    assert_eq!(output, expected_output);
+
+    Ok(())
+}

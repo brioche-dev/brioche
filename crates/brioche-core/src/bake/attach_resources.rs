@@ -25,14 +25,36 @@ pub async fn attach_resources(
     let mut entries = directory.entries(brioche).await?;
 
     // If there's a `brioche-resources.d` directory, remove it from the list
-    // of entries to walk, and add it to the list of resource directories
-    // to search.
+    // of entries to walk, process it, then add it to the list of resource
+    // directories to search.
     match entries.entry("brioche-resources.d".into()) {
         std::collections::btree_map::Entry::Occupied(resource_dir_entry) => {
             if matches!(resource_dir_entry.get(), Artifact::Directory(_)) {
-                let Artifact::Directory(resource_dir) = resource_dir_entry.remove() else {
+                let Artifact::Directory(mut resource_dir) = resource_dir_entry.remove() else {
                     unreachable!();
                 };
+
+                let mut entry_subpath = subpath.to_vec();
+                entry_subpath.push(bstr::BStr::new("brioche-resources.d"));
+
+                let resource_dir_changed_fut = attach_resources(
+                    brioche,
+                    &mut resource_dir,
+                    &entry_subpath,
+                    Cow::Borrowed(&resource_dirs),
+                );
+                let resource_dir_changed = Box::pin(resource_dir_changed_fut).await?;
+
+                if resource_dir_changed {
+                    directory
+                        .insert(
+                            brioche,
+                            b"brioche-resources.d",
+                            Some(Artifact::Directory(resource_dir.clone())),
+                        )
+                        .await?;
+                    changed = true;
+                }
 
                 resource_dirs.to_mut().push(resource_dir);
             }
@@ -66,13 +88,13 @@ pub async fn attach_resources(
             }
             Artifact::Directory(mut subdir) => {
                 // Recursively attach resources within the subdirectory
-                let subdir_changed = attach_resources(
+                let subdir_changed_fut = attach_resources(
                     brioche,
                     &mut subdir,
                     &entry_subpath,
                     Cow::Borrowed(&resource_dirs),
                 );
-                let subdir_changed = Box::pin(subdir_changed).await?;
+                let subdir_changed = Box::pin(subdir_changed_fut).await?;
 
                 // If the subdirectory was updated, replace it in the directory
                 if subdir_changed {
@@ -132,7 +154,7 @@ async fn file_resources_to_attach(
 
         // Get the resource from the resource directories to search
         let mut new_resource = None;
-        for resource_dir in resource_dirs {
+        for resource_dir in resource_dirs.iter().rev() {
             if new_resource.is_some() {
                 break;
             }
