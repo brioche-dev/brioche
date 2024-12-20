@@ -34,11 +34,7 @@ pub async fn attach_resources(brioche: &Brioche, directory: &mut Directory) -> a
                 .edges_directed(node_index, petgraph::Direction::Outgoing);
 
             for edge in edges_out {
-                let resource = match &edge.weight() {
-                    AttachResourcesPlanEdge::InternalResource(resource)
-                    | AttachResourcesPlanEdge::InternalIndirectResource(resource) => resource,
-                    _ => anyhow::bail!("unexpected edge for file node: {:?}", edge.weight()),
-                };
+                let AttachResourcesPlanEdge::InternalResource(resource) = &edge.weight();
                 resources_to_attach.push(resource);
             }
         }
@@ -126,10 +122,7 @@ struct AttachResourcesPlanNode {
 
 #[derive(Debug, Clone)]
 enum AttachResourcesPlanEdge {
-    DirectoryEntry,
     InternalResource(ResolvedResourcePath),
-    InternalIndirectResource(ResolvedResourcePath),
-    SymlinkTarget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -182,14 +175,17 @@ async fn build_plan(
             Artifact::File(file) => {
                 // Get the resources directly referenced by this file, which
                 // we resolved within the directory
-                let resources =
+                let direct_resources =
                     resolve_internal_file_resources(brioche, directory, &subpath, &file).await?;
 
                 // Get any indirect resources by these resources (e.g. symlinks)
                 let indirect_resources =
-                    resolve_indirect_resources(brioche, directory, &subpath, &resources).await?;
+                    resolve_indirect_resources(brioche, directory, &subpath, &direct_resources)
+                        .await?;
 
-                // Add an edge for each resolved resource
+                let resources = direct_resources.into_iter().chain(indirect_resources);
+
+                // Add an edge for each direct and indirect resource
                 for resource in resources {
                     let resolved_path = resource.resolved_path();
                     let resource_node = *plan
@@ -207,86 +203,16 @@ async fn build_plan(
                         AttachResourcesPlanEdge::InternalResource(resource),
                     );
                 }
-
-                // Add an edge for each indirect resource too
-                for resource in indirect_resources {
-                    let resolved_path = resource.resolved_path();
-                    let resource_node = *plan
-                        .paths_to_nodes
-                        .entry(resolved_path.clone())
-                        .or_insert_with(|| {
-                            plan.graph.add_node(AttachResourcesPlanNode {
-                                path: resolved_path,
-                                kind: resource.resource_kind,
-                            })
-                        });
-                    plan.graph.update_edge(
-                        node,
-                        resource_node,
-                        AttachResourcesPlanEdge::InternalIndirectResource(resource),
-                    );
-                }
             }
-            Artifact::Symlink { target } => {
-                // Get the path this symlink is referencing
-                let mut target_path = subpath.clone();
-                target_path.extend_from_slice(b"/../");
-                target_path.extend_from_slice(&target);
-                let target_path = crate::fs_utils::logical_path_bytes(&target_path).ok();
-
-                // If the symlink target is valid within the current directory,
-                // get the artifact it's referencing
-                let target_artifact_with_path = match target_path {
-                    Some(target_path) => {
-                        let target_artifact = directory.get(brioche, &target_path).await?;
-                        target_artifact.map(|artifact| (artifact, bstr::BString::new(target_path)))
-                    }
-                    None => None,
-                };
-
-                // If the symlink target was found, add an edge to it
-                if let Some((target_artifact, target_path)) = target_artifact_with_path {
-                    let target_node = *plan
-                        .paths_to_nodes
-                        .entry(target_path.clone())
-                        .or_insert_with(|| {
-                            plan.graph.add_node(AttachResourcesPlanNode {
-                                kind: ArtifactDiscriminants::from(&target_artifact),
-                                path: target_path.clone(),
-                            })
-                        });
-                    plan.graph.update_edge(
-                        node,
-                        target_node,
-                        AttachResourcesPlanEdge::SymlinkTarget,
-                    );
-                }
-            }
+            Artifact::Symlink { .. } => {}
             Artifact::Directory(subdirectory) => {
                 let entries = subdirectory.entries(brioche).await?;
 
-                // Add an edge for each subdirectory entry, and enqueue
-                // each entry so we include them in the plan too
+                // Enqueue each directory entry so we include them in the plan
                 for (name, entry) in entries {
                     let mut entry_subpath = subpath.clone();
                     entry_subpath.extend_from_slice(b"/");
                     entry_subpath.extend_from_slice(&name);
-
-                    let entry_node = *plan
-                        .paths_to_nodes
-                        .entry(entry_subpath.clone())
-                        .or_insert_with(|| {
-                            plan.graph.add_node(AttachResourcesPlanNode {
-                                path: entry_subpath.clone(),
-                                kind: ArtifactDiscriminants::from(&entry),
-                            })
-                        });
-
-                    plan.graph.update_edge(
-                        node,
-                        entry_node,
-                        AttachResourcesPlanEdge::DirectoryEntry,
-                    );
 
                     queue.push_back((entry_subpath, entry));
                 }
