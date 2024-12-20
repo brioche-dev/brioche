@@ -17,7 +17,10 @@ pub async fn attach_resources(brioche: &Brioche, directory: &mut Directory) -> a
     // of paths to update, so that each path is processed after all of its
     // dependencies are processed.
     let planned_nodes = petgraph::algo::toposort(petgraph::visit::Reversed(&plan.graph), None)
-        .map_err(|_| anyhow::anyhow!("cycle detected in input"))?;
+        .map_err(|error| {
+            let cycle_node = &plan.graph[error.node_id()];
+            anyhow::anyhow!("resource cycle detected in path: {}", cycle_node.path)
+        })?;
 
     for node_index in planned_nodes {
         let node = &plan.graph[node_index];
