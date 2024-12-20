@@ -1,122 +1,311 @@
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashSet, VecDeque},
-};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use anyhow::Context as _;
-use joinery::JoinableIterator as _;
 
 use crate::{
-    recipe::{Artifact, Directory, WithMeta},
+    recipe::{Artifact, ArtifactDiscriminants, Directory},
     Brioche,
 };
 
 /// Recursively walk a directory, attaching resources to directory entries
-/// from discovered `brioche-resources.d` directories. Returns `true` if
-/// the directory was changed.
-pub async fn attach_resources(
-    brioche: &Brioche,
-    directory: &mut Directory,
-    subpath: &[&bstr::BStr],
-    mut resource_dirs: Cow<'_, [Directory]>,
-) -> anyhow::Result<bool> {
-    let mut changed = false;
+/// from discovered `brioche-resources.d` directories.
+pub async fn attach_resources(brioche: &Brioche, directory: &mut Directory) -> anyhow::Result<()> {
+    // Build a graph to plan resources to attach
+    let plan = build_plan(brioche, directory).await?;
 
-    let mut entries = directory.entries(brioche).await?;
+    // Sort nodes from the graph topologically. This gives us an order
+    // of paths to update, so that each path is processed after all of its
+    // dependencies are processed.
+    let planned_nodes = petgraph::algo::toposort(petgraph::visit::Reversed(&plan.graph), None)
+        .map_err(|_| anyhow::anyhow!("cycle detected in input"))?;
 
-    // If there's a `brioche-resources.d` directory, remove it from the list
-    // of entries to walk, process it, then add it to the list of resource
-    // directories to search.
-    match entries.entry("brioche-resources.d".into()) {
-        std::collections::btree_map::Entry::Occupied(resource_dir_entry) => {
-            if matches!(resource_dir_entry.get(), Artifact::Directory(_)) {
-                let Artifact::Directory(mut resource_dir) = resource_dir_entry.remove() else {
-                    unreachable!();
+    for node_index in planned_nodes {
+        let node = &plan.graph[node_index];
+
+        // Get the resources to attach based on graph edges. This only
+        // applies to file nodes.
+        let mut resources_to_attach = vec![];
+        if node.kind == ArtifactDiscriminants::File {
+            let edges_out = plan
+                .graph
+                .edges_directed(node_index, petgraph::Direction::Outgoing);
+
+            for edge in edges_out {
+                let resource = match &edge.weight() {
+                    AttachResourcesPlanEdge::InternalResource(resource)
+                    | AttachResourcesPlanEdge::InternalIndirectResource(resource) => resource,
+                    _ => anyhow::bail!("unexpected edge for file node: {:?}", edge.weight()),
                 };
-
-                let mut entry_subpath = subpath.to_vec();
-                entry_subpath.push(bstr::BStr::new("brioche-resources.d"));
-
-                let resource_dir_changed_fut = attach_resources(
-                    brioche,
-                    &mut resource_dir,
-                    &entry_subpath,
-                    Cow::Borrowed(&resource_dirs),
-                );
-                let resource_dir_changed = Box::pin(resource_dir_changed_fut).await?;
-
-                if resource_dir_changed {
-                    directory
-                        .insert(
-                            brioche,
-                            b"brioche-resources.d",
-                            Some(Artifact::Directory(resource_dir.clone())),
-                        )
-                        .await?;
-                    changed = true;
-                }
-
-                resource_dirs.to_mut().push(resource_dir);
+                resources_to_attach.push(resource);
             }
         }
-        std::collections::btree_map::Entry::Vacant(_) => {}
-    }
 
-    for (name, entry) in entries {
-        let mut entry_subpath = subpath.to_vec();
-        entry_subpath.push(bstr::BStr::new(&name));
+        // If there are no resources to attach, no need to update this node
+        if resources_to_attach.is_empty() {
+            continue;
+        };
 
-        match entry {
-            Artifact::File(mut file) => {
-                // Try to find resources referenced by the file
-                let file_resources =
-                    file_resources_to_attach(brioche, &file, &entry_subpath, &resource_dirs)
-                        .await?;
+        // Get the artifact for this node. By this point, we know it should
+        // be a file artifact.
+        let artifact = directory
+            .get(brioche, &node.path)
+            .await?
+            .with_context(|| format!("failed to get artifact `{}`", node.path))?;
+        let Artifact::File(mut file) = artifact else {
+            anyhow::bail!("expected `{}` to be a file", node.path);
+        };
 
-                // If the resources have changed, update the file's resources
-                // then replace the old directory entry
-                if file_resources != file.resources {
-                    file.resources = file_resources;
-                    directory
-                        .insert(brioche, &name, Some(Artifact::File(file)))
-                        .await?;
-                    changed = true;
-                }
-            }
-            Artifact::Symlink { .. } => {
-                // Nothing to do for symlinks
-            }
-            Artifact::Directory(mut subdir) => {
-                // Recursively attach resources within the subdirectory
-                let subdir_changed_fut = attach_resources(
+        let mut artifact_changed = false;
+
+        for resource in resources_to_attach {
+            // Get the resource artifact from the directory
+            let resource_resolved_path = resource.resolved_path();
+            let resource_artifact = directory
+                .get(brioche, &resource_resolved_path)
+                .await?
+                .with_context(|| {
+                    format!("failed to get resource `{}` for `{}` from resolved path `{resource_resolved_path}", resource.resource_path, node.path)
+                })?;
+
+            // Insert the new resource in the file's resources
+            let replaced_resource = file
+                .resources
+                .insert(
                     brioche,
-                    &mut subdir,
-                    &entry_subpath,
-                    Cow::Borrowed(&resource_dirs),
-                );
-                let subdir_changed = Box::pin(subdir_changed_fut).await?;
+                    &resource.resource_path,
+                    Some(resource_artifact.clone()),
+                )
+                .await?;
 
-                // If the subdirectory was updated, replace it in the directory
-                if subdir_changed {
-                    directory
-                        .insert(brioche, &name, Some(Artifact::Directory(subdir)))
-                        .await?;
-                    changed = true;
+            match replaced_resource {
+                None => {
+                    // Added a new resource
+                    artifact_changed = true;
+                }
+                Some(replaced_resource) => {
+                    // Ensure that, if the resource already exists, it
+                    // matches the newly-inserted resources.
+                    // NOTE: This is currently more restrictive than
+                    // how resources are handled by inputs, we may want
+                    // to make this less strict.
+                    anyhow::ensure!(
+                        replaced_resource == resource_artifact,
+                        "resource `{}` for `{}` did not match existing resource",
+                        resource.resource_path,
+                        node.path
+                    );
                 }
             }
         }
+
+        // Insert the updated artifact back into the directory if it changed
+        if artifact_changed {
+            directory
+                .insert(brioche, &node.path, Some(Artifact::File(file)))
+                .await?;
+        }
     }
 
-    Ok(changed)
+    Ok(())
 }
 
-async fn file_resources_to_attach(
+#[derive(Default)]
+struct AttachResourcesPlan {
+    graph: petgraph::graph::DiGraph<AttachResourcesPlanNode, AttachResourcesPlanEdge>,
+    paths_to_nodes: HashMap<bstr::BString, petgraph::prelude::NodeIndex>,
+}
+
+#[derive(Debug, Clone)]
+struct AttachResourcesPlanNode {
+    path: bstr::BString,
+    kind: ArtifactDiscriminants,
+}
+
+#[derive(Debug, Clone)]
+enum AttachResourcesPlanEdge {
+    DirectoryEntry,
+    InternalResource(ResolvedResourcePath),
+    InternalIndirectResource(ResolvedResourcePath),
+    SymlinkTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ResolvedResourcePath {
+    resource_dir_path: bstr::BString,
+    resource_path: bstr::BString,
+    resource_kind: ArtifactDiscriminants,
+}
+
+impl ResolvedResourcePath {
+    fn resolved_path(&self) -> bstr::BString {
+        let mut resolved_path = self.resource_dir_path.clone();
+        resolved_path.extend_from_slice(b"/");
+        resolved_path.extend_from_slice(&self.resource_path);
+        resolved_path
+    }
+}
+
+/// Plan resources to attach to artifacts within a directory by building
+/// a graph.
+async fn build_plan(
     brioche: &Brioche,
+    directory: &Directory,
+) -> anyhow::Result<AttachResourcesPlan> {
+    let mut plan = AttachResourcesPlan::default();
+    let mut visited: HashSet<bstr::BString> = HashSet::new();
+
+    // Start with each entry of the directory
+    let entries = directory.entries(brioche).await?;
+    let mut queue: VecDeque<_> = entries.into_iter().collect();
+
+    while let Some((subpath, artifact)) = queue.pop_front() {
+        // Skip nodes we've already processed
+        if !visited.insert(subpath.clone()) {
+            continue;
+        }
+
+        // Add a new node for this entry if one doesn't exist
+        let node = *plan
+            .paths_to_nodes
+            .entry(subpath.clone())
+            .or_insert_with(|| {
+                plan.graph.add_node(AttachResourcesPlanNode {
+                    path: subpath.clone(),
+                    kind: ArtifactDiscriminants::from(&artifact),
+                })
+            });
+
+        match artifact {
+            Artifact::File(file) => {
+                // Get the resources directly referenced by this file, which
+                // we resolved within the directory
+                let resources =
+                    resolve_internal_file_resources(brioche, directory, &subpath, &file).await?;
+
+                // Get any indirect resources by these resources (e.g. symlinks)
+                let indirect_resources =
+                    resolve_indirect_resources(brioche, directory, &subpath, &resources).await?;
+
+                // Add an edge for each resolved resource
+                for resource in resources {
+                    let resolved_path = resource.resolved_path();
+                    let resource_node = *plan
+                        .paths_to_nodes
+                        .entry(resolved_path.clone())
+                        .or_insert_with(|| {
+                            plan.graph.add_node(AttachResourcesPlanNode {
+                                path: resolved_path,
+                                kind: resource.resource_kind,
+                            })
+                        });
+                    plan.graph.update_edge(
+                        node,
+                        resource_node,
+                        AttachResourcesPlanEdge::InternalResource(resource),
+                    );
+                }
+
+                // Add an edge for each indirect resource too
+                for resource in indirect_resources {
+                    let resolved_path = resource.resolved_path();
+                    let resource_node = *plan
+                        .paths_to_nodes
+                        .entry(resolved_path.clone())
+                        .or_insert_with(|| {
+                            plan.graph.add_node(AttachResourcesPlanNode {
+                                path: resolved_path,
+                                kind: resource.resource_kind,
+                            })
+                        });
+                    plan.graph.update_edge(
+                        node,
+                        resource_node,
+                        AttachResourcesPlanEdge::InternalIndirectResource(resource),
+                    );
+                }
+            }
+            Artifact::Symlink { target } => {
+                // Get the path this symlink is referencing
+                let mut target_path = subpath.clone();
+                target_path.extend_from_slice(b"/../");
+                target_path.extend_from_slice(&target);
+                let target_path = crate::fs_utils::logical_path_bytes(&target_path).ok();
+
+                // If the symlink target is valid within the current directory,
+                // get the artifact it's referencing
+                let target_artifact_with_path = match target_path {
+                    Some(target_path) => {
+                        let target_artifact = directory.get(brioche, &target_path).await?;
+                        target_artifact.map(|artifact| (artifact, bstr::BString::new(target_path)))
+                    }
+                    None => None,
+                };
+
+                // If the symlink target was found, add an edge to it
+                if let Some((target_artifact, target_path)) = target_artifact_with_path {
+                    let target_node = *plan
+                        .paths_to_nodes
+                        .entry(target_path.clone())
+                        .or_insert_with(|| {
+                            plan.graph.add_node(AttachResourcesPlanNode {
+                                kind: ArtifactDiscriminants::from(&target_artifact),
+                                path: target_path.clone(),
+                            })
+                        });
+                    plan.graph.update_edge(
+                        node,
+                        target_node,
+                        AttachResourcesPlanEdge::SymlinkTarget,
+                    );
+                }
+            }
+            Artifact::Directory(subdirectory) => {
+                let entries = subdirectory.entries(brioche).await?;
+
+                // Add an edge for each subdirectory entry, and enqueue
+                // each entry so we include them in the plan too
+                for (name, entry) in entries {
+                    let mut entry_subpath = subpath.clone();
+                    entry_subpath.extend_from_slice(b"/");
+                    entry_subpath.extend_from_slice(&name);
+
+                    let entry_node = *plan
+                        .paths_to_nodes
+                        .entry(entry_subpath.clone())
+                        .or_insert_with(|| {
+                            plan.graph.add_node(AttachResourcesPlanNode {
+                                path: entry_subpath.clone(),
+                                kind: ArtifactDiscriminants::from(&entry),
+                            })
+                        });
+
+                    plan.graph.update_edge(
+                        node,
+                        entry_node,
+                        AttachResourcesPlanEdge::DirectoryEntry,
+                    );
+
+                    queue.push_back((entry_subpath, entry));
+                }
+            }
+        }
+    }
+
+    Ok(plan)
+}
+
+/// Resolve all the resources needed by a file within the given directory.
+/// Each resource will be resolved by traversing up the directory, or
+/// must already be present within the file's resources.
+async fn resolve_internal_file_resources(
+    brioche: &Brioche,
+    directory: &Directory,
+    subpath: &[u8],
     file: &crate::recipe::File,
-    entry_subpath: &[&bstr::BStr],
-    resource_dirs: &[Directory],
-) -> anyhow::Result<Directory> {
-    let entry_subpath = entry_subpath.iter().join_with("/");
+) -> anyhow::Result<Vec<ResolvedResourcePath>> {
+    let subpath = bstr::BStr::new(subpath);
+
+    // Get the file's blob
     let blob_path = crate::blob::blob_path(
         brioche,
         &mut crate::blob::get_save_blob_permit().await?,
@@ -124,7 +313,8 @@ async fn file_resources_to_attach(
     )
     .await?;
 
-    // Get any referenced resource paths from the pack, if any
+    // Try to extract a pack from the file's blob, and get its resource paths
+    // if it has any
     let extracted = tokio::task::spawn_blocking(move || {
         let file = std::fs::File::open(blob_path)?;
         let extracted = brioche_pack::extract_pack(file).ok();
@@ -133,126 +323,198 @@ async fn file_resources_to_attach(
     })
     .await??;
     let pack = extracted.map(|extracted| extracted.pack);
+    let resource_paths = pack.into_iter().flat_map(|pack| pack.paths());
 
-    let mut visited_resource_paths = HashSet::new();
-    let mut pending_resource_paths: VecDeque<_> = pack
-        .into_iter()
-        .flat_map(|pack| pack.paths())
-        .map(|path| (path, false))
-        .collect();
+    let mut resolved_resource_paths = vec![];
 
-    // Collect all referenced resources
-    let mut file_resources = BTreeMap::new();
-    while let Some((path, is_symlink_target)) = pending_resource_paths.pop_front() {
-        // Skip resource paths we've already visited
-        if !visited_resource_paths.insert(path.clone()) {
+    for resource_path in resource_paths {
+        // Find the resource internally by traversing up the directory
+        let resolved_resource =
+            resolve_internal_resource(brioche, directory, subpath, &resource_path).await?;
+
+        // Get the existing resource attached to the file
+        let existing_resource = file.resources.get(brioche, &resource_path).await?;
+
+        match (resolved_resource, existing_resource) {
+            (Some(resolved), _) => {
+                // We resolved the resource internally, so add it
+                // to the list
+                resolved_resource_paths.push(ResolvedResourcePath {
+                    resource_dir_path: resolved.resource_dir_path.clone(),
+                    resource_path,
+                    resource_kind: ArtifactDiscriminants::from(&resolved.artifact),
+                });
+            }
+            (None, Some(_)) => {
+                // Resource not found internally, but the resource already
+                // exists
+            }
+            (None, None) => {
+                // Resource not found internally and it wasn't already
+                // present on the file!
+                anyhow::bail!("resource `{resource_path}` required by `{subpath}` not found");
+            }
+        }
+    }
+
+    Ok(resolved_resource_paths)
+}
+
+/// From a list of resources, get any additional resources that are
+/// used indirectly (namely, as symlink targets from other resources).
+async fn resolve_indirect_resources(
+    brioche: &Brioche,
+    directory: &Directory,
+    referrer_subpath: &[u8],
+    resources: &[ResolvedResourcePath],
+) -> anyhow::Result<Vec<ResolvedResourcePath>> {
+    let referrer_subpath = bstr::BStr::new(referrer_subpath);
+
+    // Start by visiting each of the provided resources
+    let mut resource_queue: VecDeque<_> = resources.iter().cloned().collect();
+    let mut visited_resources = HashSet::<ResolvedResourcePath>::new();
+    let mut indirect_resources = vec![];
+
+    while let Some(resource) = resource_queue.pop_front() {
+        if !visited_resources.insert(resource.clone()) {
             continue;
         }
 
-        // Get the file's existing resource if it has one
-        let existing_resource = file.resources.get(brioche, &path).await?;
+        // Get the resource artifact
+        let resource_resolved_path = resource.resolved_path();
+        let artifact = directory.get(brioche, &resource_resolved_path).await?;
+        let artifact = artifact.with_context(|| {
+            format!(
+                "failed to get resource `{}` from `{referrer_subpath}`",
+                resource.resource_path
+            )
+        })?;
 
-        // Get the resource from the resource directories to search
-        let mut new_resource = None;
-        for resource_dir in resource_dirs.iter().rev() {
-            if new_resource.is_some() {
-                break;
-            }
-
-            new_resource = resource_dir.get(brioche, &path).await?;
-        }
-
-        // Ensure we found the resource
-        let resource = match (existing_resource, new_resource) {
-            (Some(resource), None) | (None, Some(resource)) => {
-                // If we only found the existing resource or the new resource,
-                // then we have the resource to add
-                resource
-            }
-            (Some(existing), Some(new)) => {
-                // If we found both the existing resource and the new resource,
-                // ensure they match. If they don't, this means that the
-                // new resource path is trying to shadow an existing resource
-                anyhow::ensure!(
-                    existing == new,
-                    "conflicting resource in `{entry_subpath}`: resource `{path}` differs"
-                );
-                existing
-            }
-            (None, None) => {
-                if !is_symlink_target {
-                    // We didn't find the resource anywhere, so return an error.
-                    // NOTE: This is currently more strict than how resources
-                    // are added from a process recipe, so it might make sense
-                    // to loosen this.
-                    anyhow::bail!("resource `{path}` required by `{entry_subpath}` not found");
-                } else {
-                    // Skip broken symlink targets
-                    tracing::debug!(
-                        %entry_subpath,
-                        resource_path = %path,
-                        "symlink points into resource directory but the target could not be found, symlink may be broken"
-                    );
-                    continue;
-                }
-            }
-        };
-
-        match resource {
-            Artifact::File(file) => {
-                // Add the file to the file's resources
-                file_resources.insert(path, WithMeta::without_meta(Artifact::File(file)));
+        match artifact {
+            Artifact::File(_) => {
+                // No indirect resources to get
             }
             Artifact::Symlink { target } => {
-                // Disallow nested symlinks for now so we match
-                // how resources are handled in process recipes.
-                // TODO: Handle nested symlinks
-                if is_symlink_target {
-                    anyhow::bail!("resource `{path}` in `{entry_subpath}` is another symlink, which is not supported");
-                }
+                // Get the resource directory containing the current resource
+                let resource_dir = directory.get(brioche, &resource.resource_dir_path).await?;
+                let Some(Artifact::Directory(resource_dir)) = resource_dir else {
+                    anyhow::bail!(
+                        "failed to get resource directory for resource `{}` from `{referrer_subpath}`",
+                        resource.resource_path,
+                    );
+                };
 
-                // Resolve the symlink path relative to the resource dir
-                let mut target_path = path.clone();
+                // Get the target path relative to the resource directory
+                let mut target_path = resource.resource_path.clone();
                 target_path.extend_from_slice(b"/../");
                 target_path.extend_from_slice(&target);
+                let target_path = crate::fs_utils::logical_path_bytes(&target_path).ok();
 
-                let target_path = crate::fs_utils::logical_path_bytes(&target_path).with_context(|| format!("failed to normalize symlink target `{target}` for resource `{path}` in `{entry_subpath}`"))?;
+                if let Some(target_path) = target_path {
+                    // Try to resolve the target path from the resource
+                    // directory. We check against the resource directory
+                    // directly so we don't traverse outside
+                    let target_path = bstr::BString::new(target_path);
+                    let target_artifact = resource_dir.get(brioche, &target_path).await?;
 
-                // Add the symlink itself as a resource
-                file_resources.insert(
-                    path,
-                    WithMeta::without_meta(Artifact::Symlink {
-                        target: target.clone(),
-                    }),
-                );
+                    match target_artifact {
+                        Some(Artifact::Symlink { .. }) => {
+                            // TODO: Handle nested symlinks
+                            anyhow::bail!(
+                                "target of symlink {} is another symlink, which is not supported",
+                                resource.resource_path,
+                            );
+                        }
+                        Some(target_artifact) => {
+                            // Found a valid symlink target! This is an
+                            // indirect resource
+                            let indirect_resource = ResolvedResourcePath {
+                                resource_dir_path: resource.resource_dir_path.clone(),
+                                resource_path: target_path.clone(),
+                                resource_kind: ArtifactDiscriminants::from(&target_artifact),
+                            };
 
-                // Add the symlink target as a resource path
-                pending_resource_paths.push_back((bstr::BString::from(target_path), true));
+                            // Add it to the list of indirect resources,
+                            // and queue it so we find more indirect resources
+                            indirect_resources.push(indirect_resource.clone());
+                            resource_queue.push_back(indirect_resource);
+                        }
+                        None => {
+                            // Broken symlink, ignore it
+                        }
+                    }
+                }
             }
             Artifact::Directory(directory) => {
-                let entries = directory.entry_hashes();
-
-                // Add an empty directory if there are no sub-entries to add
-                if entries.is_empty() {
-                    file_resources.insert(
-                        path.clone(),
-                        WithMeta::without_meta(Artifact::Directory(Directory::default())),
-                    );
-                }
-
-                // Add each directory entry as a resource
-                for name in entries.keys() {
-                    let mut entry_path = path.clone();
+                // Queue each directory entry to look for more
+                // indirect resources
+                let entries = directory.entries(brioche).await?;
+                for (name, entry) in entries {
+                    let mut entry_path = resource.resource_path.clone();
                     entry_path.extend_from_slice(b"/");
-                    entry_path.extend_from_slice(name);
+                    entry_path.extend_from_slice(&name);
 
-                    pending_resource_paths.push_back((entry_path, is_symlink_target));
+                    resource_queue.push_back(ResolvedResourcePath {
+                        resource_dir_path: resource.resource_dir_path.clone(),
+                        resource_path: entry_path,
+                        resource_kind: ArtifactDiscriminants::from(&entry),
+                    });
                 }
             }
         }
     }
 
-    // Build a directory from all the resources we found
-    let file_resources = Directory::create(brioche, &file_resources).await?;
-    Ok(file_resources)
+    Ok(indirect_resources)
+}
+
+struct ResolvedResource {
+    resource_dir_path: bstr::BString,
+    artifact: Artifact,
+}
+
+/// Find the resource `resource_path` by traversing starting from `subpath`.
+async fn resolve_internal_resource(
+    brioche: &Brioche,
+    directory: &Directory,
+    subpath: &[u8],
+    resource_path: &[u8],
+) -> anyhow::Result<Option<ResolvedResource>> {
+    // Normalize the provided path, and start the search from there
+    let current_path = crate::fs_utils::logical_path_bytes(subpath)?;
+    let mut current_path = bstr::BString::new(current_path);
+
+    loop {
+        // Get the parent directory path
+        let mut parent_path = current_path;
+        parent_path.extend_from_slice(b"/..");
+        let parent_path = crate::fs_utils::logical_path_bytes(&parent_path);
+        let Ok(parent_path) = parent_path else {
+            return Ok(None);
+        };
+        let parent_path = bstr::BString::new(parent_path);
+        current_path = parent_path;
+
+        // Determine the resource directory path to search
+        let mut resource_dir_path = current_path.clone();
+        resource_dir_path.extend_from_slice(b"/brioche-resources.d");
+        let resource_dir_path = crate::fs_utils::logical_path_bytes(&resource_dir_path).ok();
+        let Some(resource_dir_path) = resource_dir_path else {
+            continue;
+        };
+
+        // Try to get the resource directory path if it exists
+        let resource_dir = directory.get(brioche, &resource_dir_path).await?;
+        let Some(Artifact::Directory(resource_dir)) = resource_dir else {
+            continue;
+        };
+
+        let artifact = resource_dir.get(brioche, resource_path).await?;
+        if let Some(artifact) = artifact {
+            // This resource directory contains the resource, so we're done
+            return Ok(Some(ResolvedResource {
+                resource_dir_path: bstr::BString::from(resource_dir_path),
+                artifact,
+            }));
+        }
+    }
 }

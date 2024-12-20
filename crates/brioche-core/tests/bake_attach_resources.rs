@@ -1,3 +1,4 @@
+use assert_matches::assert_matches;
 use pretty_assertions::assert_eq;
 
 use brioche_core::{blob::BlobHash, recipe::Recipe};
@@ -209,7 +210,7 @@ async fn test_bake_attach_resources_add_all_resources() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_bake_attach_resources_remove_unused_resources() -> anyhow::Result<()> {
+async fn test_bake_attach_resources_keep_existing_resources() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test().await;
 
     let foo_blob = brioche_test_support::blob(&brioche, b"foo").await;
@@ -314,41 +315,9 @@ async fn test_bake_attach_resources_remove_unused_resources() -> anyhow::Result<
         recipe: Box::new(without_meta(dir.clone().into())),
     };
 
-    let expected_output = brioche_test_support::dir(
-        &brioche,
-        [
-            ("foo.txt", brioche_test_support::file(foo_blob, false)),
-            ("bar.txt", brioche_test_support::file(bar_blob, true)),
-            ("dir/baz.txt", brioche_test_support::file(baz_blob, false)),
-            (
-                "brioche-resources.d",
-                brioche_test_support::dir(
-                    &brioche,
-                    [
-                        ("fizz/a", brioche_test_support::file(a_blob, false)),
-                        ("fizz/b", brioche_test_support::file(b_blob, true)),
-                        ("fizz/c", brioche_test_support::file(c_blob, false)),
-                        ("buzz/a.txt", brioche_test_support::symlink("../fizz/a")),
-                        (
-                            "buzz/b.txt",
-                            brioche_test_support::symlink("../fizz/broken.txt"),
-                        ),
-                        ("buzz/d.txt", brioche_test_support::symlink("../d.txt")),
-                        ("d.txt", brioche_test_support::file(d_blob, false)),
-                        ("d.lnk", brioche_test_support::symlink("d.txt")),
-                        ("e.txt", brioche_test_support::file(e_blob, false)),
-                        ("e.lnk", brioche_test_support::symlink("e.txt")),
-                    ],
-                )
-                .await,
-            ),
-        ],
-    )
-    .await;
-
     let output = bake_without_meta(&brioche, recipe).await?;
 
-    assert_eq!(output, expected_output);
+    assert_eq!(output, dir);
 
     Ok(())
 }
@@ -664,6 +633,149 @@ async fn test_bake_attach_resources_with_external_resources() -> anyhow::Result<
     let output = bake_without_meta(&brioche, recipe).await?;
 
     assert_eq!(output, expected_output);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bake_attach_resources_with_internal_resources() -> anyhow::Result<()> {
+    let (brioche, _context) = brioche_test().await;
+
+    let top_blob = blob_with_resource_paths(&brioche, b"top", ["fizz"]).await;
+    let fizz_blob = blob_with_resource_paths(&brioche, b"fizz", ["buzz"]).await;
+    let buzz_blob = brioche_test_support::blob(&brioche, b"buzz!").await;
+
+    let dir = brioche_test_support::dir(
+        &brioche,
+        [
+            ("top.txt", brioche_test_support::file(top_blob, false)),
+            (
+                "brioche-resources.d/fizz",
+                brioche_test_support::file(fizz_blob, false),
+            ),
+            (
+                "brioche-resources.d/buzz",
+                brioche_test_support::file(buzz_blob, false),
+            ),
+        ],
+    )
+    .await;
+    let recipe = Recipe::AttachResources {
+        recipe: Box::new(without_meta(dir.clone().into())),
+    };
+
+    let expected_output = brioche_test_support::dir(
+        &brioche,
+        [
+            (
+                "top.txt",
+                brioche_test_support::file_with_resources(
+                    top_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [(
+                            "fizz",
+                            brioche_test_support::file_with_resources(
+                                fizz_blob,
+                                false,
+                                brioche_test_support::dir_value(
+                                    &brioche,
+                                    [("buzz", brioche_test_support::file(buzz_blob, false))],
+                                )
+                                .await,
+                            ),
+                        )],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "brioche-resources.d/fizz",
+                brioche_test_support::file_with_resources(
+                    fizz_blob,
+                    false,
+                    brioche_test_support::dir_value(
+                        &brioche,
+                        [("buzz", brioche_test_support::file(buzz_blob, false))],
+                    )
+                    .await,
+                ),
+            ),
+            (
+                "brioche-resources.d/buzz",
+                brioche_test_support::file(buzz_blob, false),
+            ),
+        ],
+    )
+    .await;
+
+    let output = bake_without_meta(&brioche, recipe).await?;
+
+    assert_eq!(output, expected_output);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bake_attach_resources_with_recursive_resource_error() -> anyhow::Result<()> {
+    let (brioche, _context) = brioche_test().await;
+
+    let top_blob = blob_with_resource_paths(&brioche, b"top", ["fizz"]).await;
+    let fizz_blob = blob_with_resource_paths(&brioche, b"fizz", ["fizz"]).await;
+
+    let dir = brioche_test_support::dir(
+        &brioche,
+        [
+            ("top.txt", brioche_test_support::file(top_blob, false)),
+            (
+                "brioche-resources.d/fizz",
+                brioche_test_support::file(fizz_blob, false),
+            ),
+        ],
+    )
+    .await;
+    let recipe = Recipe::AttachResources {
+        recipe: Box::new(without_meta(dir.clone().into())),
+    };
+
+    let result = bake_without_meta(&brioche, recipe).await;
+
+    assert_matches!(result, Err(_));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_bake_attach_resources_with_mutually_recursive_resource_error() -> anyhow::Result<()> {
+    let (brioche, _context) = brioche_test().await;
+
+    let top_blob = blob_with_resource_paths(&brioche, b"top", ["fizz"]).await;
+    let fizz_blob = blob_with_resource_paths(&brioche, b"fizz", ["buzz"]).await;
+    let buzz_blob = blob_with_resource_paths(&brioche, b"buzz", ["fizz"]).await;
+
+    let dir = brioche_test_support::dir(
+        &brioche,
+        [
+            ("top.txt", brioche_test_support::file(top_blob, false)),
+            (
+                "brioche-resources.d/fizz",
+                brioche_test_support::file(fizz_blob, false),
+            ),
+            (
+                "brioche-resources.d/buzz",
+                brioche_test_support::file(buzz_blob, false),
+            ),
+        ],
+    )
+    .await;
+    let recipe = Recipe::AttachResources {
+        recipe: Box::new(without_meta(dir.clone().into())),
+    };
+
+    let result = bake_without_meta(&brioche, recipe).await;
+
+    assert_matches!(result, Err(_));
 
     Ok(())
 }

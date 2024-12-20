@@ -547,13 +547,7 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
                 anyhow::bail!("tried attaching resources for non-directory artifact");
             };
 
-            attach_resources::attach_resources(
-                brioche,
-                &mut directory,
-                &[],
-                std::borrow::Cow::Borrowed(&[]),
-            )
-            .await?;
+            attach_resources::attach_resources(brioche, &mut directory).await?;
 
             Ok(Artifact::Directory(directory))
         }
