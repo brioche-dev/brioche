@@ -96,7 +96,12 @@ pub enum Recipe {
         file: Box<WithMeta<Recipe>>,
         executable: Option<bool>,
     },
+    #[serde(rename_all = "camelCase")]
     CollectReferences {
+        recipe: Box<WithMeta<Recipe>>,
+    },
+    #[serde(rename_all = "camelCase")]
+    AttachResources {
         recipe: Box<WithMeta<Recipe>>,
     },
     #[serde(rename_all = "camelCase")]
@@ -159,6 +164,7 @@ impl Recipe {
             | Recipe::Glob { .. }
             | Recipe::SetPermissions { .. }
             | Recipe::CollectReferences { .. }
+            | Recipe::AttachResources { .. }
             | Recipe::Proxy(_) => false,
         }
     }
@@ -187,7 +193,7 @@ pub async fn get_recipes(
     // Release the lock
     drop(cached_recipes);
 
-    // Return early if we have no uncached recipess to fetch
+    // Return early if we have no uncached recipes to fetch
     if uncached_recipes.is_empty() {
         return Ok(recipes);
     }
@@ -1044,6 +1050,7 @@ impl TryFrom<Recipe> for Artifact {
             | Recipe::Glob { .. }
             | Recipe::SetPermissions { .. }
             | Recipe::CollectReferences { .. }
+            | Recipe::AttachResources { .. }
             | Recipe::Proxy { .. } => Err(RecipeIncomplete),
         }
     }

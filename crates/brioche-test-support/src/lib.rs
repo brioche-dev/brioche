@@ -133,6 +133,9 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
             Recipe::CollectReferences { recipe } => {
                 recipes.push_back(recipe.value);
             }
+            Recipe::AttachResources { recipe } => {
+                recipes.push_back(recipe.value);
+            }
             Recipe::Proxy(_) => unimplemented!(),
             Recipe::Sync { recipe } => {
                 recipes.push_back(recipe.value);

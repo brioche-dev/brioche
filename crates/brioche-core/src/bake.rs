@@ -20,6 +20,7 @@ use super::{
 
 pub use process::{process_rootfs_recipes, ProcessRootfsRecipes};
 
+mod attach_resources;
 mod collect_references;
 mod download;
 mod process;
@@ -248,7 +249,7 @@ async fn bake_inner(
                     let baked = run_bake(&brioche, recipe.value, &meta).await?;
 
                     // Send expensive recipes to optionally be synced to
-                    // the registry right afer we baked it
+                    // the registry right after we baked it
                     if let Some(input_recipe) = input_recipe {
                         brioche
                             .sync_tx
@@ -537,6 +538,16 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
             };
 
             let directory = collect_references::bake_collect_references(brioche, directory).await?;
+
+            Ok(Artifact::Directory(directory))
+        }
+        Recipe::AttachResources { recipe } => {
+            let artifact = bake(brioche, *recipe, &scope).await?;
+            let Artifact::Directory(mut directory) = artifact.value else {
+                anyhow::bail!("tried attaching resources for non-directory artifact");
+            };
+
+            attach_resources::attach_resources(brioche, &mut directory).await?;
 
             Ok(Artifact::Directory(directory))
         }
