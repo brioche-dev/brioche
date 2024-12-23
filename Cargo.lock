@@ -817,6 +817,7 @@ dependencies = [
  "futures",
  "hex",
  "notify",
+ "openssl",
  "reqwest",
  "serde",
  "serde_json",

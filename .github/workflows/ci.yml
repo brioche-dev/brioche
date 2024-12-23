@@ -73,6 +73,13 @@ jobs:
           - name: x86_64-linux
             runs_on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+          - name: aarch64-linux
+            runs_on: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            features: openssl/vendored
+            install_deps: |
+              sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+              echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> $GITHUB_ENV
           - name: x86_64-macos
             runs_on: macos-14
             target: x86_64-apple-darwin
@@ -83,19 +90,28 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Install dependencies
+        if: matrix.platform.install_deps
+        run: ${{ matrix.platform.install_deps }}
       - name: Install Rust targets
         run: rustup target add "$TARGET"
         env:
           TARGET: ${{ matrix.platform.target }}
       - name: Build Brioche
         run: |
-            cargo build \
-              --all \
-              --bin brioche \
-              --release \
-              --target="$TARGET"
+          extra_args=()
+          if [ -n "$FEATURES" ]; then
+            extra_args+=(--features "$FEATURES")
+          fi
+          cargo build \
+            --all \
+            --bin brioche \
+            --release \
+            --target="$TARGET" \
+            "${extra_args[@]}"
         env:
           TARGET: ${{ matrix.platform.target }}
+          FEATURES: ${{ matrix.platform.features }}
       - name: Prepare artifact
         run: |
           mkdir -p "artifacts/brioche/$PLATFORM/"
@@ -129,6 +145,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: brioche-x86_64-linux
+          path: artifacts/brioche
+      - name: Download artifacts (aarch64-linux)
+        uses: actions/download-artifact@v4
+        with:
+          name: brioche-aarch64-linux
           path: artifacts/brioche
       - name: Download artifacts (x86_64-macos)
         uses: actions/download-artifact@v4
