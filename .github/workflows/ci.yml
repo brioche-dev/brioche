@@ -64,6 +64,10 @@ jobs:
       # more disk space, so much so that it can cause the run to fail
       - name: Run tests
         run: cargo test --all --release
+      - name: Show errors
+        if: always()
+        run: |
+          cat /tmp/brioche-error.log || echo "no error log"
   build:
     name: Build artifacts
     if: github.event_name == 'push'

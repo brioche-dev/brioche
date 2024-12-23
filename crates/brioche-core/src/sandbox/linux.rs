@@ -147,7 +147,16 @@ pub fn run_sandbox(exec: super::SandboxExecutionConfig) -> anyhow::Result<super:
             Ok(())
         };
 
-        move || before_chroot().inspect_err(|error| eprintln!("before_chroot error: {error}"))
+        move || {
+            before_chroot().inspect_err(|error| {
+                use std::io::Write as _;
+                let file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("/tmp/brioche-error.log");
+                let _ = file.and_then(|mut file| writeln!(file, "before_chroot error: {error:#}"));
+            })
+        }
     });
 
     let mut child = command
