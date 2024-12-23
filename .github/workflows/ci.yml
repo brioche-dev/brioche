@@ -13,7 +13,7 @@ concurrency:
 jobs:
   check:
     name: Run checks
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -53,13 +53,20 @@ jobs:
     name: Run tests
     strategy:
       matrix:
-        runs_on:
-          - ubuntu-22.04
-          - macos-14
-    runs-on: ${{ matrix.runs_on }}
+        platform:
+          - runs_on: ubuntu-24.04
+            # Allow unprivileged user namespaces
+            setup: |
+              echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf
+              sudo sysctl --system
+          - runs_on: macos-14
+    runs-on: ${{ matrix.platform.runs_on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Set up runner
+        if: matrix.platform.setup
+        run: ${{ matrix.platform.setup }}
       # Run tests in release mode. Running tests in debug mode uses a lot
       # more disk space, so much so that it can cause the run to fail
       - name: Run tests
@@ -71,10 +78,10 @@ jobs:
       matrix:
         platform:
           - name: x86_64-linux
-            runs_on: ubuntu-22.04
+            runs_on: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
           - name: aarch64-linux
-            runs_on: ubuntu-22.04
+            runs_on: ubuntu-24.04
             target: aarch64-unknown-linux-gnu
             features: openssl/vendored
             install_deps: |
@@ -139,7 +146,7 @@ jobs:
     name: Push artifacts
     if: github.event_name == 'push' && github.repository == 'brioche-dev/brioche'
     needs: [check, test, build]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Download artifacts (x86_64-linux)
         uses: actions/download-artifact@v4
