@@ -291,6 +291,13 @@ pub async fn bake_process(
     meta: &Arc<Meta>,
     process: CompleteProcessRecipe,
 ) -> anyhow::Result<Artifact> {
+    let current_platform = crate::platform::current_platform();
+    anyhow::ensure!(
+        process.platform == current_platform,
+        "tried to bake process for platform {}, but only {current_platform} is supported",
+        process.platform,
+    );
+
     tracing::debug!("acquiring process semaphore permit");
     let _permit = brioche.process_semaphore.acquire().await;
     tracing::debug!("acquired process semaphore permit");
@@ -1345,6 +1352,26 @@ pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRoo
                 file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
                     url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/env_amd64_linux.tar.zstd".parse().unwrap(),
                     hash: crate::Hash::Sha256 { value: hex::decode("8f5b15a9b5c695663ca2caefa0077c3889fcf65793c9a20ceca4ab12c7007453").unwrap() }
+                }))),
+            });
+
+            ProcessRootfsRecipes { sh, env }
+        }
+        crate::platform::Platform::Aarch64Linux => {
+            let sh = Recipe::Unarchive(Unarchive {
+                archive: ArchiveFormat::Tar,
+                compression: CompressionFormat::Zstd,
+                file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                    url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/dash_arm64_linux.tar.zstd".parse().unwrap(),
+                    hash: crate::Hash::Sha256 { value: hex::decode("29ac173dee09ff377fd49d3451a382d79273c79780b8841c9860dfc2d4b353d2").unwrap() }
+                }))),
+            });
+            let env = Recipe::Unarchive(Unarchive {
+                archive: ArchiveFormat::Tar,
+                compression: CompressionFormat::Zstd,
+                file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                    url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/env_arm64_linux.tar.zstd".parse().unwrap(),
+                    hash: crate::Hash::Sha256 { value: hex::decode("0b84d04b2768b6803aee78da8d54393ccbfe8730950b3cc305e8347fff5ad3d7").unwrap() }
                 }))),
             });
 
