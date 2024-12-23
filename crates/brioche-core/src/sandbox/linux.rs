@@ -78,7 +78,7 @@ pub fn run_sandbox(exec: super::SandboxExecutionConfig) -> anyhow::Result<super:
     command.pivot_root(&exec.sandbox_root, &sandbox_host_dir, true);
     command.before_chroot({
         let sandbox_root = exec.sandbox_root.clone();
-        move || {
+        let before_chroot = move || {
             for (path, options) in &host_paths {
                 let path_metadata = path.metadata().map_err(|error| {
                     std::io::Error::new(
@@ -145,7 +145,9 @@ pub fn run_sandbox(exec: super::SandboxExecutionConfig) -> anyhow::Result<super:
                 })?;
 
             Ok(())
-        }
+        };
+
+        move || before_chroot().inspect_err(|error| eprintln!("before_chroot error: {error}"))
     });
 
     let mut child = command
