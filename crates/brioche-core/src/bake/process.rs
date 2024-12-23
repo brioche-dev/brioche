@@ -291,6 +291,13 @@ pub async fn bake_process(
     meta: &Arc<Meta>,
     process: CompleteProcessRecipe,
 ) -> anyhow::Result<Artifact> {
+    let current_platform = crate::platform::current_platform();
+    anyhow::ensure!(
+        process.platform == current_platform,
+        "tried to bake process for platform {}, but only {current_platform} is supported",
+        process.platform,
+    );
+
     tracing::debug!("acquiring process semaphore permit");
     let _permit = brioche.process_semaphore.acquire().await;
     tracing::debug!("acquired process semaphore permit");
