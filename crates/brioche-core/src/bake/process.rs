@@ -1357,5 +1357,25 @@ pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRoo
 
             ProcessRootfsRecipes { sh, env }
         }
+        crate::platform::Platform::Aarch64Linux => {
+            let sh = Recipe::Unarchive(Unarchive {
+                archive: ArchiveFormat::Tar,
+                compression: CompressionFormat::Zstd,
+                file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                    url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/dash_arm64_linux.tar.zstd".parse().unwrap(),
+                    hash: crate::Hash::Sha256 { value: hex::decode("29ac173dee09ff377fd49d3451a382d79273c79780b8841c9860dfc2d4b353d2").unwrap() }
+                }))),
+            });
+            let env = Recipe::Unarchive(Unarchive {
+                archive: ArchiveFormat::Tar,
+                compression: CompressionFormat::Zstd,
+                file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                    url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/env_arm64_linux.tar.zstd".parse().unwrap(),
+                    hash: crate::Hash::Sha256 { value: hex::decode("0b84d04b2768b6803aee78da8d54393ccbfe8730950b3cc305e8347fff5ad3d7").unwrap() }
+                }))),
+            });
+
+            ProcessRootfsRecipes { sh, env }
+        }
     }
 }
