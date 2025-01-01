@@ -54,6 +54,7 @@ jobs:
     strategy:
       matrix:
         platform:
+          - runs_on: ubuntu-22.04
           - runs_on: ubuntu-24.04
             # Allow unprivileged user namespaces
             setup: |
@@ -78,10 +79,10 @@ jobs:
       matrix:
         platform:
           - name: x86_64-linux
-            runs_on: ubuntu-24.04
+            runs_on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
           - name: aarch64-linux
-            runs_on: ubuntu-24.04
+            runs_on: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
             features: openssl/vendored
             install_deps: |
