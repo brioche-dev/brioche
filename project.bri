@@ -1,0 +1,25 @@
+import * as std from "std";
+import { cargoBuild } from "rust";
+import curl from "curl";
+import caCertificates from "ca_certificates";
+
+export default function (): std.Recipe<std.Directory> {
+  return cargoBuild({
+    source: Brioche.glob(
+      "crates/**/*.rs",
+      "**/Cargo.toml",
+      "Cargo.lock",
+      "crates/brioche-core/.sqlx",
+      "crates/brioche-core/migrations",
+      "crates/brioche-core/runtime",
+    ),
+    path: "crates/brioche",
+    runnable: "bin/brioche",
+
+    // Network access is used for vendoring libraries (e.g. V8)
+    unsafe: {
+      networking: true,
+    },
+    dependencies: [curl(), caCertificates()],
+  });
+}
