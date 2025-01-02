@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use crate::encoding::{AsPath, TickEncoded};
 
-mod linux;
+mod linux_namespace;
 
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -106,7 +106,7 @@ impl From<std::process::ExitStatus> for ExitStatus {
 pub fn run_sandbox(exec: SandboxExecutionConfig) -> anyhow::Result<ExitStatus> {
     cfg_if::cfg_if! {
         if #[cfg(target_os = "linux")] {
-            linux::run_sandbox(exec)
+            linux_namespace::run_sandbox(exec)
         } else {
             let _ = exec;
             anyhow::bail!("process execution is not supported on this platform");
