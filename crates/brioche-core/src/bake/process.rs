@@ -23,8 +23,8 @@ use crate::{
         JobId,
     },
     sandbox::{
-        HostPathMode, SandboxExecutionConfig, SandboxPath, SandboxPathOptions, SandboxTemplate,
-        SandboxTemplateComponent,
+        HostPathMode, SandboxBackend, SandboxExecutionConfig, SandboxPath, SandboxPathOptions,
+        SandboxTemplate, SandboxTemplateComponent,
     },
     Brioche,
 };
@@ -291,6 +291,8 @@ pub async fn bake_process(
     meta: &Arc<Meta>,
     process: CompleteProcessRecipe,
 ) -> anyhow::Result<Artifact> {
+    let backend = crate::sandbox::SandboxBackend::select_backend()?;
+
     let current_platform = crate::platform::current_platform();
     anyhow::ensure!(
         process.platform == current_platform,
@@ -589,6 +591,7 @@ pub async fn bake_process(
     let result = if brioche.self_exec_processes {
         run_sandboxed_self_exec(
             brioche,
+            backend,
             sandbox_config,
             job_id,
             &mut job_status,
@@ -597,7 +600,7 @@ pub async fn bake_process(
         )
         .await
     } else {
-        run_sandboxed_inline(brioche, sandbox_config, job_id, &mut job_status).await
+        run_sandboxed_inline(brioche, backend, sandbox_config, job_id, &mut job_status).await
     };
 
     drop(event_writer_tx);
@@ -657,6 +660,7 @@ impl From<ProcessEvent> for ProcessEventWriterAction {
 
 async fn run_sandboxed_inline(
     brioche: &Brioche,
+    backend: SandboxBackend,
     sandbox_config: SandboxExecutionConfig,
     job_id: JobId,
     job_status: &mut ProcessStatus,
@@ -670,7 +674,8 @@ async fn run_sandboxed_inline(
     );
 
     let status =
-        tokio::task::spawn_blocking(|| crate::sandbox::run_sandbox(sandbox_config)).await??;
+        tokio::task::spawn_blocking(|| crate::sandbox::run_sandbox(backend, sandbox_config))
+            .await??;
 
     anyhow::ensure!(
         status.success(),
@@ -690,6 +695,7 @@ async fn run_sandboxed_inline(
 
 async fn run_sandboxed_self_exec(
     brioche: &Brioche,
+    backend: SandboxBackend,
     sandbox_config: SandboxExecutionConfig,
     job_id: JobId,
     job_status: &mut ProcessStatus,
@@ -700,8 +706,15 @@ async fn run_sandboxed_self_exec(
 
     let sandbox_config = serde_json::to_string(&sandbox_config)?;
     let brioche_exe = std::env::current_exe()?;
+    let backend = serde_json::to_string(&backend)?;
     let mut child = tokio::process::Command::new(brioche_exe)
-        .args(["run-sandbox", "--config", &sandbox_config])
+        .args([
+            "run-sandbox",
+            "--backend",
+            &backend,
+            "--config",
+            &sandbox_config,
+        ])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

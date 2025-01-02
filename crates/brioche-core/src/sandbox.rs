@@ -4,6 +4,26 @@ use crate::encoding::{AsPath, TickEncoded};
 
 mod linux_namespace;
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxBackend {
+    #[cfg(target_os = "linux")]
+    LinuxNamespace,
+}
+
+impl SandboxBackend {
+    pub fn select_backend() -> anyhow::Result<Self> {
+        cfg_if::cfg_if! {
+            if #[cfg(target_os = "linux")] {
+                Ok(Self::LinuxNamespace)
+            } else {
+                let _ = exec;
+                anyhow::bail!("process execution is not supported on this platform");
+            }
+        }
+    }
+}
+
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -103,13 +123,12 @@ impl From<std::process::ExitStatus> for ExitStatus {
     }
 }
 
-pub fn run_sandbox(exec: SandboxExecutionConfig) -> anyhow::Result<ExitStatus> {
-    cfg_if::cfg_if! {
-        if #[cfg(target_os = "linux")] {
-            linux_namespace::run_sandbox(exec)
-        } else {
-            let _ = exec;
-            anyhow::bail!("process execution is not supported on this platform");
-        }
+pub fn run_sandbox(
+    backend: SandboxBackend,
+    exec: SandboxExecutionConfig,
+) -> anyhow::Result<ExitStatus> {
+    match backend {
+        #[cfg(target_os = "linux")]
+        SandboxBackend::LinuxNamespace => linux_namespace::run_sandbox(exec),
     }
 }
