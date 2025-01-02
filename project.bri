@@ -1,18 +1,32 @@
 import * as std from "std";
-import { cargoBuild } from "rust";
+import rust, { cargoBuild, vendorCrate } from "rust";
 import curl from "curl";
 import caCertificates from "ca_certificates";
+import nodejs, { npmInstall } from "nodejs";
+import { gitCheckout } from "git";
+import openssl from "openssl";
 
 export default function (): std.Recipe<std.Directory> {
+  let source = Brioche.glob(
+    "crates/**/*.rs",
+    "**/Cargo.toml",
+    "Cargo.lock",
+    "crates/brioche-core/.sqlx",
+    "crates/brioche-core/migrations",
+    "crates/brioche-core/runtime/package.json",
+    "crates/brioche-core/runtime/package-lock.json",
+    "crates/brioche-core/runtime/tsconfig.json",
+    "crates/brioche-core/runtime/build.ts",
+    "crates/brioche-core/runtime/src",
+    "crates/brioche-core/runtime/tslib",
+    "crates/brioche-core/runtime/dist",
+    "**/Makefile",
+  );
+  source = validateRuntime(source);
+  source = validateSqlxMetadata(source);
+
   return cargoBuild({
-    source: Brioche.glob(
-      "crates/**/*.rs",
-      "**/Cargo.toml",
-      "Cargo.lock",
-      "crates/brioche-core/.sqlx",
-      "crates/brioche-core/migrations",
-      "crates/brioche-core/runtime",
-    ),
+    source,
     path: "crates/brioche",
     runnable: "bin/brioche",
 
@@ -22,4 +36,94 @@ export default function (): std.Recipe<std.Directory> {
     },
     dependencies: [curl(), caCertificates()],
   });
+}
+
+function validateSqlxMetadata(
+  source: std.Recipe<std.Directory>,
+): std.Recipe<std.Directory> {
+  const vendoredSource = vendorCrate({ source });
+
+  // Run `make check-db-schema` to ensure the database schema is up-to-date.
+  return validate({
+    recipe: source,
+    validation: std.runBash`
+      make check-db-schema
+    `
+      .workDir(vendoredSource)
+      .dependencies(
+        rust(),
+        sqlxCli(),
+        std.toolchain(),
+        curl(),
+        caCertificates(),
+      )
+      .unsafe({ networking: true })
+      .outputScaffold(std.directory())
+      .toDirectory(),
+  });
+}
+
+function validateRuntime(
+  source: std.Recipe<std.Directory>,
+): std.Recipe<std.Directory> {
+  return validate({
+    recipe: source,
+    validation: std.runBash`
+      if ! diff -r "$current_runtime" "$runtime"; then
+        echo "Error: 'crates/brioche-core/runtime/dist' does not match!" >&2
+        exit 1
+      fi
+    `
+      .env({
+        current_runtime: source.get("crates/brioche-core/runtime/dist"),
+        runtime: runtime(),
+      })
+      .outputScaffold(std.directory())
+      .toDirectory(),
+  });
+}
+
+export function runtime(): std.Recipe<std.Directory> {
+  const source = Brioche.glob(
+    "crates/brioche-core/runtime/package.json",
+    "crates/brioche-core/runtime/package-lock.json",
+    "crates/brioche-core/runtime/tsconfig.json",
+    "crates/brioche-core/runtime/build.ts",
+    "crates/brioche-core/runtime/src",
+    "crates/brioche-core/runtime/tslib",
+  ).peel(3);
+  const npmPackage = npmInstall({ source });
+
+  return std.runBash`
+    npm run build
+    mv dist "$BRIOCHE_OUTPUT"
+  `
+    .dependencies(nodejs())
+    .workDir(npmPackage)
+    .toDirectory();
+}
+
+export function sqlxCli() {
+  const source = gitCheckout(
+    Brioche.gitRef({
+      repository: "https://github.com/launchbadge/sqlx.git",
+      ref: "v0.7.4",
+    }),
+  );
+
+  return cargoBuild({
+    source,
+    path: "sqlx-cli",
+    dependencies: [openssl()],
+    runnable: "bin/sqlx",
+  });
+}
+
+interface ValidateOptions {
+  recipe: std.Recipe<std.Directory>;
+  validation: std.Recipe<std.Directory>;
+}
+
+function validate(options: ValidateOptions): std.Recipe<std.Directory> {
+  return std.merge(options.validation, options.recipe);
 }
