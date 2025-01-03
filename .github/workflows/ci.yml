@@ -143,10 +143,43 @@ jobs:
           name: brioche-${{ matrix.platform.name }}
           if-no-files-found: error
           path: artifacts/brioche
+  build-packed:
+    name: Build packed artifacts
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install Brioche
+        uses: brioche-dev/setup-brioche@v1
+      - name: Build Brioche
+        run: brioche build -o "brioche-packed-$PLATFORM"
+        env:
+          PLATFORM: x86_64-linux
+      - name: Prepare artifact
+        run: |
+          mkdir -p "artifacts/brioche-packed/$PLATFORM"
+          tar -czf "artifacts/brioche-packed/$PLATFORM/brioche-packed-$PLATFORM.tar.gz" "brioche-packed-$PLATFORM"
+
+          if command -v sha256sum &> /dev/null; then
+            find artifacts/ -type f | xargs sha256sum
+          fi
+
+          if command -v tree &> /dev/null; then
+            tree --du -h artifacts/brioche-packed
+          fi
+        env:
+          PLATFORM: x86_64-linux
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: brioche-packed-x86_64-linux
+          if-no-files-found: error
+          path: artifacts/brioche-packed
   push:
     name: Push artifacts
     if: github.event_name == 'push' && github.repository == 'brioche-dev/brioche'
-    needs: [check, test, build]
+    needs: [check, test, build, build-packed]
     runs-on: ubuntu-24.04
     steps:
       - name: Download artifacts (x86_64-linux)
@@ -169,11 +202,17 @@ jobs:
         with:
           name: brioche-aarch64-macos
           path: artifacts/brioche
+      - name: Download artifacts (x86_64-linux packed)
+        uses: actions/download-artifact@v4
+        with:
+          name: brioche-aarch64-macos
+          path: artifacts/brioche-packed
       # Upload the Brioche build for the current branch
       - name: Prepare upload
         run: |
-          mkdir -p artifacts/uploads/branch
+          mkdir -p artifacts/uploads/branch/brioche-packed
           cp -r artifacts/brioche/* artifacts/uploads/branch/
+          cp -r artifacts/brioche-packed/* artifacts/uploads/branch/brioche-packed/
 
           if command -v tree &> /dev/null; then
             tree --du -h artifacts/uploads/branch
