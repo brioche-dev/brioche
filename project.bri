@@ -1,0 +1,162 @@
+import * as std from "std";
+import rust, { cargoBuild, vendorCrate } from "rust";
+import curl from "curl";
+import caCertificates from "ca_certificates";
+import nodejs, { npmInstall } from "nodejs";
+import { gitCheckout } from "git";
+import openssl from "openssl";
+
+/**
+ * Returns a recipe to build Brioche itself.
+ */
+export default function (): std.Recipe<std.Directory> {
+  let source = Brioche.glob(
+    // Cargo project files
+    "crates/**/*.rs",
+    "**/Cargo.toml",
+    "Cargo.lock",
+
+    // SQLx files
+    "crates/brioche-core/.sqlx",
+    "crates/brioche-core/migrations",
+
+    // JS runtime files
+    "crates/brioche-core/runtime/package.json",
+    "crates/brioche-core/runtime/package-lock.json",
+    "crates/brioche-core/runtime/tsconfig.json",
+    "crates/brioche-core/runtime/build.ts",
+    "crates/brioche-core/runtime/src",
+    "crates/brioche-core/runtime/tslib",
+    "crates/brioche-core/runtime/dist",
+
+    // Makefiles for miscellaneous tasks
+    "**/Makefile",
+  );
+  source = validateRuntime(source);
+  source = validateSqlxMetadata(source);
+
+  return cargoBuild({
+    source,
+    path: "crates/brioche",
+    runnable: "bin/brioche",
+
+    // Network access is used for vendoring libraries (e.g. V8)
+    unsafe: {
+      networking: true,
+    },
+    dependencies: [curl(), caCertificates()],
+  });
+}
+
+/**
+ * Use the SQLx CLI to validate that the prepared SQLx metadata is up-to-date
+ * with all of the database migrations and queries.
+ */
+function validateSqlxMetadata(
+  source: std.Recipe<std.Directory>,
+): std.Recipe<std.Directory> {
+  const vendoredSource = vendorCrate({ source });
+
+  // Run `make check-db-schema` to ensure the database schema is up-to-date.
+  return validate({
+    recipe: source,
+    validation: std.runBash`
+      make check-db-schema
+    `
+      .workDir(vendoredSource)
+      .dependencies(
+        rust(),
+        sqlxCli(),
+        std.toolchain(),
+        curl(),
+        caCertificates(),
+      )
+      .unsafe({ networking: true })
+      .outputScaffold(std.directory())
+      .toDirectory(),
+  });
+}
+
+/**
+ * Validate that the source of the JS runtime project under
+ * `crates/brioche-core/runtime` matches the output `dist/` directory.
+ * This ensures the source and build don't go out of sync.
+ */
+function validateRuntime(
+  source: std.Recipe<std.Directory>,
+): std.Recipe<std.Directory> {
+  return validate({
+    recipe: source,
+    validation: std.runBash`
+      if ! diff -r "$current_runtime" "$runtime"; then
+        echo "Error: 'crates/brioche-core/runtime/dist' does not match!" >&2
+        exit 1
+      fi
+    `
+      .env({
+        current_runtime: source.get("crates/brioche-core/runtime/dist"),
+        runtime: runtime(),
+      })
+      .outputScaffold(std.directory())
+      .toDirectory(),
+  });
+}
+
+/**
+ * Build the JS runtime project under `crates/brioche-core/runtime`. Returns
+ * the built directory, which is expected to be stored under the directory
+ * `crates/brioche-core/runtime/dist`.
+ */
+export function runtime(): std.Recipe<std.Directory> {
+  const source = Brioche.glob(
+    "crates/brioche-core/runtime/package.json",
+    "crates/brioche-core/runtime/package-lock.json",
+    "crates/brioche-core/runtime/tsconfig.json",
+    "crates/brioche-core/runtime/build.ts",
+    "crates/brioche-core/runtime/src",
+    "crates/brioche-core/runtime/tslib",
+  ).peel(3);
+  const npmPackage = npmInstall({ source });
+
+  return std.runBash`
+    npm run build
+    mv dist "$BRIOCHE_OUTPUT"
+  `
+    .dependencies(nodejs())
+    .workDir(npmPackage)
+    .toDirectory();
+}
+
+export function sqlxCli() {
+  const source = gitCheckout(
+    Brioche.gitRef({
+      repository: "https://github.com/launchbadge/sqlx.git",
+      ref: "v0.7.4",
+    }),
+  );
+
+  return cargoBuild({
+    source,
+    path: "sqlx-cli",
+    dependencies: [openssl()],
+    runnable: "bin/sqlx",
+  });
+}
+
+interface ValidateOptions {
+  recipe: std.Recipe<std.Directory>;
+  validation: std.Recipe<std.Directory>;
+}
+
+/**
+ * Add a validation to a recipe. When the recipe is baked, the validation
+ * will also be baked, and will fail if the validation fails. The validation
+ * should be a process recipe that returns an empty directory on success.
+ *
+ * Internally, this just merges the validation and recipe results together.
+ * This results in a new recipe that depends on both the original recipe
+ * and the validation.
+ */
+function validate(options: ValidateOptions): std.Recipe<std.Directory> {
+  return std.merge(options.validation, options.recipe);
+}

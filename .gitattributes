@@ -1,1 +1,4 @@
+*.bri linguist-language=TypeScript
+brioche.lock linguist-generated
 crates/brioche/runtime/dist/** linguist-generated
+**/.sqlx/query-*.json linguist-generated
