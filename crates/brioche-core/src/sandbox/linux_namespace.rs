@@ -9,11 +9,22 @@ use super::{
     SandboxTemplateComponent,
 };
 
-pub fn run_sandbox(exec: super::SandboxExecutionConfig) -> anyhow::Result<super::ExitStatus> {
-    let mut host_paths = exec.include_host_paths;
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum MountStyle {
+    Namespace,
+    PRoot { proot_path: PathBuf },
+}
 
-    let sandbox_host_dir = exec.sandbox_root.join("mnt").join("brioche-host");
-    std::fs::create_dir_all(&sandbox_host_dir)?;
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LinuxNamespaceSandbox {
+    pub mount_style: MountStyle,
+}
+
+pub fn run_sandbox(
+    sandbox: LinuxNamespaceSandbox,
+    exec: super::SandboxExecutionConfig,
+) -> anyhow::Result<super::ExitStatus> {
+    let mut host_paths = exec.include_host_paths;
 
     let program = build_template(&exec.command, &mut host_paths)?;
     let args = exec
@@ -31,122 +42,173 @@ pub fn run_sandbox(exec: super::SandboxExecutionConfig) -> anyhow::Result<super:
         })
         .collect::<anyhow::Result<HashMap<_, _>>>()?;
 
-    let mut command = unshare::Command::new(program);
-    command.args(&args);
-    command.env_clear();
-    command.envs(env);
-
     let current_dir = build_template(
         &SandboxTemplate {
             components: vec![SandboxTemplateComponent::Path(exec.current_dir.clone())],
         },
         &mut host_paths,
     )?;
-    command.current_dir(current_dir);
 
-    let host_uid = nix::unistd::Uid::current().as_raw();
-    let host_gid = nix::unistd::Gid::current().as_raw();
-    command.set_id_maps(
-        vec![unshare::UidMap {
-            inside_uid: exec.uid_hint,
-            outside_uid: host_uid,
-            count: 1,
-        }],
-        vec![unshare::GidMap {
-            inside_gid: exec.gid_hint,
-            outside_gid: host_gid,
-            count: 1,
-        }],
-    );
-    command.uid(exec.uid_hint);
-    command.gid(exec.gid_hint);
-    command.deny_setgroups(true);
+    let mut unshare_namespaces = vec![unshare::Namespace::User];
 
-    // Only unshare the network namespace if networking is disabled
-    let unshare_net = Some(&unshare::Namespace::Net).filter(|_| !exec.networking);
+    // Unshare the network namespace if networking is disabled
+    if !exec.networking {
+        unshare_namespaces.push(unshare::Namespace::Net);
+    }
 
-    let unshare_namespaces = [
-        Some(&unshare::Namespace::Mount),
-        Some(&unshare::Namespace::User),
-        unshare_net,
-    ]
-    .into_iter()
-    .flatten();
+    let mut command: unshare::Command;
+    match sandbox.mount_style {
+        MountStyle::Namespace => {
+            unshare_namespaces.push(unshare::Namespace::Mount);
 
-    command.unshare(unshare_namespaces);
+            command = unshare::Command::new(program);
+            command.args(&args);
+            command.env_clear();
+            command.envs(env);
+            command.current_dir(current_dir);
 
-    command.pivot_root(&exec.sandbox_root, &sandbox_host_dir, true);
-    command.before_chroot({
-        let sandbox_root = exec.sandbox_root.clone();
-        move || {
-            for (path, options) in &host_paths {
-                let path_metadata = path.metadata().map_err(|error| {
-                    std::io::Error::new(
-                        error.kind(),
-                        format!(
-                            "error getting metadata for path {}: {error}",
-                            path.display()
-                        ),
-                    )
-                })?;
+            let host_uid = nix::unistd::Uid::current().as_raw();
+            let host_gid = nix::unistd::Gid::current().as_raw();
+            command.set_id_maps(
+                vec![unshare::UidMap {
+                    inside_uid: exec.uid_hint,
+                    outside_uid: host_uid,
+                    count: 1,
+                }],
+                vec![unshare::GidMap {
+                    inside_gid: exec.gid_hint,
+                    outside_gid: host_gid,
+                    count: 1,
+                }],
+            );
+            command.uid(exec.uid_hint);
+            command.gid(exec.gid_hint);
+            command.deny_setgroups(true);
+            command.unshare(&unshare_namespaces);
 
-                let guest_path = options.guest_path_hint.to_path().map_err(|_| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "invalid guest path")
-                })?;
-                let guest_path_under_root = guest_path.strip_prefix("/").map_err(|error| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("invalid guest path: {error}"),
-                    )
-                })?;
-                let dest_path = sandbox_root.join(guest_path_under_root);
+            let sandbox_host_dir = exec.sandbox_root.join("mnt").join("brioche-host");
+            std::fs::create_dir_all(&sandbox_host_dir)?;
 
-                // Create either an empty file or directory as the mountpoint
-                if path_metadata.is_dir() {
-                    std::fs::create_dir_all(&dest_path)?;
-                } else {
-                    if let Some(dest_parent) = dest_path.parent() {
-                        std::fs::create_dir_all(dest_parent)?;
+            command.pivot_root(&exec.sandbox_root, &sandbox_host_dir, true);
+            command.before_chroot({
+                let sandbox_root = exec.sandbox_root.clone();
+                move || {
+                    for (path, options) in &host_paths {
+                        let path_metadata = path.metadata().map_err(|error| {
+                            std::io::Error::new(
+                                error.kind(),
+                                format!(
+                                    "error getting metadata for path {}: {error}",
+                                    path.display()
+                                ),
+                            )
+                        })?;
+
+                        let guest_path = options.guest_path_hint.to_path().map_err(|_| {
+                            std::io::Error::new(std::io::ErrorKind::Other, "invalid guest path")
+                        })?;
+                        let guest_path_under_root =
+                            guest_path.strip_prefix("/").map_err(|error| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    format!("invalid guest path: {error}"),
+                                )
+                            })?;
+                        let dest_path = sandbox_root.join(guest_path_under_root);
+
+                        // Create either an empty file or directory as the mountpoint
+                        if path_metadata.is_dir() {
+                            std::fs::create_dir_all(&dest_path)?;
+                        } else {
+                            if let Some(dest_parent) = dest_path.parent() {
+                                std::fs::create_dir_all(dest_parent)?;
+                            }
+
+                            std::fs::write(&dest_path, "")?;
+                        }
+
+                        let readonly = match options.mode {
+                            HostPathMode::Read => true,
+                            HostPathMode::ReadWriteCreate => false,
+                        };
+
+                        libmount::BindMount::new(path, &dest_path)
+                            .readonly(readonly)
+                            .recursive(true)
+                            .mount()
+                            .map_err(|error| {
+                                std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    format!(
+                                        "failed to mount {} -> {}: {error}",
+                                        path.display(),
+                                        dest_path.display()
+                                    ),
+                                )
+                            })?;
                     }
 
-                    std::fs::write(&dest_path, "")?;
+                    libmount::BindMount::new(&sandbox_root, &sandbox_root)
+                        .recursive(true)
+                        .readonly(true)
+                        .mount()
+                        .map_err(|error| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                format!("failed to remount rootfs: {error}"),
+                            )
+                        })?;
+
+                    Ok(())
                 }
+            });
+        }
+        MountStyle::PRoot { proot_path } => {
+            command = unshare::Command::new(proot_path);
 
-                let readonly = match options.mode {
-                    HostPathMode::Read => true,
-                    HostPathMode::ReadWriteCreate => false,
-                };
+            command.arg("--kill-on-exit");
 
-                libmount::BindMount::new(path, &dest_path)
-                    .readonly(readonly)
-                    .recursive(true)
-                    .mount()
-                    .map_err(|error| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::Other,
-                            format!(
-                                "failed to mount {} -> {}: {error}",
-                                path.display(),
-                                dest_path.display()
-                            ),
-                        )
-                    })?;
+            command.arg("-r");
+            command.arg(exec.sandbox_root);
+
+            command.arg("-w");
+            command.arg(&current_dir);
+
+            for (host_path, options) in host_paths {
+                let mut arg = std::ffi::OsString::from("--bind=");
+                arg.push(host_path);
+                arg.push(":");
+                arg.push(options.guest_path_hint.to_os_str()?);
+                arg.push("!");
+
+                command.arg(arg);
             }
 
-            libmount::BindMount::new(&sandbox_root, &sandbox_root)
-                .recursive(true)
-                .readonly(true)
-                .mount()
-                .map_err(|error| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("failed to remount rootfs: {error}"),
-                    )
-                })?;
+            command.arg(&program);
+            command.args(&args);
+            command.env_clear();
+            command.envs(env);
 
-            Ok(())
+            let host_uid = nix::unistd::Uid::current().as_raw();
+            let host_gid = nix::unistd::Gid::current().as_raw();
+            command.set_id_maps(
+                vec![unshare::UidMap {
+                    inside_uid: exec.uid_hint,
+                    outside_uid: host_uid,
+                    count: 1,
+                }],
+                vec![unshare::GidMap {
+                    inside_gid: exec.gid_hint,
+                    outside_gid: host_gid,
+                    count: 1,
+                }],
+            );
+            command.uid(exec.uid_hint);
+            command.gid(exec.gid_hint);
+            command.deny_setgroups(true);
+            command.unshare(&unshare_namespaces);
         }
-    });
+    };
 
     let mut child = command
         .spawn()

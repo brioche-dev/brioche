@@ -8,14 +8,16 @@ mod linux_namespace;
 #[serde(rename_all = "snake_case")]
 pub enum SandboxBackend {
     #[cfg(target_os = "linux")]
-    LinuxNamespace,
+    LinuxNamespace(linux_namespace::LinuxNamespaceSandbox),
 }
 
 impl SandboxBackend {
     pub fn select_backend() -> anyhow::Result<Self> {
         cfg_if::cfg_if! {
             if #[cfg(target_os = "linux")] {
-                Ok(Self::LinuxNamespace)
+                Ok(Self::LinuxNamespace(linux_namespace::LinuxNamespaceSandbox {
+                    mount_style: linux_namespace::MountStyle::Namespace,
+                }))
             } else {
                 let _ = exec;
                 anyhow::bail!("process execution is not supported on this platform");
@@ -129,6 +131,6 @@ pub fn run_sandbox(
 ) -> anyhow::Result<ExitStatus> {
     match backend {
         #[cfg(target_os = "linux")]
-        SandboxBackend::LinuxNamespace => linux_namespace::run_sandbox(exec),
+        SandboxBackend::LinuxNamespace(sandbox) => linux_namespace::run_sandbox(sandbox, exec),
     }
 }
