@@ -2,28 +2,13 @@ use std::{collections::HashMap, path::PathBuf};
 
 use crate::encoding::{AsPath, TickEncoded};
 
-mod linux_namespace;
+pub mod linux_namespace;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxBackend {
     #[cfg(target_os = "linux")]
     LinuxNamespace(linux_namespace::LinuxNamespaceSandbox),
-}
-
-impl SandboxBackend {
-    pub fn select_backend() -> anyhow::Result<Self> {
-        cfg_if::cfg_if! {
-            if #[cfg(target_os = "linux")] {
-                Ok(Self::LinuxNamespace(linux_namespace::LinuxNamespaceSandbox {
-                    mount_style: linux_namespace::MountStyle::Namespace,
-                }))
-            } else {
-                let _ = exec;
-                anyhow::bail!("process execution is not supported on this platform");
-            }
-        }
-    }
 }
 
 #[serde_with::serde_as]

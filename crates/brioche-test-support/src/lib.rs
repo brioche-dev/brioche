@@ -65,10 +65,10 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
     static FILES: OnceLock<Mutex<HashMap<DownloadRecipe, Mutex<tokio::fs::File>>>> =
         OnceLock::new();
 
-    let brioche_core::bake::ProcessRootfsRecipes { sh, env } =
+    let brioche_core::bake::ProcessRootfsRecipes { sh, env, utils } =
         brioche_core::bake::process_rootfs_recipes(platform);
 
-    brioche_core::recipe::save_recipes(brioche, vec![sh.clone(), env.clone()])
+    brioche_core::recipe::save_recipes(brioche, vec![sh.clone(), env.clone(), utils.clone()])
         .await
         .unwrap();
 

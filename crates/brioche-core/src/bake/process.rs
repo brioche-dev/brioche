@@ -291,14 +291,13 @@ pub async fn bake_process(
     meta: &Arc<Meta>,
     process: CompleteProcessRecipe,
 ) -> anyhow::Result<Artifact> {
-    let backend = crate::sandbox::SandboxBackend::select_backend()?;
-
     let current_platform = crate::platform::current_platform();
     anyhow::ensure!(
         process.platform == current_platform,
         "tried to bake process for platform {}, but only {current_platform} is supported",
         process.platform,
     );
+    let backend = sandbox_backend(brioche, process.platform).await?;
 
     tracing::debug!("acquiring process semaphore permit");
     let _permit = brioche.process_semaphore.acquire().await;
@@ -1242,6 +1241,295 @@ async fn append_dependency_envs(
     Ok(())
 }
 
+async fn sandbox_backend(
+    brioche: &Brioche,
+    platform: crate::platform::Platform,
+) -> anyhow::Result<SandboxBackend> {
+    let backend = brioche
+        .sandbox_backend
+        .get_or_try_init(|| select_sandbox_backend(brioche, platform))
+        .await?;
+    Ok(backend.clone())
+}
+
+#[tracing::instrument(skip(brioche))]
+async fn select_sandbox_backend(
+    brioche: &Brioche,
+    platform: crate::platform::Platform,
+) -> anyhow::Result<SandboxBackend> {
+    let rootfs_recipes = process_rootfs_recipes(platform);
+
+    tracing::debug!("resolving rootfs sh/env dependencies");
+    let rootfs_artifacts = super::bake(
+        brioche,
+        WithMeta::without_meta(Recipe::Merge {
+            directories: vec![
+                WithMeta::without_meta(rootfs_recipes.sh),
+                WithMeta::without_meta(rootfs_recipes.env),
+                WithMeta::without_meta(rootfs_recipes.utils),
+            ],
+        }),
+        &super::BakeScope::Anonymous,
+    )
+    .await?;
+    let rootfs_recipes_output =
+        crate::output::create_local_output(brioche, &rootfs_artifacts.value).await?;
+
+    let start = std::time::Instant::now();
+    tracing::trace!("finding sandbox backend");
+
+    let temp_dir = brioche
+        .home
+        .join("process-temp")
+        .join(format!("{}-setup", ulid::Ulid::new()));
+    let bake_dir = BakeDir::create(temp_dir).await?;
+
+    let root_dir = bake_dir.path().join("root");
+    tokio::fs::create_dir(&root_dir).await?;
+    let outputs_dir = bake_dir.path().join("outputs");
+    tokio::fs::create_dir(&outputs_dir).await?;
+    let work_dir = bake_dir.path().join("work");
+    tokio::fs::create_dir(&work_dir).await?;
+
+    let output_path = outputs_dir.join("output");
+    let rootfs_recipes_sandbox_path = SandboxPath {
+        host_path: rootfs_recipes_output.path,
+        options: SandboxPathOptions {
+            mode: HostPathMode::Read,
+            guest_path_hint: bstr::BString::from("/rootfs-recipes"),
+        },
+    };
+    let mut sandbox_config_env = HashMap::from_iter([
+        (
+            "PATH".into(),
+            SandboxTemplate {
+                components: vec![
+                    SandboxTemplateComponent::Path(rootfs_recipes_sandbox_path.clone()),
+                    SandboxTemplateComponent::Literal {
+                        value: "/bin".into(),
+                    },
+                ],
+            },
+        ),
+        (
+            "BRIOCHE_OUTPUT".into(),
+            SandboxTemplate {
+                components: vec![
+                    SandboxTemplateComponent::Path(SandboxPath {
+                        host_path: outputs_dir,
+                        options: SandboxPathOptions {
+                            guest_path_hint: "/outputs".into(),
+                            mode: HostPathMode::ReadWriteCreate,
+                        },
+                    }),
+                    SandboxTemplateComponent::Literal {
+                        value: "/output".into(),
+                    },
+                ],
+            },
+        ),
+    ]);
+    if let Some(resource_dir) = rootfs_recipes_output.resource_dir {
+        sandbox_config_env.insert(
+            "BRIOCHE_INPUT_RESOURCE_DIRS".into(),
+            SandboxTemplate {
+                components: vec![SandboxTemplateComponent::Path(SandboxPath {
+                    host_path: resource_dir,
+                    options: SandboxPathOptions {
+                        guest_path_hint: "/rootfs-recipes-resources.d".into(),
+                        mode: HostPathMode::ReadWriteCreate,
+                    },
+                })],
+            },
+        );
+    }
+
+    let sandbox_config = SandboxExecutionConfig {
+        sandbox_root: root_dir.clone(),
+        include_host_paths: HashMap::from_iter([
+            (
+                PathBuf::from("/dev"),
+                SandboxPathOptions {
+                    mode: HostPathMode::ReadWriteCreate,
+                    guest_path_hint: "/dev".into(),
+                },
+            ),
+            (
+                PathBuf::from("/proc"),
+                SandboxPathOptions {
+                    mode: HostPathMode::ReadWriteCreate,
+                    guest_path_hint: "/proc".into(),
+                },
+            ),
+            (
+                PathBuf::from("/sys"),
+                SandboxPathOptions {
+                    mode: HostPathMode::ReadWriteCreate,
+                    guest_path_hint: "/sys".into(),
+                },
+            ),
+        ]),
+        command: SandboxTemplate {
+            components: vec![
+                SandboxTemplateComponent::Path(rootfs_recipes_sandbox_path.clone()),
+                SandboxTemplateComponent::Literal {
+                    value: "/bin/sh".into(),
+                },
+            ],
+        },
+        args: vec![
+            SandboxTemplate {
+                components: vec![SandboxTemplateComponent::Literal { value: "-c".into() }],
+            },
+            SandboxTemplate {
+                components: vec![SandboxTemplateComponent::Literal {
+                    value: r##"
+                        set -eu
+                        mkdir "$BRIOCHE_OUTPUT"/new
+                        touch "$BRIOCHE_OUTPUT"/new/touch.txt
+                        echo -n 'alpha' > "$BRIOCHE_OUTPUT"/existing/write.txt
+                        echo -n 'bravo' >> "$BRIOCHE_OUTPUT"/existing/append.txt
+                        echo -n > "$BRIOCHE_OUTPUT"/existing/truncate.txt
+                        rm "$BRIOCHE_OUTPUT"/existing/remove.txt
+                        rm "$BRIOCHE_OUTPUT"/remove_dir/remove.txt
+                        rmdir "$BRIOCHE_OUTPUT"/remove_dir
+                    "##
+                    .into(),
+                }],
+            },
+        ],
+        env: sandbox_config_env,
+        current_dir: SandboxPath {
+            host_path: work_dir,
+            options: SandboxPathOptions {
+                guest_path_hint: "/work".into(),
+                mode: HostPathMode::ReadWriteCreate,
+            },
+        },
+        networking: false,
+        uid_hint: GUEST_UID_HINT,
+        gid_hint: GUEST_GID_HINT,
+    };
+
+    let backend =
+        SandboxBackend::LinuxNamespace(crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
+            mount_style: crate::sandbox::linux_namespace::MountStyle::Namespace,
+        });
+    if check_sandbox_backend(&backend, &sandbox_config, &output_path).await? {
+        tracing::trace!(
+            "found sandbox backend in {}s",
+            start.elapsed().as_secs_f32()
+        );
+        return Ok(backend);
+    }
+
+    anyhow::bail!("could not find a working backend to run processes");
+}
+
+async fn check_sandbox_backend(
+    backend: &SandboxBackend,
+    config: &SandboxExecutionConfig,
+    output_path: &Path,
+) -> anyhow::Result<bool> {
+    let result = tokio::task::spawn_blocking({
+        let backend = backend.clone();
+        let config = config.clone();
+        let output_path = output_path.to_owned();
+        move || check_sandbox_backend_sync(backend, config, &output_path)
+    })
+    .await??;
+    Ok(result)
+}
+
+fn check_sandbox_backend_sync(
+    backend: SandboxBackend,
+    config: SandboxExecutionConfig,
+    output_path: &Path,
+) -> anyhow::Result<bool> {
+    // Destroy the output path in case it was created in a previous run
+    let _ = std::fs::remove_file(output_path);
+    let _ = std::fs::remove_dir_all(output_path);
+
+    // Create the initial state for the output path
+    std::fs::create_dir(output_path)?;
+    std::fs::create_dir(output_path.join("existing"))?;
+    std::fs::create_dir(output_path.join("remove_dir"))?;
+    std::fs::write(output_path.join("existing").join("append.txt"), "alpha")?;
+    std::fs::write(output_path.join("existing").join("truncate.txt"), "alpha")?;
+    std::fs::write(output_path.join("existing").join("remove.txt"), "alpha")?;
+    std::fs::write(output_path.join("remove_dir").join("remove.txt"), "alpha")?;
+
+    let status = crate::sandbox::run_sandbox(backend, config);
+
+    match status {
+        Ok(status) if status.success() => {
+            sanity_check_sandbox_output(output_path)
+                .context("sandbox returned success, but sanity check failed")?;
+            Ok(true)
+        }
+        Ok(status) => {
+            anyhow::bail!("backend failed with status: {status:?}");
+        }
+        Err(error) => {
+            tracing::trace!("backend did not succeed: {error:#?}");
+            Ok(false)
+        }
+    }
+}
+
+fn sanity_check_sandbox_output(output_path: &Path) -> anyhow::Result<()> {
+    let create_path = output_path.join("new/touch.txt");
+    let write_path = output_path.join("existing/write.txt");
+    let append_path = output_path.join("existing/append.txt");
+    let truncate_path = output_path.join("existing/truncate.txt");
+    let remove_path = output_path.join("existing/remove.txt");
+    let remove_dir_path = output_path.join("remove_dir");
+
+    std::fs::read(create_path)
+        .context("failed to read new/touch.txt")
+        .and_then(|content| {
+            anyhow::ensure!(content.is_empty(), "new/touch.txt does not match");
+            Ok(())
+        })?;
+    std::fs::read(write_path)
+        .context("failed to read existing/write.txt")
+        .and_then(|content| {
+            anyhow::ensure!(content == b"alpha", "existing/write.txt does not match");
+            Ok(())
+        })?;
+    std::fs::read_to_string(append_path)
+        .context("failed to read existing/append.txt")
+        .and_then(|content| {
+            anyhow::ensure!(
+                content == "alphabravo",
+                "existing/append.txt does not match"
+            );
+            Ok(())
+        })?;
+    std::fs::read(truncate_path)
+        .context("failed to read existing/truncate.txt")
+        .and_then(|content| {
+            anyhow::ensure!(content.is_empty(), "existing/truncate.txt does not match");
+            Ok(())
+        })?;
+    match std::fs::metadata(remove_path) {
+        Ok(_) => anyhow::bail!("existing/remove.txt exists"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).context("failed to read existing/remove.txt");
+        }
+    };
+    match std::fs::metadata(remove_dir_path) {
+        Ok(_) => anyhow::bail!("remove_dir exists"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).context("failed to read remove_dir");
+        }
+    };
+
+    Ok(())
+}
+
 #[tracing::instrument(skip(brioche))]
 async fn set_up_rootfs(
     brioche: &Brioche,
@@ -1346,6 +1634,7 @@ impl Drop for BakeDir {
 pub struct ProcessRootfsRecipes {
     pub sh: Recipe,
     pub env: Recipe,
+    pub utils: Recipe,
 }
 
 pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRootfsRecipes {
@@ -1367,8 +1656,16 @@ pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRoo
                     hash: crate::Hash::Sha256 { value: hex::decode("8f5b15a9b5c695663ca2caefa0077c3889fcf65793c9a20ceca4ab12c7007453").unwrap() }
                 }))),
             });
+            let utils = Recipe::Unarchive(Unarchive {
+                archive: ArchiveFormat::Tar,
+                compression: CompressionFormat::Zstd,
+                file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                    url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/utils_amd64_linux.tar.zstd".parse().unwrap(),
+                    hash: crate::Hash::Sha256 { value: hex::decode("eb29ea059fcd9ca457841f5c79151721a74761a31610d694bce61a62f4de6d33").unwrap() }
+                }))),
+            });
 
-            ProcessRootfsRecipes { sh, env }
+            ProcessRootfsRecipes { sh, env, utils }
         }
         crate::platform::Platform::Aarch64Linux => {
             let sh = Recipe::Unarchive(Unarchive {
@@ -1387,8 +1684,16 @@ pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRoo
                     hash: crate::Hash::Sha256 { value: hex::decode("0b84d04b2768b6803aee78da8d54393ccbfe8730950b3cc305e8347fff5ad3d7").unwrap() }
                 }))),
             });
+            let utils = Recipe::Unarchive(Unarchive {
+                archive: ArchiveFormat::Tar,
+                compression: CompressionFormat::Zstd,
+                file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                    url: "https://development-content.brioche.dev/github.com/tangramdotdev/bootstrap/2023-07-06/utils_arm64_linux.tar.zstd".parse().unwrap(),
+                    hash: crate::Hash::Sha256 { value: hex::decode("36c0dcfb02e61a07f4654e1ca6047cdefb17ce1f2e37fcb2ba5dc20695b3e273").unwrap() }
+                }))),
+            });
 
-            ProcessRootfsRecipes { sh, env }
+            ProcessRootfsRecipes { sh, env, utils }
         }
     }
 }

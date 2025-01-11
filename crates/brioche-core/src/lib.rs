@@ -77,6 +77,8 @@ pub struct Brioche {
 
     pub registry_client: registry::RegistryClient,
 
+    sandbox_backend: Arc<tokio::sync::OnceCell<sandbox::SandboxBackend>>,
+
     cancellation_token: tokio_util::sync::CancellationToken,
 
     /// Track running tasks that need to finish before exiting Brioche, even
@@ -299,6 +301,7 @@ impl BriocheBuilder {
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,
             registry_client,
+            sandbox_backend: Arc::new(tokio::sync::OnceCell::new()),
             cancellation_token,
             task_tracker,
         })
