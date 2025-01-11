@@ -80,7 +80,7 @@ pub struct Brioche {
     cancellation_token: tokio_util::sync::CancellationToken,
 
     /// Track running tasks that need to finish before exiting Brioche, even
-    /// on Ctrl-C. Each spawned task should be cancelleable using the
+    /// on Ctrl-C. Each spawned task should be cancellable using the
     /// cancellation token
     task_tracker: tokio_util::task::TaskTracker,
 }

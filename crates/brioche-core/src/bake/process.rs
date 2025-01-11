@@ -353,10 +353,10 @@ pub async fn bake_process(
     tokio::fs::create_dir_all(&host_work_dir).await?;
 
     let guest_temp_dir = PathBuf::from("/tmp");
-    let relative_emp_dir = guest_temp_dir
+    let relative_temp_dir = guest_temp_dir
         .strip_prefix("/")
         .expect("invalid guest tmp dir");
-    let host_temp_dir = root_dir.join(relative_emp_dir);
+    let host_temp_dir = root_dir.join(relative_temp_dir);
     let guest_temp_dir =
         Vec::<u8>::from_path_buf(guest_temp_dir).expect("failed to build tmp dir path");
     tokio::fs::create_dir_all(&host_temp_dir).await?;
@@ -1261,7 +1261,7 @@ async fn set_up_rootfs(
     let recipes = process_rootfs_recipes(platform);
 
     tracing::debug!("resolving rootfs sh/env dependencies");
-    let dash_and_env = super::bake(
+    let sh_and_env = super::bake(
         brioche,
         WithMeta::without_meta(Recipe::Merge {
             directories: vec![
@@ -1272,7 +1272,7 @@ async fn set_up_rootfs(
         &super::BakeScope::Anonymous,
     )
     .await?;
-    crate::output::create_output(brioche, &dash_and_env.value, output_rootfs_options).await?;
+    crate::output::create_output(brioche, &sh_and_env.value, output_rootfs_options).await?;
 
     tracing::trace!("building rootfs");
 
