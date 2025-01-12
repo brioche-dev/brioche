@@ -1,6 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context as _;
+use config::BriocheConfig;
 use registry::RegistryClient;
 use reporter::Reporter;
 use sha2::Digest as _;
@@ -12,6 +13,7 @@ use tokio::{
 
 pub mod bake;
 pub mod blob;
+pub mod config;
 pub mod download;
 pub mod encoding;
 pub mod fs_utils;
@@ -306,11 +308,6 @@ impl BriocheBuilder {
             task_tracker,
         })
     }
-}
-
-#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
-struct BriocheConfig {
-    registry_url: Option<url::Url>,
 }
 
 pub enum SyncMessage {
