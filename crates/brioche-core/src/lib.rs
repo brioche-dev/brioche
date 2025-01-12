@@ -79,6 +79,8 @@ pub struct Brioche {
 
     pub registry_client: registry::RegistryClient,
 
+    pub sandbox_config: config::SandboxConfig,
+
     sandbox_backend: Arc<tokio::sync::OnceCell<sandbox::SandboxBackend>>,
 
     cancellation_token: tokio_util::sync::CancellationToken,
@@ -303,6 +305,7 @@ impl BriocheBuilder {
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,
             registry_client,
+            sandbox_config: config.sandbox.clone(),
             sandbox_backend: Arc::new(tokio::sync::OnceCell::new()),
             cancellation_token,
             task_tracker,

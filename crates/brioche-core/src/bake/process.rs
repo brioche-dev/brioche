@@ -1252,8 +1252,50 @@ async fn sandbox_backend(
     Ok(backend.clone())
 }
 
-#[tracing::instrument(skip(brioche))]
 async fn select_sandbox_backend(
+    brioche: &Brioche,
+    platform: crate::platform::Platform,
+) -> anyhow::Result<SandboxBackend> {
+    match &brioche.sandbox_config {
+        crate::config::SandboxConfig::Auto => {
+            let backend = auto_select_sandbox_backend(brioche, platform).await?;
+            Ok(backend)
+        }
+        crate::config::SandboxConfig::LinuxNamespace(config) => {
+            cfg_if::cfg_if! {
+                if #[cfg(target_os = "linux")] {
+                    let mount_style = match &config.proot {
+                        crate::config::PRootConfig::Value(false) => {
+                            crate::sandbox::linux_namespace::MountStyle::Namespace
+                        }
+                        crate::config::PRootConfig::Value(true) => {
+                            let rootfs_recipes = process_rootfs_recipes(platform);
+                            let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
+                            let proot_path = proot_path.context("sandbox is configured to use PRoot, but there is no default PRoot binary for the current platform")?;
+                            crate::sandbox::linux_namespace::MountStyle::PRoot {
+                                proot_path
+                            }
+                        }
+                        crate::config::PRootConfig::Custom { path } => {
+                            crate::sandbox::linux_namespace::MountStyle::PRoot {
+                                proot_path: path.clone(),
+                            }
+                        },
+                    };
+
+                    Ok(crate::sandbox::SandboxBackend::LinuxNamespace(crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
+                        mount_style
+                    }))
+                } else {
+                    anyhow::bail!("config has sandbox type of 'linux_namespace', which is not supported on this platform");
+                }
+            }
+        }
+    }
+}
+
+#[tracing::instrument(skip(brioche))]
+async fn auto_select_sandbox_backend(
     brioche: &Brioche,
     platform: crate::platform::Platform,
 ) -> anyhow::Result<SandboxBackend> {
@@ -1264,9 +1306,9 @@ async fn select_sandbox_backend(
         brioche,
         WithMeta::without_meta(Recipe::Merge {
             directories: vec![
-                WithMeta::without_meta(rootfs_recipes.sh),
-                WithMeta::without_meta(rootfs_recipes.env),
-                WithMeta::without_meta(rootfs_recipes.utils),
+                WithMeta::without_meta(rootfs_recipes.sh.clone()),
+                WithMeta::without_meta(rootfs_recipes.env.clone()),
+                WithMeta::without_meta(rootfs_recipes.utils.clone()),
             ],
         }),
         &super::BakeScope::Anonymous,
@@ -1426,25 +1468,11 @@ async fn select_sandbox_backend(
         return Ok(backend);
     }
 
-    if let Some(proot_recipe) = rootfs_recipes.proot {
-        let proot_artifact = super::bake(
-            brioche,
-            WithMeta::without_meta(proot_recipe),
-            &super::BakeScope::Anonymous,
-        )
-        .await?;
-        let proot_output =
-            crate::output::create_local_output(brioche, &proot_artifact.value).await?;
-        assert!(
-            proot_output.resource_dir.is_none(),
-            "PRoot recipe includes a resource directory"
-        );
-
+    let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
+    if let Some(proot_path) = proot_path {
         let backend = SandboxBackend::LinuxNamespace(
             crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
-                mount_style: crate::sandbox::linux_namespace::MountStyle::PRoot {
-                    proot_path: proot_output.path.join("bin/proot"),
-                },
+                mount_style: crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path },
             },
         );
         if check_sandbox_backend(&backend, &sandbox_config, &output_path).await? {
@@ -1567,6 +1595,31 @@ fn sanity_check_sandbox_output(output_path: &Path) -> anyhow::Result<()> {
     };
 
     Ok(())
+}
+
+#[tracing::instrument(skip_all)]
+async fn default_proot_path(
+    brioche: &Brioche,
+    rootfs_recipes: &ProcessRootfsRecipes,
+) -> anyhow::Result<Option<PathBuf>> {
+    let Some(proot_recipe) = &rootfs_recipes.proot else {
+        return Ok(None);
+    };
+    let proot_artifact = super::bake(
+        brioche,
+        WithMeta::without_meta(proot_recipe.clone()),
+        &super::BakeScope::Anonymous,
+    )
+    .await?;
+
+    let proot_output = crate::output::create_local_output(brioche, &proot_artifact.value).await?;
+    assert!(
+        proot_output.resource_dir.is_none(),
+        "PRoot recipe includes a resource directory"
+    );
+
+    let proot_path = proot_output.path.join("bin").join("proot");
+    Ok(Some(proot_path))
 }
 
 #[tracing::instrument(skip(brioche))]
