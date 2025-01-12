@@ -1283,6 +1283,7 @@ async fn select_sandbox_backend(
         .join("process-temp")
         .join(format!("{}-setup", ulid::Ulid::new()));
     let bake_dir = BakeDir::create(temp_dir).await?;
+    let bake_dir = bake_dir.remove_on_drop();
 
     let root_dir = bake_dir.path().join("root");
     tokio::fs::create_dir(&root_dir).await?;
@@ -1416,6 +1417,8 @@ async fn select_sandbox_backend(
             mount_style: crate::sandbox::linux_namespace::MountStyle::Namespace,
         });
     if check_sandbox_backend(&backend, &sandbox_config, &output_path).await? {
+        bake_dir.remove().await?;
+
         tracing::trace!(
             "found sandbox backend in {}s",
             start.elapsed().as_secs_f32()
@@ -1423,6 +1426,7 @@ async fn select_sandbox_backend(
         return Ok(backend);
     }
 
+    bake_dir.remove().await?;
     anyhow::bail!("could not find a working backend to run processes");
 }
 
@@ -1595,12 +1599,21 @@ async fn set_up_rootfs(
 
 struct BakeDir {
     path: Option<PathBuf>,
+    remove_on_drop: bool,
 }
 
 impl BakeDir {
     async fn create(path: PathBuf) -> anyhow::Result<Self> {
         tokio::fs::create_dir_all(&path).await?;
-        Ok(Self { path: Some(path) })
+        Ok(Self {
+            path: Some(path),
+            remove_on_drop: false,
+        })
+    }
+
+    fn remove_on_drop(mut self) -> Self {
+        self.remove_on_drop = true;
+        self
     }
 
     fn path(&self) -> &Path {
@@ -1626,7 +1639,12 @@ impl BakeDir {
 impl Drop for BakeDir {
     fn drop(&mut self) {
         if let Some(path) = &self.path {
-            tracing::info!("keeping temporary bake dir {}", path.display());
+            if self.remove_on_drop {
+                let _ = crate::fs_utils::set_directory_rwx_recursive_sync(path);
+                let _ = std::fs::remove_dir_all(path);
+            } else {
+                tracing::info!("keeping temporary bake dir {}", path.display());
+            }
         }
     }
 }

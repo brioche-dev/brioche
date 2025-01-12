@@ -192,6 +192,43 @@ pub async fn set_directory_rwx_recursive(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn set_directory_rwx_recursive_sync(path: &Path) -> anyhow::Result<()> {
+    let metadata = std::fs::symlink_metadata(path);
+    let metadata = match metadata {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(());
+        }
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!("failed to get metadata for directory {}", path.display())
+            });
+        }
+    };
+
+    if metadata.is_dir() {
+        let mut permissions = metadata.permissions();
+        if permissions.readonly() {
+            set_rwx(&mut permissions);
+            std::fs::set_permissions(path, permissions).with_context(|| {
+                format!(
+                    "failed to set write permissions for directory {}",
+                    path.display()
+                )
+            })?;
+        }
+
+        let dir = std::fs::read_dir(path)
+            .with_context(|| format!("failed to read directory {}", path.display()))?;
+        for entry in dir {
+            let entry = entry?;
+            set_directory_rwx_recursive_sync(&entry.path())?;
+        }
+    }
+
+    Ok(())
+}
+
 /// A timestamp used for as the modified time for files during Brioche builds.
 /// Defined as 2000-01-01 00:00:00 UTC, or 946,684,800 seconds after the Unix
 /// epoch.
