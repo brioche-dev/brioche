@@ -1426,6 +1426,41 @@ async fn select_sandbox_backend(
         return Ok(backend);
     }
 
+    if let Some(proot_recipe) = rootfs_recipes.proot {
+        let proot_artifact = super::bake(
+            brioche,
+            WithMeta::without_meta(proot_recipe),
+            &super::BakeScope::Anonymous,
+        )
+        .await?;
+        let proot_output =
+            crate::output::create_local_output(brioche, &proot_artifact.value).await?;
+        assert!(
+            proot_output.resource_dir.is_none(),
+            "PRoot recipe includes a resource directory"
+        );
+
+        let backend = SandboxBackend::LinuxNamespace(
+            crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
+                mount_style: crate::sandbox::linux_namespace::MountStyle::PRoot {
+                    proot_path: proot_output.path.join("bin/proot"),
+                },
+            },
+        );
+        if check_sandbox_backend(&backend, &sandbox_config, &output_path).await? {
+            bake_dir.remove().await?;
+
+            tracing::warn!(
+                "failed to run process sandbox with mount namespace, falling back to PRoot"
+            );
+            tracing::trace!(
+                "found sandbox backend in {}s",
+                start.elapsed().as_secs_f32()
+            );
+            return Ok(backend);
+        }
+    }
+
     bake_dir.remove().await?;
     anyhow::bail!("could not find a working backend to run processes");
 }
@@ -1653,6 +1688,7 @@ pub struct ProcessRootfsRecipes {
     pub sh: Recipe,
     pub env: Recipe,
     pub utils: Recipe,
+    pub proot: Option<Recipe>,
 }
 
 pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRootfsRecipes {
@@ -1682,8 +1718,24 @@ pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRoo
                     hash: crate::Hash::Sha256 { value: hex::decode("eb29ea059fcd9ca457841f5c79151721a74761a31610d694bce61a62f4de6d33").unwrap() }
                 }))),
             });
+            let proot = Recipe::Peel {
+                directory: Box::new(WithMeta::without_meta(Recipe::Unarchive(Unarchive {
+                    archive: ArchiveFormat::Tar,
+                    compression: CompressionFormat::Zstd,
+                    file: Box::new(WithMeta::without_meta(Recipe::Download(DownloadRecipe {
+                        url: "https://development-content.brioche.dev/github.com/brioche-dev/brioche-packages/812e80250e15793a33c19b770320bcc455f30b13/x86_64-linux/proot.tar.zstd".parse().unwrap(),
+                        hash: crate::Hash::Sha256 { value: hex::decode("f0f4fb4dbe0dd4b050d4336c11d77c1c6b233ee944a4922f3f3a6eaabaedf385").unwrap() }
+                    }))),
+                }))),
+                depth: 1,
+            };
 
-            ProcessRootfsRecipes { sh, env, utils }
+            ProcessRootfsRecipes {
+                sh,
+                env,
+                utils,
+                proot: Some(proot),
+            }
         }
         crate::platform::Platform::Aarch64Linux => {
             let sh = Recipe::Unarchive(Unarchive {
@@ -1711,7 +1763,13 @@ pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRoo
                 }))),
             });
 
-            ProcessRootfsRecipes { sh, env, utils }
+            ProcessRootfsRecipes {
+                sh,
+                env,
+                utils,
+                // TODO: Build PRoot for aarch64
+                proot: None,
+            }
         }
     }
 }
