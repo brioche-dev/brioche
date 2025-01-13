@@ -70,15 +70,20 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
         sh,
         env,
         utils,
-        proot: _,
+        proot,
     } = brioche_core::bake::process_rootfs_recipes(platform);
 
-    brioche_core::recipe::save_recipes(brioche, vec![sh.clone(), env.clone(), utils.clone()])
+    let mut recipes = vec![sh, env, utils];
+    if let Some(proot) = proot {
+        recipes.push(proot);
+    }
+
+    brioche_core::recipe::save_recipes(brioche, recipes.clone())
         .await
         .unwrap();
 
     // Get all inner download recipes from the returned rootfs recipes
-    let mut recipes = VecDeque::from_iter([sh, env]);
+    let mut recipes = VecDeque::from_iter(recipes);
     let mut download_recipes = vec![];
     while let Some(recipe) = recipes.pop_front() {
         match recipe {
