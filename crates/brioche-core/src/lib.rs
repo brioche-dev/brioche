@@ -7,10 +7,7 @@ use reporter::Reporter;
 use sandbox::SandboxBackend;
 use sha2::Digest as _;
 use sqlx::Connection as _;
-use tokio::{
-    io::AsyncReadExt as _,
-    sync::{Mutex, RwLock},
-};
+use tokio::sync::{Mutex, RwLock};
 
 pub mod bake;
 pub mod blob;
@@ -109,6 +106,7 @@ pub struct BriocheBuilder {
     reporter: Reporter,
     registry_client: Option<registry::RegistryClient>,
     vfs: vfs::Vfs,
+    config: Option<BriocheConfig>,
     home: Option<PathBuf>,
     sandbox_backend: Option<sandbox::SandboxBackend>,
     self_exec_processes: bool,
@@ -122,6 +120,7 @@ impl BriocheBuilder {
             reporter,
             registry_client: None,
             vfs: vfs::Vfs::immutable(),
+            config: None,
             home: None,
             sandbox_backend: None,
             self_exec_processes: true,
@@ -130,8 +129,13 @@ impl BriocheBuilder {
         }
     }
 
-    pub fn home(mut self, brioche_home: PathBuf) -> Self {
-        self.home = Some(brioche_home);
+    pub fn config(mut self, config: BriocheConfig) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn home(mut self, home: PathBuf) -> Self {
+        self.home = Some(home);
         self
     }
 
@@ -168,42 +172,13 @@ impl BriocheBuilder {
     pub async fn build(self) -> anyhow::Result<Brioche> {
         let dirs = directories::ProjectDirs::from("dev", "brioche", "brioche")
             .context("failed to get Brioche directories (is $HOME set?)")?;
-        let config_path = dirs.config_dir().join("config.toml");
-        let config_file = match tokio::fs::File::open(&config_path).await {
-            Ok(file) => Some(file),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                tracing::debug!(
-                    "config file not found at {}, using default configuration",
-                    config_path.display()
-                );
-                None
+        let config = match self.config {
+            Some(config) => config,
+            None => {
+                let config_path = dirs.config_dir().join("config.toml");
+                let config = config::load_from_path(&config_path).await?;
+                config.unwrap_or_default()
             }
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "failed to open brioche config file at {}",
-                        config_path.display()
-                    )
-                });
-            }
-        };
-        let config = match config_file {
-            Some(mut file) => {
-                let mut config = String::new();
-                file.read_to_string(&mut config).await.with_context(|| {
-                    format!(
-                        "failed to read brioche config from {}",
-                        config_path.display()
-                    )
-                })?;
-                toml::from_str::<BriocheConfig>(&config).with_context(|| {
-                    format!(
-                        "failed to parse brioche config from {}",
-                        config_path.display()
-                    )
-                })?
-            }
-            None => BriocheConfig::default(),
         };
 
         let home = match self.home {

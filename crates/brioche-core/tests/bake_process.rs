@@ -1,6 +1,6 @@
 #![cfg(target_os = "linux")]
 
-use std::{collections::BTreeMap, sync::Mutex};
+use std::collections::BTreeMap;
 
 use anyhow::Context;
 use assert_matches::assert_matches;
@@ -58,17 +58,44 @@ async fn get(brioche: &brioche_core::Brioche, dir: &Directory, path: impl AsRef<
 }
 
 #[allow(dead_code)]
-struct ProcessTestLock(std::sync::MutexGuard<'static, ()>);
+struct ProcessTestLock(
+    tokio::sync::MutexGuard<'static, Option<brioche_core::config::SandboxConfig>>,
+);
 
 async fn brioche_test() -> (
     brioche_core::Brioche,
     brioche_test_support::TestContext,
     ProcessTestLock,
 ) {
-    static LOCK: Mutex<()> = Mutex::new(());
-    let lock = ProcessTestLock(LOCK.lock().unwrap());
+    static LOCK: tokio::sync::Mutex<Option<brioche_core::config::SandboxConfig>> =
+        tokio::sync::Mutex::const_new(None);
+    let mut lock = LOCK.lock().await;
 
-    let (brioche, context) = brioche_test_support::brioche_test().await;
+    let sandbox_config = lock
+        .get_or_insert_with(|| match std::env::var("BRIOCHE_TEST_SANDBOX").as_deref() {
+            Ok("linux_namespace") => {
+                let proot = match std::env::var("BRIOCHE_TEST_SANDBOX_PROOT").as_deref() {
+                    Ok("true") => brioche_core::config::PRootConfig::Value(true),
+                    Ok("false") => brioche_core::config::PRootConfig::Value(false),
+                    _ => brioche_core::config::PRootConfig::default(),
+                };
+                brioche_core::config::SandboxConfig::LinuxNamespace(
+                    brioche_core::config::SandboxLinuxNamespaceConfig { proot },
+                )
+            }
+            _ => brioche_core::config::SandboxConfig::default(),
+        })
+        .clone();
+    let lock = ProcessTestLock(lock);
+
+    let (brioche, context) = brioche_test_support::brioche_test_with(|mut brioche| {
+        brioche = brioche.config(brioche_core::config::BriocheConfig {
+            sandbox: sandbox_config,
+            ..Default::default()
+        });
+        brioche
+    })
+    .await;
 
     brioche_test_support::load_rootfs_recipes(&brioche, current_platform()).await;
 

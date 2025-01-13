@@ -38,6 +38,7 @@ pub async fn brioche_test_with(
 
     let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
     let builder = BriocheBuilder::new(reporter)
+        .config(brioche_core::config::BriocheConfig::default())
         .home(brioche_home)
         .registry_client(brioche_core::registry::RegistryClient::new_with_client(
             reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),

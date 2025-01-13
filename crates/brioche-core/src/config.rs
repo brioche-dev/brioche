@@ -1,4 +1,29 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use anyhow::Context as _;
+use tokio::io::AsyncReadExt as _;
+
+pub async fn load_from_path(path: &Path) -> anyhow::Result<Option<BriocheConfig>> {
+    let mut file = match tokio::fs::File::open(&path).await {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("failed to open brioche config file at {}", path.display())
+            });
+        }
+    };
+
+    let mut config_toml = String::new();
+    file.read_to_string(&mut config_toml)
+        .await
+        .with_context(|| format!("failed to read brioche config from {}", path.display()))?;
+    let config = toml::from_str::<BriocheConfig>(&config_toml)
+        .with_context(|| format!("failed to parse brioche config from {}", path.display()))?;
+    Ok(Some(config))
+}
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BriocheConfig {
