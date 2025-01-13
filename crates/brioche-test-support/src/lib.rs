@@ -64,9 +64,6 @@ pub async fn brioche_test_with(
 /// will be downloaded to a temporary path and re-used within the same
 /// test run.
 pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::platform::Platform) {
-    static FILES: OnceLock<Mutex<HashMap<DownloadRecipe, Mutex<tokio::fs::File>>>> =
-        OnceLock::new();
-
     let brioche_core::bake::ProcessRootfsRecipes {
         sh,
         env,
@@ -161,15 +158,9 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
         }
     }
 
-    let mut download_tasks = tokio::task::JoinSet::new();
     for download in download_recipes {
-        let brioche = brioche.clone();
-        download_tasks.spawn(async move {
-            cached_download(&brioche, &download).await;
-        });
+        cached_download(brioche, &download).await;
     }
-
-    download_tasks.join_all().await;
 }
 
 async fn cached_download(
