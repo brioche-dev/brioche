@@ -4,6 +4,7 @@ use anyhow::Context as _;
 use config::BriocheConfig;
 use registry::RegistryClient;
 use reporter::Reporter;
+use sandbox::SandboxBackend;
 use sha2::Digest as _;
 use sqlx::Connection as _;
 use tokio::{
@@ -109,6 +110,7 @@ pub struct BriocheBuilder {
     registry_client: Option<registry::RegistryClient>,
     vfs: vfs::Vfs,
     home: Option<PathBuf>,
+    sandbox_backend: Option<sandbox::SandboxBackend>,
     self_exec_processes: bool,
     keep_temps: bool,
     sync: bool,
@@ -121,6 +123,7 @@ impl BriocheBuilder {
             registry_client: None,
             vfs: vfs::Vfs::immutable(),
             home: None,
+            sandbox_backend: None,
             self_exec_processes: true,
             keep_temps: false,
             sync: false,
@@ -134,6 +137,11 @@ impl BriocheBuilder {
 
     pub fn registry_client(mut self, registry_client: RegistryClient) -> Self {
         self.registry_client = Some(registry_client);
+        self
+    }
+
+    pub fn sandbox_backend(mut self, sandbox_backend: SandboxBackend) -> Self {
+        self.sandbox_backend = Some(sandbox_backend);
         self
     }
 
@@ -198,14 +206,14 @@ impl BriocheBuilder {
             None => BriocheConfig::default(),
         };
 
-        let brioche_home = match self.home {
+        let home = match self.home {
             Some(home) => home,
             None => dirs.data_local_dir().to_owned(),
         };
 
-        tokio::fs::create_dir_all(&brioche_home).await?;
+        tokio::fs::create_dir_all(&home).await?;
 
-        let database_path = brioche_home.join("brioche.db");
+        let database_path = home.join("brioche.db");
 
         let db_conn_options = sqlx::sqlite::SqliteConnectOptions::new()
             .filename(&database_path)
@@ -295,7 +303,7 @@ impl BriocheBuilder {
             reporter: self.reporter,
             vfs: self.vfs,
             db_conn: Arc::new(Mutex::new(db_conn)),
-            home: brioche_home,
+            home,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
             sync_tx: Arc::new(sync_tx),
@@ -306,7 +314,7 @@ impl BriocheBuilder {
             download_client,
             registry_client,
             sandbox_config: config.sandbox.clone(),
-            sandbox_backend: Arc::new(tokio::sync::OnceCell::new()),
+            sandbox_backend: Arc::new(tokio::sync::OnceCell::new_with(self.sandbox_backend)),
             cancellation_token,
             task_tracker,
         })
