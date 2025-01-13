@@ -672,9 +672,12 @@ async fn run_sandboxed_inline(
         },
     );
 
-    let status =
-        tokio::task::spawn_blocking(|| crate::sandbox::run_sandbox(backend, sandbox_config))
-            .await??;
+    let (sandbox_tx, sandbox_rx) = tokio::sync::oneshot::channel();
+    std::thread::spawn(|| {
+        let result = crate::sandbox::run_sandbox(backend, sandbox_config);
+        sandbox_tx.send(result).unwrap();
+    });
+    let status = sandbox_rx.await??;
 
     anyhow::ensure!(
         status.success(),
