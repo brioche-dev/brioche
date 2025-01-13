@@ -1269,9 +1269,9 @@ async fn select_sandbox_backend(
             let backend_result = auto_select_sandbox_backend(&mut backend_selector).await;
             backend_selector.shutdown().await?;
 
-            tracing::info!(
+            tracing::debug!(
                 "auto-selected sandbox backend in {}ms",
-                start.elapsed().as_secs_f32() / 1000.0,
+                start.elapsed().as_secs_f32() * 1000.0,
             );
 
             Ok(backend_result?)
