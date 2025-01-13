@@ -44,8 +44,7 @@ pub enum SandboxConfig {
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SandboxLinuxNamespaceConfig {
-    #[serde(default)]
-    pub proot: PRootConfig,
+    pub proot: Option<PRootConfig>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -58,7 +57,7 @@ pub enum PRootConfig {
 
 impl Default for PRootConfig {
     fn default() -> Self {
-        Self::Auto(PRootAutoConfig::default())
+        Self::Value(false)
     }
 }
 

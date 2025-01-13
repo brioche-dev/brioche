@@ -1278,7 +1278,37 @@ async fn select_sandbox_backend(
         }
         crate::config::SandboxConfig::LinuxNamespace(config) => {
             let mount_style = match &config.proot {
-                crate::config::PRootConfig::Auto(crate::config::PRootAutoConfig::Auto) => {
+                None => {
+                    let mut backend_selector =
+                        SandboxBackendSelector::new(brioche.clone(), platform).await?;
+
+                    let backend_without_proot = crate::sandbox::SandboxBackend::LinuxNamespace(
+                        crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
+                            mount_style: crate::sandbox::linux_namespace::MountStyle::Namespace,
+                        },
+                    );
+
+                    let result_without_proot =
+                        backend_selector.check_backend(&backend_without_proot).await;
+
+                    backend_selector.shutdown().await?;
+
+                    if result_without_proot? {
+                        crate::sandbox::linux_namespace::MountStyle::Namespace
+                    } else {
+                        let rootfs_recipes = process_rootfs_recipes(platform);
+                        let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
+                        if let Some(proot_path) = proot_path {
+                            tracing::warn!(
+                                "failed to run process sandbox with mount namespace, falling back to PRoot (see https://brioche.dev/help/proot-fallback)"
+                            );
+                            crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path }
+                        } else {
+                            anyhow::bail!("could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)");
+                        }
+                    }
+                }
+                Some(crate::config::PRootConfig::Auto(crate::config::PRootAutoConfig::Auto)) => {
                     let mut backend_selector =
                         SandboxBackendSelector::new(brioche.clone(), platform).await?;
 
@@ -1301,20 +1331,20 @@ async fn select_sandbox_backend(
                         if let Some(proot_path) = proot_path {
                             crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path }
                         } else {
-                            crate::sandbox::linux_namespace::MountStyle::Namespace
+                            anyhow::bail!("could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)");
                         }
                     }
                 }
-                crate::config::PRootConfig::Value(false) => {
+                Some(crate::config::PRootConfig::Value(false)) => {
                     crate::sandbox::linux_namespace::MountStyle::Namespace
                 }
-                crate::config::PRootConfig::Value(true) => {
+                Some(crate::config::PRootConfig::Value(true)) => {
                     let rootfs_recipes = process_rootfs_recipes(platform);
                     let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
                     let proot_path = proot_path.context("sandbox is configured to use PRoot, but there is no default PRoot binary for the current platform")?;
                     crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path }
                 }
-                crate::config::PRootConfig::Custom { path } => {
+                Some(crate::config::PRootConfig::Custom { path }) => {
                     crate::sandbox::linux_namespace::MountStyle::PRoot {
                         proot_path: path.clone(),
                     }
@@ -1350,7 +1380,7 @@ async fn auto_select_sandbox_backend(
                 );
                 if backend_selector.check_backend(&backend).await? {
                     tracing::warn!(
-                        "failed to run process sandbox with mount namespace, falling back to PRoot"
+                        "failed to run process sandbox with mount namespace, falling back to PRoot (see https://brioche.dev/help/proot-fallback)"
                     );
                     return Ok(backend);
                 }
@@ -1358,7 +1388,7 @@ async fn auto_select_sandbox_backend(
         }
     }
 
-    anyhow::bail!("could not find a working backend to run processes");
+    anyhow::bail!("could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)");
 }
 
 struct SandboxBackendSelector {

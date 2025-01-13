@@ -69,9 +69,12 @@ where
         .get_or_insert_with(|| match std::env::var("BRIOCHE_TEST_SANDBOX").as_deref() {
             Ok("linux_namespace") => {
                 let proot = match std::env::var("BRIOCHE_TEST_SANDBOX_PROOT").as_deref() {
-                    Ok("true") => brioche_core::config::PRootConfig::Value(true),
-                    Ok("false") => brioche_core::config::PRootConfig::Value(false),
-                    _ => brioche_core::config::PRootConfig::default(),
+                    Ok("true") => Some(brioche_core::config::PRootConfig::Value(true)),
+                    Ok("false") => Some(brioche_core::config::PRootConfig::Value(false)),
+                    Ok("auto") => brioche_core::config::PRootConfig::Auto(Some(
+                        brioche_core::config::PRootAutoConfig::Auto,
+                    )),
+                    _ => None,
                 };
                 brioche_core::config::SandboxConfig::LinuxNamespace(
                     brioche_core::config::SandboxLinuxNamespaceConfig { proot },
