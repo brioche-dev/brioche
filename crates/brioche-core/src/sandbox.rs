@@ -115,7 +115,14 @@ pub fn run_sandbox(
     exec: SandboxExecutionConfig,
 ) -> anyhow::Result<ExitStatus> {
     match backend {
-        #[cfg(target_os = "linux")]
-        SandboxBackend::LinuxNamespace(sandbox) => linux_namespace::run_sandbox(sandbox, exec),
+        SandboxBackend::LinuxNamespace(sandbox) => {
+            cfg_if::cfg_if! {
+                if #[cfg(target_os = "linux")] {
+                    linux_namespace::run_sandbox(sandbox, exec)
+                } else {
+                    anyhow::bail!("tried to use Linux namespace sandbox backend, but it's not supported on this platform");
+                }
+            }
+        }
     }
 }

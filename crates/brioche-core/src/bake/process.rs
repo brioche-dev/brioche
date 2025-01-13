@@ -1262,34 +1262,26 @@ async fn select_sandbox_backend(
             Ok(backend)
         }
         crate::config::SandboxConfig::LinuxNamespace(config) => {
-            cfg_if::cfg_if! {
-                if #[cfg(target_os = "linux")] {
-                    let mount_style = match &config.proot {
-                        crate::config::PRootConfig::Value(false) => {
-                            crate::sandbox::linux_namespace::MountStyle::Namespace
-                        }
-                        crate::config::PRootConfig::Value(true) => {
-                            let rootfs_recipes = process_rootfs_recipes(platform);
-                            let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
-                            let proot_path = proot_path.context("sandbox is configured to use PRoot, but there is no default PRoot binary for the current platform")?;
-                            crate::sandbox::linux_namespace::MountStyle::PRoot {
-                                proot_path
-                            }
-                        }
-                        crate::config::PRootConfig::Custom { path } => {
-                            crate::sandbox::linux_namespace::MountStyle::PRoot {
-                                proot_path: path.clone(),
-                            }
-                        },
-                    };
-
-                    Ok(crate::sandbox::SandboxBackend::LinuxNamespace(crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
-                        mount_style
-                    }))
-                } else {
-                    anyhow::bail!("config has sandbox type of 'linux_namespace', which is not supported on this platform");
+            let mount_style = match &config.proot {
+                crate::config::PRootConfig::Value(false) => {
+                    crate::sandbox::linux_namespace::MountStyle::Namespace
                 }
-            }
+                crate::config::PRootConfig::Value(true) => {
+                    let rootfs_recipes = process_rootfs_recipes(platform);
+                    let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
+                    let proot_path = proot_path.context("sandbox is configured to use PRoot, but there is no default PRoot binary for the current platform")?;
+                    crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path }
+                }
+                crate::config::PRootConfig::Custom { path } => {
+                    crate::sandbox::linux_namespace::MountStyle::PRoot {
+                        proot_path: path.clone(),
+                    }
+                }
+            };
+
+            Ok(crate::sandbox::SandboxBackend::LinuxNamespace(
+                crate::sandbox::linux_namespace::LinuxNamespaceSandbox { mount_style },
+            ))
         }
     }
 }
@@ -1454,38 +1446,42 @@ async fn auto_select_sandbox_backend(
         gid_hint: GUEST_GID_HINT,
     };
 
-    let backend =
-        SandboxBackend::LinuxNamespace(crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
-            mount_style: crate::sandbox::linux_namespace::MountStyle::Namespace,
-        });
-    if check_sandbox_backend(&backend, &sandbox_config, &output_path).await? {
-        bake_dir.remove().await?;
+    cfg_if::cfg_if! {
+        if #[cfg(target_os = "linux")] {
+            let backend =
+                SandboxBackend::LinuxNamespace(crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
+                    mount_style: crate::sandbox::linux_namespace::MountStyle::Namespace,
+                });
+            if check_sandbox_backend(&backend, &sandbox_config, &output_path).await? {
+                bake_dir.remove().await?;
 
-        tracing::trace!(
-            "found sandbox backend in {}s",
-            start.elapsed().as_secs_f32()
-        );
-        return Ok(backend);
-    }
+                tracing::trace!(
+                    "found sandbox backend in {}s",
+                    start.elapsed().as_secs_f32()
+                );
+                return Ok(backend);
+            }
 
-    let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
-    if let Some(proot_path) = proot_path {
-        let backend = SandboxBackend::LinuxNamespace(
-            crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
-                mount_style: crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path },
-            },
-        );
-        if check_sandbox_backend(&backend, &sandbox_config, &output_path).await? {
-            bake_dir.remove().await?;
+            let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
+            if let Some(proot_path) = proot_path {
+                let backend = SandboxBackend::LinuxNamespace(
+                    crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
+                        mount_style: crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path },
+                    },
+                );
+                if check_sandbox_backend(&backend, &sandbox_config, &output_path).await? {
+                    bake_dir.remove().await?;
 
-            tracing::warn!(
-                "failed to run process sandbox with mount namespace, falling back to PRoot"
-            );
-            tracing::trace!(
-                "found sandbox backend in {}s",
-                start.elapsed().as_secs_f32()
-            );
-            return Ok(backend);
+                    tracing::warn!(
+                        "failed to run process sandbox with mount namespace, falling back to PRoot"
+                    );
+                    tracing::trace!(
+                        "found sandbox backend in {}s",
+                        start.elapsed().as_secs_f32()
+                    );
+                    return Ok(backend);
+                }
+            }
         }
     }
 

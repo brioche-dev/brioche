@@ -1,5 +1,3 @@
-#![cfg(target_os = "linux")]
-
 use std::{collections::HashMap, ffi::OsString, path::PathBuf};
 
 use bstr::ByteSlice as _;
@@ -20,6 +18,7 @@ pub struct LinuxNamespaceSandbox {
     pub mount_style: MountStyle,
 }
 
+#[cfg(target_os = "linux")]
 pub fn run_sandbox(
     sandbox: LinuxNamespaceSandbox,
     exec: super::SandboxExecutionConfig,
