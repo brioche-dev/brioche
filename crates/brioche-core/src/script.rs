@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cell::RefCell,
     collections::{hash_map::Entry, HashMap},
     path::PathBuf,
@@ -137,11 +138,12 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         deno_core::ModuleLoadResponse::Sync(self.load_module_source(module_specifier))
     }
 
-    fn get_source_map(&self, file_name: &str) -> Option<Vec<u8>> {
+    fn get_source_map(&self, file_name: &str) -> Option<Cow<[u8]>> {
         let sources = self.sources.borrow();
         let specifier: BriocheModuleSpecifier = file_name.parse().ok()?;
         let code = sources.get(&specifier)?;
-        Some(code.source_map.clone())
+        let source_map = code.source_map.clone();
+        Some(source_map.into())
     }
 
     fn get_source_mapped_source_line(&self, file_name: &str, line_number: usize) -> Option<String> {
