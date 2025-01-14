@@ -54,12 +54,26 @@ jobs:
     strategy:
       matrix:
         platform:
+          # Ubuntu 22.04
           - runs_on: ubuntu-22.04
+
+          # Ubuntu 22.04 but configured to use PRoot explicitly
+          - runs_on: ubuntu-22.04
+            setup: |
+              echo 'BRIOCHE_TEST_SANDBOX=linux_namespace' >> "$GITHUB_ENV"
+              echo 'BRIOCHE_TEST_SANDBOX_PROOT=true' >> "$GITHUB_ENV"
+
+          # Ubuntu 24.04 with default config, which restricts user namespaces.
+          # So, this test should fallback to using PRoot by default
           - runs_on: ubuntu-24.04
-            # Allow unprivileged user namespaces
+
+          # Ubuntu 24.04, but enabling unrestricted user namespaces
+          - runs_on: ubuntu-24.04
             setup: |
               echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf
               sudo sysctl --system
+
+          # macOS 14
           - runs_on: macos-14
     runs-on: ${{ matrix.platform.runs_on }}
     steps:

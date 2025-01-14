@@ -7,6 +7,7 @@ use std::{
     sync::OnceLock,
 };
 
+use anyhow::Context as _;
 use brioche_core::{
     blob::{BlobHash, SaveBlobOptions},
     project::{self, ProjectHash, ProjectLocking, ProjectValidation, Projects},
@@ -38,6 +39,7 @@ pub async fn brioche_test_with(
 
     let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
     let builder = BriocheBuilder::new(reporter)
+        .config(brioche_core::config::BriocheConfig::default())
         .home(brioche_home)
         .registry_client(brioche_core::registry::RegistryClient::new_with_client(
             reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
@@ -62,18 +64,24 @@ pub async fn brioche_test_with(
 /// will be downloaded to a temporary path and re-used within the same
 /// test run.
 pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::platform::Platform) {
-    static FILES: OnceLock<Mutex<HashMap<DownloadRecipe, Mutex<tokio::fs::File>>>> =
-        OnceLock::new();
+    let brioche_core::bake::ProcessRootfsRecipes {
+        sh,
+        env,
+        utils,
+        proot,
+    } = brioche_core::bake::process_rootfs_recipes(platform);
 
-    let brioche_core::bake::ProcessRootfsRecipes { sh, env } =
-        brioche_core::bake::process_rootfs_recipes(platform);
+    let mut recipes = vec![sh, env, utils];
+    if let Some(proot) = proot {
+        recipes.push(proot);
+    }
 
-    brioche_core::recipe::save_recipes(brioche, vec![sh.clone(), env.clone()])
+    brioche_core::recipe::save_recipes(brioche, recipes.clone())
         .await
         .unwrap();
 
     // Get all inner download recipes from the returned rootfs recipes
-    let mut recipes = VecDeque::from_iter([sh, env]);
+    let mut recipes = VecDeque::from_iter(recipes);
     let mut download_recipes = vec![];
     while let Some(recipe) = recipes.pop_front() {
         match recipe {
@@ -151,100 +159,107 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
     }
 
     for download in download_recipes {
-        let mut files = FILES.get_or_init(Default::default).lock().await;
-        match files.entry(download.clone()) {
-            std::collections::hash_map::Entry::Occupied(entry) => {
-                // File already exists, get it and rewind to the start
-                let mut file = entry.get().lock().await;
-                file.rewind().await.unwrap();
+        cached_download(brioche, &download).await;
+    }
+}
 
-                // Save the file as a blob
-                let mut permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
-                let blob_hash = brioche_core::blob::save_blob_from_reader(
-                    brioche,
-                    &mut permit,
-                    &mut *file,
-                    brioche_core::blob::SaveBlobOptions::default()
-                        .expected_hash(Some(download.hash.clone())),
-                    &mut vec![],
-                )
-                .await
-                .unwrap();
+async fn cached_download(
+    brioche: &Brioche,
+    download: &brioche_core::recipe::DownloadRecipe,
+) -> tokio::fs::File {
+    let dirs = directories::ProjectDirs::from("dev", "brioche", "brioche-test-support")
+        .expect("failed to get path to cache download dir");
+    let cached_downloads_dir = dirs.cache_dir().join("downloads");
 
-                // Save a bake result, so the download maps to a file with
-                // the saved blob
-                let input_recipe = brioche_core::recipe::Recipe::Download(download.clone());
-                let output_recipe = brioche_core::recipe::Recipe::File {
-                    content_blob: blob_hash,
-                    executable: false,
-                    resources: Box::new(WithMeta::without_meta(
-                        brioche_core::recipe::Recipe::Directory(Default::default()),
-                    )),
-                };
-                let input_hash = input_recipe.hash();
-                let input_json = serde_json::to_string(&input_recipe).unwrap();
-                let output_hash = output_recipe.hash();
-                let output_json = serde_json::to_string(&output_recipe).unwrap();
-                brioche_core::bake::save_bake_result(
-                    brioche,
-                    input_hash,
-                    &input_json,
-                    output_hash,
-                    &output_json,
-                )
-                .await
-                .unwrap();
-            }
-            std::collections::hash_map::Entry::Vacant(entry) => {
-                // Download the recipe and open the blob file
-                let blob_hash = brioche_core::download::download(
-                    brioche,
-                    &download.url,
-                    Some(download.hash.clone()),
-                )
-                .await;
-                let blob_hash = match blob_hash {
-                    Ok(blob_hash) => blob_hash,
-                    Err(error) => {
-                        panic!("failed to download rootfs blob {}: {error:#}", download.url);
-                    }
-                };
-                let blob_path = brioche_core::blob::local_blob_path(brioche, blob_hash);
-                let mut blob_file = tokio::fs::File::open(&blob_path).await.unwrap();
+    // Get the path to the cached file
+    let filename_safe_hash = match &download.hash {
+        brioche_core::Hash::Sha256 { value } => format!("sha256-{}", hex::encode(value)),
+    };
+    let mut cached_path = cached_downloads_dir.join(format!("download-{filename_safe_hash}"));
 
-                // Create a temporary file
-                let temp_dir = std::env::temp_dir();
-                let temp_path = temp_dir.join(format!(
-                    "brioche-download-{}-{}",
-                    download.hash,
-                    ulid::Ulid::new()
-                ));
-                let mut temp_file = tokio::fs::File::create_new(&temp_path).await.unwrap();
+    let cached_file = tokio::fs::File::open(&cached_path).await;
+    match cached_file {
+        Ok(mut file) => {
+            // Cached file already exists, so we need to save it as a blob,
+            // then record that the recipe bakes to the same file
 
-                // Unlink the temporary file. This will automatically remove
-                // the file when it's closed
-                match tokio::fs::remove_file(&temp_path).await {
-                    Ok(_) => {}
-                    Err(error) => {
-                        panic!(
-                            "failed to unlink temporary path {}: {error:#}",
-                            temp_path.display()
-                        );
-                    }
+            // Save the file as a blob
+            let mut permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
+            let blob_hash = brioche_core::blob::save_blob_from_reader(
+                brioche,
+                &mut permit,
+                &mut file,
+                brioche_core::blob::SaveBlobOptions::default()
+                    .expected_hash(Some(download.hash.clone())),
+                &mut vec![],
+            )
+            .await
+            .unwrap();
+
+            // Save a bake result, so the download maps to a file with
+            // the saved blob
+            let input_recipe = brioche_core::recipe::Recipe::Download(download.clone());
+            let output_recipe = brioche_core::recipe::Recipe::File {
+                content_blob: blob_hash,
+                executable: false,
+                resources: Box::new(WithMeta::without_meta(
+                    brioche_core::recipe::Recipe::Directory(Default::default()),
+                )),
+            };
+            let input_hash = input_recipe.hash();
+            let input_json = serde_json::to_string(&input_recipe).unwrap();
+            let output_hash = output_recipe.hash();
+            let output_json = serde_json::to_string(&output_recipe).unwrap();
+            brioche_core::bake::save_bake_result(
+                brioche,
+                input_hash,
+                &input_json,
+                output_hash,
+                &output_json,
+            )
+            .await
+            .unwrap();
+
+            file.rewind().await.expect("failed to rewind file");
+            file
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Download isn't cached, so download it
+
+            // Download the recipe
+            let blob_hash = brioche_core::download::download(
+                brioche,
+                &download.url,
+                Some(download.hash.clone()),
+            )
+            .await;
+            let blob_hash = match blob_hash {
+                Ok(blob_hash) => blob_hash,
+                Err(error) => {
+                    panic!("failed to download blob from {}: {error:#}", download.url);
                 }
+            };
+            let blob_path = brioche_core::blob::local_blob_path(brioche, blob_hash);
 
-                // Copy the downloaded file into the temp file
-                match tokio::io::copy(&mut blob_file, &mut temp_file).await {
-                    Ok(_) => {}
-                    Err(error) => {
-                        panic!("failed to copy blob file for {}: {error:#}", download.url);
-                    }
-                }
+            // Save the downloaded blob to the cache
+            tokio::fs::create_dir_all(&cached_downloads_dir)
+                .await
+                .expect("failed to create cache download dir");
+            tokio::fs::copy(&blob_path, &cached_path)
+                .await
+                .context("failed to save cached file");
 
-                // Keep the temp file open for next time
-                entry.insert(Mutex::new(temp_file));
-            }
-        };
+            // Return the cached file
+            tokio::fs::File::open(&cached_path)
+                .await
+                .expect("failed to open cached file")
+        }
+        Err(error) => {
+            panic!(
+                "failed to open cached file {}: {error:#}",
+                cached_path.display()
+            );
+        }
     }
 }
 

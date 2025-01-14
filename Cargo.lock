@@ -927,6 +927,8 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "brioche-core",
+ "directories",
+ "hex",
  "mockito",
  "reqwest",
  "reqwest-middleware",

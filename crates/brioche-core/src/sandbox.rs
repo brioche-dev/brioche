@@ -2,7 +2,13 @@ use std::{collections::HashMap, path::PathBuf};
 
 use crate::encoding::{AsPath, TickEncoded};
 
-mod linux;
+pub mod linux_namespace;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxBackend {
+    LinuxNamespace(linux_namespace::LinuxNamespaceSandbox),
+}
 
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -103,13 +109,19 @@ impl From<std::process::ExitStatus> for ExitStatus {
     }
 }
 
-pub fn run_sandbox(exec: SandboxExecutionConfig) -> anyhow::Result<ExitStatus> {
-    cfg_if::cfg_if! {
-        if #[cfg(target_os = "linux")] {
-            linux::run_sandbox(exec)
-        } else {
-            let _ = exec;
-            anyhow::bail!("process execution is not supported on this platform");
+pub fn run_sandbox(
+    backend: SandboxBackend,
+    exec: SandboxExecutionConfig,
+) -> anyhow::Result<ExitStatus> {
+    match backend {
+        SandboxBackend::LinuxNamespace(sandbox) => {
+            cfg_if::cfg_if! {
+                if #[cfg(target_os = "linux")] {
+                    linux_namespace::run_sandbox(sandbox, exec)
+                } else {
+                    anyhow::bail!("tried to use Linux namespace sandbox backend, but it's not supported on this platform");
+                }
+            }
         }
     }
 }
