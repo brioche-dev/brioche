@@ -2,10 +2,7 @@ use std::{collections::HashMap, ffi::OsString, path::PathBuf};
 
 use bstr::ByteSlice as _;
 
-use super::{
-    ExitStatus, HostPathMode, SandboxPath, SandboxPathOptions, SandboxTemplate,
-    SandboxTemplateComponent,
-};
+use super::{SandboxPath, SandboxPathOptions, SandboxTemplate, SandboxTemplateComponent};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MountStyle {
@@ -127,8 +124,8 @@ pub fn run_sandbox(
                         }
 
                         let readonly = match options.mode {
-                            HostPathMode::Read => true,
-                            HostPathMode::ReadWriteCreate => false,
+                            super::HostPathMode::Read => true,
+                            super::HostPathMode::ReadWriteCreate => false,
                         };
 
                         libmount::BindMount::new(path, &dest_path)
@@ -216,8 +213,8 @@ pub fn run_sandbox(
     let exit_status = child.wait()?;
 
     let exit_status = match exit_status {
-        unshare::ExitStatus::Exited(code) => ExitStatus::Code(code.into()),
-        unshare::ExitStatus::Signaled(signal, _) => ExitStatus::Signal(signal as i32),
+        unshare::ExitStatus::Exited(code) => super::ExitStatus::Code(code.into()),
+        unshare::ExitStatus::Signaled(signal, _) => super::ExitStatus::Signal(signal as i32),
     };
 
     Ok(exit_status)

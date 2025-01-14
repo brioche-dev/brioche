@@ -7,7 +7,6 @@ pub mod linux_namespace;
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxBackend {
-    #[cfg(target_os = "linux")]
     LinuxNamespace(linux_namespace::LinuxNamespaceSandbox),
 }
 

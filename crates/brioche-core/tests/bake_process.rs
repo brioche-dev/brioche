@@ -71,7 +71,7 @@ where
                 let proot = match std::env::var("BRIOCHE_TEST_SANDBOX_PROOT").as_deref() {
                     Ok("true") => Some(brioche_core::config::PRootConfig::Value(true)),
                     Ok("false") => Some(brioche_core::config::PRootConfig::Value(false)),
-                    Ok("auto") => brioche_core::config::PRootConfig::Auto(Some(
+                    Ok("auto") => Some(brioche_core::config::PRootConfig::Auto(
                         brioche_core::config::PRootAutoConfig::Auto,
                     )),
                     _ => None,
