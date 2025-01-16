@@ -15,7 +15,9 @@ pub struct SelfUpdateArgs {
     confirm: bool,
 }
 
-const MANIFEST_URL: &str = "https://releases.brioche.dev/updates/update-manifest-v1.json";
+const CUSTOM_UPDATE_MANIFEST_URL: Option<&str> = option_env!("BRIOCHE_CUSTOM_UPDATE_MANIFEST_URL");
+
+const UPDATE_MANIFEST_URL: &str = "https://releases.brioche.dev/updates/update-manifest-v1.json";
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -114,9 +116,16 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
 async fn get_update_version_manifest(
     client: &reqwest::Client,
 ) -> anyhow::Result<Option<SelfUpdateVersionManifest>> {
+    let manifest_url = match CUSTOM_UPDATE_MANIFEST_URL {
+        Some(manifest_url) => {
+            println!("Checking for updates from {manifest_url}");
+            manifest_url
+        }
+        None => UPDATE_MANIFEST_URL,
+    };
     // Download the manifest
     let response = client
-        .get(MANIFEST_URL)
+        .get(manifest_url)
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
