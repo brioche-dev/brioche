@@ -49,6 +49,10 @@ jobs:
             echo "Re-run 'npm run build' and commit the results" >&2
             exit 1
           fi
+      - name: Check Brioche project
+        run: |
+          brioche check
+          brioche fmt --check
   test:
     name: Run tests
     strategy:
@@ -167,7 +171,7 @@ jobs:
       - name: Install Brioche
         uses: brioche-dev/setup-brioche@v1
       - name: Build Brioche
-        run: brioche build -o "brioche-packed-$PLATFORM"
+        run: brioche build --check -o "brioche-packed-$PLATFORM"
         env:
           PLATFORM: x86_64-linux
       - name: Prepare artifact
