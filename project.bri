@@ -7,7 +7,9 @@ import { gitCheckout } from "git";
 import openssl from "openssl";
 
 /**
- * Returns a recipe to build Brioche itself.
+ * Returns a recipe to build Brioche itself. This results in a packed build,
+ * which-- unlike a normal glibc-based build-- is portable and runs even
+ * if the host doesn't have glibc.
  */
 export default function (): std.Recipe<std.Directory> {
   let source = Brioche.glob(
@@ -39,9 +41,13 @@ export default function (): std.Recipe<std.Directory> {
     source,
     path: "crates/brioche",
     runnable: "bin/brioche",
-
-    // Network access is used for vendoring libraries (e.g. V8)
+    buildParams: {
+      // Disable self-updates. Currently, self updates aren't supported for
+      // packed builds.
+      defaultFeatures: false,
+    },
     unsafe: {
+      // Network access is used for vendoring libraries (e.g. V8)
       networking: true,
     },
     dependencies: [curl(), caCertificates()],
