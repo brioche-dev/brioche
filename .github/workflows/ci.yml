@@ -49,6 +49,8 @@ jobs:
             echo "Re-run 'npm run build' and commit the results" >&2
             exit 1
           fi
+      - name: Install Brioche
+        uses: brioche-dev/setup-brioche@v1
       - name: Check Brioche project
         run: |
           brioche check
