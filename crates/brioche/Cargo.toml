@@ -1,6 +1,6 @@
 [package]
 name = "brioche"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 default-run = "brioche"
 

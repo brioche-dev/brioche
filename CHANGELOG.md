@@ -6,6 +6,34 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+## [v0.1.4] - 2025-01-18
+
+**Check the blog post ["Announcing Brioche v0.1.4"](http://brioche.dev/blog/announcing-brioche-v0-1-4) for an overview of all the new features in this release**
+
+### Changed
+
+- Overhaul console output ([#137](https://github.com/brioche-dev/brioche/pull/137))
+    - The new output format uses colors and symbols, runs at a faster refresh rate, and generally should make it clearer what's going on. See [this Asciinema recording](https://asciinema.org/a/PMZ9kKSD6VAmz3K5A3FLWZbp5) for what the new format looks like.
+- Overhaul output format when a process recipe fails ([#138](https://github.com/brioche-dev/brioche/pull/138), [#139](https://github.com/brioche-dev/brioche/pull/139))
+
+### Added
+
+- Add `--locked` flag for several subcommands ([#133](https://github.com/brioche-dev/brioche/pull/133))
+    - Applies to `build`, `check`, `run`, and `install`. When passed, the command will fail if the lockfile isn't up-to-date.
+- Add `--display` flag, plus new `plain-reduced` output format ([#141](https://github.com/brioche-dev/brioche/pull/141))
+- Add new `attach_resources` recipe type ([#149](https://github.com/brioche-dev/brioche/pull/149))
+
+### Fixed
+
+- Update Linux sandbox to fallback to using PRoot for mounts ([#159](https://github.com/brioche-dev/brioche/pull/159))
+    - This fallback makes it so Brioche can run without any extra setup on Ubuntu 24.04-- although with reduced performance. See ["PRoot fallback"](https://brioche.dev/help/proot-fallback) in the docs for more context and other options.
+- Fix some LSP errors from converting between line / column numbers and positions ([#134](https://github.com/brioche-dev/brioche/pull/134))
+
+### Internals
+
+- Add `project.bri` for building Brioche with Brioche! This new build will be used to provide portable builds for non-glibc machines.
+- This release includes the initial groundwork for AArch64 support on Linux (a.k.a ARM64). Brioche itself can now run on `aarch64-linux`, but this work hasn't landed in the `brioche-packages` repo yet, and getting it merged so packages can work with both `aarch64-linux` and `x86_64-linux` is still blocked on future feature work.
+
 ## [v0.1.3] - 2024-09-27
 
 ### Fixed
@@ -65,7 +93,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 - **Initial release!**
 
-[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.4...HEAD
+[v0.1.4]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.4
 [v0.1.3]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.3
 [v0.1.2]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.2
 [v0.1.1]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.1
