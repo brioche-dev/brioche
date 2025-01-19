@@ -1,7 +1,11 @@
-use std::{collections::HashMap, ffi::OsString, path::PathBuf};
+use std::path::PathBuf;
+#[cfg(target_os = "linux")]
+use std::{collections::HashMap, ffi::OsString};
 
+#[cfg(target_os = "linux")]
 use bstr::ByteSlice as _;
 
+#[cfg(target_os = "linux")]
 use super::{SandboxPath, SandboxPathOptions, SandboxTemplate, SandboxTemplateComponent};
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -220,6 +224,7 @@ pub fn run_sandbox(
     Ok(exit_status)
 }
 
+#[cfg(target_os = "linux")]
 fn build_template(
     template: &SandboxTemplate,
     host_paths: &mut HashMap<PathBuf, SandboxPathOptions>,

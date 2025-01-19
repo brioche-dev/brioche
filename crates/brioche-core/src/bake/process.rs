@@ -1392,6 +1392,7 @@ async fn auto_select_sandbox_backend(
     anyhow::bail!("could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)");
 }
 
+#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 struct SandboxBackendSelector {
     brioche: Brioche,
     sandbox_config: SandboxExecutionConfig,
