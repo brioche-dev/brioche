@@ -1358,7 +1358,7 @@ async fn select_sandbox_backend(
     }
 }
 
-#[cfg_attr(not(target_os = "linux"), expect(unused_variable))]
+#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
 async fn auto_select_sandbox_backend(
     backend_selector: &mut SandboxBackendSelector,
 ) -> anyhow::Result<SandboxBackend> {
