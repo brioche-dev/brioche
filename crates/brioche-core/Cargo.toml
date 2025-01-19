@@ -1,7 +1,7 @@
 [package]
 name = "brioche-core"
 version = "0.1.4"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 anyhow = { version = "1.0.95", features = ["backtrace"] }
@@ -96,7 +96,5 @@ harness = false
 name = "input"
 harness = false
 
-[lints.clippy]
-# Temporarily ignore false positives from `tracing::instrument`, see:
-# https://github.com/rust-lang/rust-clippy/issues/12281
-blocks_in_conditions = "allow"
+[lints]
+workspace = true

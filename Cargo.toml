@@ -1,6 +1,12 @@
+[workspace.package]
+edition = "2021"
+
 [workspace]
 members = ["crates/brioche", "crates/brioche-core", "crates/brioche-pack", "crates/brioche-test-support"]
 resolver = "2"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
 
 [profile.dev]
 # Enable optimizations for debug builds because the JS runs slow without it.
