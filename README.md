@@ -34,7 +34,7 @@ export default () => {
 Run this in your terminal for quick installation:
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSfL 'https://brioche.dev/install.sh' | bash
+curl --proto '=https' --tlsv1.2 -sSfL 'https://brioche.dev/install.sh' | sh
 ```
 
 ...or check out the official docs on [Installation](https://brioche.dev/docs/installation) more installation options.
