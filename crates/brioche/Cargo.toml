@@ -19,7 +19,7 @@ notify = "8.0.0"
 openssl = { version = "0.10.68", optional = true }
 reqwest = { version = "0.12.9", default-features = false, features = ["rustls-tls", "zstd", "json"] }
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
+serde_json = "1.0.137"
 sha2 = "0.10.8"
 superconsole = "0.2.0"
 tokio = { version = "1.43.0", features = ["full", "tracing"] }
