@@ -109,6 +109,7 @@ impl From<std::process::ExitStatus> for ExitStatus {
     }
 }
 
+#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
 pub fn run_sandbox(
     backend: SandboxBackend,
     exec: SandboxExecutionConfig,

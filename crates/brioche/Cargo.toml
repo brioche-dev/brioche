@@ -1,7 +1,7 @@
 [package]
 name = "brioche"
 version = "0.1.4"
-edition = "2021"
+edition.workspace = true
 default-run = "brioche"
 
 [features]
@@ -30,7 +30,5 @@ ulid = "1.1.4"
 url = { version = "2.5.4", features = ["serde"] }
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
-[lints.clippy]
-# Temporarily ignore false positives from `tracing::instrument`, see:
-# https://github.com/rust-lang/rust-clippy/issues/12281
-blocks_in_conditions = "allow"
+[lints]
+workspace = true

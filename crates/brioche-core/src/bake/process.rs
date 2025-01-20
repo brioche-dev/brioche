@@ -1358,7 +1358,7 @@ async fn select_sandbox_backend(
     }
 }
 
-#[cfg_attr(not(target_os = "linux"), expect(unused_variable))]
+#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
 async fn auto_select_sandbox_backend(
     backend_selector: &mut SandboxBackendSelector,
 ) -> anyhow::Result<SandboxBackend> {
@@ -1392,6 +1392,7 @@ async fn auto_select_sandbox_backend(
     anyhow::bail!("could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)");
 }
 
+#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 struct SandboxBackendSelector {
     brioche: Brioche,
     sandbox_config: SandboxExecutionConfig,

@@ -1,7 +1,7 @@
 [package]
 name = "brioche-test-support"
 version = "0.1.4"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 anyhow = { version = "1.0.95", features = ["backtrace"] }
@@ -19,3 +19,6 @@ toml = "0.8.19"
 tracing = "0.1.41"
 ulid = "1.1.4"
 zstd = "0.13.2"
+
+[lints]
+workspace = true
