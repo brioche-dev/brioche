@@ -33,7 +33,6 @@ use crate::{
 const GUEST_UID_HINT: u32 = 1099;
 const GUEST_GID_HINT: u32 = 1099;
 
-#[tracing::instrument(skip(brioche, process))]
 pub async fn bake_lazy_process_to_process(
     brioche: &Brioche,
     scope: &super::BakeScope,
@@ -105,7 +104,6 @@ pub async fn bake_lazy_process_to_process(
     })
 }
 
-#[tracing::instrument(skip_all)]
 async fn bake_lazy_process_template_to_process_template(
     brioche: &Brioche,
     scope: &super::BakeScope,

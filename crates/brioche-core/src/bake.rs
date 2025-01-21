@@ -49,7 +49,6 @@ pub enum BakeScope {
     Anonymous,
 }
 
-#[tracing::instrument(skip(brioche, recipe), fields(recipe_hash = %recipe.hash(), recipe_kind = ?recipe.kind(), bake_method))]
 pub async fn bake(
     brioche: &Brioche,
     recipe: WithMeta<Recipe>,
@@ -122,7 +121,6 @@ pub async fn bake(
 }
 
 #[async_recursion::async_recursion]
-#[tracing::instrument(skip(brioche, recipe), fields(recipe_hash = %recipe.hash(), recipe_kind = ?recipe.kind(), bake_method))]
 async fn bake_inner(
     brioche: &Brioche,
     recipe: WithMeta<Recipe>,
@@ -269,7 +267,7 @@ async fn bake_inner(
 
                     anyhow::Ok(baked)
                 }
-                .instrument(tracing::debug_span!("run_bake_task").or_current())
+                .instrument(tracing::Span::current())
             };
             tokio::spawn(bake_fut).await?.map_err(|error| BakeFailed {
                 message: format!("{error:#}"),
@@ -311,7 +309,6 @@ async fn bake_inner(
     }
 }
 
-#[tracing::instrument(skip_all, err)]
 async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow::Result<Artifact> {
     let scope = BakeScope::Child {
         parent_hash: recipe.hash(),
