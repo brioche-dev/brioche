@@ -1,5 +1,6 @@
 [workspace.package]
 edition = "2021"
+rust-version = "1.84" # To align with the rust-toolchain.toml
 
 [workspace]
 members = ["crates/brioche", "crates/brioche-core", "crates/brioche-pack", "crates/brioche-test-support"]

@@ -2,6 +2,7 @@
 name = "brioche-test-support"
 version = "0.1.4"
 edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 anyhow = { version = "1.0.95", features = ["backtrace"] }
