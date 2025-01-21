@@ -270,6 +270,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub async fn descendent_artifact_blobs(
     brioche: &Brioche,
     artifacts: impl IntoIterator<Item = Artifact>,

@@ -419,6 +419,7 @@ pub struct LocalOutput {
     pub resource_dir: Option<PathBuf>,
 }
 
+#[tracing::instrument(skip_all, fields(artifact_hash = %artifact.hash()))]
 async fn fetch_descendent_artifact_blobs(
     brioche: &Brioche,
     artifact: &Artifact,
