@@ -58,19 +58,20 @@ pub async fn bake(
     let recipe_hash = recipe.hash();
     let result = bake_inner(brioche, recipe).await?;
 
-    match scope {
-        BakeScope::Project {
-            project_hash,
-            export,
-        } => {
-            let mut db_conn = brioche.db_conn.lock().await;
-            let mut db_transaction = db_conn.begin().await?;
+    async {
+        match scope {
+            BakeScope::Project {
+                project_hash,
+                export,
+            } => {
+                let mut db_conn = brioche.db_conn.lock().await;
+                let mut db_transaction = db_conn.begin().await?;
 
-            let project_hash_value = project_hash.to_string();
-            let export_value = export.to_string();
-            let recipe_hash_value = recipe_hash.to_string();
-            sqlx::query!(
-                r#"
+                let project_hash_value = project_hash.to_string();
+                let export_value = export.to_string();
+                let recipe_hash_value = recipe_hash.to_string();
+                sqlx::query!(
+                    r#"
                     INSERT INTO project_bakes (
                         project_hash,
                         export,
@@ -78,39 +79,44 @@ pub async fn bake(
                     ) VALUES (?, ?, ?)
                     ON CONFLICT (project_hash, export, recipe_hash) DO NOTHING
                 "#,
-                project_hash_value,
-                export_value,
-                recipe_hash_value,
-            )
-            .execute(&mut *db_transaction)
-            .await?;
+                    project_hash_value,
+                    export_value,
+                    recipe_hash_value,
+                )
+                .execute(&mut *db_transaction)
+                .await?;
 
-            db_transaction.commit().await?;
-        }
-        BakeScope::Child { parent_hash } => {
-            let mut db_conn = brioche.db_conn.lock().await;
-            let mut db_transaction = db_conn.begin().await?;
+                db_transaction.commit().await?;
+            }
+            BakeScope::Child { parent_hash } => {
+                let mut db_conn = brioche.db_conn.lock().await;
+                let mut db_transaction = db_conn.begin().await?;
 
-            let parent_hash_value = parent_hash.to_string();
-            let recipe_hash_value = recipe_hash.to_string();
-            sqlx::query!(
-                r#"
+                let parent_hash_value = parent_hash.to_string();
+                let recipe_hash_value = recipe_hash.to_string();
+                sqlx::query!(
+                    r#"
                     INSERT INTO child_bakes (
                         parent_hash,
                         recipe_hash
                     ) VALUES (?, ?)
                     ON CONFLICT (parent_hash, recipe_hash) DO NOTHING
                 "#,
-                parent_hash_value,
-                recipe_hash_value,
-            )
-            .execute(&mut *db_transaction)
-            .await?;
+                    parent_hash_value,
+                    recipe_hash_value,
+                )
+                .execute(&mut *db_transaction)
+                .await?;
 
-            db_transaction.commit().await?;
+                db_transaction.commit().await?;
+            }
+            BakeScope::Anonymous => {}
         }
-        BakeScope::Anonymous => {}
+
+        anyhow::Ok(())
     }
+    .instrument(tracing::info_span!("bake_save_scope"))
+    .await?;
 
     Ok(result)
 }

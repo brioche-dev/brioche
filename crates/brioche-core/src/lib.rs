@@ -8,6 +8,7 @@ use sandbox::SandboxBackend;
 use sha2::Digest as _;
 use sqlx::Connection as _;
 use tokio::sync::{Mutex, RwLock};
+use tracing::Instrument as _;
 
 pub mod bake;
 pub mod blob;
@@ -239,37 +240,40 @@ impl BriocheBuilder {
         // registry during builds. This allows for some bakes to be synced
         // even if the overall build fails.
         let sync_enabled = self.sync;
-        tokio::spawn(async move {
-            let mut sync_results = sync::SyncBakesResults::default();
+        tokio::spawn(
+            async move {
+                let mut sync_results = sync::SyncBakesResults::default();
 
-            while let Some(sync_message) = sync_rx.recv().await {
-                match sync_message {
-                    SyncMessage::StartSync {
-                        brioche,
-                        recipe,
-                        artifact,
-                    } => {
-                        if sync_enabled {
-                            let result =
-                                sync::sync_bakes(&brioche, vec![(recipe, artifact)], false)
-                                    .await
-                                    .inspect_err(|error| {
-                                        tracing::warn!("failed to sync baked recipe: {error}");
-                                    });
-                            if let Ok(result) = result {
-                                sync_results.merge(result);
+                while let Some(sync_message) = sync_rx.recv().await {
+                    match sync_message {
+                        SyncMessage::StartSync {
+                            brioche,
+                            recipe,
+                            artifact,
+                        } => {
+                            if sync_enabled {
+                                let result =
+                                    sync::sync_bakes(&brioche, vec![(recipe, artifact)], false)
+                                        .await
+                                        .inspect_err(|error| {
+                                            tracing::warn!("failed to sync baked recipe: {error}");
+                                        });
+                                if let Ok(result) = result {
+                                    sync_results.merge(result);
+                                }
                             }
                         }
-                    }
-                    SyncMessage::Flush { completed } => {
-                        let results = std::mem::take(&mut sync_results);
-                        let _ = completed.send(results).inspect_err(|_| {
-                            tracing::warn!("failed to send sync flush completion");
-                        });
+                        SyncMessage::Flush { completed } => {
+                            let results = std::mem::take(&mut sync_results);
+                            let _ = completed.send(results).inspect_err(|_| {
+                                tracing::warn!("failed to send sync flush completion");
+                            });
+                        }
                     }
                 }
             }
-        });
+            .instrument(tracing::Span::current()),
+        );
 
         let cancellation_token = tokio_util::sync::CancellationToken::new();
         let task_tracker = tokio_util::task::TaskTracker::new();

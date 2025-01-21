@@ -1,6 +1,7 @@
 use crate::utils::DisplayDuration;
 use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
+use tracing::Instrument as _;
 
 use crate::{
     project::ProjectHash,
@@ -92,12 +93,15 @@ pub async fn sync_bakes(
         .try_for_each_concurrent(Some(25), |(input_hash, output_hash)| {
             let brioche = brioche.clone();
             async move {
-                tokio::spawn(async move {
-                    brioche
-                        .registry_client
-                        .create_bake(input_hash, output_hash)
-                        .await
-                })
+                tokio::spawn(
+                    async move {
+                        brioche
+                            .registry_client
+                            .create_bake(input_hash, output_hash)
+                            .await
+                    }
+                    .instrument(tracing::Span::current()),
+                )
                 .await??;
                 anyhow::Ok(())
             }
@@ -154,24 +158,27 @@ pub async fn sync_recipe_references(
         .try_for_each_concurrent(Some(25), |blob_hash| {
             let brioche = brioche.clone();
             async move {
-                tokio::spawn(async move {
-                    let blob_path = {
-                        let mut permit = crate::blob::get_save_blob_permit().await?;
-                        crate::blob::blob_path(&brioche, &mut permit, blob_hash).await?
-                    };
+                tokio::spawn(
+                    async move {
+                        let blob_path = {
+                            let mut permit = crate::blob::get_save_blob_permit().await?;
+                            crate::blob::blob_path(&brioche, &mut permit, blob_hash).await?
+                        };
 
-                    // TODO: Figure out if we can stream the blob (this
-                    // will error out due to `reqwest-retry`)
-                    let blob_content = tokio::fs::read(&blob_path)
-                        .await
-                        .with_context(|| format!("failed to read blob {blob_hash}"))?;
-                    brioche
-                        .registry_client
-                        .send_blob(blob_hash, blob_content)
-                        .await?;
+                        // TODO: Figure out if we can stream the blob (this
+                        // will error out due to `reqwest-retry`)
+                        let blob_content = tokio::fs::read(&blob_path)
+                            .await
+                            .with_context(|| format!("failed to read blob {blob_hash}"))?;
+                        brioche
+                            .registry_client
+                            .send_blob(blob_hash, blob_content)
+                            .await?;
 
-                    anyhow::Ok(())
-                })
+                        anyhow::Ok(())
+                    }
+                    .instrument(tracing::Span::current()),
+                )
                 .await??;
 
                 anyhow::Ok(())
@@ -263,14 +270,17 @@ pub async fn sync_project_references(
         .try_for_each_concurrent(Some(25), |(blob_hash, blob_content)| {
             let brioche = brioche.clone();
             async move {
-                tokio::spawn(async move {
-                    brioche
-                        .registry_client
-                        .send_blob(blob_hash, (*blob_content).clone())
-                        .await?;
+                tokio::spawn(
+                    async move {
+                        brioche
+                            .registry_client
+                            .send_blob(blob_hash, (*blob_content).clone())
+                            .await?;
 
-                    anyhow::Ok(())
-                })
+                        anyhow::Ok(())
+                    }
+                    .instrument(tracing::Span::current()),
+                )
                 .await??;
 
                 anyhow::Ok(())
