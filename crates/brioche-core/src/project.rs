@@ -1134,7 +1134,7 @@ async fn fetch_project_from_registry(
         .values()
         .map(|file_id| file_id.as_blob_hash())
         .collect::<anyhow::Result<HashSet<_>>>()?;
-    crate::registry::fetch_blobs(brioche.clone(), &blobs).await?;
+    crate::registry::fetch_blobs(brioche.clone(), blobs).await?;
 
     for (module_path, file_id) in &project.modules {
         anyhow::ensure!(
