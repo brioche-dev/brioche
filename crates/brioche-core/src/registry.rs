@@ -531,35 +531,24 @@ pub async fn fetch_recipes_deep(
 }
 
 #[tracing::instrument(skip(brioche, blobs))]
-pub async fn fetch_blobs(brioche: Brioche, blobs: &HashSet<BlobHash>) -> anyhow::Result<()> {
-    let unknown_blobs = futures::stream::iter(blobs.clone())
-        .map(|blob_hash| {
-            let brioche = brioche.clone();
-            // Create a future to map to the hash plus a result indicating
-            // whether it exists on disk already. We do this instead of
-            // filtering so we can do the checks in parallel.
-            // See this discussion:
-            // https://github.com/alexpusch/rust-magic-patterns/blob/master/rust-stream-visualized/Readme.md
-            async move {
-                let blob_path = super::blob::local_blob_path(&brioche, blob_hash);
-
-                let try_exists = tokio::fs::try_exists(&blob_path).await;
-
-                (blob_hash, try_exists)
+pub async fn fetch_blobs(brioche: Brioche, blobs: HashSet<BlobHash>) -> anyhow::Result<()> {
+    // Find the blobs we don't have locally, which we'll need to fetch
+    let unknown_blobs = tokio::task::spawn_blocking({
+        let brioche = brioche.clone();
+        move || {
+            let mut unknown_blobs = blobs.clone();
+            for blob_hash in &blobs {
+                let blob_path = super::blob::local_blob_path(&brioche, *blob_hash);
+                let exists = std::fs::exists(&blob_path)?;
+                if exists {
+                    unknown_blobs.remove(blob_hash);
+                }
             }
-        })
-        .buffer_unordered(25)
-        .filter_map(|(blob_hash, try_exists)| async move {
-            // Filter to blobs that don't exist
-            if matches!(try_exists, Ok(true)) {
-                None
-            } else {
-                Some(blob_hash)
-            }
-        })
-        .collect::<Vec<_>>()
-        .map(anyhow::Ok)
-        .await?;
+
+            anyhow::Ok(unknown_blobs)
+        }
+    })
+    .await??;
 
     // Short-circuit if we have nothing to fetch
     if unknown_blobs.is_empty() {

@@ -174,9 +174,13 @@ async fn create_output_inner<'a: 'async_recursion>(
                 });
 
                 if let Some(link_lock) = link_lock {
-                    let local_path =
-                        create_local_output_inner(brioche, &artifact_without_resources, link_lock)
-                            .await?;
+                    let local_path = create_local_output_inner(
+                        brioche,
+                        &artifact_without_resources,
+                        link_lock,
+                        false,
+                    )
+                    .await?;
                     crate::fs_utils::try_remove(options.output_path).await?;
                     tokio::fs::hard_link(&local_path.path, options.output_path)
                         .await
@@ -275,7 +279,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                         // for the file, then hardlink to it
 
                         let local_output =
-                            create_local_output_inner(brioche, &entry, link_lock).await?;
+                            create_local_output_inner(brioche, &entry, link_lock, false).await?;
                         crate::fs_utils::try_remove(&entry_path).await?;
                         tokio::fs::hard_link(&local_output.path, &entry_path)
                             .await
@@ -319,11 +323,8 @@ pub async fn create_local_output(
     // TODO: Make this function parallelizable
     let lock = LOCAL_OUTPUT_MUTEX.lock().await;
 
-    // Fetch all blobs before creating the output
-    fetch_descendent_artifact_blobs(brioche, artifact).await?;
-
     // Create the output
-    let result = create_local_output_inner(brioche, artifact, &lock).await?;
+    let result = create_local_output_inner(brioche, artifact, &lock, true).await?;
 
     Ok(result)
 }
@@ -332,6 +333,7 @@ async fn create_local_output_inner(
     brioche: &Brioche,
     artifact: &Artifact,
     lock: &tokio::sync::MutexGuard<'_, LocalOutputLock>,
+    fetch_descendents: bool,
 ) -> anyhow::Result<LocalOutput> {
     let local_dir = brioche.home.join("locals");
     tokio::fs::create_dir_all(&local_dir).await?;
@@ -341,6 +343,11 @@ async fn create_local_output_inner(
     let local_resource_dir = local_dir.join(format!("{artifact_hash}-resources.d"));
 
     if !try_exists_and_ensure_local_meta(&local_path).await? {
+        // Fetch all blobs before creating the output if needed
+        if fetch_descendents {
+            fetch_descendent_artifact_blobs(brioche, artifact).await?;
+        }
+
         let local_temp_dir = brioche.home.join("locals-temp");
         tokio::fs::create_dir_all(&local_temp_dir).await?;
         let temp_id = ulid::Ulid::new();
@@ -429,7 +436,7 @@ async fn fetch_descendent_artifact_blobs(
     crate::references::descendent_artifact_blobs(brioche, [artifact.clone()], &mut blobs).await?;
 
     // Fetch all referenced blobs
-    crate::registry::fetch_blobs(brioche.clone(), &blobs).await?;
+    crate::registry::fetch_blobs(brioche.clone(), blobs).await?;
 
     Ok(())
 }
