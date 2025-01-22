@@ -207,6 +207,7 @@ async fn run_install(
                 export: export.to_string(),
             },
         )
+        .instrument(tracing::info_span!("bake"))
         .await?;
 
         let elapsed = DisplayDuration(reporter.elapsed());

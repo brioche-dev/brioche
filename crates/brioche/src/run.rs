@@ -119,6 +119,7 @@ pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
                 export: args.export.to_string(),
             },
         )
+        .instrument(tracing::info_span!("bake"))
         .await?;
 
         guard.shutdown_console().await;

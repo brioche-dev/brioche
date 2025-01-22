@@ -55,7 +55,6 @@ pub async fn create_output(
 
 #[allow(clippy::multiple_bound_locations)]
 #[async_recursion::async_recursion]
-#[tracing::instrument(skip(brioche, artifact, link_lock), fields(artifact_hash = %artifact.hash()), err)]
 async fn create_output_inner<'a: 'async_recursion>(
     brioche: &Brioche,
     artifact: &Artifact,
@@ -420,6 +419,7 @@ pub struct LocalOutput {
     pub resource_dir: Option<PathBuf>,
 }
 
+#[tracing::instrument(skip_all, fields(artifact_hash = %artifact.hash()))]
 async fn fetch_descendent_artifact_blobs(
     brioche: &Brioche,
     artifact: &Artifact,

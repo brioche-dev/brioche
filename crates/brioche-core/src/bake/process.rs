@@ -8,6 +8,7 @@ use anyhow::Context as _;
 use bstr::ByteVec as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tracing::Instrument as _;
 
 use crate::{
     process_events::{
@@ -32,7 +33,6 @@ use crate::{
 const GUEST_UID_HINT: u32 = 1099;
 const GUEST_GID_HINT: u32 = 1099;
 
-#[tracing::instrument(skip(brioche, process))]
 pub async fn bake_lazy_process_to_process(
     brioche: &Brioche,
     scope: &super::BakeScope,
@@ -104,7 +104,6 @@ pub async fn bake_lazy_process_to_process(
     })
 }
 
-#[tracing::instrument(skip_all)]
 async fn bake_lazy_process_template_to_process_template(
     brioche: &Brioche,
     scope: &super::BakeScope,
@@ -1418,6 +1417,7 @@ impl SandboxBackendSelector {
             }),
             &super::BakeScope::Anonymous,
         )
+        .instrument(tracing::info_span!("bake_rootfs_artifacts"))
         .await?;
         let rootfs_recipes_output =
             crate::output::create_local_output(&brioche, &rootfs_artifacts.value).await?;
@@ -1688,6 +1688,7 @@ async fn default_proot_path(
         WithMeta::without_meta(proot_recipe.clone()),
         &super::BakeScope::Anonymous,
     )
+    .instrument(tracing::info_span!("bake_default_proot_path"))
     .await?;
 
     let proot_output = crate::output::create_local_output(brioche, &proot_artifact.value).await?;
@@ -1729,6 +1730,7 @@ async fn set_up_rootfs(
         }),
         &super::BakeScope::Anonymous,
     )
+    .instrument(tracing::info_span!("bake_sh_and_env"))
     .await?;
     crate::output::create_output(brioche, &sh_and_env.value, output_rootfs_options).await?;
 

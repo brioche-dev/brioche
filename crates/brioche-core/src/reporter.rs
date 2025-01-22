@@ -1,5 +1,6 @@
 use std::sync::{atomic::AtomicUsize, Arc};
 
+use tracing::Instrument as _;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
 pub mod console;
@@ -43,11 +44,14 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
 
     let (lsp_tx, mut lsp_rx) = tokio::sync::mpsc::unbounded_channel();
 
-    tokio::spawn(async move {
-        while let Some((message_type, message)) = lsp_rx.recv().await {
-            let _ = client.log_message(message_type, message).await;
+    tokio::spawn(
+        async move {
+            while let Some((message_type, message)) = lsp_rx.recv().await {
+                let _ = client.log_message(message_type, message).await;
+            }
         }
-    });
+        .instrument(tracing::Span::current()),
+    );
 
     let lsp_client_writer = LspClientWriter { lsp_tx };
 

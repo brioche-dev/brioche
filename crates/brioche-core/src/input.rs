@@ -7,6 +7,7 @@ use std::{
 use anyhow::Context as _;
 use bstr::{ByteSlice as _, ByteVec as _};
 use petgraph::visit::EdgeRef as _;
+use tracing::Instrument as _;
 
 use crate::fs_utils::{is_executable, logical_path_bytes, set_directory_rwx_recursive};
 
@@ -88,23 +89,27 @@ pub async fn create_input(
         let remove_blob = plan.paths_to_remove.contains(&path);
 
         let task = async move {
-            let result = tokio::spawn(async move {
-                let mut blob_permit = super::blob::get_save_blob_permit().await?;
-                let blob = super::blob::save_blob_from_file(
-                    &brioche,
-                    &mut blob_permit,
-                    &path,
-                    super::blob::SaveBlobOptions::default().remove_input(remove_blob),
-                    &mut Default::default(),
-                )
-                .await?;
+            let result = tokio::spawn(
+                async move {
+                    let mut blob_permit = super::blob::get_save_blob_permit().await?;
+                    let blob = super::blob::save_blob_from_file(
+                        &brioche,
+                        &mut blob_permit,
+                        &path,
+                        super::blob::SaveBlobOptions::default().remove_input(remove_blob),
+                        &mut Default::default(),
+                    )
+                    .await?;
 
-                anyhow::Ok((node, blob))
-            })
+                    anyhow::Ok((node, blob))
+                }
+                .instrument(tracing::Span::current()),
+            )
             .await??;
 
             anyhow::Ok(result)
-        };
+        }
+        .instrument(tracing::Span::current());
 
         nodes_to_blobs_tasks.push(task);
     }
