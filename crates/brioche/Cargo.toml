@@ -2,6 +2,7 @@
 name = "brioche"
 version = "0.1.4"
 edition.workspace = true
+rust-version.workspace = true
 default-run = "brioche"
 
 [features]
