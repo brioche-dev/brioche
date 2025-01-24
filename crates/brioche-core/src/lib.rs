@@ -182,11 +182,11 @@ impl BriocheBuilder {
             }
         };
 
-        let home = match self.home {
-            Some(home) => home,
-            None => dirs.data_local_dir().to_owned(),
+        let home = match (self.home, std::env::var_os("BRIOCHE_DATA_DIR")) {
+            (Some(home), _) => home,
+            (None, Some(home)) => PathBuf::from(home),
+            (None, None) => dirs.data_local_dir().to_owned(),
         };
-
         tokio::fs::create_dir_all(&home).await?;
 
         let database_path = home.join("brioche.db");
