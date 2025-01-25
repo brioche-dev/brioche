@@ -202,6 +202,8 @@ jobs:
     needs: [check, test, build, build-packed]
     runs-on: ubuntu-24.04
     steps:
+      - name: Install AWS CLI
+        uses: unfor19/install-aws-cli-action@v1
       - name: Download artifacts (x86_64-linux)
         uses: actions/download-artifact@v4
         with:
@@ -249,5 +251,6 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: ${{ vars.R2_S3_REGION }}
           AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_CALCULATION: WHEN_REQUIRED
           S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
 
