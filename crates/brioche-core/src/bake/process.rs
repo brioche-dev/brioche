@@ -310,7 +310,7 @@ pub async fn bake_process(
 
     let hash = Recipe::CompleteProcess(process.clone()).hash();
 
-    let temp_dir = brioche.home.join("process-temp");
+    let temp_dir = brioche.data_dir.join("process-temp");
     let bake_dir = temp_dir.join(ulid::Ulid::new().to_string());
     let bake_dir = BakeDir::create(bake_dir).await?;
     let root_dir = bake_dir.path().join("root");
@@ -1423,7 +1423,7 @@ impl SandboxBackendSelector {
             crate::output::create_local_output(&brioche, &rootfs_artifacts.value).await?;
 
         let temp_dir = brioche
-            .home
+            .data_dir
             .join("process-temp")
             .join(format!("{}-setup", ulid::Ulid::new()));
         let temp_dir = BakeDir::create(temp_dir).await?;

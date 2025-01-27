@@ -335,7 +335,7 @@ async fn create_local_output_inner(
     lock: &tokio::sync::MutexGuard<'_, LocalOutputLock>,
     fetch_descendents: bool,
 ) -> anyhow::Result<LocalOutput> {
-    let local_dir = brioche.home.join("locals");
+    let local_dir = brioche.data_dir.join("locals");
     tokio::fs::create_dir_all(&local_dir).await?;
 
     let artifact_hash = artifact.hash();
@@ -348,7 +348,7 @@ async fn create_local_output_inner(
             fetch_descendent_artifact_blobs(brioche, artifact).await?;
         }
 
-        let local_temp_dir = brioche.home.join("locals-temp");
+        let local_temp_dir = brioche.data_dir.join("locals-temp");
         tokio::fs::create_dir_all(&local_temp_dir).await?;
         let temp_id = ulid::Ulid::new();
         let local_temp_path = local_temp_dir.join(temp_id.to_string());
