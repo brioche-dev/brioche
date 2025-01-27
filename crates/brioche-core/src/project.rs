@@ -1030,14 +1030,20 @@ async fn fetch_project_from_registry(
     };
     let _guard = project_mutex.lock().await;
 
-    let local_path = brioche.home.join("projects").join(project_hash.to_string());
+    let local_path = brioche
+        .data_dir
+        .join("projects")
+        .join(project_hash.to_string());
 
     if tokio::fs::try_exists(&local_path).await? {
         return Ok(local_path);
     }
 
     let temp_id = ulid::Ulid::new();
-    let temp_project_path = brioche.home.join("projects-temp").join(temp_id.to_string());
+    let temp_project_path = brioche
+        .data_dir
+        .join("projects-temp")
+        .join(temp_id.to_string());
     tokio::fs::create_dir_all(&temp_project_path).await?;
 
     let project = brioche

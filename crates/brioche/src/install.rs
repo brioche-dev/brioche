@@ -238,7 +238,7 @@ async fn run_install(
         directory.insert(brioche, b"brioche-run", None).await?;
 
         // Create the installation directory if it doesn't exist
-        let install_dir = brioche.home.join("installed");
+        let install_dir = brioche.data_dir.join("installed");
         tokio::fs::create_dir_all(&install_dir)
             .await
             .with_context(|| {

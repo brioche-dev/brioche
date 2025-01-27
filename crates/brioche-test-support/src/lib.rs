@@ -29,18 +29,18 @@ pub async fn brioche_test_with(
     let temp = tempdir::TempDir::new("brioche-test").unwrap();
     let registry_server = mockito::Server::new_async().await;
 
-    let brioche_home = temp.path().join("brioche-home");
-    tokio::fs::create_dir_all(&brioche_home)
+    let brioche_data_dir = temp.path().join("brioche-data");
+    tokio::fs::create_dir_all(&brioche_data_dir)
         .await
-        .expect("failed to create brioche home");
-    let brioche_home = tokio::fs::canonicalize(&brioche_home)
+        .expect("failed to create brioche data dir");
+    let brioche_data_dir = tokio::fs::canonicalize(&brioche_data_dir)
         .await
-        .expect("failed to canonicalize brioche home path");
+        .expect("failed to canonicalize brioche data dir path");
 
     let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
     let builder = BriocheBuilder::new(reporter)
         .config(brioche_core::config::BriocheConfig::default())
-        .home(brioche_home)
+        .data_dir(brioche_data_dir)
         .registry_client(brioche_core::registry::RegistryClient::new_with_client(
             reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
             registry_server.url().parse().unwrap(),
@@ -645,7 +645,7 @@ impl TestContext {
         let (_, project_hash, temp_project_path) = self.temp_project(f).await;
 
         let project_path = self
-            .mkdir(format!("brioche-home/projects/{project_hash}"))
+            .mkdir(format!("brioche-data/projects/{project_hash}"))
             .await;
         tokio::fs::rename(&temp_project_path, &project_path)
             .await

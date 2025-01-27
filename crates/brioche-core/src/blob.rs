@@ -87,7 +87,7 @@ pub async fn save_blob<'a>(
         return Ok(blob_hash);
     }
 
-    let temp_dir = brioche.home.join("blobs-temp");
+    let temp_dir = brioche.data_dir.join("blobs-temp");
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
     let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
 
@@ -135,7 +135,7 @@ where
         .as_ref()
         .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
 
-    let temp_dir = brioche.home.join("blobs-temp");
+    let temp_dir = brioche.data_dir.join("blobs-temp");
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
     let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
     let mut temp_file = tokio::fs::File::create(&temp_path)
@@ -245,7 +245,7 @@ where
 
     let mut hasher = blake3::Hasher::new();
 
-    let temp_dir = brioche.home.join("blobs-temp");
+    let temp_dir = brioche.data_dir.join("blobs-temp");
     std::fs::create_dir_all(&temp_dir).unwrap();
     let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
     let mut temp_file = std::fs::File::create(&temp_path).context("failed to open temp file")?;
@@ -533,7 +533,7 @@ pub async fn blob_path(
 
     let blob = brioche.registry_client.get_blob(blob_hash).await?;
 
-    let temp_dir = brioche.home.join("blobs-temp");
+    let temp_dir = brioche.data_dir.join("blobs-temp");
     tokio::fs::create_dir_all(&temp_dir).await?;
     let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
 
@@ -563,7 +563,7 @@ pub async fn blob_path(
 }
 
 pub fn local_blob_path(brioche: &Brioche, blob_hash: BlobHash) -> PathBuf {
-    let blobs_dir = brioche.home.join("blobs");
+    let blobs_dir = brioche.data_dir.join("blobs");
     let blob_path = blobs_dir.join(hex::encode(blob_hash.0.as_bytes()));
     blob_path
 }

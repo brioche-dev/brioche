@@ -50,7 +50,7 @@ pub struct Brioche {
     /// The directory where all of Brioche's data is stored. Usually configured
     /// to follow the platform's conventions for storing application data, such
     /// as `~/.local/share/brioche` on Linux.
-    pub home: PathBuf,
+    pub data_dir: PathBuf,
 
     /// Causes Brioche to call itself to execute processes in a sandbox, rather
     /// than using a `tokio::spawn_blocking` thread. This could allow for
@@ -108,7 +108,7 @@ pub struct BriocheBuilder {
     registry_client: Option<registry::RegistryClient>,
     vfs: vfs::Vfs,
     config: Option<BriocheConfig>,
-    home: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
     sandbox_backend: Option<sandbox::SandboxBackend>,
     self_exec_processes: bool,
     keep_temps: bool,
@@ -122,7 +122,7 @@ impl BriocheBuilder {
             registry_client: None,
             vfs: vfs::Vfs::immutable(),
             config: None,
-            home: None,
+            data_dir: None,
             sandbox_backend: None,
             self_exec_processes: true,
             keep_temps: false,
@@ -135,8 +135,8 @@ impl BriocheBuilder {
         self
     }
 
-    pub fn home(mut self, home: PathBuf) -> Self {
-        self.home = Some(home);
+    pub fn data_dir(mut self, data_dir: PathBuf) -> Self {
+        self.data_dir = Some(data_dir);
         self
     }
 
@@ -182,14 +182,14 @@ impl BriocheBuilder {
             }
         };
 
-        let home = match self.home {
-            Some(home) => home,
-            None => dirs.data_local_dir().to_owned(),
+        let data_dir = match (self.data_dir, std::env::var_os("BRIOCHE_DATA_DIR")) {
+            (Some(data_dir), _) => data_dir,
+            (None, Some(data_dir)) => PathBuf::from(data_dir),
+            (None, None) => dirs.data_local_dir().to_owned(),
         };
+        tokio::fs::create_dir_all(&data_dir).await?;
 
-        tokio::fs::create_dir_all(&home).await?;
-
-        let database_path = home.join("brioche.db");
+        let database_path = data_dir.join("brioche.db");
 
         let db_conn_options = sqlx::sqlite::SqliteConnectOptions::new()
             .filename(&database_path)
@@ -282,7 +282,7 @@ impl BriocheBuilder {
             reporter: self.reporter,
             vfs: self.vfs,
             db_conn: Arc::new(Mutex::new(db_conn)),
-            home,
+            data_dir,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
             sync_tx: Arc::new(sync_tx),
