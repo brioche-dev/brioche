@@ -521,7 +521,10 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
 
     let foo_dep_hash = project.dependency_hash("foo").unwrap();
     let foo_dep = projects.project(foo_dep_hash).unwrap();
-    let foo_path = brioche.data_dir.join("projects").join(foo_dep_hash.to_string());
+    let foo_path = brioche
+        .data_dir
+        .join("projects")
+        .join(foo_dep_hash.to_string());
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
@@ -590,7 +593,10 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
 
     let foo_dep_hash = project.dependency_hash("foo").unwrap();
     let foo_dep = projects.project(foo_dep_hash).unwrap();
-    let foo_path = brioche.data_dir.join("projects").join(foo_dep_hash.to_string());
+    let foo_path = brioche
+        .data_dir
+        .join("projects")
+        .join(foo_dep_hash.to_string());
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
@@ -668,7 +674,10 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
 
     let foo_dep_hash = project.dependency_hash("foo").unwrap();
     let foo_dep = projects.project(foo_dep_hash).unwrap();
-    let foo_path = brioche.data_dir.join("projects").join(foo_dep_hash.to_string());
+    let foo_path = brioche
+        .data_dir
+        .join("projects")
+        .join(foo_dep_hash.to_string());
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
@@ -745,7 +754,10 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
 
     let foo_dep_hash = project.dependency_hash("foo").unwrap();
     let foo_dep = projects.project(foo_dep_hash).unwrap();
-    let foo_path = brioche.data_dir.join("projects").join(foo_dep_hash.to_string());
+    let foo_path = brioche
+        .data_dir
+        .join("projects")
+        .join(foo_dep_hash.to_string());
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
