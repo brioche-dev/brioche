@@ -14,7 +14,7 @@ pub struct SaveBlobPermit<'a> {
     _permit: tokio::sync::SemaphorePermit<'a>,
 }
 
-pub const MAX_CONCURRENT_BLOB_SAVES: usize = 10;
+pub const MAX_CONCURRENT_BLOB_SAVES: usize = 200;
 
 static SAVE_BLOB_SEMAPHORE: tokio::sync::Semaphore =
     tokio::sync::Semaphore::const_new(MAX_CONCURRENT_BLOB_SAVES);
