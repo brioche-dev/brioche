@@ -4,6 +4,9 @@ updates:
   directory: "/"
   schedule:
     interval: "weekly"
+    day: "friday"
+    time: "17:00"
+    timezone: "America/Los_Angeles"
   groups:
     cargo:
       patterns:
