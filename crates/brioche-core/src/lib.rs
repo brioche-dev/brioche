@@ -12,6 +12,7 @@ use tracing::Instrument as _;
 
 pub mod bake;
 pub mod blob;
+pub mod cache;
 pub mod config;
 pub mod download;
 pub mod encoding;

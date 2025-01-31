@@ -856,6 +856,7 @@ dependencies = [
  "deno_core",
  "directories",
  "divan",
+ "fastcdc",
  "futures",
  "gix",
  "globset",
@@ -1837,6 +1838,17 @@ dependencies = [
  "concurrent-queue",
  "parking",
  "pin-project-lite",
+]
+
+[[package]]
+name = "fastcdc"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a71061d097bfa9a5a4d2efdec57990d9a88745020b365191d37e48541a1628f2"
+dependencies = [
+ "async-stream",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
