@@ -78,6 +78,8 @@ pub struct Brioche {
 
     pub registry_client: registry::RegistryClient,
 
+    pub cache_object_store: Arc<dyn object_store::ObjectStore>,
+
     pub sandbox_config: config::SandboxConfig,
 
     sandbox_backend: Arc<tokio::sync::OnceCell<sandbox::SandboxBackend>>,
@@ -106,6 +108,7 @@ impl Brioche {
 pub struct BriocheBuilder {
     reporter: Reporter,
     registry_client: Option<registry::RegistryClient>,
+    cache_object_store: Option<Arc<dyn object_store::ObjectStore>>,
     vfs: vfs::Vfs,
     config: Option<BriocheConfig>,
     data_dir: Option<PathBuf>,
@@ -120,6 +123,7 @@ impl BriocheBuilder {
         Self {
             reporter,
             registry_client: None,
+            cache_object_store: None,
             vfs: vfs::Vfs::immutable(),
             config: None,
             data_dir: None,
@@ -142,6 +146,14 @@ impl BriocheBuilder {
 
     pub fn registry_client(mut self, registry_client: RegistryClient) -> Self {
         self.registry_client = Some(registry_client);
+        self
+    }
+
+    pub fn cache_object_store(
+        mut self,
+        cache_object_store: Arc<dyn object_store::ObjectStore>,
+    ) -> Self {
+        self.cache_object_store = Some(cache_object_store);
         self
     }
 
@@ -234,6 +246,11 @@ impl BriocheBuilder {
             registry::RegistryClient::new(registry_url, registry_auth)
         });
 
+        let cache_object_store = match self.cache_object_store {
+            Some(cache_object_store) => cache_object_store,
+            None => Arc::new(object_store::memory::InMemory::new()),
+        };
+
         let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(1000);
 
         // Start a task that listens for sync messages and syncs to the
@@ -292,6 +309,7 @@ impl BriocheBuilder {
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,
             registry_client,
+            cache_object_store,
             sandbox_config: config.sandbox.clone(),
             sandbox_backend: Arc::new(tokio::sync::OnceCell::new_with(self.sandbox_backend)),
             cancellation_token,

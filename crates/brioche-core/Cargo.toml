@@ -69,6 +69,7 @@ tar = "0.4.43"
 num_enum = "0.7.3"
 jiff = { version = "0.1.16", features = ["serde"] }
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
+object_store = "0.11.2"
 
 [dev-dependencies]
 brioche-test-support = { path = "../brioche-test-support" }
