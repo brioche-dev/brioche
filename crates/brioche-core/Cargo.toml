@@ -42,7 +42,7 @@ reqwest-middleware = { version = "0.4.0", features = ["json"] }
 reqwest-retry = "0.7.0"
 rust-embed = { version = "8.5.0", features = ["debug-embed", "interpolate-folder-path", "include-exclude"] }
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.137"
+serde_json = "1.0.138"
 serde_v8 = "0.237.0"
 serde_with = { version = "3.12.0", features = ["hex"] }
 sha2 = "0.10.8"
