@@ -74,7 +74,7 @@ pub async fn write_artifact_archive(
         }
     }
 
-    let mut blobs = tokio::task::spawn_blocking({
+    let blobs = tokio::task::spawn_blocking({
         let brioche = brioche.clone();
 
         move || {
@@ -83,26 +83,18 @@ pub async fn write_artifact_archive(
             for blob_hash in artifact_blobs {
                 let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
 
-                let metadata = std::fs::metadata(&blob_path);
-                let metadata = match metadata {
-                    Ok(metadata) => metadata,
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                        continue;
-                    }
-                    Err(error) => {
-                        return Err(error.into());
-                    }
-                };
+                let metadata = std::fs::metadata(&blob_path)
+                    .with_context(|| format!("error reading blob {blob_hash}"))?;
 
                 blobs.push((blob_hash, metadata.len()));
             }
+
+            blobs.sort_by_key(|(blob_hash, length)| (*length, *blob_hash));
 
             anyhow::Ok(blobs)
         }
     })
     .await??;
-
-    blobs.sort_by_key(|(blob_hash, length)| (*length, *blob_hash));
 
     let mut blobs_total_length = 0;
     for (blob_hash, length) in &blobs {
@@ -147,10 +139,11 @@ pub async fn write_artifact_archive(
             let chunk_length: u64 = chunk.length.try_into().context("chunk too long")?;
 
             let chunk_hash = blake3::hash(&chunk.data);
-            let chunk_compressed = zstd::encode_all(&chunk.data[..], 0)?;
             let chunk_compressed_filename = format!("{chunk_hash}.zst");
             let chunk_path =
                 object_store::path::Path::from_iter(["chunks", &chunk_compressed_filename]);
+
+            let chunk_compressed = zstd::encode_all(&chunk.data[..], 0)?;
 
             let result = brioche
                 .cache_object_store
@@ -236,6 +229,7 @@ async fn write_path(
         .try_into()
         .context("too many path components")?;
     writer.write_u32(num_components).await?;
+
     for component in &path.components {
         match component {
             ArtifactPathComponent::DirectoryEntry(name) => {
@@ -304,7 +298,6 @@ pub async fn read_artifact_archive(
     loop {
         let mut tag = [0; 1];
         let read_len = reader.read(&mut tag).await?;
-
         if read_len == 0 {
             break;
         }
@@ -331,7 +324,6 @@ pub async fn read_artifact_archive(
                 let content_blob = blake3::Hash::from_bytes(content_blob);
                 let content_blob = BlobHash::from_blake3(content_blob);
 
-                artifact_blobs.insert(content_blob);
                 entries.push(ArtifactEntry {
                     path,
                     node: ArtifactNode::File {
@@ -339,6 +331,8 @@ pub async fn read_artifact_archive(
                         content_blob,
                     },
                 });
+
+                artifact_blobs.insert(content_blob);
             }
             b"s" => {
                 let path = read_path(reader).await?;
@@ -459,17 +453,10 @@ pub async fn read_artifact_archive(
             let mut inline_offset = 0;
             let mut buffer = vec![];
             for (blob_hash, range) in needed_blobs {
-                let skip_length = range.start.checked_sub(inline_offset);
-                match skip_length {
-                    Some(0) => {}
-                    Some(skip_length) => {
-                        let mut skip_reader = (&mut reader).take(skip_length);
-                        tokio::io::copy(&mut skip_reader, &mut tokio::io::sink()).await?;
-                    }
-                    None => {
-                        unreachable!("needed blobs are out of order");
-                    }
-                }
+                let Some(skip_length) = range.start.checked_sub(inline_offset) else {
+                    unreachable!("needed blobs are out of order");
+                };
+                reader_consume_exact(reader, skip_length).await?;
 
                 let length = range.end.checked_sub(range.start);
                 let Some(length) = length else {
@@ -484,6 +471,7 @@ pub async fn read_artifact_archive(
                     &mut buffer,
                 )
                 .await?;
+
                 inline_offset = range.end;
             }
         }
@@ -565,23 +553,15 @@ async fn fetch_blobs_from_chunks(brioche: Brioche, fetch: BlobsFetch) -> anyhow:
 
             let mut artifact_offset = chunk.artifact_range.start;
             for (blob_hash, range) in blobs {
-                let skip_length = artifact_offset.checked_sub(range.start);
+                let Some(skip_length) = range.start.checked_sub(artifact_offset) else {
+                    panic!("blobs in ChunkFetch are out of order");
+                };
+                reader_consume_exact(&mut chunk_reader, skip_length).await?;
 
-                match skip_length {
-                    Some(0) => {}
-                    Some(skip_length) => {
-                        let mut skip_reader = (&mut chunk_reader).take(skip_length);
-                        tokio::io::copy(&mut skip_reader, &mut tokio::io::sink()).await?;
-                    }
-                    None => {
-                        unreachable!("blobs in ChunkFetch are out of order");
-                    }
-                }
-
-                let length = range.end.checked_sub(range.start);
-                let Some(length) = length else {
+                let Some(length) = range.end.checked_sub(range.start) else {
                     unreachable!("blob range is invalid");
                 };
+
                 let blob_reader = (&mut chunk_reader).take(length);
                 crate::blob::save_blob_from_reader(
                     &brioche,
@@ -616,17 +596,11 @@ async fn fetch_blobs_from_chunks(brioche: Brioche, fetch: BlobsFetch) -> anyhow:
                             chunk_reader_compressed,
                         );
 
-                        let skip_length = range.start.checked_sub(chunk.artifact_range.start);
-                        match skip_length {
-                            Some(0) => {}
-                            Some(skip_length) => {
-                                let mut skip_reader = (&mut chunk_reader).take(skip_length);
-                                tokio::io::copy(&mut skip_reader, &mut tokio::io::sink()).await?;
-                            }
-                            None => {
-                                unreachable!("chunks in ChunkFetch are out of order");
-                            }
-                        }
+                        let Some(skip_length) = range.start.checked_sub(chunk.artifact_range.start)
+                        else {
+                            unreachable!("chunks in ChunkFetch are out of order");
+                        };
+                        reader_consume_exact(&mut chunk_reader, skip_length).await?;
 
                         let length = range.end.checked_sub(range.start);
                         let Some(length) = length else {
@@ -826,4 +800,21 @@ async fn read_path(
     }
 
     Ok(ArtifactPath { components })
+}
+
+async fn reader_consume_exact(
+    reader: &mut (impl tokio::io::AsyncRead + Unpin),
+    length: u64,
+) -> std::io::Result<()> {
+    if length == 0 {
+        return Ok(());
+    }
+
+    let mut consume_reader = reader.take(length);
+    let consumed = tokio::io::copy(&mut consume_reader, &mut tokio::io::sink()).await?;
+    if consumed == length {
+        Ok(())
+    } else {
+        Err(std::io::ErrorKind::UnexpectedEof.into())
+    }
 }
