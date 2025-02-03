@@ -92,6 +92,13 @@ pub async fn load_artifact(
         async_compression::tokio::bufread::ZstdDecoder::new(archive_reader_compressed);
 
     let artifact = archive::read_artifact_archive(brioche, &mut archive_reader).await?;
+
+    let actual_hash = artifact.hash();
+    anyhow::ensure!(
+        actual_hash == hash,
+        "artifact from cache at {artifact_path} has hash {actual_hash}, but expected {hash}"
+    );
+
     Ok(Some(artifact))
 }
 
