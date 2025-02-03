@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::{
     blob::{BlobHash, SaveBlobOptions},
-    recipe::{Artifact, Recipe},
+    recipe::{Artifact, Recipe, RecipeHash},
     Brioche,
 };
 
@@ -656,8 +656,11 @@ pub async fn read_artifact_archive(
         insert_into_artifact(&mut result, &entry.path, &entry.path.components, entry.node)?;
     }
 
+    let mut new_recipes = HashMap::new();
     let result = result.context("no artifact entries in archive")?;
-    let result = result.build(brioche).await?;
+    let result = result.build(&mut new_recipes);
+
+    crate::recipe::save_recipes(brioche, new_recipes.values()).await?;
 
     Ok(result)
 }
@@ -863,7 +866,7 @@ impl ArtifactBuilder {
         }
     }
 
-    async fn build(self, brioche: &Brioche) -> anyhow::Result<Artifact> {
+    fn build(self, new_recipes: &mut HashMap<RecipeHash, Recipe>) -> Artifact {
         match self {
             ArtifactBuilder::File {
                 executable,
@@ -871,35 +874,36 @@ impl ArtifactBuilder {
                 resources,
             } => {
                 let resources = resources.unwrap_or_else(ArtifactBuilder::empty_dir);
-                let resources = Box::pin(resources.build(brioche)).await?;
+                let resources = resources.build(new_recipes);
                 let Artifact::Directory(resources) = resources else {
-                    anyhow::bail!("file resources builder did not return a directory");
+                    panic!("file resources builder did not return a directory");
                 };
 
-                Ok(Artifact::File(crate::recipe::File {
+                Artifact::File(crate::recipe::File {
                     executable,
                     content_blob,
                     resources,
-                }))
+                })
             }
-            ArtifactBuilder::Symlink { target } => Ok(Artifact::Symlink { target }),
+            ArtifactBuilder::Symlink { target } => Artifact::Symlink { target },
             ArtifactBuilder::Directory { entries } => {
                 let mut entry_artifact_hashes = BTreeMap::new();
-                let mut recipes = vec![];
                 let entries = entries
                     .into_iter()
                     .filter_map(|(name, entry)| Some((name, entry?)));
                 for (name, entry) in entries {
-                    let entry = Box::pin(entry.build(brioche)).await?;
-                    entry_artifact_hashes.insert(name, entry.hash());
-                    recipes.push(Recipe::from(entry))
+                    let entry = entry.build(new_recipes);
+                    let entry_hash = entry.hash();
+
+                    entry_artifact_hashes.insert(name, entry_hash);
+                    new_recipes
+                        .entry(entry_hash)
+                        .or_insert_with(|| Recipe::from(entry));
                 }
 
-                crate::recipe::save_recipes(brioche, recipes).await?;
-
-                Ok(Artifact::Directory(crate::recipe::Directory::from_entries(
+                Artifact::Directory(crate::recipe::Directory::from_entries(
                     entry_artifact_hashes,
-                )))
+                ))
             }
         }
     }
