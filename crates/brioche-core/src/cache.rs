@@ -106,6 +106,24 @@ pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Res
     let artifact_filename = format!("{}.bar.zst", artifact.hash());
     let artifact_path = object_store::path::Path::from_iter(["artifacts", &artifact_filename]);
 
+    // Check if the artifact already exists in the cache. If it does, we
+    // can return early. Note that another process or machine may still
+    // end up writing the artifact before we do, but this check helps us
+    // avoid doing extra work.
+    let existing_object = brioche.cache_object_store.head(&artifact_path).await;
+    match existing_object {
+        Ok(_) => {
+            // The artifact already exists in the cache
+            return Ok(false);
+        }
+        Err(object_store::Error::NotFound { .. }) => {
+            // The artifact doesn't exist, so we can create it
+        }
+        Err(error) => {
+            return Err(error.into());
+        }
+    }
+
     let mut archive_compressed = vec![];
     let mut archive_writer =
         async_compression::tokio::write::ZstdEncoder::new(&mut archive_compressed);
