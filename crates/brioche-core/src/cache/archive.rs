@@ -150,18 +150,22 @@ pub async fn write_artifact_archive(
         let read_blobs_task = tokio::spawn({
             let brioche = brioche.clone();
             async move {
-                // Write each blob to the writer, in order
-                for (blob_hash, _) in blobs {
-                    let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
-                    let mut blob_reader = tokio::fs::File::open(blob_path).await?;
-                    tokio::io::copy(&mut blob_reader, &mut blobs_writer).await?;
-                }
+                let result = async {
+                    // Write each blob to the writer, in order
+                    for (blob_hash, _) in blobs {
+                        let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
+                        let mut blob_reader = tokio::fs::File::open(blob_path).await?;
+                        tokio::io::copy(&mut blob_reader, &mut blobs_writer).await?;
+                    }
 
-                // Shut down the writer. This signals to the reader that
-                // we've written all the blob data.
+                    anyhow::Ok(())
+                }
+                .await;
+
+                // Shut down the writer, even if we bail early
                 blobs_writer.shutdown().await?;
 
-                anyhow::Ok(())
+                result
             }
         });
 
@@ -719,46 +723,52 @@ async fn fetch_blobs_from_chunks(brioche: Brioche, fetch: BlobsFetch) -> anyhow:
             let writer_task = tokio::spawn({
                 let brioche = brioche.clone();
                 async move {
-                    // Read each part of each chunk from the cache to the
-                    // writer, which reassembles the original blob
-                    for (chunk, range) in chunks {
-                        let chunk_compressed_filename = format!("{}.zst", chunk.hash);
-                        let chunk_path = object_store::path::Path::from_iter([
-                            "chunks",
-                            &chunk_compressed_filename,
-                        ]);
+                    let result = async {
+                        // Read each part of each chunk from the cache to the
+                        // writer, which reassembles the original blob
+                        for (chunk, range) in chunks {
+                            let chunk_compressed_filename = format!("{}.zst", chunk.hash);
+                            let chunk_path = object_store::path::Path::from_iter([
+                                "chunks",
+                                &chunk_compressed_filename,
+                            ]);
 
-                        let chunk_object = brioche.cache_object_store.get(&chunk_path).await?;
-                        let chunk_stream_compressed = chunk_object.into_stream();
-                        let chunk_reader_compressed =
-                            tokio_util::io::StreamReader::new(chunk_stream_compressed);
-                        let mut chunk_reader = async_compression::tokio::bufread::ZstdDecoder::new(
-                            chunk_reader_compressed,
-                        );
+                            let chunk_object = brioche.cache_object_store.get(&chunk_path).await?;
+                            let chunk_stream_compressed = chunk_object.into_stream();
+                            let chunk_reader_compressed =
+                                tokio_util::io::StreamReader::new(chunk_stream_compressed);
+                            let mut chunk_reader =
+                                async_compression::tokio::bufread::ZstdDecoder::new(
+                                    chunk_reader_compressed,
+                                );
 
-                        // Advance the reader to the part of the chunk
-                        // needed for the blob
-                        let Some(skip_length) = range.start.checked_sub(chunk.artifact_range.start)
-                        else {
-                            unreachable!("chunks in ChunkFetch are out of order");
-                        };
-                        reader_consume_exact(&mut chunk_reader, skip_length).await?;
+                            // Advance the reader to the part of the chunk
+                            // needed for the blob
+                            let Some(skip_length) =
+                                range.start.checked_sub(chunk.artifact_range.start)
+                            else {
+                                unreachable!("chunks in ChunkFetch are out of order");
+                            };
+                            reader_consume_exact(&mut chunk_reader, skip_length).await?;
 
-                        let length = range.end.checked_sub(range.start);
-                        let Some(length) = length else {
-                            unreachable!("chunk range is invalid");
-                        };
+                            let length = range.end.checked_sub(range.start);
+                            let Some(length) = length else {
+                                unreachable!("chunk range is invalid");
+                            };
 
-                        // Write the needed range from the chunk to the writer
-                        let mut chunk_reader = chunk_reader.take(length);
-                        tokio::io::copy(&mut chunk_reader, &mut blob_writer).await?;
+                            // Write the needed range from the chunk to the writer
+                            let mut chunk_reader = chunk_reader.take(length);
+                            tokio::io::copy(&mut chunk_reader, &mut blob_writer).await?;
+                        }
+
+                        anyhow::Ok(())
                     }
+                    .await;
 
-                    // Shut down the writer. This signals to the reader that
-                    // we've written all the blob data.
+                    // Shut down the writer, even if we bail early
                     blob_writer.shutdown().await?;
 
-                    anyhow::Ok(())
+                    result
                 }
             });
 
