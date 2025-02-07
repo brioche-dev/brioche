@@ -12,6 +12,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     ops::Range,
+    sync::Arc,
 };
 
 use anyhow::Context as _;
@@ -34,6 +35,7 @@ const CDC_MAX_CHUNK_SIZE: u32 = 8_388_608;
 pub async fn write_artifact_archive(
     brioche: &Brioche,
     artifact: Artifact,
+    store: &Arc<dyn object_store::ObjectStore>,
     writer: &mut (impl tokio::io::AsyncWrite + Unpin + Send),
 ) -> anyhow::Result<()> {
     // Write the marker for a valid archive
@@ -194,8 +196,7 @@ pub async fn write_artifact_archive(
             let chunk_compressed = zstd::encode_all(&chunk.data[..], 0)?;
 
             // Try to write the compressed chunk to the cache
-            let result = brioche
-                .cache_object_store
+            let result = store
                 .put_opts(
                     &chunk_path,
                     chunk_compressed.into(),
@@ -341,6 +342,7 @@ pub struct ChunkEntry {
 
 pub async fn read_artifact_archive(
     brioche: &Brioche,
+    store: &Arc<dyn object_store::ObjectStore>,
     mut reader: &mut (impl tokio::io::AsyncRead + Unpin),
 ) -> anyhow::Result<Artifact> {
     // Read and validate the marker from the archive
@@ -647,7 +649,7 @@ pub async fn read_artifact_archive(
             futures::stream::iter(fetches)
                 .map(Ok)
                 .try_for_each_concurrent(50, |fetch| {
-                    fetch_blobs_from_chunks(brioche.clone(), fetch)
+                    fetch_blobs_from_chunks(brioche.clone(), store.clone(), fetch)
                 })
                 .await?;
         }
@@ -669,7 +671,11 @@ pub async fn read_artifact_archive(
     Ok(result)
 }
 
-async fn fetch_blobs_from_chunks(brioche: Brioche, fetch: BlobsFetch) -> anyhow::Result<()> {
+async fn fetch_blobs_from_chunks(
+    brioche: Brioche,
+    store: Arc<dyn object_store::ObjectStore>,
+    fetch: BlobsFetch,
+) -> anyhow::Result<()> {
     let mut permit = crate::blob::get_save_blob_permit().await?;
 
     match fetch {
@@ -681,7 +687,7 @@ async fn fetch_blobs_from_chunks(brioche: Brioche, fetch: BlobsFetch) -> anyhow:
             let chunk_compressed_filename = format!("{}.zst", chunk.hash);
             let chunk_path =
                 object_store::path::Path::from_iter(["chunks", &chunk_compressed_filename]);
-            let chunk_object = brioche.cache_object_store.get(&chunk_path).await?;
+            let chunk_object = store.get(&chunk_path).await?;
             let chunk_stream_compressed = chunk_object.into_stream();
             let chunk_reader_compressed =
                 tokio_util::io::StreamReader::new(chunk_stream_compressed);
@@ -720,56 +726,51 @@ async fn fetch_blobs_from_chunks(brioche: Brioche, fetch: BlobsFetch) -> anyhow:
 
             let (blob_reader, mut blob_writer) = tokio::io::simplex(1_048_576);
 
-            let writer_task = tokio::spawn({
-                let brioche = brioche.clone();
-                async move {
-                    let result = async {
-                        // Read each part of each chunk from the cache to the
-                        // writer, which reassembles the original blob
-                        for (chunk, range) in chunks {
-                            let chunk_compressed_filename = format!("{}.zst", chunk.hash);
-                            let chunk_path = object_store::path::Path::from_iter([
-                                "chunks",
-                                &chunk_compressed_filename,
-                            ]);
+            let writer_task = tokio::spawn(async move {
+                let result = async {
+                    // Read each part of each chunk from the cache to the
+                    // writer, which reassembles the original blob
+                    for (chunk, range) in chunks {
+                        let chunk_compressed_filename = format!("{}.zst", chunk.hash);
+                        let chunk_path = object_store::path::Path::from_iter([
+                            "chunks",
+                            &chunk_compressed_filename,
+                        ]);
 
-                            let chunk_object = brioche.cache_object_store.get(&chunk_path).await?;
-                            let chunk_stream_compressed = chunk_object.into_stream();
-                            let chunk_reader_compressed =
-                                tokio_util::io::StreamReader::new(chunk_stream_compressed);
-                            let mut chunk_reader =
-                                async_compression::tokio::bufread::ZstdDecoder::new(
-                                    chunk_reader_compressed,
-                                );
+                        let chunk_object = store.get(&chunk_path).await?;
+                        let chunk_stream_compressed = chunk_object.into_stream();
+                        let chunk_reader_compressed =
+                            tokio_util::io::StreamReader::new(chunk_stream_compressed);
+                        let mut chunk_reader = async_compression::tokio::bufread::ZstdDecoder::new(
+                            chunk_reader_compressed,
+                        );
 
-                            // Advance the reader to the part of the chunk
-                            // needed for the blob
-                            let Some(skip_length) =
-                                range.start.checked_sub(chunk.artifact_range.start)
-                            else {
-                                unreachable!("chunks in ChunkFetch are out of order");
-                            };
-                            reader_consume_exact(&mut chunk_reader, skip_length).await?;
+                        // Advance the reader to the part of the chunk
+                        // needed for the blob
+                        let Some(skip_length) = range.start.checked_sub(chunk.artifact_range.start)
+                        else {
+                            unreachable!("chunks in ChunkFetch are out of order");
+                        };
+                        reader_consume_exact(&mut chunk_reader, skip_length).await?;
 
-                            let length = range.end.checked_sub(range.start);
-                            let Some(length) = length else {
-                                unreachable!("chunk range is invalid");
-                            };
+                        let length = range.end.checked_sub(range.start);
+                        let Some(length) = length else {
+                            unreachable!("chunk range is invalid");
+                        };
 
-                            // Write the needed range from the chunk to the writer
-                            let mut chunk_reader = chunk_reader.take(length);
-                            tokio::io::copy(&mut chunk_reader, &mut blob_writer).await?;
-                        }
-
-                        anyhow::Ok(())
+                        // Write the needed range from the chunk to the writer
+                        let mut chunk_reader = chunk_reader.take(length);
+                        tokio::io::copy(&mut chunk_reader, &mut blob_writer).await?;
                     }
-                    .await;
 
-                    // Shut down the writer, even if we bail early
-                    blob_writer.shutdown().await?;
-
-                    result
+                    anyhow::Ok(())
                 }
+                .await;
+
+                // Shut down the writer, even if we bail early
+                blob_writer.shutdown().await?;
+
+                result
             });
 
             // Save the blob from the combined parts of the chunks

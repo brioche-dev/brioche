@@ -79,7 +79,7 @@ pub struct Brioche {
 
     pub registry_client: registry::RegistryClient,
 
-    pub cache_object_store: Arc<dyn object_store::ObjectStore>,
+    pub cache_client: cache::CacheClient,
 
     pub sandbox_config: config::SandboxConfig,
 
@@ -109,7 +109,7 @@ impl Brioche {
 pub struct BriocheBuilder {
     reporter: Reporter,
     registry_client: Option<registry::RegistryClient>,
-    cache_object_store: Option<Arc<dyn object_store::ObjectStore>>,
+    cache_client: Option<cache::CacheClient>,
     vfs: vfs::Vfs,
     config: Option<BriocheConfig>,
     data_dir: Option<PathBuf>,
@@ -124,7 +124,7 @@ impl BriocheBuilder {
         Self {
             reporter,
             registry_client: None,
-            cache_object_store: None,
+            cache_client: None,
             vfs: vfs::Vfs::immutable(),
             config: None,
             data_dir: None,
@@ -150,11 +150,8 @@ impl BriocheBuilder {
         self
     }
 
-    pub fn cache_object_store(
-        mut self,
-        cache_object_store: Arc<dyn object_store::ObjectStore>,
-    ) -> Self {
-        self.cache_object_store = Some(cache_object_store);
+    pub fn cache_client(mut self, cache_client: cache::CacheClient) -> Self {
+        self.cache_client = Some(cache_client);
         self
     }
 
@@ -246,11 +243,7 @@ impl BriocheBuilder {
             });
             registry::RegistryClient::new(registry_url, registry_auth)
         });
-
-        let cache_object_store = match self.cache_object_store {
-            Some(cache_object_store) => cache_object_store,
-            None => Arc::new(object_store::memory::InMemory::new()),
-        };
+        let cache_client = self.cache_client.unwrap_or_default();
 
         let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(1000);
 
@@ -310,7 +303,7 @@ impl BriocheBuilder {
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,
             registry_client,
-            cache_object_store,
+            cache_client,
             sandbox_config: config.sandbox.clone(),
             sandbox_backend: Arc::new(tokio::sync::OnceCell::new_with(self.sandbox_backend)),
             cancellation_token,

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt};
 
 use crate::{
@@ -7,13 +9,45 @@ use crate::{
 
 mod archive;
 
+#[derive(Debug, Default, Clone)]
+pub struct CacheClient {
+    pub store: Option<Arc<dyn object_store::ObjectStore>>,
+    pub writable: bool,
+}
+
+impl CacheClient {
+    fn store(&self) -> Option<Arc<dyn object_store::ObjectStore>> {
+        self.store.clone()
+    }
+
+    fn writable_store(&self) -> anyhow::Result<Arc<dyn object_store::ObjectStore>> {
+        let Some(store) = self.try_writable_store() else {
+            anyhow::bail!("tried to write to cache, but no writable cache is configured");
+        };
+
+        Ok(store)
+    }
+
+    fn try_writable_store(&self) -> Option<Arc<dyn object_store::ObjectStore>> {
+        if !self.writable {
+            return None;
+        }
+
+        self.store()
+    }
+}
+
 pub async fn load_bake(
     brioche: &Brioche,
     input_hash: RecipeHash,
 ) -> anyhow::Result<Option<RecipeHash>> {
+    let Some(store) = brioche.cache_client.store.clone() else {
+        return Ok(None);
+    };
+
     let bake_path =
         object_store::path::Path::from_iter(["bakes", &input_hash.to_string(), "output_hash"]);
-    let output_hash_object = brioche.cache_object_store.get(&bake_path).await;
+    let output_hash_object = store.get(&bake_path).await;
     let output_hash_object = match output_hash_object {
         Ok(output_hash_object) => output_hash_object,
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
@@ -44,11 +78,12 @@ pub async fn save_bake(
     input_hash: RecipeHash,
     output_hash: RecipeHash,
 ) -> anyhow::Result<bool> {
+    let store = brioche.cache_client.writable_store()?;
+
     let bake_path =
         object_store::path::Path::from_iter(["bakes", &input_hash.to_string(), "output_hash"]);
 
-    let put_result = brioche
-        .cache_object_store
+    let put_result = store
         .put_opts(
             &bake_path,
             output_hash.to_string().into(),
@@ -74,10 +109,14 @@ pub async fn load_artifact(
     brioche: &Brioche,
     hash: RecipeHash,
 ) -> anyhow::Result<Option<Artifact>> {
+    let Some(store) = brioche.cache_client.store.clone() else {
+        return Ok(None);
+    };
+
     let artifact_filename = format!("{hash}.bar.zst");
     let artifact_path = object_store::path::Path::from_iter(["artifacts", &artifact_filename]);
 
-    let archive_object = brioche.cache_object_store.get(&artifact_path).await;
+    let archive_object = store.get(&artifact_path).await;
     let archive_object = match archive_object {
         Ok(archive_object) => archive_object,
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
@@ -91,7 +130,7 @@ pub async fn load_artifact(
     let mut archive_reader =
         async_compression::tokio::bufread::ZstdDecoder::new(archive_reader_compressed);
 
-    let artifact = archive::read_artifact_archive(brioche, &mut archive_reader).await?;
+    let artifact = archive::read_artifact_archive(brioche, &store, &mut archive_reader).await?;
 
     let actual_hash = artifact.hash();
     anyhow::ensure!(
@@ -103,6 +142,8 @@ pub async fn load_artifact(
 }
 
 pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Result<bool> {
+    let store = brioche.cache_client.writable_store()?;
+
     let artifact_filename = format!("{}.bar.zst", artifact.hash());
     let artifact_path = object_store::path::Path::from_iter(["artifacts", &artifact_filename]);
 
@@ -110,7 +151,7 @@ pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Res
     // can return early. Note that another process or machine may still
     // end up writing the artifact before we do, but this check helps us
     // avoid doing extra work.
-    let existing_object = brioche.cache_object_store.head(&artifact_path).await;
+    let existing_object = store.head(&artifact_path).await;
     match existing_object {
         Ok(_) => {
             // The artifact already exists in the cache
@@ -127,11 +168,10 @@ pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Res
     let mut archive_compressed = vec![];
     let mut archive_writer =
         async_compression::tokio::write::ZstdEncoder::new(&mut archive_compressed);
-    archive::write_artifact_archive(brioche, artifact, &mut archive_writer).await?;
+    archive::write_artifact_archive(brioche, artifact, &store, &mut archive_writer).await?;
     archive_writer.shutdown().await?;
 
-    let put_result = brioche
-        .cache_object_store
+    let put_result = store
         .put_opts(
             &artifact_path,
             archive_compressed.into(),
