@@ -221,20 +221,34 @@ async fn bake_inner(
 
     let input_json = serde_json::to_string(&recipe.value)?;
 
-    // Try to get the baked recipe from the registry (if it might be
+    // Try to get the baked recipe from the cache (if it might be
     // expensive to bake)
-    let registry_response = if recipe.is_expensive_to_bake() {
-        brioche.registry_client.get_bake(recipe_hash).await.ok()
+    let artifact_hash_from_cache = if recipe.is_expensive_to_bake() {
+        crate::cache::load_bake(brioche, recipe_hash)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!("failed to load bake from cache: {error:#}");
+            })
+            .ok()
+            .flatten()
     } else {
         None
     };
+    let artifact_from_cache = match artifact_hash_from_cache {
+        Some(artifact_hash) => crate::cache::load_artifact(brioche, artifact_hash)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!("failed to load artifact from cache: {error:#}");
+            })
+            .ok()
+            .flatten(),
+        None => None,
+    };
 
-    let result_artifact = match registry_response {
-        Some(response) => {
-            // The registry has the baked recipe, so fetch the references
-            // and return the output artifact
-            crate::registry::fetch_bake_references(brioche.clone(), response.clone()).await?;
-            Ok(response.output_artifact)
+    let result_artifact = match artifact_from_cache {
+        Some(artifact) => {
+            // Retrieved the artifact from the cache
+            Ok(artifact)
         }
         None => {
             // Bake the recipe for real if we didn't get it from the registry
