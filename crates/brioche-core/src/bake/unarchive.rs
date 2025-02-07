@@ -5,7 +5,7 @@ use bstr::BString;
 
 use crate::{
     blob::BlobHash,
-    recipe::{ArchiveFormat, Artifact, Directory, File, Meta, Unarchive, WithMeta},
+    recipe::{ArchiveFormat, Artifact, CompressionFormat, Directory, File, Meta, Unarchive, WithMeta},
     reporter::job::{NewJob, UpdateJob},
     Brioche,
 };
@@ -134,6 +134,11 @@ pub async fn bake_unarchive(
                     }
                 }
                 ArchiveFormat::Zip => {
+                    anyhow::ensure!(
+                        unarchive.compression == CompressionFormat::None,
+                        "zip archives with an extra layer of compression are not supported"
+                    );
+
                     let mut archive =
                         zip::ZipArchive::new(tokio_util::io::SyncIoBridge::new(archive_file))?;
                     let mut buffer = Vec::new();
