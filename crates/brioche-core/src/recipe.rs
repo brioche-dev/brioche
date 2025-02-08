@@ -1350,6 +1350,7 @@ impl TryFrom<ProcessTemplateComponent> for CompleteProcessTemplateComponent {
 #[serde(rename_all = "snake_case")]
 pub enum ArchiveFormat {
     Tar,
+    Zip,
 }
 
 #[derive(
