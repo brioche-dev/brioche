@@ -5,7 +5,9 @@ use bstr::BString;
 
 use crate::{
     blob::BlobHash,
-    recipe::{ArchiveFormat, Artifact, CompressionFormat, Directory, File, Meta, Unarchive, WithMeta},
+    recipe::{
+        ArchiveFormat, Artifact, CompressionFormat, Directory, File, Meta, Unarchive, WithMeta,
+    },
     reporter::job::{NewJob, UpdateJob},
     Brioche,
 };
