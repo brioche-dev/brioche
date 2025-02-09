@@ -33,30 +33,14 @@ pub async fn save_blob(
     bytes: &[u8],
     options: SaveBlobOptions<'_>,
 ) -> anyhow::Result<BlobHash> {
-    let mut hasher = blake3::Hasher::new();
-    let mut validation_hashing = options
-        .expected_hash
-        .as_ref()
-        .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
-
+    let mut hasher = BlobHasher::new(&options);
     hasher.update(bytes);
+    let (blob_hash, validated_hash) = hasher.finish()?;
 
-    if let Some((_, validate_hasher)) = &mut validation_hashing {
-        validate_hasher.update(bytes);
-    }
-
-    let hash = hasher.finalize();
-    let blob_hash = BlobHash(hash);
     let blob_path = local_blob_path(brioche, blob_hash);
 
-    if let Some((expected_hash, validate_hasher)) = validation_hashing {
-        let actual_hash = validate_hasher.finish()?;
-
-        if *expected_hash != actual_hash {
-            anyhow::bail!("expected hash {} but got {}", expected_hash, actual_hash);
-        }
-
-        let expected_hash_string = expected_hash.to_string();
+    if let Some(validated_hash) = validated_hash {
+        let validated_hash_string = validated_hash.to_string();
         let blob_hash_string = blob_hash.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
@@ -66,7 +50,7 @@ pub async fn save_blob(
                 INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
                 ON CONFLICT (hash) DO UPDATE SET blob_hash = ?
             ",
-            expected_hash_string,
+            validated_hash_string,
             blob_hash_string,
             blob_hash_string,
         )
@@ -127,11 +111,7 @@ where
 {
     anyhow::ensure!(!options.remove_input, "cannot remove input from reader");
 
-    let mut hasher = blake3::Hasher::new();
-    let mut validation_hashing = options
-        .expected_hash
-        .as_ref()
-        .map(|validate_hash| (validate_hash, super::Hasher::for_hash(validate_hash)));
+    let mut hasher = BlobHasher::new(&options);
 
     let temp_dir = brioche.data_dir.join("blobs-temp");
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
@@ -160,27 +140,16 @@ where
 
         hasher.update(buffer);
 
-        if let Some((_, validate_hasher)) = &mut validation_hashing {
-            validate_hasher.update(buffer);
-        }
-
         if let Some(on_progress) = &mut options.on_progress {
             on_progress(total_bytes_read)?;
         }
     }
 
-    let hash = hasher.finalize();
-    let blob_hash = BlobHash(hash);
+    let (blob_hash, validated_hash) = hasher.finish()?;
     let blob_path = local_blob_path(brioche, blob_hash);
 
-    if let Some((expected_hash, validate_hasher)) = validation_hashing {
-        let actual_hash = validate_hasher.finish()?;
-
-        if *expected_hash != actual_hash {
-            anyhow::bail!("expected hash {} but got {}", expected_hash, actual_hash);
-        }
-
-        let expected_hash_string = expected_hash.to_string();
+    if let Some(validated_hash) = validated_hash {
+        let validated_hash_string = validated_hash.to_string();
         let blob_hash_string = blob_hash.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
@@ -190,7 +159,7 @@ where
                 INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
                 ON CONFLICT (hash) DO UPDATE SET blob_hash = ?
             ",
-            expected_hash_string,
+            validated_hash_string,
             blob_hash_string,
             blob_hash_string,
         )
@@ -240,7 +209,7 @@ where
         "cannot validate expected hash in sync mode"
     );
 
-    let mut hasher = blake3::Hasher::new();
+    let mut hasher = BlobHasher::new(&options);
 
     let temp_dir = brioche.data_dir.join("blobs-temp");
     std::fs::create_dir_all(&temp_dir).unwrap();
@@ -269,8 +238,7 @@ where
         }
     }
 
-    let hash = hasher.finalize();
-    let blob_hash = BlobHash(hash);
+    let (blob_hash, _validated_hash) = hasher.finish()?;
     let blob_path = local_blob_path(brioche, blob_hash);
 
     if let Some(parent) = blob_path.parent() {
@@ -296,15 +264,9 @@ pub async fn save_blob_from_file(
     options: SaveBlobOptions<'_>,
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<BlobHash> {
-    let mut hasher = blake3::Hasher::new();
-    let mut validation_hashing = options.expected_hash.as_ref().map(|validate_hash| {
-        (
-            validate_hash.clone(),
-            super::Hasher::for_hash(validate_hash),
-        )
-    });
+    let mut hasher = BlobHasher::new(&options);
 
-    let (mut swapped_buffer, hasher, validation_hashing) = tokio::task::spawn_blocking({
+    let (mut swapped_buffer, hasher) = tokio::task::spawn_blocking({
         let mut buffer = std::mem::take(buffer);
         let input_path = input_path.to_owned();
         move || {
@@ -320,31 +282,20 @@ pub async fn save_blob_from_file(
                 let buffer = &buffer[..length];
 
                 hasher.update(buffer);
-
-                if let Some((_, validate_hasher)) = &mut validation_hashing {
-                    validate_hasher.update(buffer);
-                }
             }
 
-            anyhow::Ok((buffer, hasher, validation_hashing))
+            anyhow::Ok((buffer, hasher))
         }
     })
     .await??;
 
     std::mem::swap(buffer, &mut swapped_buffer);
 
-    let hash = hasher.finalize();
-    let blob_hash = BlobHash(hash);
+    let (blob_hash, validated_hash) = hasher.finish()?;
     let blob_path = local_blob_path(brioche, blob_hash);
 
-    if let Some((expected_hash, validate_hasher)) = validation_hashing {
-        let actual_hash = validate_hasher.finish()?;
-
-        if expected_hash != actual_hash {
-            anyhow::bail!("expected hash {} but got {}", expected_hash, actual_hash);
-        }
-
-        let expected_hash_string = expected_hash.to_string();
+    if let Some(validated_hash) = validated_hash {
+        let validated_hash_string = validated_hash.to_string();
         let blob_hash_string = blob_hash.to_string();
 
         let mut db_conn = brioche.db_conn.lock().await;
@@ -354,7 +305,7 @@ pub async fn save_blob_from_file(
                 INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
                 ON CONFLICT (hash) DO UPDATE SET blob_hash = ?
             ",
-            expected_hash_string,
+            validated_hash_string,
             blob_hash_string,
             blob_hash_string,
         )
@@ -623,5 +574,52 @@ impl std::str::FromStr for BlobHash {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let hash = blake3::Hash::from_hex(s)?;
         Ok(Self(hash))
+    }
+}
+
+struct BlobHasher {
+    hasher: blake3::Hasher,
+    validation_hash_with_hasher: Option<(super::Hash, super::Hasher)>,
+}
+
+impl BlobHasher {
+    fn new(options: &SaveBlobOptions<'_>) -> Self {
+        let hasher = blake3::Hasher::new();
+        let validation_hash_with_hasher = options
+            .expected_hash
+            .as_ref()
+            .map(|hash| (hash.clone(), super::Hasher::for_hash(hash)));
+
+        Self {
+            hasher,
+            validation_hash_with_hasher,
+        }
+    }
+
+    fn update(&mut self, bytes: &[u8]) {
+        self.hasher.update(bytes);
+
+        if let Some((_, validation_hasher)) = &mut self.validation_hash_with_hasher {
+            validation_hasher.update(bytes);
+        }
+    }
+
+    fn finish(self) -> anyhow::Result<(BlobHash, Option<super::Hash>)> {
+        let validated_hash =
+            if let Some((expected_hash, validation_hasher)) = self.validation_hash_with_hasher {
+                let actual_hash = validation_hasher.finish()?;
+
+                if expected_hash != actual_hash {
+                    anyhow::bail!("expected hash {expected_hash} but got {actual_hash}");
+                }
+
+                Some(actual_hash)
+            } else {
+                None
+            };
+
+        let hash = self.hasher.finalize();
+
+        Ok((BlobHash(hash), validated_hash))
     }
 }
