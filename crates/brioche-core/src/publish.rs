@@ -30,7 +30,7 @@ pub async fn publish_project(
     .await?;
 
     // Sync the project and all references
-    crate::sync::sync_project_references(brioche, &project_references, verbose).await?;
+    crate::sync::legacy_sync_project_references(brioche, &project_references, verbose).await?;
 
     // Push new project tags ("latest" plus the version number)
     let project_tags = ["latest"]

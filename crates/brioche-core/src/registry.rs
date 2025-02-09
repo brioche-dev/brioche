@@ -66,6 +66,10 @@ impl RegistryClient {
         Self::Disabled
     }
 
+    pub fn is_enabled(&self) -> bool {
+        matches!(self, Self::Enabled { .. })
+    }
+
     fn request(
         &self,
         method: reqwest::Method,
