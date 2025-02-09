@@ -27,12 +27,11 @@ pub async fn get_save_blob_permit<'a>() -> anyhow::Result<SaveBlobPermit<'a>> {
     Ok(SaveBlobPermit { _permit: permit })
 }
 
-#[tracing::instrument(skip_all, err)]
-pub async fn save_blob<'a>(
+pub async fn save_blob(
     brioche: &Brioche,
     _permit: &mut SaveBlobPermit<'_>,
     bytes: &[u8],
-    options: SaveBlobOptions<'a>,
+    options: SaveBlobOptions<'_>,
 ) -> anyhow::Result<BlobHash> {
     let mut hasher = blake3::Hasher::new();
     let mut validation_hashing = options
@@ -116,12 +115,11 @@ pub async fn save_blob<'a>(
     Ok(blob_hash)
 }
 
-#[tracing::instrument(skip_all)]
-pub async fn save_blob_from_reader<'a, R>(
+pub async fn save_blob_from_reader<R>(
     brioche: &Brioche,
     _permit: &mut SaveBlobPermit<'_>,
     mut input: R,
-    mut options: SaveBlobOptions<'a>,
+    mut options: SaveBlobOptions<'_>,
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<BlobHash>
 where
@@ -226,12 +224,11 @@ where
     Ok(blob_hash)
 }
 
-#[tracing::instrument(skip_all)]
-pub fn save_blob_from_reader_sync<'a, R>(
+pub fn save_blob_from_reader_sync<R>(
     brioche: &Brioche,
     _permit: &mut SaveBlobPermit<'_>,
     mut input: R,
-    mut options: SaveBlobOptions<'a>,
+    mut options: SaveBlobOptions<'_>,
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<BlobHash>
 where
@@ -292,12 +289,11 @@ where
     Ok(blob_hash)
 }
 
-#[tracing::instrument(skip(brioche, _permit, options), err)]
-pub async fn save_blob_from_file<'a>(
+pub async fn save_blob_from_file(
     brioche: &Brioche,
     _permit: &mut SaveBlobPermit<'_>,
     input_path: &Path,
-    options: SaveBlobOptions<'a>,
+    options: SaveBlobOptions<'_>,
     buffer: &mut Vec<u8>,
 ) -> anyhow::Result<BlobHash> {
     let mut hasher = blake3::Hasher::new();
