@@ -51,6 +51,11 @@ pub async fn sync_bakes(
         results.get_or_insert_default().merge(legacy_results);
     }
 
+    if brioche.cache_client.writable {
+        let new_results = new_sync::sync_bakes(brioche, bakes, verbose).await?;
+        results.get_or_insert_default().merge(new_results);
+    }
+
     let results = results.context("no registry or cache found to sync to")?;
     Ok(results)
 }
