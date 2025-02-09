@@ -411,6 +411,7 @@ pub async fn save_blob_from_file(
 #[derive(Default)]
 pub struct SaveBlobOptions<'a> {
     expected_hash: Option<Hash>,
+    expected_blob_hash: Option<BlobHash>,
     on_progress: Option<Box<dyn FnMut(usize) -> anyhow::Result<()> + Send + 'a>>,
     remove_input: bool,
 }
@@ -422,6 +423,11 @@ impl<'a> SaveBlobOptions<'a> {
 
     pub fn expected_hash(mut self, expected_hash: Option<Hash>) -> Self {
         self.expected_hash = expected_hash;
+        self
+    }
+
+    pub fn expected_blob_hash(mut self, expected_blob_hash: Option<BlobHash>) -> Self {
+        self.expected_blob_hash = expected_blob_hash;
         self
     }
 
@@ -579,6 +585,7 @@ impl std::str::FromStr for BlobHash {
 
 struct BlobHasher {
     hasher: blake3::Hasher,
+    expected_blob_hash: Option<BlobHash>,
     validation_hash_with_hasher: Option<(super::Hash, super::Hasher)>,
 }
 
@@ -592,6 +599,7 @@ impl BlobHasher {
 
         Self {
             hasher,
+            expected_blob_hash: options.expected_blob_hash,
             validation_hash_with_hasher,
         }
     }
@@ -619,6 +627,14 @@ impl BlobHasher {
             };
 
         let hash = self.hasher.finalize();
+        let blob_hash = BlobHash(hash);
+
+        if let Some(expected_blob_hash) = self.expected_blob_hash {
+            anyhow::ensure!(
+                blob_hash == expected_blob_hash,
+                "expected hash {expected_blob_hash} but got {blob_hash}"
+            );
+        }
 
         Ok((BlobHash(hash), validated_hash))
     }
