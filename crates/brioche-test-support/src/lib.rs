@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
     process::Output,
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use anyhow::Context as _;
@@ -554,6 +554,10 @@ pub fn tpl_join(templates: impl IntoIterator<Item = ProcessTemplate>) -> Process
             .flat_map(|template| template.components)
             .collect(),
     }
+}
+
+pub fn new_cache() -> Arc<dyn object_store::ObjectStore> {
+    Arc::new(object_store::memory::InMemory::new())
 }
 
 pub struct TestContext {

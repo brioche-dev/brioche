@@ -932,6 +932,7 @@ dependencies = [
  "directories",
  "hex",
  "mockito",
+ "object_store",
  "reqwest",
  "reqwest-middleware",
  "serde",
