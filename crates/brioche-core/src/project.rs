@@ -1166,43 +1166,7 @@ async fn fetch_project_from_registry(
             .context("failed to copy blob")?;
     }
 
-    let dependencies = project
-        .dependencies
-        .iter()
-        .map(|(name, hash)| (name.clone(), *hash))
-        .collect();
-
-    let mut downloads = BTreeMap::new();
-    let mut git_refs = BTreeMap::new();
-    for (static_, output) in project.statics.values().flatten() {
-        match static_ {
-            StaticQuery::Include(_) | StaticQuery::Glob { .. } => {
-                continue;
-            }
-            StaticQuery::Download { url } => {
-                let Some(StaticOutput::Kind(StaticOutputKind::Download { hash })) = output else {
-                    continue;
-                };
-
-                downloads.insert(url.clone(), hash.clone());
-            }
-            StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
-                let Some(StaticOutput::Kind(StaticOutputKind::GitRef { commit })) = output else {
-                    continue;
-                };
-
-                let repo_refs: &mut BTreeMap<_, _> =
-                    git_refs.entry(repository.clone()).or_default();
-                repo_refs.insert(ref_.clone(), commit.clone());
-            }
-        }
-    }
-
-    let lockfile = Lockfile {
-        dependencies,
-        downloads,
-        git_refs,
-    };
+    let lockfile = project_lockfile(&project);
     let lockfile_path = temp_project_path.join("brioche.lock");
     let lockfile_contents =
         serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
@@ -1813,4 +1777,44 @@ pub struct Lockfile {
 
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub git_refs: BTreeMap<url::Url, BTreeMap<String, String>>,
+}
+
+fn project_lockfile(project: &Project) -> Lockfile {
+    let dependencies = project
+        .dependencies
+        .iter()
+        .map(|(name, hash)| (name.clone(), *hash))
+        .collect();
+
+    let mut downloads = BTreeMap::new();
+    let mut git_refs = BTreeMap::new();
+    for (static_, output) in project.statics.values().flatten() {
+        match static_ {
+            StaticQuery::Include(_) | StaticQuery::Glob { .. } => {
+                continue;
+            }
+            StaticQuery::Download { url } => {
+                let Some(StaticOutput::Kind(StaticOutputKind::Download { hash })) = output else {
+                    continue;
+                };
+
+                downloads.insert(url.clone(), hash.clone());
+            }
+            StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
+                let Some(StaticOutput::Kind(StaticOutputKind::GitRef { commit })) = output else {
+                    continue;
+                };
+
+                let repo_refs: &mut BTreeMap<_, _> =
+                    git_refs.entry(repository.clone()).or_default();
+                repo_refs.insert(ref_.clone(), commit.clone());
+            }
+        }
+    }
+
+    Lockfile {
+        dependencies,
+        downloads,
+        git_refs,
+    }
 }
