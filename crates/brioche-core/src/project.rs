@@ -15,6 +15,7 @@ use crate::recipe::Artifact;
 use super::{vfs::FileId, Brioche};
 
 pub mod analyze;
+pub mod artifact;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ProjectValidation {
@@ -1531,6 +1532,83 @@ async fn resolve_static(
             Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }))
         }
     }
+}
+
+// TODO: This should be refactored to share code with `load_project_inner`
+async fn local_project_hash(brioche: &Brioche, path: &Path) -> anyhow::Result<Option<ProjectHash>> {
+    let real_path = tokio::fs::canonicalize(path).await;
+    let path = match real_path {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(error).context(format!("failed to canonicalize path {}", path.display()));
+        }
+    };
+
+    let project_analysis = analyze::analyze_project(&brioche.vfs, &path).await;
+    let Ok(project_analysis) = project_analysis else {
+        return Ok(None);
+    };
+
+    let lockfile_path = path.join("brioche.lock");
+    let lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await;
+    let lockfile: Lockfile = match lockfile_contents {
+        Ok(contents) => match serde_json::from_str(&contents) {
+            Ok(lockfile) => lockfile,
+            Err(_) => {
+                return Ok(None);
+            }
+        },
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(error).context(format!(
+                "failed to read lockfile at {}",
+                lockfile_path.display()
+            ));
+        }
+    };
+
+    let modules = project_analysis
+        .local_modules
+        .values()
+        .map(|module| (module.project_subpath.clone(), module.file_id))
+        .collect();
+    let mut statics = HashMap::new();
+    for module in project_analysis.local_modules.values() {
+        let mut module_statics = BTreeMap::new();
+        for static_ in &module.statics {
+            let static_output = resolve_static(
+                brioche,
+                &path,
+                module,
+                static_,
+                ProjectLocking::Locked,
+                Some(&lockfile),
+                &mut Lockfile::default(),
+            )
+            .await?;
+            module_statics.insert(static_.clone(), Some(static_output));
+        }
+
+        if !module_statics.is_empty() {
+            statics.insert(module.project_subpath.clone(), module_statics);
+        }
+    }
+
+    let dependencies = lockfile.dependencies.into_iter().collect();
+    let project = Project {
+        definition: project_analysis.definition,
+        dependencies,
+        modules,
+        statics,
+    };
+    let project_hash = ProjectHash::from_serializable(&project)?;
+
+    Ok(Some(project_hash))
 }
 
 #[serde_with::serde_as]
