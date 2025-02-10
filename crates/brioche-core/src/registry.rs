@@ -483,7 +483,7 @@ pub async fn fetch_recipes_deep(
         let new_recipes = Arc::new(tokio::sync::Mutex::new(vec![]));
         futures::stream::iter(unknown_recipes)
             .map(Ok)
-            .try_for_each_concurrent(25, |recipe| {
+            .try_for_each_concurrent(200, |recipe| {
                 let brioche = brioche.clone();
                 let new_recipes = new_recipes.clone();
                 async move {
