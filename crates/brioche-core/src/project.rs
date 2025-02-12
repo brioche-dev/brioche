@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -8,7 +8,7 @@ use analyze::{GitRefOptions, StaticOutput, StaticOutputKind, StaticQuery};
 use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::AsyncReadExt as _;
 
 use crate::recipe::Artifact;
 
@@ -134,7 +134,7 @@ impl Projects {
         let project_hash = resolve_project_from_registry(brioche, project_name, version)
             .await
             .with_context(|| format!("failed to resolve '{project_name}' from registry"))?;
-        let local_path = fetch_project_from_registry(brioche, project_hash)
+        let local_path = fetch_project_from_cache(self, brioche, project_hash)
             .await
             .with_context(|| format!("failed to fetch '{project_name}' from registry"))?;
 
@@ -871,9 +871,10 @@ async fn try_load_registry_dependency_with_errors(
     new_lockfile: &mut Lockfile,
     errors: &mut Vec<LoadProjectError>,
 ) -> Option<ProjectHash> {
-    let resolved_dep_result =
-        resolve_dependency_to_local_path(brioche, workspace, name, version, locking, lockfile)
-            .await;
+    let resolved_dep_result = resolve_dependency_to_local_path(
+        projects, brioche, workspace, name, version, locking, lockfile,
+    )
+    .await;
     let resolved_dep = match resolved_dep_result {
         Ok(resolved_dep) => resolved_dep,
         Err(error) => {
@@ -936,6 +937,7 @@ async fn try_load_registry_dependency_with_errors(
 }
 
 async fn resolve_dependency_to_local_path(
+    projects: &Projects,
     brioche: &Brioche,
     workspace: Option<&Workspace>,
     dependency_name: &str,
@@ -982,9 +984,9 @@ async fn resolve_dependency_to_local_path(
         },
     };
 
-    let local_path = fetch_project_from_registry(brioche, dep_hash)
+    let local_path = fetch_project_from_cache(projects, brioche, dep_hash)
         .await
-        .with_context(|| format!("failed to fetch '{dependency_name}' from registry"))?;
+        .with_context(|| format!("failed to fetch '{dependency_name}' from cache"))?;
 
     Ok(ResolvedDependency {
         local_path,
@@ -1016,7 +1018,8 @@ async fn resolve_project_from_registry(
     Ok(response.project_hash)
 }
 
-async fn fetch_project_from_registry(
+async fn fetch_project_from_cache(
+    projects: &Projects,
     brioche: &Brioche,
     project_hash: ProjectHash,
 ) -> anyhow::Result<PathBuf> {
@@ -1036,161 +1039,32 @@ async fn fetch_project_from_registry(
         .join("projects")
         .join(project_hash.to_string());
 
-    if tokio::fs::try_exists(&local_path).await? {
+    let local_project_hash = local_project_hash(brioche, &local_path).await?;
+    if local_project_hash == Some(project_hash) {
         return Ok(local_path);
     }
 
-    let temp_id = ulid::Ulid::new();
-    let temp_project_path = brioche
-        .data_dir
-        .join("projects-temp")
-        .join(temp_id.to_string());
-    tokio::fs::create_dir_all(&temp_project_path).await?;
+    let project_artifact_hash = crate::cache::load_project_artifact_hash(brioche, project_hash)
+        .await?
+        .with_context(|| format!("project with hash {project_hash} not found in cache"))?;
+    let project_artifact = crate::cache::load_artifact(brioche, project_artifact_hash)
+        .await?
+        .with_context(|| {
+            format!(
+                "artifact {project_artifact_hash} for project {project_hash} not found in cache"
+            )
+        })?;
+    let Artifact::Directory(project_artifact) = project_artifact else {
+        anyhow::bail!("expected artifact from cache for project {project_hash} to be a directory");
+    };
 
-    let project = brioche
-        .registry_client
-        .get_project(project_hash)
-        .await
-        .context("failed to get project metadata from registry")?;
+    let saved_projects =
+        artifact::save_projects_from_artifact(brioche, projects, &project_artifact).await?;
+    anyhow::ensure!(
+        saved_projects.contains(&project_hash),
+        "artifact for project found in cache, but it did not contain the project {project_hash}"
+    );
 
-    futures::stream::iter(project.dependency_hashes())
-        .map(Ok)
-        .try_for_each_concurrent(Some(25), |dep_hash| {
-            let brioche = brioche.clone();
-            async move {
-                fetch_project_from_registry(&brioche, dep_hash).await?;
-                anyhow::Ok(())
-            }
-        })
-        .await?;
-
-    let mut statics_recipes = HashSet::new();
-    for (static_, output) in project.statics.values().flatten() {
-        let Some(output) = output else {
-            continue;
-        };
-
-        let recipe_hash = static_.output_recipe_hash(output)?;
-        if let Some(recipe_hash) = recipe_hash {
-            statics_recipes.insert(recipe_hash);
-        }
-    }
-
-    crate::registry::fetch_recipes_deep(brioche, statics_recipes).await?;
-
-    for (module_path, statics) in &project.statics {
-        for (static_, output) in statics {
-            let Some(output) = output else {
-                continue;
-            };
-
-            let recipe_hash = static_.output_recipe_hash(output)?;
-
-            let module_path = module_path.to_logical_path(&temp_project_path);
-            let module_dir = module_path.parent().context("no parent dir for module")?;
-
-            match static_ {
-                StaticQuery::Include(include) => {
-                    let recipe_hash = recipe_hash.context("no recipe hash for include static")?;
-                    let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
-                    let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
-                        anyhow::anyhow!("included static recipe is not an artifact")
-                    })?;
-                    let include_path = module_dir.join(include.path());
-                    crate::output::create_output(
-                        brioche,
-                        &artifact,
-                        crate::output::OutputOptions {
-                            link_locals: false,
-                            merge: true,
-                            mtime: None,
-                            output_path: &include_path,
-                            resource_dir: None,
-                        },
-                    )
-                    .await?;
-                }
-                StaticQuery::Glob { .. } => {
-                    let recipe_hash = recipe_hash.context("no recipe hash for glob static")?;
-                    let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
-                    let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
-                        anyhow::anyhow!("included static recipe is not an artifact")
-                    })?;
-                    crate::output::create_output(
-                        brioche,
-                        &artifact,
-                        crate::output::OutputOptions {
-                            link_locals: false,
-                            merge: true,
-                            mtime: None,
-                            output_path: module_dir,
-                            resource_dir: None,
-                        },
-                    )
-                    .await?;
-                }
-                StaticQuery::Download { .. } | StaticQuery::GitRef { .. } => {
-                    // No need to do anything while fetching the project
-                }
-            }
-        }
-    }
-
-    let blobs = project
-        .modules
-        .values()
-        .map(|file_id| file_id.as_blob_hash())
-        .collect::<anyhow::Result<HashSet<_>>>()?;
-    crate::registry::fetch_blobs(brioche.clone(), blobs).await?;
-
-    for (module_path, file_id) in &project.modules {
-        anyhow::ensure!(
-            module_path != "brioche.lock",
-            "lockfile included as a project module"
-        );
-
-        let temp_module_path = module_path.to_logical_path(&temp_project_path);
-        anyhow::ensure!(
-            temp_module_path.starts_with(&temp_project_path),
-            "module path escapes project root",
-        );
-
-        let blob_hash = file_id.as_blob_hash()?;
-        let module_blob_path = crate::blob::local_blob_path(brioche, blob_hash);
-        if let Some(temp_module_dir) = temp_module_path.parent() {
-            tokio::fs::create_dir_all(temp_module_dir)
-                .await
-                .context("failed to create temporary module directory")?;
-        }
-        tokio::fs::copy(&module_blob_path, &temp_module_path)
-            .await
-            .context("failed to copy blob")?;
-    }
-
-    let lockfile = project_lockfile(&project);
-    let lockfile_path = temp_project_path.join("brioche.lock");
-    let lockfile_contents =
-        serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
-    let mut lockfile_file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&lockfile_path)
-        .await
-        .context("failed to create lockfile")?;
-    lockfile_file
-        .write_all(lockfile_contents.as_bytes())
-        .await
-        .context("failed to write lockfile")?;
-
-    if let Some(local_dir) = local_path.parent() {
-        tokio::fs::create_dir_all(local_dir)
-            .await
-            .context("failed to create project directory")?;
-    }
-
-    tokio::fs::rename(&temp_project_path, &local_path)
-        .await
-        .context("failed to move temporary project from registry")?;
     Ok(local_path)
 }
 

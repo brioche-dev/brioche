@@ -658,7 +658,57 @@ impl TestContext {
         (project_hash, project_path)
     }
 
-    pub async fn remote_registry_project<F, Fut>(&mut self, f: F) -> ProjectHash
+    pub async fn cached_registry_project<F, Fut>(
+        &mut self,
+        cache: &Arc<dyn object_store::ObjectStore>,
+        f: F,
+    ) -> ProjectHash
+    where
+        F: FnOnce(PathBuf) -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        // Create a temporary test context so the project does not get
+        // loaded into the current context. We still use the current context
+        // to create the mocks
+        let (brioche, context) = brioche_test_with({
+            let cache = cache.clone();
+            |builder| {
+                builder
+                    .registry_client(self.brioche.registry_client.clone())
+                    .cache_client(brioche_core::cache::CacheClient {
+                        store: Some(cache),
+                        writable: true,
+                    })
+            }
+        })
+        .await;
+
+        let (projects, project_hash, _) = context.temp_project(f).await;
+
+        let project_artifact = brioche_core::project::artifact::create_artifact_with_projects(
+            &brioche,
+            &projects,
+            &[project_hash],
+        )
+        .await
+        .expect("failed to create artifact for project");
+        let project_artifact = brioche_core::recipe::Artifact::Directory(project_artifact);
+        let project_artifact_hash = project_artifact.hash();
+        brioche_core::cache::save_artifact(&brioche, project_artifact)
+            .await
+            .expect("failed to save artifact to cache");
+        brioche_core::cache::save_project_artifact_hash(
+            &brioche,
+            project_hash,
+            project_artifact_hash,
+        )
+        .await
+        .expect("failed to save project artifact hash to cache");
+
+        project_hash
+    }
+
+    pub async fn remote_registry_project_<F, Fut>(&mut self, f: F) -> ProjectHash
     where
         F: FnOnce(PathBuf) -> Fut,
         Fut: std::future::Future<Output = ()>,

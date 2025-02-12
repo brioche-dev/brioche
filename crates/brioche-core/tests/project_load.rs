@@ -1,5 +1,11 @@
+use std::sync::Arc;
+
 use assert_matches::assert_matches;
-use brioche_core::project::{ProjectLocking, ProjectValidation};
+use brioche_core::{
+    project::{ProjectLocking, ProjectValidation},
+    Brioche,
+};
+use brioche_test_support::TestContext;
 
 #[tokio::test]
 async fn test_project_load_simple() -> anyhow::Result<()> {
@@ -478,10 +484,11 @@ async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<
 
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let foo_hash = context
-        .remote_registry_project(|path| async move {
+        .cached_registry_project(&cache, |path| async move {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -524,7 +531,9 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
     let foo_path = brioche
         .data_dir
         .join("projects")
-        .join(foo_dep_hash.to_string());
+        .join(foo_dep_hash.to_string())
+        .canonicalize()
+        .unwrap();
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
@@ -538,10 +547,11 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let foo_hash = context
-        .remote_registry_project(|path| async move {
+        .cached_registry_project(&cache, |path| async move {
             tokio::fs::write(path.join("fizz"), "fizz!").await.unwrap();
             tokio::fs::create_dir_all(path.join("buzz/hello"))
                 .await
@@ -596,7 +606,9 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
     let foo_path = brioche
         .data_dir
         .join("projects")
-        .join(foo_dep_hash.to_string());
+        .join(foo_dep_hash.to_string())
+        .canonicalize()
+        .unwrap();
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
@@ -616,10 +628,11 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
 
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let foo_hash = context
-        .remote_registry_project(|path| async move {
+        .cached_registry_project(&cache, |path| async move {
             tokio::fs::create_dir_all(path.join("fizz")).await.unwrap();
             tokio::fs::write(path.join("fizz/hello.md"), "fizz!")
                 .await
@@ -677,7 +690,9 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
     let foo_path = brioche
         .data_dir
         .join("projects")
-        .join(foo_dep_hash.to_string());
+        .join(foo_dep_hash.to_string())
+        .canonicalize()
+        .unwrap();
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
@@ -696,10 +711,11 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep_with_subdir_brioche_glob() -> anyhow::Result<()>
 {
-    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let foo_hash = context
-        .remote_registry_project(|path| async move {
+        .cached_registry_project(&cache, |path| async move {
             tokio::fs::create_dir_all(path.join("subdir/fizz"))
                 .await
                 .unwrap();
@@ -769,7 +785,9 @@ async fn test_project_load_with_remote_registry_dep_with_subdir_brioche_glob() -
     let foo_path = brioche
         .data_dir
         .join("projects")
-        .join(foo_dep_hash.to_string());
+        .join(foo_dep_hash.to_string())
+        .canonicalize()
+        .unwrap();
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
@@ -788,7 +806,8 @@ async fn test_project_load_with_remote_registry_dep_with_subdir_brioche_glob() -
 
 #[tokio::test]
 async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let mut server = mockito::Server::new_async().await;
     let server_url = server.url();
@@ -803,7 +822,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
     let download_url = format!("{server_url}/file.txt");
 
     let foo_hash = context
-        .remote_registry_project(|path| async move {
+        .cached_registry_project(&cache, |path| async move {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -851,7 +870,9 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
     let foo_path = brioche
         .data_dir
         .join("projects")
-        .join(foo_dep_hash.to_string());
+        .join(foo_dep_hash.to_string())
+        .canonicalize()
+        .unwrap();
     assert!(projects
         .local_paths(foo_dep_hash)
         .unwrap()
@@ -867,7 +888,8 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
 
 #[tokio::test]
 async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), true).await;
 
     context
         .write_toml(
@@ -921,12 +943,21 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
 
     assert_eq!(bar_project.dependencies.get("foo"), Some(&foo_hash));
 
-    let bar_mocks = context
-        .mock_registry_listing(&brioche, &projects, bar_hash)
-        .await;
-    for mock in bar_mocks {
-        mock.create_async().await;
-    }
+    let bar_project_artifact = brioche_core::project::artifact::create_artifact_with_projects(
+        &brioche,
+        &projects,
+        &[bar_hash],
+    )
+    .await
+    .expect("failed to create artifact for bar");
+    let bar_project_artifact = brioche_core::recipe::Artifact::Directory(bar_project_artifact);
+    let bar_project_artifact_hash = bar_project_artifact.hash();
+    brioche_core::cache::save_artifact(&brioche, bar_project_artifact)
+        .await
+        .expect("failed to save bar project artifact to cache");
+    brioche_core::cache::save_project_artifact_hash(&brioche, bar_hash, bar_project_artifact_hash)
+        .await
+        .expect("failed to save bar project artifact hash to cache");
 
     let mock_bar_latest = context
         .mock_registry_publish_tag("bar", "latest", bar_hash)
@@ -962,10 +993,11 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
 
 #[tokio::test]
 async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
-    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let bar_hash = context
-        .remote_registry_project(|path| async move {
+        .cached_registry_project(&cache, |path| async move {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -982,7 +1014,7 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
         .await;
 
     let foo_hash = context
-        .remote_registry_project(|path| async move {
+        .cached_registry_project(&cache, |path| async move {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -1513,4 +1545,17 @@ async fn test_project_load_brioche_include_file_as_directory_error() -> anyhow::
     assert_matches!(result, Err(_));
 
     Ok(())
+}
+
+async fn brioche_test_with_cache(
+    cache: Arc<dyn object_store::ObjectStore>,
+    writable: bool,
+) -> (Brioche, TestContext) {
+    brioche_test_support::brioche_test_with(|builder| {
+        builder.cache_client(brioche_core::cache::CacheClient {
+            store: Some(cache),
+            writable,
+        })
+    })
+    .await
 }
