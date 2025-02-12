@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt};
 
 use crate::{
+    project::ProjectHash,
     recipe::{Artifact, RecipeHash},
     Brioche,
 };
@@ -175,6 +176,81 @@ pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Res
         .put_opts(
             &artifact_path,
             archive_compressed.into(),
+            object_store::PutOptions {
+                mode: object_store::PutMode::Create,
+                ..Default::default()
+            },
+        )
+        .await;
+
+    let did_create = match put_result {
+        Ok(_) => true,
+        Err(object_store::Error::AlreadyExists { .. }) => false,
+        Err(error) => {
+            return Err(error.into());
+        }
+    };
+
+    Ok(did_create)
+}
+
+pub async fn load_project_artifact_hash(
+    brioche: &Brioche,
+    project_hash: ProjectHash,
+) -> anyhow::Result<Option<RecipeHash>> {
+    let Some(store) = brioche.cache_client.store.clone() else {
+        return Ok(None);
+    };
+
+    let project_artifact_hash_path = object_store::path::Path::from_iter([
+        "projects",
+        &project_hash.to_string(),
+        "artifact_hash",
+    ]);
+    let project_artifact_hash_object = store.get(&project_artifact_hash_path).await;
+    let project_artifact_hash_object = match project_artifact_hash_object {
+        Ok(object) => object,
+        Err(object_store::Error::NotFound { .. }) => return Ok(None),
+        Err(error) => {
+            return Err(error.into());
+        }
+    };
+
+    let project_artifact_hash_stream = project_artifact_hash_object.into_stream();
+    let project_artifact_hash_reader =
+        tokio_util::io::StreamReader::new(project_artifact_hash_stream);
+
+    // Read the artifact hash into a string. Since we know the artifact hash is
+    // a 64-character hexadecimal string, we limit the reader to prevent
+    // reading an arbitrarily large object into memory. We read up to 65
+    // characters to detect malformed objects.
+    let mut project_artifact_hash = String::new();
+    project_artifact_hash_reader
+        .take(65)
+        .read_to_string(&mut project_artifact_hash)
+        .await?;
+
+    let project_artifact_hash: RecipeHash = project_artifact_hash.parse()?;
+    Ok(Some(project_artifact_hash))
+}
+
+pub async fn save_project_artifact_hash(
+    brioche: &Brioche,
+    project_hash: ProjectHash,
+    artifact_hash: RecipeHash,
+) -> anyhow::Result<bool> {
+    let store = brioche.cache_client.writable_store()?;
+
+    let project_artifact_hash_path = object_store::path::Path::from_iter([
+        "projects",
+        &project_hash.to_string(),
+        "artifact_hash",
+    ]);
+
+    let put_result = store
+        .put_opts(
+            &project_artifact_hash_path,
+            artifact_hash.to_string().into(),
             object_store::PutOptions {
                 mode: object_store::PutMode::Create,
                 ..Default::default()

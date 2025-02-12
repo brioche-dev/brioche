@@ -2,6 +2,7 @@ use anyhow::Context as _;
 
 use crate::{
     project::{ProjectHash, Projects},
+    recipe::Artifact,
     references::ProjectReferences,
     registry::CreateProjectTagsResponse,
     Brioche,
@@ -29,7 +30,16 @@ pub async fn publish_project(
     )
     .await?;
 
-    // Sync the project and all references
+    // Create an artifact for the project and save it to the cache
+    let project_artifact =
+        crate::project::artifact::create_artifact_with_projects(brioche, projects, &[project_hash])
+            .await?;
+    let project_artifact = Artifact::Directory(project_artifact);
+    let project_artifact_hash = project_artifact.hash();
+    crate::cache::save_artifact(brioche, project_artifact).await?;
+    crate::cache::save_project_artifact_hash(brioche, project_hash, project_artifact_hash).await?;
+
+    // Sync the project and all references to the registry (legacy)
     crate::sync::legacy_sync_project_references(brioche, &project_references, verbose).await?;
 
     // Push new project tags ("latest" plus the version number)
