@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Context as _;
 
-use crate::blob::BlobHash;
+use crate::{blob::BlobHash, Brioche};
 
 #[derive(Debug, Clone)]
 pub struct Vfs {
@@ -107,6 +107,28 @@ impl Vfs {
             .map_err(|_| anyhow::anyhow!("failed to acquire VFS lock"))?;
         Ok(vfs.contents.get(&file_id).cloned())
     }
+}
+
+pub async fn commit_blob(brioche: &Brioche, file_id: FileId) -> anyhow::Result<BlobHash> {
+    let expected_blob_hash = match file_id {
+        FileId::Hash(hash) => Some(hash),
+        FileId::Mutable(_) => None,
+    };
+    let content = brioche.vfs.read(file_id)?;
+    let Some(content) = content else {
+        return Err(anyhow::anyhow!("file not loaded: {file_id}"));
+    };
+
+    let mut permit = crate::blob::get_save_blob_permit().await?;
+    let blob_hash = crate::blob::save_blob(
+        brioche,
+        &mut permit,
+        &content[..],
+        crate::blob::SaveBlobOptions::default().expected_blob_hash(expected_blob_hash),
+    )
+    .await?;
+
+    Ok(blob_hash)
 }
 
 #[derive(Debug, Clone, Default)]
