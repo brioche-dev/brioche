@@ -14,9 +14,11 @@ pub enum NewJob {
     Process {
         status: ProcessStatus,
     },
-    RegistryFetch {
-        total_blobs: usize,
-        total_recipes: usize,
+    CacheFetch {
+        downloaded_data: Option<u64>,
+        total_data: Option<u64>,
+        downloaded_blobs: Option<u64>,
+        total_blobs: Option<u64>,
         started_at: std::time::Instant,
     },
 }
@@ -38,17 +40,17 @@ pub enum UpdateJob {
     ProcessUpdateStatus {
         status: ProcessStatus,
     },
-    RegistryFetchAdd {
-        blobs_fetched: usize,
-        recipes_fetched: usize,
+    CacheFetchAdd {
+        downloaded_data: Option<u64>,
+        downloaded_blobs: Option<u64>,
     },
-    RegistryFetchUpdate {
-        total_blobs: Option<usize>,
-        total_recipes: Option<usize>,
-        complete_blobs: Option<usize>,
-        complete_recipes: Option<usize>,
+    CacheFetchUpdate {
+        downloaded_data: Option<u64>,
+        total_data: Option<u64>,
+        downloaded_blobs: Option<u64>,
+        total_blobs: Option<u64>,
     },
-    RegistryFetchFinish {
+    CacheFetchFinish {
         finished_at: std::time::Instant,
     },
 }
@@ -70,11 +72,11 @@ pub enum Job {
         packet_queue: DebugIgnore<Arc<RwLock<Vec<ProcessPacket>>>>,
         status: ProcessStatus,
     },
-    RegistryFetch {
-        complete_blobs: usize,
-        total_blobs: usize,
-        complete_recipes: usize,
-        total_recipes: usize,
+    CacheFetch {
+        downloaded_data: u64,
+        total_data: Option<u64>,
+        downloaded_blobs: u64,
+        total_blobs: Option<u64>,
         started_at: std::time::Instant,
         finished_at: Option<std::time::Instant>,
     },
@@ -98,15 +100,17 @@ impl Job {
                 packet_queue: Default::default(),
                 status,
             },
-            NewJob::RegistryFetch {
+            NewJob::CacheFetch {
+                downloaded_data,
+                total_data,
+                downloaded_blobs,
                 total_blobs,
-                total_recipes,
                 started_at,
-            } => Self::RegistryFetch {
-                complete_blobs: 0,
+            } => Self::CacheFetch {
+                downloaded_data: downloaded_data.unwrap_or(0),
+                total_data,
+                downloaded_blobs: downloaded_blobs.unwrap_or(0),
                 total_blobs,
-                complete_recipes: 0,
-                total_recipes,
                 started_at,
                 finished_at: None,
             },
@@ -171,76 +175,87 @@ impl Job {
 
                 *status = new_status;
             }
-            UpdateJob::RegistryFetchAdd {
-                blobs_fetched,
-                recipes_fetched,
+            UpdateJob::CacheFetchAdd {
+                downloaded_data: add_downloaded_data,
+                downloaded_blobs: add_downloaded_blobs,
             } => {
-                let Self::RegistryFetch {
-                    complete_blobs,
-                    complete_recipes,
+                let Self::CacheFetch {
+                    downloaded_data,
+                    downloaded_blobs,
                     ..
                 } = self
                 else {
                     anyhow::bail!(
-                        "tried to update a non-registry-fetch job with a registry-fetch update"
+                        "tried to update a non-cache-fetch job with a cache-fetch update"
                     );
                 };
 
-                *complete_blobs += blobs_fetched;
-                *complete_recipes += recipes_fetched;
+                if let Some(add_downloaded_data) = add_downloaded_data {
+                    *downloaded_data += add_downloaded_data;
+                }
+
+                if let Some(add_downloaded_blobs) = add_downloaded_blobs {
+                    *downloaded_blobs += add_downloaded_blobs;
+                }
             }
-            UpdateJob::RegistryFetchUpdate {
+            UpdateJob::CacheFetchUpdate {
+                downloaded_data: new_downloaded_data,
+                total_data: new_total_data,
+                downloaded_blobs: new_downloaded_blobs,
                 total_blobs: new_total_blobs,
-                total_recipes: new_total_recipes,
-                complete_blobs: new_complete_blobs,
-                complete_recipes: new_complete_recipes,
             } => {
-                let Self::RegistryFetch {
+                let Self::CacheFetch {
+                    downloaded_data,
+                    total_data,
+                    downloaded_blobs,
                     total_blobs,
-                    total_recipes,
-                    complete_blobs,
-                    complete_recipes,
                     started_at: _,
                     finished_at: _,
                 } = self
                 else {
                     anyhow::bail!(
-                        "tried to update a non-registry-fetch job with a registry-fetch update"
+                        "tried to update a non-cache-fetch job with a cache-fetch update"
                     );
                 };
 
+                if let Some(new_downloaded_data) = new_downloaded_data {
+                    *downloaded_data = new_downloaded_data;
+                }
+                if let Some(new_total_data) = new_total_data {
+                    *total_data = Some(new_total_data);
+                }
+                if let Some(new_downloaded_blobs) = new_downloaded_blobs {
+                    *downloaded_blobs = new_downloaded_blobs;
+                }
                 if let Some(new_total_blobs) = new_total_blobs {
-                    *total_blobs = new_total_blobs;
-                }
-                if let Some(new_total_recipes) = new_total_recipes {
-                    *total_recipes = new_total_recipes;
-                }
-                if let Some(new_complete_blobs) = new_complete_blobs {
-                    *complete_blobs = new_complete_blobs;
-                }
-                if let Some(new_complete_recipes) = new_complete_recipes {
-                    *complete_recipes = new_complete_recipes;
+                    *total_blobs = Some(new_total_blobs);
                 }
             }
-            UpdateJob::RegistryFetchFinish {
+            UpdateJob::CacheFetchFinish {
                 finished_at: new_finished_at,
             } => {
-                let Self::RegistryFetch {
-                    complete_blobs,
+                let Self::CacheFetch {
+                    downloaded_data,
+                    total_data,
+                    downloaded_blobs,
                     total_blobs,
-                    complete_recipes,
-                    total_recipes,
                     started_at: _,
                     finished_at,
                 } = self
                 else {
                     anyhow::bail!(
-                        "tried to update a non-registry-fetch job with a registry-fetch-finish update"
+                        "tried to update a non-cache-fetch job with a cache-fetch-finish update"
                     );
                 };
 
-                *complete_blobs = *total_blobs;
-                *complete_recipes = *total_recipes;
+                if let Some(total_data) = total_data {
+                    *downloaded_data = *total_data;
+                }
+
+                if let Some(total_blobs) = total_blobs {
+                    *downloaded_blobs = *total_blobs;
+                }
+
                 *finished_at = Some(new_finished_at);
             }
         }
@@ -252,7 +267,7 @@ impl Job {
         match self {
             Job::Download { started_at, .. }
             | Job::Unarchive { started_at, .. }
-            | Job::RegistryFetch { started_at, .. } => *started_at,
+            | Job::CacheFetch { started_at, .. } => *started_at,
             Job::Process { status, .. } => status.created_at(),
         }
     }
@@ -261,7 +276,7 @@ impl Job {
         match self {
             Job::Download { started_at, .. }
             | Job::Unarchive { started_at, .. }
-            | Job::RegistryFetch { started_at, .. } => Some(*started_at),
+            | Job::CacheFetch { started_at, .. } => Some(*started_at),
             Job::Process { status, .. } => status.started_at(),
         }
     }
@@ -270,7 +285,7 @@ impl Job {
         match self {
             Job::Download { finished_at, .. }
             | Job::Unarchive { finished_at, .. }
-            | Job::RegistryFetch { finished_at, .. } => *finished_at,
+            | Job::CacheFetch { finished_at, .. } => *finished_at,
             Job::Process { status, .. } => status.finished_at(),
         }
     }
@@ -279,7 +294,7 @@ impl Job {
         match self {
             Job::Download { finished_at, .. }
             | Job::Unarchive { finished_at, .. }
-            | Job::RegistryFetch { finished_at, .. } => *finished_at,
+            | Job::CacheFetch { finished_at, .. } => *finished_at,
             Job::Process { status, .. } => status.finalized_at(),
         }
     }
@@ -303,7 +318,7 @@ impl Job {
     pub fn job_type_priority(&self) -> u8 {
         match self {
             Job::Unarchive { .. } => 0,
-            Job::Download { .. } | Job::RegistryFetch { .. } | Job::Process { .. } => 2,
+            Job::Download { .. } | Job::CacheFetch { .. } | Job::Process { .. } => 2,
         }
     }
 }

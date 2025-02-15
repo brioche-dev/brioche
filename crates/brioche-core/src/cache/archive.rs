@@ -22,6 +22,10 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use crate::{
     blob::{BlobHash, SaveBlobOptions},
     recipe::{Artifact, Recipe, RecipeHash},
+    reporter::{
+        job::{NewJob, UpdateJob},
+        JobId,
+    },
     Brioche,
 };
 
@@ -345,6 +349,14 @@ pub async fn read_artifact_archive(
     store: &Arc<dyn object_store::ObjectStore>,
     mut reader: &mut (impl tokio::io::AsyncRead + Unpin),
 ) -> anyhow::Result<Artifact> {
+    let job_id = brioche.reporter.add_job(NewJob::CacheFetch {
+        downloaded_data: None,
+        total_data: None,
+        downloaded_blobs: None,
+        total_blobs: None,
+        started_at: std::time::Instant::now(),
+    });
+
     // Read and validate the marker from the archive
     let mut marker = [0; MARKER.len()];
     reader.read_exact(&mut marker).await?;
@@ -547,6 +559,21 @@ pub async fn read_artifact_archive(
     })
     .await??;
 
+    let total_needed_bytes = needed_blobs
+        .iter()
+        .map(|(_, range)| range.end.saturating_sub(range.start))
+        .sum::<u64>();
+    let total_needed_blobs: u64 = needed_blobs.len().try_into()?;
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::CacheFetchUpdate {
+            downloaded_data: None,
+            total_data: Some(total_needed_bytes),
+            downloaded_blobs: None,
+            total_blobs: Some(total_needed_blobs),
+        },
+    );
+
     match data {
         DataEntry::Inline => {
             // The archive data is inline in the archive, so we're reading
@@ -578,6 +605,14 @@ pub async fn read_artifact_archive(
                     &mut buffer,
                 )
                 .await?;
+
+                brioche.reporter.update_job(
+                    job_id,
+                    UpdateJob::CacheFetchAdd {
+                        downloaded_data: Some(length),
+                        downloaded_blobs: Some(1),
+                    },
+                );
 
                 inline_offset = range.end;
             }
@@ -653,7 +688,7 @@ pub async fn read_artifact_archive(
             futures::stream::iter(fetches)
                 .map(Ok)
                 .try_for_each_concurrent(concurrent_chunk_fetches, |fetch| {
-                    fetch_blobs_from_chunks(brioche.clone(), store.clone(), fetch)
+                    fetch_blobs_from_chunks(brioche.clone(), store.clone(), job_id, fetch)
                 })
                 .await?;
         }
@@ -670,7 +705,24 @@ pub async fn read_artifact_archive(
     let result = result.context("no artifact entries in archive")?;
     let result = result.build(&mut new_recipes);
 
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::CacheFetchUpdate {
+            downloaded_data: Some(total_needed_bytes),
+            total_data: Some(total_needed_bytes),
+            downloaded_blobs: Some(total_needed_blobs),
+            total_blobs: Some(total_needed_blobs),
+        },
+    );
+
     crate::recipe::save_recipes(brioche, new_recipes.values()).await?;
+
+    brioche.reporter.update_job(
+        job_id,
+        UpdateJob::CacheFetchFinish {
+            finished_at: std::time::Instant::now(),
+        },
+    );
 
     Ok(result)
 }
@@ -678,6 +730,7 @@ pub async fn read_artifact_archive(
 async fn fetch_blobs_from_chunks(
     brioche: Brioche,
     store: Arc<dyn object_store::ObjectStore>,
+    job_id: JobId,
     fetch: BlobsFetch,
 ) -> anyhow::Result<()> {
     let mut permit = crate::blob::get_save_blob_permit().await?;
@@ -721,6 +774,14 @@ async fn fetch_blobs_from_chunks(
                 )
                 .await?;
 
+                brioche.reporter.update_job(
+                    job_id,
+                    UpdateJob::CacheFetchAdd {
+                        downloaded_data: Some(length),
+                        downloaded_blobs: Some(1),
+                    },
+                );
+
                 artifact_offset = range.end;
             }
         }
@@ -730,6 +791,7 @@ async fn fetch_blobs_from_chunks(
 
             let (blob_reader, mut blob_writer) = tokio::io::simplex(1_048_576);
 
+            let reporter = brioche.reporter.clone();
             let writer_task = tokio::spawn(async move {
                 let result = async {
                     // Read each part of each chunk from the cache to the
@@ -765,6 +827,13 @@ async fn fetch_blobs_from_chunks(
                         // Write the needed range from the chunk to the writer
                         let mut chunk_reader = chunk_reader.take(length);
                         tokio::io::copy(&mut chunk_reader, &mut blob_writer).await?;
+                        reporter.update_job(
+                            job_id,
+                            UpdateJob::CacheFetchAdd {
+                                downloaded_data: Some(length),
+                                downloaded_blobs: None,
+                            },
+                        );
                     }
 
                     anyhow::Ok(())
@@ -786,6 +855,14 @@ async fn fetch_blobs_from_chunks(
                 &mut vec![],
             )
             .await?;
+
+            brioche.reporter.update_job(
+                job_id,
+                UpdateJob::CacheFetchAdd {
+                    downloaded_data: None,
+                    downloaded_blobs: Some(1),
+                },
+            );
 
             writer_task.await??;
         }

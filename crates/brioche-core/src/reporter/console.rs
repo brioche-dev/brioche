@@ -5,7 +5,6 @@ use std::{
 };
 
 use bstr::ByteSlice;
-use joinery::JoinableIterator as _;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithHttpConfig;
 use superconsole::style::Stylize;
@@ -267,16 +266,14 @@ impl ConsoleReporter {
                     }
                     NewJob::Unarchive { started_at: _ } => {}
                     NewJob::Process { status: _ } => {}
-                    NewJob::RegistryFetch {
-                        total_blobs,
-                        total_recipes,
+                    NewJob::CacheFetch {
+                        downloaded_data: _,
+                        total_data: _,
+                        downloaded_blobs: _,
+                        total_blobs: _,
                         started_at: _,
                     } => {
-                        eprintln!(
-                            "Fetching {total_blobs} blob{} / {total_recipes} recipe{} from registry",
-                            if *total_blobs == 1 { "" } else { "s" },
-                            if *total_recipes == 1 { "" } else { "s" },
-                        );
+                        eprintln!("Fetching from cache");
                     }
                 }
 
@@ -420,9 +417,9 @@ impl ConsoleReporter {
                             }
                         }
                     }
-                    UpdateJob::RegistryFetchAdd { .. } => {}
-                    UpdateJob::RegistryFetchUpdate { .. } => {}
-                    UpdateJob::RegistryFetchFinish { finished_at } => {
+                    UpdateJob::CacheFetchAdd { .. } => {}
+                    UpdateJob::CacheFetchUpdate { .. } => {}
+                    UpdateJob::CacheFetchFinish { finished_at } => {
                         let elapsed = finished_at.saturating_duration_since(job.created_at());
                         eprintln!(
                             "Finished fetching from registry in {}",
@@ -831,25 +828,19 @@ impl superconsole::Component for JobComponent<'_> {
                     .chain(note_span),
                 )])
             }
-            Job::RegistryFetch {
-                complete_blobs,
+            Job::CacheFetch {
+                downloaded_data,
+                total_data,
+                downloaded_blobs,
                 total_blobs,
-                complete_recipes,
-                total_recipes,
                 started_at: _,
                 finished_at: _,
             } => {
-                let blob_progress = if *total_blobs > 0 {
-                    *complete_blobs as f64 / *total_blobs as f64
-                } else {
-                    1.0
+                let total_progress = match total_data {
+                    None => 0.0,
+                    Some(0) => 1.0,
+                    Some(total_data) => *downloaded_data as f64 / *total_data as f64,
                 };
-                let recipe_progress = if *total_recipes > 0 {
-                    *complete_recipes as f64 / *total_recipes as f64
-                } else {
-                    1.0
-                };
-                let total_progress = recipe_progress * 0.2 + blob_progress * 0.8;
                 let total_percent = (total_progress * 100.0) as u64;
 
                 let percentage_span = superconsole::Span::new_unstyled_lossy(
@@ -866,46 +857,15 @@ impl superconsole::Component for JobComponent<'_> {
                     elapsed_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                     indicator_span(indicator),
-                    superconsole::Span::new_unstyled_lossy(" Registry  "),
+                    superconsole::Span::new_unstyled_lossy(" Cache     "),
                     percentage_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
-                let is_fetching_anything = *total_blobs > 0 || *total_recipes > 0;
-                let fetching_message = if is_fetching_anything {
-                    let fetched_blobs = if *total_blobs == 0 {
-                        None
-                    } else if job.is_complete() {
-                        Some(format!(
-                            "{complete_blobs} blob{s}",
-                            s = if *complete_blobs == 1 { "" } else { "s" }
-                        ))
-                    } else {
-                        Some(format!(
-                            "{complete_blobs} / {total_blobs} blob{s}",
-                            s = if *total_blobs == 1 { "" } else { "s" }
-                        ))
-                    };
-                    let fetched_recipes = if *total_recipes == 0 {
-                        None
-                    } else if job.is_complete() {
-                        Some(format!(
-                            "{complete_recipes} recipe{s}",
-                            s = if *complete_recipes == 1 { "" } else { "s" }
-                        ))
-                    } else {
-                        Some(format!(
-                            "{complete_recipes} / {total_recipes} recipe{s}",
-                            s = if *total_recipes == 1 { "" } else { "s" }
-                        ))
-                    };
-                    let fetching_message = [fetched_blobs, fetched_recipes]
-                        .into_iter()
-                        .flatten()
-                        .join_with(" + ");
-                    format!("Fetch {fetching_message} from registry")
+                let fetching_message = if let Some(total_blobs) = total_blobs {
+                    format!("Fetching blobs: {downloaded_blobs}/{total_blobs}")
                 } else {
-                    "Fetch from registry".to_string()
+                    "Fetching blobs...".to_string()
                 };
 
                 let remaining_width = dimensions
