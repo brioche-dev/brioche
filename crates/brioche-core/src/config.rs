@@ -31,6 +31,8 @@ pub struct BriocheConfig {
 
     #[serde(default)]
     pub sandbox: SandboxConfig,
+
+    pub cache: Option<CacheConfig>,
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -66,4 +68,19 @@ impl Default for PRootConfig {
 pub enum PRootAutoConfig {
     #[default]
     Auto,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CacheConfig {
+    pub url: url::Url,
+
+    #[serde(default = "default_cache_max_concurrent_operations")]
+    pub max_concurrent_operations: usize,
+
+    #[serde(default)]
+    pub read_only: bool,
+}
+
+fn default_cache_max_concurrent_operations() -> usize {
+    200
 }

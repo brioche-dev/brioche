@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Context as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt};
 
 use crate::{
@@ -10,6 +11,9 @@ use crate::{
 };
 
 mod archive;
+
+pub const DEFAULT_CACHE_URL: &str = "https://cache.brioche.dev/";
+pub const DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS: usize = 200;
 
 #[derive(Debug, Default, Clone)]
 pub struct CacheClient {
@@ -38,6 +42,93 @@ impl CacheClient {
 
         self.store()
     }
+}
+
+pub async fn cache_client_from_config_or_default(
+    config: Option<&crate::config::CacheConfig>,
+) -> anyhow::Result<CacheClient> {
+    let max_concurrent_operations = config
+        .map(|config| config.max_concurrent_operations)
+        .unwrap_or(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS);
+    let (url, writable) = match config {
+        Some(config) => (config.url.clone(), !config.read_only),
+        None => (DEFAULT_CACHE_URL.parse()?, false),
+    };
+
+    let retry_config = object_store::RetryConfig {
+        backoff: object_store::BackoffConfig {
+            init_backoff: std::time::Duration::from_secs(1),
+            max_backoff: std::time::Duration::from_secs(30),
+            ..Default::default()
+        },
+        max_retries: 5,
+        ..Default::default()
+    };
+    let client_options = object_store::ClientOptions::new()
+        .with_user_agent(http::HeaderValue::from_static(crate::USER_AGENT));
+
+    let store: Arc<dyn object_store::ObjectStore> = match url.scheme() {
+        "http" | "https" => {
+            let store = object_store::http::HttpBuilder::new()
+                .with_url(url)
+                .with_retry(retry_config)
+                .with_client_options(client_options)
+                .build()?;
+            let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
+            Arc::new(store)
+        }
+        "s3" => {
+            let bucket = url
+                .host_str()
+                .context("S3 cache URL must include a bucket name")?;
+            let prefix = url.path().trim_start_matches('/').to_string();
+
+            let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+
+            let store_credentials =
+                crate::object_store_utils::AwsS3CredentialProvider::new(aws_config.clone());
+            let store_config = crate::object_store_utils::load_s3_config(&aws_config);
+
+            let store = crate::object_store_utils::apply_s3_config(
+                store_config,
+                object_store::aws::AmazonS3Builder::new(),
+            )
+            .with_credentials(Arc::new(store_credentials))
+            .with_bucket_name(bucket)
+            .with_client_options(client_options)
+            .with_retry(retry_config)
+            .build()?;
+            let store = object_store::prefix::PrefixStore::new(store, prefix);
+
+            let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
+            Arc::new(store)
+        }
+        "file" => {
+            let path = url
+                .to_file_path()
+                .map_err(|_| anyhow::anyhow!("invalid file:// URL for cache"))?;
+
+            let store = object_store::local::LocalFileSystem::new_with_prefix(&path)
+                .with_context(|| format!("failed to use path {path:?} as cache"))?;
+            let store = store.with_automatic_cleanup(true);
+            let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
+            Arc::new(store)
+        }
+        "memory" => {
+            let store = object_store::memory::InMemory::new();
+            let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
+            Arc::new(store)
+        }
+        scheme => {
+            anyhow::bail!("unknown scheme for cache: {scheme:?}");
+        }
+    };
+
+    Ok(CacheClient {
+        store: Some(store),
+        writable,
+        max_concurrent_chunk_fetches: Some(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS),
+    })
 }
 
 #[tracing::instrument(skip(brioche))]

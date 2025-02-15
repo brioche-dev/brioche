@@ -38,8 +38,6 @@ const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
 const DEFAULT_REGISTRY_URL: &str = "https://registry.brioche.dev/";
-const DEFAULT_CACHE_URL: &str = "https://cache.brioche.dev/";
-const DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS: usize = 200;
 pub const USER_AGENT: &str = concat!("brioche/", env!("CARGO_PKG_VERSION"));
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -249,31 +247,43 @@ impl BriocheBuilder {
         let cache_client = match self.cache_client {
             Some(cache_client) => cache_client,
             None => {
-                let cache_retry = object_store::RetryConfig {
-                    backoff: object_store::BackoffConfig {
-                        init_backoff: std::time::Duration::from_secs(1),
-                        max_backoff: std::time::Duration::from_secs(30),
-                        ..Default::default()
-                    },
-                    max_retries: 5,
-                    ..Default::default()
+                let cache_config = match std::env::var_os("BRIOCHE_CACHE_URL") {
+                    Some(url) => {
+                        let url = url.to_str().ok_or_else(|| {
+                            anyhow::anyhow!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
+                        })?;
+                        let url = url.parse().with_context(|| {
+                            format!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
+                        })?;
+                        let read_only = match std::env::var_os("BRIOCHE_CACHE_READ_ONLY") {
+                            Some(value) if value.to_str() == Some("true") => true,
+                            Some(value) if value.to_str() == Some("false") => false,
+                            Some(value) => {
+                                anyhow::bail!(
+                                    "invalid value for $BRIOCHE_CACHE_READ_ONLY: {value:?}"
+                                );
+                            }
+                            None => false,
+                        };
+                        let max_concurrent_operations = match std::env::var_os(
+                            "BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS",
+                        ) {
+                            Some(value) => {
+                                let value = value.to_str().ok_or_else(|| anyhow::anyhow!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
+                                let value: usize = value.parse().with_context(|| format!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
+                                value
+                            }
+                            None => cache::DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
+                        };
+                        Some(config::CacheConfig {
+                            url,
+                            read_only,
+                            max_concurrent_operations,
+                        })
+                    }
+                    None => config.cache.clone(),
                 };
-                let cache_client_options = object_store::ClientOptions::new()
-                    .with_user_agent(http::HeaderValue::from_static(USER_AGENT));
-                let cache_store = object_store::http::HttpBuilder::new()
-                    .with_url(DEFAULT_CACHE_URL)
-                    .with_retry(cache_retry)
-                    .with_client_options(cache_client_options)
-                    .build()?;
-                let cache_store = object_store::limit::LimitStore::new(
-                    cache_store,
-                    DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
-                );
-                cache::CacheClient {
-                    store: Some(Arc::new(cache_store)),
-                    writable: false,
-                    max_concurrent_chunk_fetches: Some(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS),
-                }
+                cache::cache_client_from_config_or_default(cache_config.as_ref()).await?
             }
         };
 
