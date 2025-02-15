@@ -82,6 +82,7 @@ async fn brioche_test_with_cache(
             .cache_client(CacheClient {
                 store: Some(store),
                 writable,
+                ..Default::default()
             })
             .registry_client(RegistryClient::disabled())
     })

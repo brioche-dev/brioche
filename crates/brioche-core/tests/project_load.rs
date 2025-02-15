@@ -1555,6 +1555,7 @@ async fn brioche_test_with_cache(
         builder.cache_client(brioche_core::cache::CacheClient {
             store: Some(cache),
             writable,
+            ..Default::default()
         })
     })
     .await

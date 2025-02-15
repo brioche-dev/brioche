@@ -38,7 +38,7 @@ const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
 const DEFAULT_REGISTRY_URL: &str = "https://registry.brioche.dev/";
 const DEFAULT_CACHE_URL: &str = "https://cache.brioche.dev/";
-const DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS: usize = 20;
+const DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS: usize = 200;
 pub const USER_AGENT: &str = concat!("brioche/", env!("CARGO_PKG_VERSION"));
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -271,6 +271,7 @@ impl BriocheBuilder {
                 cache::CacheClient {
                     store: Some(Arc::new(cache_store)),
                     writable: false,
+                    max_concurrent_chunk_fetches: Some(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS),
                 }
             }
         };

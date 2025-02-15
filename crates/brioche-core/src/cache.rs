@@ -14,6 +14,7 @@ mod archive;
 pub struct CacheClient {
     pub store: Option<Arc<dyn object_store::ObjectStore>>,
     pub writable: bool,
+    pub max_concurrent_chunk_fetches: Option<usize>,
 }
 
 impl CacheClient {

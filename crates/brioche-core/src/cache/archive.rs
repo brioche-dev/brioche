@@ -646,9 +646,13 @@ pub async fn read_artifact_archive(
                     }));
 
             // Fetch all the blobs from the chunks concurrently
+            let concurrent_chunk_fetches = brioche
+                .cache_client
+                .max_concurrent_chunk_fetches
+                .unwrap_or(100);
             futures::stream::iter(fetches)
                 .map(Ok)
-                .try_for_each_concurrent(50, |fetch| {
+                .try_for_each_concurrent(concurrent_chunk_fetches, |fetch| {
                     fetch_blobs_from_chunks(brioche.clone(), store.clone(), fetch)
                 })
                 .await?;

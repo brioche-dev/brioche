@@ -94,6 +94,7 @@ async fn brioche_test_with_cache(
         builder.cache_client(CacheClient {
             store: Some(store),
             writable,
+            ..Default::default()
         })
     })
     .await

@@ -43,6 +43,7 @@ pub async fn migrate_registry_to_cache(args: MigrateRegistryToCacheArgs) -> anyh
                 object_store::local::LocalFileSystem::new_with_prefix(args.cache_dir)?,
             )),
             writable: true,
+            ..Default::default()
         })
         .build()
         .await?;
