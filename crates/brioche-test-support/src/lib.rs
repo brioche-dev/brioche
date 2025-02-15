@@ -48,6 +48,10 @@ pub async fn brioche_test_with(
                 password: "admin".to_string(),
             },
         ))
+        .cache_client(brioche_core::cache::CacheClient {
+            store: None,
+            writable: false,
+        })
         .self_exec_processes(false);
     let builder = f(builder);
     let brioche = builder.build().await.unwrap();

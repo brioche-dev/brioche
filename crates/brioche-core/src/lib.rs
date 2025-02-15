@@ -37,6 +37,8 @@ const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
 const DEFAULT_REGISTRY_URL: &str = "https://registry.brioche.dev/";
+const DEFAULT_CACHE_URL: &str = "https://cache.brioche.dev/";
+const DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS: usize = 20;
 pub const USER_AGENT: &str = concat!("brioche/", env!("CARGO_PKG_VERSION"));
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -243,7 +245,35 @@ impl BriocheBuilder {
             });
             registry::RegistryClient::new(registry_url, registry_auth)
         });
-        let cache_client = self.cache_client.unwrap_or_default();
+        let cache_client = match self.cache_client {
+            Some(cache_client) => cache_client,
+            None => {
+                let cache_retry = object_store::RetryConfig {
+                    backoff: object_store::BackoffConfig {
+                        init_backoff: std::time::Duration::from_secs(1),
+                        max_backoff: std::time::Duration::from_secs(30),
+                        ..Default::default()
+                    },
+                    max_retries: 5,
+                    ..Default::default()
+                };
+                let cache_client_options = object_store::ClientOptions::new()
+                    .with_user_agent(http::HeaderValue::from_static(USER_AGENT));
+                let cache_store = object_store::http::HttpBuilder::new()
+                    .with_url(DEFAULT_CACHE_URL)
+                    .with_retry(cache_retry)
+                    .with_client_options(cache_client_options)
+                    .build()?;
+                let cache_store = object_store::limit::LimitStore::new(
+                    cache_store,
+                    DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
+                );
+                cache::CacheClient {
+                    store: Some(Arc::new(cache_store)),
+                    writable: false,
+                }
+            }
+        };
 
         let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(1000);
 

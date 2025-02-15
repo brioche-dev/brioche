@@ -38,6 +38,7 @@ impl CacheClient {
     }
 }
 
+#[tracing::instrument(skip(brioche))]
 pub async fn load_bake(
     brioche: &Brioche,
     input_hash: RecipeHash,
@@ -74,6 +75,7 @@ pub async fn load_bake(
     Ok(Some(output_hash))
 }
 
+#[tracing::instrument(skip(brioche))]
 pub async fn save_bake(
     brioche: &Brioche,
     input_hash: RecipeHash,
@@ -106,15 +108,16 @@ pub async fn save_bake(
     Ok(did_create)
 }
 
+#[tracing::instrument(skip(brioche))]
 pub async fn load_artifact(
     brioche: &Brioche,
-    hash: RecipeHash,
+    artifact_hash: RecipeHash,
 ) -> anyhow::Result<Option<Artifact>> {
     let Some(store) = brioche.cache_client.store.clone() else {
         return Ok(None);
     };
 
-    let artifact_filename = format!("{hash}.bar.zst");
+    let artifact_filename = format!("{artifact_hash}.bar.zst");
     let artifact_path = object_store::path::Path::from_iter(["artifacts", &artifact_filename]);
 
     let archive_object = store.get(&artifact_path).await;
@@ -135,13 +138,14 @@ pub async fn load_artifact(
 
     let actual_hash = artifact.hash();
     anyhow::ensure!(
-        actual_hash == hash,
-        "artifact from cache at {artifact_path} has hash {actual_hash}, but expected {hash}"
+        actual_hash == artifact_hash,
+        "artifact from cache at {artifact_path} has hash {actual_hash}, but expected {artifact_hash}"
     );
 
     Ok(Some(artifact))
 }
 
+#[tracing::instrument(skip_all, fields(artifact_hash = %artifact.hash()))]
 pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Result<bool> {
     let store = brioche.cache_client.writable_store()?;
 
@@ -194,6 +198,7 @@ pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Res
     Ok(did_create)
 }
 
+#[tracing::instrument(skip(brioche))]
 pub async fn load_project_artifact_hash(
     brioche: &Brioche,
     project_hash: ProjectHash,
@@ -234,6 +239,7 @@ pub async fn load_project_artifact_hash(
     Ok(Some(project_artifact_hash))
 }
 
+#[tracing::instrument(skip(brioche))]
 pub async fn save_project_artifact_hash(
     brioche: &Brioche,
     project_hash: ProjectHash,
