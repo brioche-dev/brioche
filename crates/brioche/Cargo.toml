@@ -13,7 +13,7 @@ self-update = []
 anyhow = { version = "1.0.95", features = ["backtrace"] }
 brioche-core = { path = "../brioche-core" }
 cfg-if = "1.0.0"
-clap = { version = "4.5.28", features = ["derive"] }
+clap = { version = "4.5.29", features = ["derive"] }
 futures = "0.3.31"
 hex = "0.4.3"
 notify = "8.0.0"
@@ -27,7 +27,7 @@ tokio = { version = "1.43.0", features = ["full", "tracing"] }
 tokio-util = "0.7.13"
 tower-lsp = "0.20.0"
 tracing = "0.1.41"
-ulid = "1.1.4"
+ulid = "1.2.0"
 url = { version = "2.5.4", features = ["serde"] }
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
