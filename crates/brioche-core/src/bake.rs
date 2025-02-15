@@ -235,13 +235,17 @@ async fn bake_inner(
         None
     };
     let artifact_from_cache = match artifact_hash_from_cache {
-        Some(artifact_hash) => crate::cache::load_artifact(brioche, artifact_hash)
-            .await
-            .inspect_err(|error| {
-                tracing::warn!("failed to load artifact from cache: {error:#}");
-            })
-            .ok()
-            .flatten(),
+        Some(artifact_hash) => crate::cache::load_artifact(
+            brioche,
+            artifact_hash,
+            crate::reporter::job::CacheFetchKind::Bake,
+        )
+        .await
+        .inspect_err(|error| {
+            tracing::warn!("failed to load artifact from cache: {error:#}");
+        })
+        .ok()
+        .flatten(),
         None => None,
     };
 

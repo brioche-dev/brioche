@@ -267,13 +267,24 @@ impl ConsoleReporter {
                     NewJob::Unarchive { started_at: _ } => {}
                     NewJob::Process { status: _ } => {}
                     NewJob::CacheFetch {
+                        kind: super::job::CacheFetchKind::Bake,
                         downloaded_data: _,
                         total_data: _,
                         downloaded_blobs: _,
                         total_blobs: _,
                         started_at: _,
                     } => {
-                        eprintln!("Fetching from cache");
+                        eprintln!("Fetching baked artifact from cache");
+                    }
+                    NewJob::CacheFetch {
+                        kind: super::job::CacheFetchKind::Project,
+                        downloaded_data: _,
+                        total_data: _,
+                        downloaded_blobs: _,
+                        total_blobs: _,
+                        started_at: _,
+                    } => {
+                        eprintln!("Fetching project from cache");
                     }
                 }
 
@@ -829,6 +840,7 @@ impl superconsole::Component for JobComponent<'_> {
                 )])
             }
             Job::CacheFetch {
+                kind,
                 downloaded_data,
                 total_data,
                 downloaded_blobs,
@@ -862,10 +874,14 @@ impl superconsole::Component for JobComponent<'_> {
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
+                let fetch_kind = match kind {
+                    super::job::CacheFetchKind::Bake => "baked artifact",
+                    super::job::CacheFetchKind::Project => "project",
+                };
                 let fetching_message = if let Some(total_blobs) = total_blobs {
-                    format!("Fetching blobs: {downloaded_blobs}/{total_blobs}")
+                    format!("Fetching {fetch_kind}: {downloaded_blobs}/{total_blobs}")
                 } else {
-                    "Fetching blobs...".to_string()
+                    format!("Fetching {fetch_kind}...")
                 };
 
                 let remaining_width = dimensions

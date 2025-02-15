@@ -15,6 +15,7 @@ pub enum NewJob {
         status: ProcessStatus,
     },
     CacheFetch {
+        kind: CacheFetchKind,
         downloaded_data: Option<u64>,
         total_data: Option<u64>,
         downloaded_blobs: Option<u64>,
@@ -73,6 +74,7 @@ pub enum Job {
         status: ProcessStatus,
     },
     CacheFetch {
+        kind: CacheFetchKind,
         downloaded_data: u64,
         total_data: Option<u64>,
         downloaded_blobs: u64,
@@ -101,12 +103,14 @@ impl Job {
                 status,
             },
             NewJob::CacheFetch {
+                kind,
                 downloaded_data,
                 total_data,
                 downloaded_blobs,
                 total_blobs,
                 started_at,
             } => Self::CacheFetch {
+                kind,
                 downloaded_data: downloaded_data.unwrap_or(0),
                 total_data,
                 downloaded_blobs: downloaded_blobs.unwrap_or(0),
@@ -205,6 +209,7 @@ impl Job {
                 total_blobs: new_total_blobs,
             } => {
                 let Self::CacheFetch {
+                    kind: _,
                     downloaded_data,
                     total_data,
                     downloaded_blobs,
@@ -235,6 +240,7 @@ impl Job {
                 finished_at: new_finished_at,
             } => {
                 let Self::CacheFetch {
+                    kind: _,
                     downloaded_data,
                     total_data,
                     downloaded_blobs,
@@ -321,6 +327,12 @@ impl Job {
             Job::Download { .. } | Job::CacheFetch { .. } | Job::Process { .. } => 2,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum CacheFetchKind {
+    Bake,
+    Project,
 }
 
 pub enum ProcessPacket {

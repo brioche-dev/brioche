@@ -23,7 +23,7 @@ use crate::{
     blob::{BlobHash, SaveBlobOptions},
     recipe::{Artifact, Recipe, RecipeHash},
     reporter::{
-        job::{NewJob, UpdateJob},
+        job::{CacheFetchKind, NewJob, UpdateJob},
         JobId,
     },
     Brioche,
@@ -347,9 +347,11 @@ pub struct ChunkEntry {
 pub async fn read_artifact_archive(
     brioche: &Brioche,
     store: &Arc<dyn object_store::ObjectStore>,
+    fetch_kind: CacheFetchKind,
     mut reader: &mut (impl tokio::io::AsyncRead + Unpin),
 ) -> anyhow::Result<Artifact> {
     let job_id = brioche.reporter.add_job(NewJob::CacheFetch {
+        kind: fetch_kind,
         downloaded_data: None,
         total_data: None,
         downloaded_blobs: None,

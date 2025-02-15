@@ -5,6 +5,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt};
 use crate::{
     project::ProjectHash,
     recipe::{Artifact, RecipeHash},
+    reporter::job::CacheFetchKind,
     Brioche,
 };
 
@@ -113,6 +114,7 @@ pub async fn save_bake(
 pub async fn load_artifact(
     brioche: &Brioche,
     artifact_hash: RecipeHash,
+    fetch_kind: CacheFetchKind,
 ) -> anyhow::Result<Option<Artifact>> {
     let Some(store) = brioche.cache_client.store.clone() else {
         return Ok(None);
@@ -135,7 +137,8 @@ pub async fn load_artifact(
     let mut archive_reader =
         async_compression::tokio::bufread::ZstdDecoder::new(archive_reader_compressed);
 
-    let artifact = archive::read_artifact_archive(brioche, &store, &mut archive_reader).await?;
+    let artifact =
+        archive::read_artifact_archive(brioche, &store, fetch_kind, &mut archive_reader).await?;
 
     let actual_hash = artifact.hash();
     anyhow::ensure!(

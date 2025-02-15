@@ -1049,13 +1049,15 @@ async fn fetch_project_from_cache(
     let project_artifact_hash = crate::cache::load_project_artifact_hash(brioche, project_hash)
         .await?
         .with_context(|| format!("project with hash {project_hash} not found in cache"))?;
-    let project_artifact = crate::cache::load_artifact(brioche, project_artifact_hash)
-        .await?
-        .with_context(|| {
-            format!(
-                "artifact {project_artifact_hash} for project {project_hash} not found in cache"
-            )
-        })?;
+    let project_artifact = crate::cache::load_artifact(
+        brioche,
+        project_artifact_hash,
+        crate::reporter::job::CacheFetchKind::Project,
+    )
+    .await?
+    .with_context(|| {
+        format!("artifact {project_artifact_hash} for project {project_hash} not found in cache")
+    })?;
     let Artifact::Directory(project_artifact) = project_artifact else {
         anyhow::bail!("expected artifact from cache for project {project_hash} to be a directory");
     };

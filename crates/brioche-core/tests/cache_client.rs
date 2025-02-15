@@ -58,7 +58,12 @@ async fn test_cache_client_save_and_load_artifact() -> anyhow::Result<()> {
     {
         let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
 
-        let loaded_artifact = brioche_core::cache::load_artifact(&brioche, artifact_hash).await?;
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await?;
 
         let expected_artifact = build_artifact(&brioche, blob_size, &mut blob_hashes).await;
         assert_eq!(loaded_artifact, Some(expected_artifact));
@@ -98,7 +103,12 @@ async fn test_cache_client_save_and_load_big_artifact() -> anyhow::Result<()> {
     {
         let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
 
-        let loaded_artifact = brioche_core::cache::load_artifact(&brioche, artifact_hash).await?;
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await?;
 
         let expected_artifact = build_artifact(&brioche, blob_size, &mut blob_hashes).await;
         assert_eq!(loaded_artifact, Some(expected_artifact));
@@ -157,7 +167,12 @@ async fn test_cache_client_load_artifact_hash_mismatch_error() -> anyhow::Result
 
         // Try to load the real artifact (which should end up with the hash
         // of the fake artifact)
-        let result = brioche_core::cache::load_artifact(&brioche, real_artifact_hash).await;
+        let result = brioche_core::cache::load_artifact(
+            &brioche,
+            real_artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await;
         assert_matches!(result, Err(_));
     }
 
@@ -188,7 +203,12 @@ async fn test_cache_client_load_artifact_missing_chunks_error() -> anyhow::Resul
     {
         let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
 
-        let loaded_artifact = brioche_core::cache::load_artifact(&brioche, artifact_hash).await;
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await;
         assert_matches!(loaded_artifact, Err(_));
     }
 
@@ -228,7 +248,12 @@ async fn test_cache_client_load_artifact_chunk_mismatch_error() -> anyhow::Resul
     {
         let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
 
-        let loaded_artifact = brioche_core::cache::load_artifact(&brioche, artifact_hash).await;
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await;
         assert_matches!(loaded_artifact, Err(_));
     }
 
