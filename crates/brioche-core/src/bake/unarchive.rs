@@ -5,7 +5,9 @@ use bstr::BString;
 
 use crate::{
     blob::BlobHash,
-    recipe::{Artifact, Directory, File, Meta, Unarchive, WithMeta},
+    recipe::{
+        ArchiveFormat, Artifact, CompressionFormat, Directory, File, Meta, Unarchive, WithMeta,
+    },
     reporter::job::{NewJob, UpdateJob},
     Brioche,
 };
@@ -40,93 +42,157 @@ pub async fn bake_unarchive(
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);
 
-    let decompressed_archive_file = unarchive.compression.decompress(archive_file);
-
     let (entry_tx, mut entry_rx) = tokio::sync::mpsc::channel(16);
 
     let mut permit = crate::blob::get_save_blob_permit().await?;
     let process_archive_task = tokio::task::spawn_blocking({
         let brioche = brioche.clone();
         move || {
-            let decompressed_archive_file =
-                tokio_util::io::SyncIoBridge::new(decompressed_archive_file);
-            let mut archive = tar::Archive::new(decompressed_archive_file);
+            match unarchive.archive {
+                ArchiveFormat::Tar => {
+                    let decompressed_archive_file = unarchive.compression.decompress(archive_file);
+                    let decompressed_archive_file =
+                        tokio_util::io::SyncIoBridge::new(decompressed_archive_file);
 
-            let mut buffer = Vec::new();
+                    let mut archive = tar::Archive::new(decompressed_archive_file);
 
-            for archive_entry in archive.entries()? {
-                let archive_entry = archive_entry?;
-                let entry_path = bstr::BString::new(archive_entry.path_bytes().into_owned());
-                let entry_mode = archive_entry.header().mode()?;
+                    let mut buffer = Vec::new();
 
-                let position = archive_entry.raw_file_position();
-                let estimated_progress =
-                    position as f64 / (uncompressed_archive_size as f64).max(1.0);
-                let progress_percent = (estimated_progress * 100.0).min(99.0) as u8;
-                brioche.reporter.update_job(
-                    job_id,
-                    UpdateJob::Unarchive {
-                        progress_percent,
-                        finished_at: None,
-                    },
-                );
+                    for archive_entry in archive.entries()? {
+                        let archive_entry = archive_entry?;
+                        let entry_path =
+                            bstr::BString::new(archive_entry.path_bytes().into_owned());
+                        let entry_mode = archive_entry.header().mode()?;
 
-                let entry = match archive_entry.header().entry_type() {
-                    tar::EntryType::Regular => {
-                        let entry_blob_hash = crate::blob::save_blob_from_reader_sync(
-                            &brioche,
-                            &mut permit,
-                            archive_entry,
-                            crate::blob::SaveBlobOptions::new(),
-                            &mut buffer,
-                        )?;
-                        let executable = entry_mode & 0o100 != 0;
+                        let position = archive_entry.raw_file_position();
+                        let estimated_progress =
+                            position as f64 / (uncompressed_archive_size as f64).max(1.0);
+                        let progress_percent = (estimated_progress * 100.0).min(99.0) as u8;
+                        brioche.reporter.update_job(
+                            job_id,
+                            UpdateJob::Unarchive {
+                                progress_percent,
+                                finished_at: None,
+                            },
+                        );
 
-                        ArchiveEntry::File {
-                            content_blob: entry_blob_hash,
-                            executable,
-                        }
-                    }
-                    tar::EntryType::Symlink => {
-                        let link_name = archive_entry.link_name_bytes().with_context(|| {
-                            format!(
+                        let entry = match archive_entry.header().entry_type() {
+                            tar::EntryType::Regular => {
+                                let entry_blob_hash = crate::blob::save_blob_from_reader_sync(
+                                    &brioche,
+                                    &mut permit,
+                                    archive_entry,
+                                    crate::blob::SaveBlobOptions::new(),
+                                    &mut buffer,
+                                )?;
+                                let executable = entry_mode & 0o100 != 0;
+
+                                ArchiveEntry::File {
+                                    content_blob: entry_blob_hash,
+                                    executable,
+                                }
+                            }
+                            tar::EntryType::Symlink => {
+                                let link_name =
+                                    archive_entry.link_name_bytes().with_context(|| {
+                                        format!(
                                 "unsupported tar archive: no link name for symlink entry at {}",
                                 entry_path
                             )
-                        })?;
+                                    })?;
 
-                        ArchiveEntry::Symlink {
-                            target: link_name.into_owned().into(),
-                        }
-                    }
-                    tar::EntryType::Link => {
-                        let link_name = archive_entry.link_name_bytes().with_context(|| {
-                            format!(
+                                ArchiveEntry::Symlink {
+                                    target: link_name.into_owned().into(),
+                                }
+                            }
+                            tar::EntryType::Link => {
+                                let link_name =
+                                    archive_entry.link_name_bytes().with_context(|| {
+                                        format!(
                                 "unsupported tar archive: no link name for hardlink entry at {}",
                                 entry_path
                             )
-                        })?;
+                                    })?;
 
-                        ArchiveEntry::Link {
-                            link_name: link_name.into_owned().into(),
-                        }
+                                ArchiveEntry::Link {
+                                    link_name: link_name.into_owned().into(),
+                                }
+                            }
+                            tar::EntryType::Directory => ArchiveEntry::Directory,
+                            tar::EntryType::XGlobalHeader | tar::EntryType::XHeader => {
+                                // Ignore
+                                continue;
+                            }
+                            other => {
+                                anyhow::bail!(
+                                    "unsupported tar archive: unsupported entry type {:?} at {}",
+                                    other,
+                                    entry_path
+                                );
+                            }
+                        };
+
+                        entry_tx.blocking_send((entry_path, entry))?;
                     }
-                    tar::EntryType::Directory => ArchiveEntry::Directory,
-                    tar::EntryType::XGlobalHeader | tar::EntryType::XHeader => {
-                        // Ignore
-                        continue;
-                    }
-                    other => {
-                        anyhow::bail!(
-                            "unsupported tar archive: unsupported entry type {:?} at {}",
-                            other,
-                            entry_path
+                }
+                ArchiveFormat::Zip => {
+                    anyhow::ensure!(
+                        unarchive.compression == CompressionFormat::None,
+                        "zip archives with an extra layer of compression are not supported"
+                    );
+
+                    let mut archive =
+                        zip::ZipArchive::new(tokio_util::io::SyncIoBridge::new(archive_file))?;
+                    let mut buffer = Vec::new();
+
+                    for i in 0..archive.len() {
+                        let mut archive_file = archive.by_index(i)?;
+                        let entry_path = match archive_file.enclosed_name() {
+                            Some(path) => path,
+                            None => {
+                                anyhow::bail!(
+                                    "unsupported zip archive: zip archive contains an invalid file path: {:?}",
+                                    archive_file.name(),
+                                );
+                            }
+                        };
+                        let entry_path = bstr::BString::new(
+                            entry_path.as_os_str().as_encoded_bytes().to_owned(),
                         );
-                    }
-                };
 
-                entry_tx.blocking_send((entry_path, entry))?;
-            }
+                        let entry = if archive_file.is_dir() {
+                            ArchiveEntry::Directory
+                        } else if archive_file.is_file() {
+                            let entry_blob_hash = crate::blob::save_blob_from_reader_sync(
+                                &brioche,
+                                &mut permit,
+                                &mut archive_file,
+                                crate::blob::SaveBlobOptions::new(),
+                                &mut buffer,
+                            )?;
+
+                            ArchiveEntry::File {
+                                content_blob: entry_blob_hash,
+                                executable: archive_file
+                                    .unix_mode()
+                                    .is_some_and(|x| x & 0o100 != 0),
+                            }
+                        } else if archive_file.is_symlink() {
+                            ArchiveEntry::Symlink {
+                                target: bstr::BString::new(
+                                    std::io::read_to_string(&mut archive_file)?
+                                        .as_bytes()
+                                        .to_owned(),
+                                ),
+                            }
+                        } else {
+                            unreachable!()
+                        };
+
+                        entry_tx.blocking_send((entry_path, entry))?;
+                    }
+                }
+            };
 
             anyhow::Ok(())
         }
