@@ -10,7 +10,7 @@
 //! up into similarly-sized chunks that can be fetched in parallel.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     ops::Range,
     sync::Arc,
 };
@@ -624,12 +624,24 @@ pub async fn read_artifact_archive(
             // determine which parts of which chunks we need to read
 
             // For each blob, determine if we can read it by reading from
-            // a single chunk or if we need to read it from multiple chunks.
-            // We also group blobs that can all be read from the same chunk.
+            // a single chunk or if we need to read it from multiple chunks
+            // (or if it's empty). We also group blobs that can all be read
+            // from the same chunk.
             let mut single_chunks = HashMap::<_, Vec<_>>::new();
             let mut multi_chunks = HashMap::new();
+            let mut empty_blobs = HashSet::new();
 
             for (blob_hash, blob_range) in needed_blobs {
+                if blob_range.is_empty() {
+                    // Empty blob. We handle this specially so we can both
+                    // avoid fetching any chunks for it, and so we don't need
+                    // to special-case the logic for determining which chunks
+                    // to fetch
+
+                    empty_blobs.insert(blob_hash);
+                    continue;
+                }
+
                 // Get the chunk containing the first byte of the blob
                 let head_chunk = chunks.range(..=blob_range.start).next_back();
                 let Some((_, head_chunk)) = head_chunk else {
@@ -639,10 +651,14 @@ pub async fn read_artifact_archive(
 
                 // Get any extra the chunks needed to read the rest of the
                 // blob. This excludes the head chunk that we already found
-                let rest_chunks = chunks
-                    .range((blob_range.start + 1)..blob_range.end)
-                    .map(|(_, chunk)| chunk.clone())
-                    .collect::<Vec<_>>();
+                let rest_chunks = if blob_range.end > blob_range.start {
+                    chunks
+                        .range((blob_range.start + 1)..blob_range.end)
+                        .map(|(_, chunk)| chunk.clone())
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![]
+                };
 
                 if rest_chunks.is_empty() {
                     // This blob comes entirely from one chunk, so add it
@@ -680,7 +696,12 @@ pub async fn read_artifact_archive(
                     .map(|(chunk, blobs)| BlobsFetch::BlobsFromChunk { chunk, blobs })
                     .chain(multi_chunks.into_iter().map(|(blob_hash, chunks)| {
                         BlobsFetch::BlobFromChunks { blob_hash, chunks }
-                    }));
+                    }))
+                    .chain(
+                        empty_blobs
+                            .into_iter()
+                            .map(|blob_hash| BlobsFetch::EmptyBlob { blob_hash }),
+                    );
 
             // Fetch all the blobs from the chunks concurrently
             let concurrent_chunk_fetches = brioche
@@ -738,6 +759,27 @@ async fn fetch_blobs_from_chunks(
     let mut permit = crate::blob::get_save_blob_permit().await?;
 
     match fetch {
+        BlobsFetch::EmptyBlob { blob_hash } => {
+            // Create an empty blob. There's no need to fetch anything, so
+            // this saves an empty blob and validates the hash we got
+            // from the archive
+
+            crate::blob::save_blob(
+                &brioche,
+                &mut permit,
+                &[],
+                SaveBlobOptions::new().expected_blob_hash(Some(blob_hash)),
+            )
+            .await?;
+
+            brioche.reporter.update_job(
+                job_id,
+                UpdateJob::CacheFetchAdd {
+                    downloaded_data: Some(0),
+                    downloaded_blobs: Some(1),
+                },
+            );
+        }
         BlobsFetch::BlobsFromChunk { chunk, blobs } => {
             // Fetch one or more blobs from a single chunk. Because the
             // chunk is compressed, we have to read from the start
@@ -757,7 +799,7 @@ async fn fetch_blobs_from_chunks(
             for (blob_hash, range) in blobs {
                 // Advance the reader to the start of the next blob
                 let Some(skip_length) = range.start.checked_sub(artifact_offset) else {
-                    panic!("blobs in ChunkFetch are out of order");
+                    panic!("blobs in BlobsFetch are out of order");
                 };
                 reader_consume_exact(&mut chunk_reader, skip_length).await?;
 
@@ -1011,6 +1053,9 @@ enum BlobsFetch {
     BlobFromChunks {
         blob_hash: BlobHash,
         chunks: Vec<(ChunkEntry, Range<u64>)>,
+    },
+    EmptyBlob {
+        blob_hash: BlobHash,
     },
 }
 

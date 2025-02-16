@@ -85,6 +85,53 @@ async fn test_cache_client_save_and_load_artifact() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_cache_client_save_and_load_artifact_with_some_small_files() -> anyhow::Result<()> {
+    let cache = brioche_test_support::new_cache();
+    let mut blob_hashes = HashSet::new();
+    let artifact_hash;
+    let blob_size = 1024;
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), true).await;
+
+        let artifact =
+            build_artifact_with_some_small_files(&brioche, blob_size, &mut blob_hashes).await;
+        artifact_hash = artifact.hash();
+
+        brioche_core::cache::save_artifact(&brioche, artifact).await?;
+    }
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
+
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await?;
+
+        let expected_artifact =
+            build_artifact_with_some_small_files(&brioche, blob_size, &mut blob_hashes).await;
+        assert_eq!(loaded_artifact, Some(expected_artifact));
+
+        // Ensure all blobs have been saved locally
+        for blob_hash in blob_hashes {
+            let blob_path = brioche_core::blob::local_blob_path(&brioche, blob_hash);
+            let blob_exists = tokio::fs::try_exists(&blob_path).await?;
+            assert!(blob_exists);
+        }
+    }
+
+    // The total size of the artifact should be small enough to be inlined
+    // in the archive, so we shouldn't have any chunks
+    let chunks = list_chunks(&cache).await?;
+    assert!(chunks.is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_cache_client_save_and_load_big_artifact() -> anyhow::Result<()> {
     let cache = brioche_test_support::new_cache();
     let mut blob_hashes = HashSet::new();
@@ -126,6 +173,54 @@ async fn test_cache_client_save_and_load_big_artifact() -> anyhow::Result<()> {
     // have more chunks than blobs
     let chunks = list_chunks(&cache).await?;
     assert!(chunks.len() > blob_hashes.len());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cache_client_save_and_load_big_artifact_with_some_small_files() -> anyhow::Result<()>
+{
+    let cache = brioche_test_support::new_cache();
+    let mut blob_hashes = HashSet::new();
+    let artifact_hash;
+    let blob_size = 10 * 1024 * 1024;
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), true).await;
+
+        let artifact =
+            build_artifact_with_some_small_files(&brioche, blob_size, &mut blob_hashes).await;
+        artifact_hash = artifact.hash();
+
+        brioche_core::cache::save_artifact(&brioche, artifact).await?;
+    }
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
+
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await?;
+
+        let expected_artifact =
+            build_artifact_with_some_small_files(&brioche, blob_size, &mut blob_hashes).await;
+        assert_eq!(loaded_artifact, Some(expected_artifact));
+
+        // Ensure all blobs have been saved locally
+        for blob_hash in &blob_hashes {
+            let blob_path = brioche_core::blob::local_blob_path(&brioche, *blob_hash);
+            let blob_exists = tokio::fs::try_exists(&blob_path).await?;
+            assert!(blob_exists);
+        }
+    }
+
+    // The total size of the artifact should be too big to be inlined, so
+    // we should have some chunks
+    let chunks = list_chunks(&cache).await?;
+    assert!(!chunks.is_empty());
 
     Ok(())
 }
@@ -290,6 +385,59 @@ async fn build_artifact(
     blob_size: usize,
     blob_hashes: &mut HashSet<BlobHash>,
 ) -> Artifact {
+    let directory = build_directory(brioche, blob_size, blob_hashes).await;
+    Artifact::Directory(directory)
+}
+
+async fn build_artifact_with_some_small_files(
+    brioche: &Brioche,
+    blob_size: usize,
+    blob_hashes: &mut HashSet<BlobHash>,
+) -> Artifact {
+    let mut directory = build_directory(brioche, blob_size, blob_hashes).await;
+
+    let two_byte_blob = brioche_test_support::blob(brioche, "ab").await;
+    blob_hashes.insert(two_byte_blob);
+
+    let one_byte_blob = brioche_test_support::blob(brioche, "a").await;
+    blob_hashes.insert(one_byte_blob);
+
+    let empty_blob = brioche_test_support::blob(brioche, "").await;
+    blob_hashes.insert(empty_blob);
+
+    directory
+        .insert(
+            brioche,
+            b"little-files/2-bytes.txt",
+            Some(brioche_test_support::file(two_byte_blob, false)),
+        )
+        .await
+        .unwrap();
+    directory
+        .insert(
+            brioche,
+            b"little-files/1-byte.txt",
+            Some(brioche_test_support::file(one_byte_blob, false)),
+        )
+        .await
+        .unwrap();
+    // directory
+    //     .insert(
+    //         brioche,
+    //         b"little-files/empty.txt",
+    //         Some(brioche_test_support::file(empty_blob, false)),
+    //     )
+    //     .await
+    //     .unwrap();
+
+    Artifact::Directory(directory)
+}
+
+async fn build_directory(
+    brioche: &Brioche,
+    blob_size: usize,
+    blob_hashes: &mut HashSet<BlobHash>,
+) -> brioche_core::recipe::Directory {
     let foo_bar_a_txt_blob = build_blob(brioche, "file a.txt", blob_size).await;
     blob_hashes.insert(foo_bar_a_txt_blob);
 
@@ -303,7 +451,7 @@ async fn build_artifact(
     let inner_resources_txt_blob = build_blob(brioche, "inner-resources.txt", blob_size).await;
     blob_hashes.insert(inner_resources_txt_blob);
 
-    brioche_test_support::dir(
+    brioche_test_support::dir_value(
         brioche,
         [
             (
