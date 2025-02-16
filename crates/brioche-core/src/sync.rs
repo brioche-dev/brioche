@@ -46,7 +46,7 @@ pub async fn sync_bakes(
 ) -> anyhow::Result<SyncBakesResults> {
     let mut results: Option<SyncBakesResults> = None;
 
-    if brioche.registry_client.is_enabled() {
+    if brioche.registry_client.can_sync() {
         let legacy_results = legacy_sync::sync_bakes(brioche, bakes.clone(), verbose).await?;
         results.get_or_insert_default().merge(legacy_results);
     }
@@ -80,7 +80,7 @@ pub async fn legacy_sync_project_references(
     references: &ProjectReferences,
     verbose: bool,
 ) -> anyhow::Result<()> {
-    if brioche.registry_client.is_enabled() {
+    if brioche.registry_client.can_sync() {
         legacy_sync::sync_project_references(brioche, references, verbose).await?;
     }
 

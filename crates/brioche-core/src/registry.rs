@@ -65,8 +65,14 @@ impl RegistryClient {
         Self::Disabled
     }
 
-    pub fn is_enabled(&self) -> bool {
-        matches!(self, Self::Enabled { .. })
+    pub fn can_sync(&self) -> bool {
+        matches!(
+            self,
+            Self::Enabled {
+                auth: RegistryAuthentication::Admin { .. },
+                ..
+            },
+        )
     }
 
     fn request(
