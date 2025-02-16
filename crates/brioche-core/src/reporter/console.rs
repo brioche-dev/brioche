@@ -875,13 +875,21 @@ impl superconsole::Component for JobComponent<'_> {
                 ]);
 
                 let fetch_kind = match kind {
-                    super::job::CacheFetchKind::Bake => "baked artifact",
+                    super::job::CacheFetchKind::Bake => "artifact",
                     super::job::CacheFetchKind::Project => "project",
                 };
-                let fetching_message = if let Some(total_blobs) = total_blobs {
-                    format!("Fetching {fetch_kind}: {downloaded_blobs}/{total_blobs}")
+                let fetching_message = if job.is_complete() {
+                    format!(
+                        "Fetch {fetch_kind}: {downloaded_blobs} blob{s}",
+                        s = if *downloaded_blobs != 1 { "s" } else { "" }
+                    )
+                } else if let Some(total_blobs) = total_blobs {
+                    format!(
+                        "Fetch {fetch_kind}: {downloaded_blobs} / {total_blobs} blob{s}",
+                        s = if *downloaded_blobs != 1 { "s" } else { "" }
+                    )
                 } else {
-                    format!("Fetching {fetch_kind}...")
+                    format!("Fetch {fetch_kind}")
                 };
 
                 let remaining_width = dimensions
