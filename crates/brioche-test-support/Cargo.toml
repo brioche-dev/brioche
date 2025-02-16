@@ -10,7 +10,7 @@ brioche-core = { path = "../brioche-core" }
 directories = "6.0.0"
 hex = "0.4.3"
 mockito = "1.6.1"
-object_store = "0.11.2"
+object_store = { git = "https://github.com/brioche-dev/arrow-rs.git", branch = "object-store-disable-all-compression-formats" }
 reqwest = "0.12.9"
 reqwest-middleware = "0.4.0"
 serde = { version = "1.0.217", features = ["derive"] }

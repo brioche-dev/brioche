@@ -69,7 +69,7 @@ tar = "0.4.43"
 num_enum = "0.7.3"
 jiff = { version = "0.1.16", features = ["serde"] }
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
-object_store = { version = "0.11.2", features = ["aws", "http"] }
+object_store = { git = "https://github.com/brioche-dev/arrow-rs.git", branch = "object-store-disable-all-compression-formats", features = ["aws", "http"] }
 fastcdc = { version = "3.1.0", features = ["tokio"] }
 zstd = "0.13.2"
 http = "1.2.0"
