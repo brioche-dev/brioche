@@ -12,11 +12,13 @@ use tracing::Instrument as _;
 
 pub mod bake;
 pub mod blob;
+pub mod cache;
 pub mod config;
 pub mod download;
 pub mod encoding;
 pub mod fs_utils;
 pub mod input;
+pub mod object_store_utils;
 pub mod output;
 pub mod platform;
 pub mod process_events;
@@ -78,6 +80,8 @@ pub struct Brioche {
 
     pub registry_client: registry::RegistryClient,
 
+    pub cache_client: cache::CacheClient,
+
     pub sandbox_config: config::SandboxConfig,
 
     sandbox_backend: Arc<tokio::sync::OnceCell<sandbox::SandboxBackend>>,
@@ -106,6 +110,7 @@ impl Brioche {
 pub struct BriocheBuilder {
     reporter: Reporter,
     registry_client: Option<registry::RegistryClient>,
+    cache_client: Option<cache::CacheClient>,
     vfs: vfs::Vfs,
     config: Option<BriocheConfig>,
     data_dir: Option<PathBuf>,
@@ -120,6 +125,7 @@ impl BriocheBuilder {
         Self {
             reporter,
             registry_client: None,
+            cache_client: None,
             vfs: vfs::Vfs::immutable(),
             config: None,
             data_dir: None,
@@ -142,6 +148,11 @@ impl BriocheBuilder {
 
     pub fn registry_client(mut self, registry_client: RegistryClient) -> Self {
         self.registry_client = Some(registry_client);
+        self
+    }
+
+    pub fn cache_client(mut self, cache_client: cache::CacheClient) -> Self {
+        self.cache_client = Some(cache_client);
         self
     }
 
@@ -233,6 +244,48 @@ impl BriocheBuilder {
             });
             registry::RegistryClient::new(registry_url, registry_auth)
         });
+        let cache_client = match self.cache_client {
+            Some(cache_client) => cache_client,
+            None => {
+                let cache_config = match std::env::var_os("BRIOCHE_CACHE_URL") {
+                    Some(url) => {
+                        let url = url.to_str().ok_or_else(|| {
+                            anyhow::anyhow!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
+                        })?;
+                        let url = url.parse().with_context(|| {
+                            format!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
+                        })?;
+                        let read_only = match std::env::var_os("BRIOCHE_CACHE_READ_ONLY") {
+                            Some(value) if value.to_str() == Some("true") => true,
+                            Some(value) if value.to_str() == Some("false") => false,
+                            Some(value) => {
+                                anyhow::bail!(
+                                    "invalid value for $BRIOCHE_CACHE_READ_ONLY: {value:?}"
+                                );
+                            }
+                            None => false,
+                        };
+                        let max_concurrent_operations = match std::env::var_os(
+                            "BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS",
+                        ) {
+                            Some(value) => {
+                                let value = value.to_str().ok_or_else(|| anyhow::anyhow!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
+                                let value: usize = value.parse().with_context(|| format!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
+                                value
+                            }
+                            None => cache::DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
+                        };
+                        Some(config::CacheConfig {
+                            url,
+                            read_only,
+                            max_concurrent_operations,
+                        })
+                    }
+                    None => config.cache.clone(),
+                };
+                cache::cache_client_from_config_or_default(cache_config.as_ref()).await?
+            }
+        };
 
         let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(1000);
 
@@ -292,6 +345,7 @@ impl BriocheBuilder {
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,
             registry_client,
+            cache_client,
             sandbox_config: config.sandbox.clone(),
             sandbox_backend: Arc::new(tokio::sync::OnceCell::new_with(self.sandbox_backend)),
             cancellation_token,

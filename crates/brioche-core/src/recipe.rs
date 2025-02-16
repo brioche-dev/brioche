@@ -667,6 +667,10 @@ pub struct Directory {
 }
 
 impl Directory {
+    pub fn from_entries(entries: BTreeMap<BString, RecipeHash>) -> Self {
+        Self { entries }
+    }
+
     pub async fn create(
         brioche: &Brioche,
         entries: &BTreeMap<BString, WithMeta<Artifact>>,
@@ -1149,6 +1153,10 @@ impl RecipeHash {
         let hash = hasher.finalize();
         Ok(Self(hash))
     }
+
+    pub fn as_bytes(&self) -> &[u8; blake3::OUT_LEN] {
+        self.0.as_bytes()
+    }
 }
 
 impl std::fmt::Display for RecipeHash {
@@ -1163,6 +1171,18 @@ impl std::str::FromStr for RecipeHash {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let hash = blake3::Hash::from_hex(s)?;
         Ok(Self(hash))
+    }
+}
+
+impl Ord for RecipeHash {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_bytes().cmp(other.0.as_bytes())
+    }
+}
+
+impl PartialOrd for RecipeHash {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
