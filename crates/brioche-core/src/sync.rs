@@ -56,7 +56,7 @@ pub async fn sync_bakes(
         results.get_or_insert_default().merge(new_results);
     }
 
-    let results = results.context("no registry or cache found to sync to")?;
+    let results = results.context("cannot sync: cache is read-only")?;
     Ok(results)
 }
 
