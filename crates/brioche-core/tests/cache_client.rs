@@ -21,7 +21,7 @@ async fn test_cache_client_save_and_load_bake() -> anyhow::Result<()> {
         let artifact = build_artifact(&brioche, 1024, &mut HashSet::new()).await;
         artifact_hash = artifact.hash();
 
-        let recipe = brioche_test_support::default_process();
+        let recipe = brioche_test_support::default_process_x86_64_linux();
         let recipe = Recipe::Process(recipe);
         recipe_hash = recipe.hash();
 
