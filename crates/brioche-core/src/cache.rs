@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt};
+use tokio::io::AsyncWriteExt as _;
 
 use crate::{
     project::ProjectHash,
@@ -140,32 +140,22 @@ pub async fn load_bake(
         return Ok(None);
     };
 
-    let bake_path =
-        object_store::path::Path::from_iter(["bakes", &input_hash.to_string(), "output_hash"]);
-    let output_hash_object = store.get(&bake_path).await;
-    let output_hash_object = match output_hash_object {
-        Ok(output_hash_object) => output_hash_object,
+    let bake_output_path =
+        object_store::path::Path::from_iter(["bakes", &input_hash.to_string(), "output.json"]);
+    let bake_output_object = store.get(&bake_output_path).await;
+    let bake_output_object = match bake_output_object {
+        Ok(bake_output_object) => bake_output_object,
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
         Err(error) => {
             return Err(error.into());
         }
     };
 
-    let output_hash_stream = output_hash_object.into_stream();
-    let output_hash_reader = tokio_util::io::StreamReader::new(output_hash_stream);
+    let bake_output_json = bake_output_object.bytes().await?;
+    let bake_output: CachedBakeOutput = serde_json::from_slice(&bake_output_json[..])
+        .with_context(|| format!("failed to deserialize cache object at '{bake_output_path}'"))?;
 
-    // Read the output hash into a string. Since we know the output hash is
-    // a 64-character hexadecimal string, we limit the reader to prevent
-    // reading an arbitrarily large object into memory. We read up to 65
-    // characters to detect malformed objects.
-    let mut output_hash = String::new();
-    output_hash_reader
-        .take(65)
-        .read_to_string(&mut output_hash)
-        .await?;
-
-    let output_hash: RecipeHash = output_hash.parse()?;
-    Ok(Some(output_hash))
+    Ok(Some(bake_output.output_hash))
 }
 
 #[tracing::instrument(skip(brioche))]
@@ -176,13 +166,15 @@ pub async fn save_bake(
 ) -> anyhow::Result<bool> {
     let store = brioche.cache_client.writable_store()?;
 
-    let bake_path =
-        object_store::path::Path::from_iter(["bakes", &input_hash.to_string(), "output_hash"]);
+    let bake_output_path =
+        object_store::path::Path::from_iter(["bakes", &input_hash.to_string(), "output.json"]);
+    let bake_output = CachedBakeOutput { output_hash };
+    let bake_output_json = serde_json::to_string(&bake_output)?;
 
     let put_result = store
         .put_opts(
-            &bake_path,
-            output_hash.to_string().into(),
+            &bake_output_path,
+            bake_output_json.into(),
             object_store::PutOptions {
                 mode: object_store::PutMode::Create,
                 ..Default::default()
@@ -302,36 +294,24 @@ pub async fn load_project_artifact_hash(
         return Ok(None);
     };
 
-    let project_artifact_hash_path = object_store::path::Path::from_iter([
-        "projects",
-        &project_hash.to_string(),
-        "artifact_hash",
-    ]);
-    let project_artifact_hash_object = store.get(&project_artifact_hash_path).await;
-    let project_artifact_hash_object = match project_artifact_hash_object {
-        Ok(object) => object,
+    let project_source_path =
+        object_store::path::Path::from_iter(["projects", &project_hash.to_string(), "source.json"]);
+    let project_source_object = store.get(&project_source_path).await;
+    let project_source_object = match project_source_object {
+        Ok(project_source_object) => project_source_object,
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
         Err(error) => {
             return Err(error.into());
         }
     };
 
-    let project_artifact_hash_stream = project_artifact_hash_object.into_stream();
-    let project_artifact_hash_reader =
-        tokio_util::io::StreamReader::new(project_artifact_hash_stream);
+    let project_source_json = project_source_object.bytes().await?;
+    let project_source: CachedProjectSource = serde_json::from_slice(&project_source_json[..])
+        .with_context(|| {
+            format!("failed to deserialize cache object at '{project_source_path}'")
+        })?;
 
-    // Read the artifact hash into a string. Since we know the artifact hash is
-    // a 64-character hexadecimal string, we limit the reader to prevent
-    // reading an arbitrarily large object into memory. We read up to 65
-    // characters to detect malformed objects.
-    let mut project_artifact_hash = String::new();
-    project_artifact_hash_reader
-        .take(65)
-        .read_to_string(&mut project_artifact_hash)
-        .await?;
-
-    let project_artifact_hash: RecipeHash = project_artifact_hash.parse()?;
-    Ok(Some(project_artifact_hash))
+    Ok(Some(project_source.artifact_hash))
 }
 
 #[tracing::instrument(skip(brioche))]
@@ -342,16 +322,15 @@ pub async fn save_project_artifact_hash(
 ) -> anyhow::Result<bool> {
     let store = brioche.cache_client.writable_store()?;
 
-    let project_artifact_hash_path = object_store::path::Path::from_iter([
-        "projects",
-        &project_hash.to_string(),
-        "artifact_hash",
-    ]);
+    let project_source_path =
+        object_store::path::Path::from_iter(["projects", &project_hash.to_string(), "source.json"]);
+    let project_source = CachedProjectSource { artifact_hash };
+    let project_source_json = serde_json::to_string(&project_source)?;
 
     let put_result = store
         .put_opts(
-            &project_artifact_hash_path,
-            artifact_hash.to_string().into(),
+            &project_source_path,
+            project_source_json.into(),
             object_store::PutOptions {
                 mode: object_store::PutMode::Create,
                 ..Default::default()
@@ -368,4 +347,16 @@ pub async fn save_project_artifact_hash(
     };
 
     Ok(did_create)
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedBakeOutput {
+    output_hash: RecipeHash,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedProjectSource {
+    artifact_hash: RecipeHash,
 }
