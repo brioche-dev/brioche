@@ -79,6 +79,8 @@ pub struct CacheConfig {
 
     #[serde(default)]
     pub read_only: bool,
+
+    pub allow_http: Option<bool>,
 }
 
 fn default_cache_max_concurrent_operations() -> usize {

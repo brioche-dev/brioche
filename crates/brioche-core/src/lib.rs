@@ -275,10 +275,21 @@ impl BriocheBuilder {
                             }
                             None => cache::DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
                         };
+                        let allow_http = match std::env::var_os("BRIOCHE_CACHE_ALLOW_HTTP") {
+                            Some(value) if value.to_str() == Some("true") => Some(true),
+                            Some(value) if value.to_str() == Some("false") => Some(false),
+                            Some(value) => {
+                                anyhow::bail!(
+                                    "invalid value for $BRIOCHE_CACHE_ALLOW_HTTP: {value:?}"
+                                );
+                            }
+                            None => None,
+                        };
                         Some(config::CacheConfig {
                             url,
                             read_only,
                             max_concurrent_operations,
+                            allow_http,
                         })
                     }
                     None => config.cache.clone(),
