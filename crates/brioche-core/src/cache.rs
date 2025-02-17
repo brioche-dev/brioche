@@ -95,6 +95,7 @@ pub async fn cache_client_from_config_or_default(
             )
             .with_credentials(Arc::new(store_credentials))
             .with_bucket_name(bucket)
+            .with_conditional_put(object_store::aws::S3ConditionalPut::ETagMatch)
             .with_client_options(client_options)
             .with_retry(retry_config)
             .build()?;
