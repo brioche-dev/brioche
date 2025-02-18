@@ -65,7 +65,7 @@ fn op_brioche_stack_frames_from_exception(
 fn op_brioche_utf8_encode<'a>(
     scope: &'a mut v8::HandleScope,
     string: v8::Local<v8::String>,
-) -> anyhow::Result<v8::Local<'a, v8::Uint8Array>> {
+) -> Result<v8::Local<'a, v8::Uint8Array>, super::AnyError> {
     let string = string.to_rust_string_lossy(scope);
     let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(string.into_bytes());
     let buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
@@ -76,22 +76,30 @@ fn op_brioche_utf8_encode<'a>(
 
 #[deno_core::op2]
 #[string]
-fn op_brioche_utf8_decode(bytes: v8::Local<v8::Uint8Array>) -> anyhow::Result<String> {
+fn op_brioche_utf8_decode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, super::AnyError> {
     let byte_length = bytes.byte_length();
     let mut buffer = vec![0; byte_length];
     let copied_length = bytes.copy_contents(&mut buffer);
-    anyhow::ensure!(copied_length == byte_length, "mismatch in copied bytes");
+
+    if copied_length != byte_length {
+        return Err(anyhow::anyhow!("mismatch in copied bytes").into());
+    }
+
     let string = String::from_utf8(buffer).context("invalid UTF-8")?;
     Ok(string)
 }
 
 #[deno_core::op2]
 #[string]
-fn op_brioche_tick_encode(bytes: v8::Local<v8::Uint8Array>) -> anyhow::Result<String> {
+fn op_brioche_tick_encode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, super::AnyError> {
     let byte_length = bytes.byte_length();
     let mut buffer = vec![0; byte_length];
     let copied_length = bytes.copy_contents(&mut buffer);
-    anyhow::ensure!(copied_length == byte_length, "mismatch in copied bytes");
+
+    if copied_length != byte_length {
+        return Err(anyhow::anyhow!("mismatch in copied bytes").into());
+    }
+
     let encoded = tick_encoding::encode(&buffer).into_owned();
     Ok(encoded)
 }
@@ -100,13 +108,18 @@ fn op_brioche_tick_encode(bytes: v8::Local<v8::Uint8Array>) -> anyhow::Result<St
 fn op_brioche_tick_decode<'a>(
     scope: &'a mut v8::HandleScope,
     bytes: v8::Local<'a, v8::Uint8Array>,
-) -> anyhow::Result<v8::Local<'a, v8::Uint8Array>> {
+) -> Result<v8::Local<'a, v8::Uint8Array>, super::AnyError> {
     let byte_length = bytes.byte_length();
     let mut buffer = vec![0; byte_length];
     let copied_length = bytes.copy_contents(&mut buffer);
-    anyhow::ensure!(copied_length == byte_length, "mismatch in copied bytes");
 
-    let encoded = tick_encoding::decode(&buffer)?.into_owned();
+    if copied_length != byte_length {
+        return Err(anyhow::anyhow!("mismatch in copied bytes").into());
+    }
+
+    let encoded = tick_encoding::decode(&buffer)
+        .map_err(super::AnyError::new)?
+        .into_owned();
 
     let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(encoded);
     let encoded_buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());

@@ -294,7 +294,7 @@ fn brioche_compiler_host_state(state: Rc<RefCell<OpState>>) -> anyhow::Result<Br
 pub fn op_brioche_file_read(
     state: Rc<RefCell<OpState>>,
     #[string] path: &str,
-) -> Result<Option<Arc<String>>, deno_core::error::AnyError> {
+) -> Result<Option<Arc<String>>, super::AnyError> {
     let compiler_host = brioche_compiler_host_state(state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
@@ -307,7 +307,7 @@ pub fn op_brioche_file_read(
 pub fn op_brioche_file_exists(
     state: Rc<RefCell<OpState>>,
     #[string] path: &str,
-) -> Result<bool, deno_core::error::AnyError> {
+) -> Result<bool, super::AnyError> {
     let compiler_host = brioche_compiler_host_state(state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
@@ -321,7 +321,7 @@ pub fn op_brioche_file_exists(
 pub fn op_brioche_file_version(
     state: Rc<RefCell<OpState>>,
     #[string] path: &str,
-) -> Result<Option<u64>, deno_core::error::AnyError> {
+) -> Result<Option<u64>, super::AnyError> {
     let compiler_host = brioche_compiler_host_state(state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
