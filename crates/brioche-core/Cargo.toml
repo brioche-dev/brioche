@@ -9,6 +9,10 @@ anyhow = { version = "1.0.95", features = ["backtrace"] }
 assert_matches = "1.5.0"
 async-compression = { version = "0.4.18", features = ["tokio", "bzip2", "gzip", "xz", "zstd"] }
 async-recursion = "1.1.1"
+async-trait = "0.1.86"
+aws-config = "1.5.16"
+aws-credential-types = "1.2.1"
+aws-types = "1.3.5"
 biome_formatter = "0.5.7"
 biome_js_formatter = "0.5.7"
 biome_js_parser = "0.5.7"
@@ -23,18 +27,25 @@ debug-ignore = "1.0.5"
 deno_ast = { version = "0.45.0", features = ["transpiling"] }
 deno_core = "0.328.0"
 directories = "6.0.0"
+fastcdc = { version = "3.1.0", features = ["tokio"] }
 futures = "0.3.31"
+gix = { version = "0.70.0", features = ["blocking-network-client", "blocking-http-transport-reqwest"] }
 globset = "0.4.15"
 hex = "0.4.3"
+http = "1.2.0"
+jiff = { version = "0.1.16", features = ["serde"] }
 joinery = "3.1.0"
 json-canon = "0.1.3"
 lazy_format = "2.0.3"
 nix = { version = "0.29.0", features = ["user"] }
+num_enum = "0.7.3"
+object_store = { git = "https://github.com/brioche-dev/arrow-rs.git", branch = "object-store-disable-all-compression-formats", features = ["aws", "http"] }
 opentelemetry = "0.28.0"
-opentelemetry_sdk = { version = "0.28.0", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.28.0", default-features = false, features = ["http-proto", "reqwest-rustls"] }
 opentelemetry-semantic-conventions = "0.28.0"
+opentelemetry_sdk = { version = "0.28.0", features = ["rt-tokio"] }
 pathdiff = "0.2.3"
+petgraph = "0.7.1"
 regex = "1.11.1"
 relative-path = { version = "1.9.3", features = ["serde"] }
 reqwest = { version = "0.12.9", default-features = false, features = ["rustls-tls", "zstd", "json", "stream"] }
@@ -49,6 +60,7 @@ sha2 = "0.10.8"
 sqlx = { version = "0.8.3", features = ["runtime-tokio-rustls", "sqlite", "macros", "migrate", "json"] }
 strum = { version = "0.27.0", features = ["derive"] }
 superconsole = "0.2.0"
+tar = "0.4.43"
 thiserror = "2.0.11"
 tick-encoding = "0.1.3"
 tokio = { version = "1.43.0", features = ["full", "tracing"] }
@@ -62,22 +74,10 @@ ulid = "1.2.0"
 url = { version = "2.5.4", features = ["serde"] }
 urlencoding = "2.1.3"
 walkdir = "2.5.0"
-petgraph = "0.7.1"
 wax = { version = "0.6.0", default-features = false }
-gix = { version = "0.70.0", features = ["blocking-network-client", "blocking-http-transport-reqwest"] }
-tar = "0.4.43"
-num_enum = "0.7.3"
-jiff = { version = "0.1.16", features = ["serde"] }
-zstd-framed = { version = "0.1.1", features = ["tokio"] }
-object_store = { git = "https://github.com/brioche-dev/arrow-rs.git", branch = "object-store-disable-all-compression-formats", features = ["aws", "http"] }
-fastcdc = { version = "3.1.0", features = ["tokio"] }
-zstd = "0.13.2"
-http = "1.2.0"
-aws-config = "1.5.16"
-aws-credential-types = "1.2.1"
-async-trait = "0.1.86"
-aws-types = "1.3.5"
 zip = { version = "2.2.2", default-features = false, features = ["bzip2", "deflate", "deflate64", "lzma", "zstd"] }
+zstd = "0.13.2"
+zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
 [dev-dependencies]
 aws-runtime = "1.5.5"
