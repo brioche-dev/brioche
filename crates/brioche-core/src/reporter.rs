@@ -133,7 +133,7 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
 pub struct ReporterGuard {
     tx: tokio::sync::mpsc::UnboundedSender<ReportEvent>,
     shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
-    opentelemetry_tracer_provider: Option<opentelemetry_sdk::trace::TracerProvider>,
+    opentelemetry_tracer_provider: Option<opentelemetry_sdk::trace::SdkTracerProvider>,
 }
 
 impl ReporterGuard {
