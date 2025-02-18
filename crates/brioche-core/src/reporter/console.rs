@@ -271,7 +271,7 @@ impl ConsoleReporter {
                         total_blobs: _,
                         started_at: _,
                     } => {
-                        eprintln!("Fetching baked artifact from cache");
+                        eprintln!("Fetching artifact from cache");
                     }
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Project,
@@ -429,9 +429,24 @@ impl ConsoleReporter {
                     UpdateJob::CacheFetchUpdate { .. } => {}
                     UpdateJob::CacheFetchFinish { finished_at } => {
                         let elapsed = finished_at.saturating_duration_since(job.created_at());
+
+                        let Job::CacheFetch {
+                            kind,
+                            downloaded_blobs,
+                            ..
+                        } = job
+                        else {
+                            panic!("tried to update non-cache job {id:?} with a cache update");
+                        };
+                        let fetch_kind = match kind {
+                            crate::reporter::job::CacheFetchKind::Bake => "artifact",
+                            crate::reporter::job::CacheFetchKind::Project => "project",
+                        };
+
                         eprintln!(
-                            "Finished fetching from registry in {}",
-                            DisplayDuration(elapsed)
+                            "Finished fetching {fetch_kind} with {downloaded_blobs} new blob{s} from cache in {}",
+                            DisplayDuration(elapsed),
+                            s = if *downloaded_blobs == 1 { "" } else { "s" }
                         );
                     }
                 }
