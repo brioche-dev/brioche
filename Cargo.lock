@@ -1203,7 +1203,7 @@ dependencies = [
  "hex",
  "http 1.2.0",
  "indoc",
- "jiff",
+ "jiff 0.2.1",
  "joinery",
  "json-canon",
  "lazy_format",
@@ -2658,7 +2658,7 @@ dependencies = [
  "gix-date",
  "gix-object",
  "gix-worktree-stream",
- "jiff",
+ "jiff 0.1.29",
  "thiserror 2.0.11",
 ]
 
@@ -2782,7 +2782,7 @@ checksum = "c57c477b645ee248b173bb1176b52dd528872f12c50375801a58aaf5ae91113f"
 dependencies = [
  "bstr",
  "itoa",
- "jiff",
+ "jiff 0.1.29",
  "thiserror 2.0.11",
 ]
 
@@ -4171,6 +4171,20 @@ name = "jiff"
 version = "0.1.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c04ef77ae73f3cf50510712722f0c4e8b46f5aaa1bf5ffad2ae213e6495e78e5"
+dependencies = [
+ "jiff-tzdb-platform",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "jiff"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3590fea8e9e22d449600c9bbd481a8163bef223e4ff938e5f55899f8cf1adb93"
 dependencies = [
  "jiff-tzdb-platform",
  "log",
