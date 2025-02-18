@@ -64,8 +64,12 @@ pub async fn cache_client_from_config_or_default(
         max_retries: 5,
         ..Default::default()
     };
-    let client_options = object_store::ClientOptions::new()
+
+    let mut client_options = object_store::ClientOptions::new()
         .with_user_agent(http::HeaderValue::from_static(crate::USER_AGENT));
+    if let Some(allow_http) = config.and_then(|config| config.allow_http) {
+        client_options = client_options.with_allow_http(allow_http);
+    }
 
     let store: Arc<dyn object_store::ObjectStore> = match url.scheme() {
         "http" | "https" => {
