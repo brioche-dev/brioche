@@ -146,20 +146,17 @@ pub fn start_console_reporter(
             .with_http()
             .with_http_client(reqwest::Client::new())
             .build()?;
-        let provider = opentelemetry_sdk::trace::TracerProvider::builder()
-            .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
-            .with_resource(opentelemetry_sdk::Resource::default().merge(
-                &opentelemetry_sdk::Resource::new(vec![
-                    opentelemetry::KeyValue::new(
-                        opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-                        "brioche",
-                    ),
-                    opentelemetry::KeyValue::new(
+        let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+            .with_batch_exporter(exporter)
+            .with_resource(
+                opentelemetry_sdk::Resource::builder()
+                    .with_service_name("brioche")
+                    .with_attribute(opentelemetry::KeyValue::new(
                         opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
                         env!("CARGO_PKG_VERSION"),
-                    ),
-                ]),
-            ))
+                    ))
+                    .build(),
+            )
             .build();
 
         opentelemetry_layer = Some(
