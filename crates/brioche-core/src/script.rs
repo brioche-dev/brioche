@@ -100,15 +100,13 @@ impl BriocheModuleLoader {
             None,
         ))
     }
-}
 
-impl deno_core::ModuleLoader for BriocheModuleLoader {
-    fn resolve(
+    fn resolve_module(
         &self,
         specifier: &str,
         referrer: &str,
         kind: deno_core::ResolutionKind,
-    ) -> Result<deno_core::ModuleSpecifier, anyhow::Error> {
+    ) -> anyhow::Result<deno_core::ModuleSpecifier> {
         if let deno_core::ResolutionKind::MainModule = kind {
             let resolved = specifier.parse()?;
             tracing::debug!(%specifier, %referrer, %resolved, "resolved main module");
@@ -127,6 +125,18 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         let resolved: deno_core::ModuleSpecifier = resolved.into();
         Ok(resolved)
     }
+}
+
+impl deno_core::ModuleLoader for BriocheModuleLoader {
+    fn resolve(
+        &self,
+        specifier: &str,
+        referrer: &str,
+        kind: deno_core::ResolutionKind,
+    ) -> Result<deno_core::ModuleSpecifier, deno_core::error::ModuleLoaderError> {
+        self.resolve_module(specifier, referrer, kind)
+            .map_err(|error| AnyError(error).into())
+    }
 
     fn load(
         &self,
@@ -135,7 +145,10 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         _is_dyn_import: bool,
         _requested_module_type: deno_core::RequestedModuleType,
     ) -> deno_core::ModuleLoadResponse {
-        deno_core::ModuleLoadResponse::Sync(self.load_module_source(module_specifier))
+        deno_core::ModuleLoadResponse::Sync(
+            self.load_module_source(module_specifier)
+                .map_err(|error| AnyError(error).into()),
+        )
     }
 
     fn get_source_map(&self, file_name: &str) -> Option<Cow<[u8]>> {
@@ -203,16 +216,16 @@ deno_core::extension!(brioche_rt,
 pub async fn op_brioche_bake_all(
     state: Rc<RefCell<OpState>>,
     #[serde] recipes: Vec<WithMeta<Recipe>>,
-) -> Result<Vec<Artifact>, deno_core::error::AnyError> {
+) -> Result<Vec<Artifact>, AnyError> {
     let bridge = {
-        let state = state.try_borrow()?;
+        let state = state.try_borrow().map_err(AnyError::new)?;
         state
             .try_borrow::<RuntimeBridge>()
             .context("failed to get runtime bridge")?
             .clone()
     };
     let bake_scope = {
-        let state = state.try_borrow()?;
+        let state = state.try_borrow().map_err(AnyError::new)?;
         state
             .try_borrow::<BakeScope>()
             .context("failed to get bake scope")?
@@ -230,9 +243,9 @@ pub async fn op_brioche_bake_all(
 pub async fn op_brioche_create_proxy(
     state: Rc<RefCell<OpState>>,
     #[serde] recipe: Recipe,
-) -> Result<Recipe, deno_core::error::AnyError> {
+) -> Result<Recipe, AnyError> {
     let bridge = {
-        let state = state.try_borrow()?;
+        let state = state.try_borrow().map_err(AnyError::new)?;
         state
             .try_borrow::<RuntimeBridge>()
             .context("failed to get runtime bridge")?
@@ -249,9 +262,9 @@ pub async fn op_brioche_create_proxy(
 pub async fn op_brioche_read_blob(
     state: Rc<RefCell<OpState>>,
     #[serde] blob_hash: BlobHash,
-) -> Result<crate::encoding::TickEncode<Vec<u8>>, deno_core::error::AnyError> {
+) -> Result<crate::encoding::TickEncode<Vec<u8>>, AnyError> {
     let bridge = {
-        let state = state.try_borrow()?;
+        let state = state.try_borrow().map_err(AnyError::new)?;
         state
             .try_borrow::<RuntimeBridge>()
             .context("failed to get runtime bridge")?
@@ -268,17 +281,60 @@ pub async fn op_brioche_get_static(
     state: Rc<RefCell<OpState>>,
     #[string] url: String,
     #[serde] static_: StaticQuery,
-) -> Result<bridge::GetStaticResult, deno_core::error::AnyError> {
+) -> Result<bridge::GetStaticResult, AnyError> {
     let bridge = {
-        let state = state.try_borrow()?;
+        let state = state.try_borrow().map_err(AnyError::new)?;
         state
             .try_borrow::<RuntimeBridge>()
             .context("failed to get runtime bridge")?
             .clone()
     };
 
-    let specifier: BriocheModuleSpecifier = url.parse()?;
+    let specifier: BriocheModuleSpecifier = url.parse().map_err(AnyError::new)?;
 
     let recipe = bridge.get_static(specifier, static_).await?;
     Ok(recipe)
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+struct AnyError(#[from] anyhow::Error);
+
+impl AnyError {
+    fn new<T>(value: T) -> Self
+    where
+        T: Into<anyhow::Error>,
+    {
+        Self(value.into())
+    }
+}
+
+impl From<AnyError> for deno_core::error::CoreError {
+    fn from(value: AnyError) -> Self {
+        deno_core::error::CoreError::JsBox(deno_error::JsErrorBox::from_err(value))
+    }
+}
+
+impl From<AnyError> for deno_core::error::ModuleLoaderError {
+    fn from(value: AnyError) -> Self {
+        deno_core::error::ModuleLoaderError::Core(value.into())
+    }
+}
+
+impl deno_error::JsErrorClass for AnyError {
+    fn get_class(&self) -> Cow<'static, str> {
+        Cow::Borrowed(deno_error::builtin_classes::GENERIC_ERROR)
+    }
+
+    fn get_message(&self) -> Cow<'static, str> {
+        Cow::Owned(self.to_string())
+    }
+
+    fn get_additional_properties(&self) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
+        vec![]
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
