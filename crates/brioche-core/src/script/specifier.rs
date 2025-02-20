@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use relative_path::{PathExt, RelativePathBuf};
+use relative_path::{PathExt as _, RelativePathBuf};
 
 use crate::{project::Projects, vfs::Vfs};
 

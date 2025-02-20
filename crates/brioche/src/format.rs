@@ -5,7 +5,7 @@ use brioche_core::{
     reporter::Reporter,
 };
 use clap::Parser;
-use tracing::Instrument;
+use tracing::Instrument as _;
 
 use crate::consolidate_result;
 

@@ -3,7 +3,7 @@ use std::{path::PathBuf, process::ExitCode};
 use anyhow::Context as _;
 use brioche_core::{fs_utils, project::ProjectLocking, utils::DisplayDuration};
 use clap::Parser;
-use tracing::Instrument;
+use tracing::Instrument as _;
 
 #[derive(Debug, Parser)]
 pub struct BuildArgs {

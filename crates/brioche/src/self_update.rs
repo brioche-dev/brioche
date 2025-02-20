@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
-    io::{IsTerminal, Write as _},
-    os::unix::fs::PermissionsExt,
+    io::{IsTerminal as _, Write as _},
+    os::unix::fs::PermissionsExt as _,
 };
 
 use anyhow::Context as _;

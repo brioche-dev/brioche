@@ -8,7 +8,7 @@ use brioche_core::{
     utils::io::NotSeekable,
 };
 use clap::Parser;
-use notify::Watcher;
+use notify::Watcher as _;
 
 #[derive(Debug, Parser)]
 pub struct LogsArgs {

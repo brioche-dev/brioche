@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use aws_credential_types::provider::ProvideCredentials;
+use aws_credential_types::provider::ProvideCredentials as _;
 
 #[derive(Debug)]
 pub struct AwsS3CredentialProvider {

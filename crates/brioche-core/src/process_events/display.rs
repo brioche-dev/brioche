@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use bstr::ByteSlice;
+use bstr::ByteSlice as _;
 
 use crate::{reporter::job::ProcessStream, utils::output_buffer::OutputBuffer};
 

@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::PathBuf};
 
-use bstr::{ByteSlice, ByteVec as _};
+use bstr::{ByteSlice as _, ByteVec as _};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TickEncode<T>(pub T);
