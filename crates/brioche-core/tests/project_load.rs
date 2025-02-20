@@ -3,9 +3,10 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use brioche_core::{
     Brioche,
-    project::{DependencyRef, ProjectLocking, ProjectValidation},
+    project::{DependencyRef, ProjectEntry, ProjectLocking, ProjectValidation},
 };
 use brioche_test_support::TestContext;
+use relative_path::RelativePathBuf;
 
 #[tokio::test]
 async fn test_project_load_simple() -> anyhow::Result<()> {
@@ -1376,6 +1377,531 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
 
     assert_eq!(main_foo_project_hash, main_dep_foo_project_hash);
     assert_eq!(main_foo_bar_project_hash, main_dep_foo_bar_project_hash);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_project_load_cyclic_simple_by_path() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    context
+        .write_toml(
+            "myworkspace/brioche_workspace.toml",
+            &brioche_core::project::WorkspaceDefinition {
+                members: vec!["./alpha".parse()?, "./beta".parse()?],
+            },
+        )
+        .await;
+
+    let alpha_project_dir = context.mkdir("myworkspace/alpha").await;
+    context
+        .write_file(
+            "myworkspace/alpha/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        beta: {
+                            path: "../beta",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let beta_project_dir = context.mkdir("myworkspace/beta").await;
+    context
+        .write_file(
+            "myworkspace/beta/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        alpha: {
+                            path: "../alpha",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, alpha_project_hash) =
+        brioche_test_support::load_project(&brioche, &alpha_project_dir).await?;
+    let alpha_project_entry = projects.project_entry(alpha_project_hash).unwrap();
+    let ProjectEntry::WorkspaceMember {
+        workspace: alpha_workspace_hash,
+        path: alpha_member_path,
+    } = alpha_project_entry
+    else {
+        panic!("expected alpha_project to be a WorkspaceMember entry");
+    };
+
+    let beta_project_hash = projects.project_dependencies(alpha_project_hash).unwrap()["beta"];
+    let beta_project_entry = projects.project_entry(beta_project_hash).unwrap();
+    let ProjectEntry::WorkspaceMember {
+        workspace: beta_workspace_hash,
+        path: beta_member_path,
+    } = beta_project_entry
+    else {
+        panic!("expected beta_project to be a WorkspaceMember entry");
+    };
+
+    // Both projects should be in the same workspace
+    assert_eq!(alpha_workspace_hash, beta_workspace_hash);
+
+    let beta_alpha_project_hash =
+        projects.project_dependencies(beta_project_hash).unwrap()["alpha"];
+    assert_eq!(alpha_project_hash, beta_alpha_project_hash);
+
+    // Paths should be relative to the workspace root
+    assert_eq!(
+        alpha_member_path,
+        RelativePathBuf::from("alpha".to_string())
+    );
+    assert_eq!(beta_member_path, RelativePathBuf::from("beta".to_string()));
+
+    assert!(
+        projects
+            .local_paths(alpha_project_hash)
+            .unwrap()
+            .contains(&alpha_project_dir)
+    );
+    assert!(
+        projects
+            .local_paths(beta_project_hash)
+            .unwrap()
+            .contains(&beta_project_dir)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_project_load_cyclic_simple_implied() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    context
+        .write_toml(
+            "myworkspace/brioche_workspace.toml",
+            &brioche_core::project::WorkspaceDefinition {
+                members: vec!["./alpha".parse()?, "./beta".parse()?],
+            },
+        )
+        .await;
+
+    let alpha_project_dir = context.mkdir("myworkspace/alpha").await;
+    context
+        .write_file(
+            "myworkspace/alpha/project.bri",
+            r#"
+                import { beta } from "beta";
+                export const alpha = "alpha";
+            "#,
+        )
+        .await;
+
+    let beta_project_dir = context.mkdir("myworkspace/beta").await;
+    context
+        .write_file(
+            "myworkspace/beta/project.bri",
+            r#"
+                import { alpha } from "alpha";
+                export const beta = "beta";
+            "#,
+        )
+        .await;
+
+    let (projects, alpha_project_hash) =
+        brioche_test_support::load_project(&brioche, &alpha_project_dir).await?;
+    let alpha_project_entry = projects.project_entry(alpha_project_hash).unwrap();
+    let ProjectEntry::WorkspaceMember {
+        workspace: alpha_workspace_hash,
+        path: alpha_member_path,
+    } = alpha_project_entry
+    else {
+        panic!("expected alpha_project to be a WorkspaceMember entry");
+    };
+
+    let beta_project_hash = projects.project_dependencies(alpha_project_hash).unwrap()["beta"];
+    let beta_project_entry = projects.project_entry(beta_project_hash).unwrap();
+    let ProjectEntry::WorkspaceMember {
+        workspace: beta_workspace_hash,
+        path: beta_member_path,
+    } = beta_project_entry
+    else {
+        panic!("expected beta_project to be a WorkspaceMember entry");
+    };
+
+    // Both projects should be in the same workspace
+    assert_eq!(alpha_workspace_hash, beta_workspace_hash);
+
+    let beta_alpha_project_hash =
+        projects.project_dependencies(beta_project_hash).unwrap()["alpha"];
+    assert_eq!(alpha_project_hash, beta_alpha_project_hash);
+
+    // Paths should be relative to the workspace root
+    assert_eq!(
+        alpha_member_path,
+        RelativePathBuf::from("alpha".to_string())
+    );
+    assert_eq!(beta_member_path, RelativePathBuf::from("beta".to_string()));
+
+    assert!(
+        projects
+            .local_paths(alpha_project_hash)
+            .unwrap()
+            .contains(&alpha_project_dir)
+    );
+    assert!(
+        projects
+            .local_paths(beta_project_hash)
+            .unwrap()
+            .contains(&beta_project_dir)
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    // Project structure:
+    //
+    // main     -> foo/a
+    // foo/a    -> foo/b
+    // foo/b    -> foo/c
+    // foo/c    -> foo/a, bar/v
+    // bar/v    -> bar/w
+    // bar/w    -> bar/x, bar/y, bar/z
+    // bar/x    -> bar/w, bar/y, bar/z
+    // bar/y    -> bar/w, bar/x, bar/z
+    // bar/z    -> baz/fizz
+    // baz/fizz -> baz/buzz
+    // baz/buzz -> (no dependencies)
+
+    let main_project_dir = context.mkdir("main").await;
+    context
+        .write_file(
+            "main/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        a: {
+                            path: "../foo/a",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    context
+        .write_toml(
+            "foo/brioche_workspace.toml",
+            &brioche_core::project::WorkspaceDefinition {
+                members: vec!["./a".parse()?, "./b".parse()?, "./c".parse()?],
+            },
+        )
+        .await;
+
+    let foo_a_project_dir = context.mkdir("foo/a").await;
+    context
+        .write_file(
+            "foo/a/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        b: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let foo_b_project_dir = context.mkdir("foo/b").await;
+    context
+        .write_file(
+            "foo/b/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        c: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let foo_c_project_dir = context.mkdir("foo/c").await;
+    context
+        .write_file(
+            "foo/c/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        a: "*",
+                        v: {
+                            path: "../../bar/v",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    context
+        .write_toml(
+            "bar/brioche_workspace.toml",
+            &brioche_core::project::WorkspaceDefinition {
+                members: vec![
+                    "./v".parse()?,
+                    "./w".parse()?,
+                    "./x".parse()?,
+                    "./y".parse()?,
+                    "./z".parse()?,
+                ],
+            },
+        )
+        .await;
+
+    let bar_v_project_dir = context.mkdir("bar/v").await;
+    context
+        .write_file(
+            "bar/v/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        w: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let bar_w_project_dir = context.mkdir("bar/w").await;
+    context
+        .write_file(
+            "bar/w/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        x: "*",
+                        y: "*",
+                        z: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let bar_x_project_dir = context.mkdir("bar/x").await;
+    context
+        .write_file(
+            "bar/x/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        w: "*",
+                        y: {
+                            path: "../y",
+                        },
+                        z: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let bar_y_project_dir = context.mkdir("bar/y").await;
+    context
+        .write_file(
+            "bar/y/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        w: {
+                            path: "../w",
+                        },
+                        x: "*",
+                        z: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let bar_z_project_dir = context.mkdir("bar/z").await;
+    context
+        .write_file(
+            "bar/z/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        fizz: {
+                            path: "../../baz/fizz",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    context
+        .write_toml(
+            "baz/brioche_workspace.toml",
+            &brioche_core::project::WorkspaceDefinition {
+                members: vec!["./fizz".parse()?, "./buzz".parse()?],
+            },
+        )
+        .await;
+
+    let baz_fizz_project_dir = context.mkdir("baz/fizz").await;
+    context
+        .write_file(
+            "baz/fizz/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        buzz: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let baz_buzz_project_dir = context.mkdir("baz/buzz").await;
+    context
+        .write_file(
+            "baz/buzz/project.bri",
+            r#"
+                // Empty project
+            "#,
+        )
+        .await;
+
+    let (projects, main_project_hash) =
+        brioche_test_support::load_project(&brioche, &main_project_dir).await?;
+    let foo_a_project_hash = projects
+        .find_containing_project(&foo_a_project_dir)?
+        .unwrap();
+    let foo_b_project_hash = projects
+        .find_containing_project(&foo_b_project_dir)?
+        .unwrap();
+    let foo_c_project_hash = projects
+        .find_containing_project(&foo_c_project_dir)?
+        .unwrap();
+    let bar_v_project_hash = projects
+        .find_containing_project(&bar_v_project_dir)?
+        .unwrap();
+    let bar_w_project_hash = projects
+        .find_containing_project(&bar_w_project_dir)?
+        .unwrap();
+    let bar_x_project_hash = projects
+        .find_containing_project(&bar_x_project_dir)?
+        .unwrap();
+    let bar_y_project_hash = projects
+        .find_containing_project(&bar_y_project_dir)?
+        .unwrap();
+    let bar_z_project_hash = projects
+        .find_containing_project(&bar_z_project_dir)?
+        .unwrap();
+    let baz_fizz_project_hash = projects
+        .find_containing_project(&baz_fizz_project_dir)?
+        .unwrap();
+    let baz_buzz_project_hash = projects
+        .find_containing_project(&baz_buzz_project_dir)?
+        .unwrap();
+
+    let main_project_entry = projects.project_entry(main_project_hash).unwrap();
+    let foo_a_project_entry = projects.project_entry(foo_a_project_hash).unwrap();
+    let foo_b_project_entry = projects.project_entry(foo_b_project_hash).unwrap();
+    let foo_c_project_entry = projects.project_entry(foo_c_project_hash).unwrap();
+    let bar_v_project_entry = projects.project_entry(bar_v_project_hash).unwrap();
+    let bar_w_project_entry = projects.project_entry(bar_w_project_hash).unwrap();
+    let bar_x_project_entry = projects.project_entry(bar_x_project_hash).unwrap();
+    let bar_y_project_entry = projects.project_entry(bar_y_project_hash).unwrap();
+    let bar_z_project_entry = projects.project_entry(bar_z_project_hash).unwrap();
+    let baz_fizz_project_entry = projects.project_entry(baz_fizz_project_hash).unwrap();
+    let baz_buzz_project_entry = projects.project_entry(baz_buzz_project_hash).unwrap();
+
+    assert_matches!(main_project_entry, ProjectEntry::Project(_));
+
+    let &ProjectEntry::WorkspaceMember {
+        workspace: foo_workspace,
+        ..
+    } = &foo_a_project_entry
+    else {
+        panic!("expected foo_a_project_entry to be a WorkspaceMember");
+    };
+    assert_eq!(
+        foo_a_project_entry,
+        ProjectEntry::WorkspaceMember {
+            workspace: foo_workspace,
+            path: "a".to_string().into()
+        },
+    );
+    assert_eq!(
+        foo_b_project_entry,
+        ProjectEntry::WorkspaceMember {
+            workspace: foo_workspace,
+            path: "b".to_string().into()
+        },
+    );
+    assert_eq!(
+        foo_c_project_entry,
+        ProjectEntry::WorkspaceMember {
+            workspace: foo_workspace,
+            path: "c".to_string().into()
+        },
+    );
+
+    let &ProjectEntry::WorkspaceMember {
+        workspace: bar_workspace,
+        ..
+    } = &bar_v_project_entry
+    else {
+        panic!("expected bar_v_project_entry to be a WorkspaceMember");
+    };
+    assert_eq!(
+        bar_v_project_entry,
+        ProjectEntry::WorkspaceMember {
+            workspace: bar_workspace,
+            path: "v".to_string().into()
+        },
+    );
+    assert_eq!(
+        bar_w_project_entry,
+        ProjectEntry::WorkspaceMember {
+            workspace: bar_workspace,
+            path: "w".to_string().into()
+        },
+    );
+    assert_eq!(
+        bar_x_project_entry,
+        ProjectEntry::WorkspaceMember {
+            workspace: bar_workspace,
+            path: "x".to_string().into()
+        },
+    );
+    assert_eq!(
+        bar_y_project_entry,
+        ProjectEntry::WorkspaceMember {
+            workspace: bar_workspace,
+            path: "y".to_string().into()
+        },
+    );
+    assert_eq!(
+        bar_z_project_entry,
+        ProjectEntry::WorkspaceMember {
+            workspace: bar_workspace,
+            path: "z".to_string().into()
+        },
+    );
+
+    assert_matches!(baz_fizz_project_entry, ProjectEntry::Project(_));
+    assert_matches!(baz_buzz_project_entry, ProjectEntry::Project(_));
 
     Ok(())
 }
