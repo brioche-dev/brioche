@@ -327,17 +327,8 @@ async fn test_cache_client_load_artifact_chunk_mismatch_error() -> anyhow::Resul
 
         let chunks = list_chunks(&cache).await?;
         for chunk in &chunks {
-            eprintln!("Copying chunk {} to {chunk}", chunks[0]);
             cache.copy(&chunks[4], chunk).await?;
         }
-    }
-
-    let chunks = list_chunks(&cache).await?;
-    for chunk in &chunks {
-        let chunk_data = cache.get(chunk).await?.bytes().await?;
-        let chunk_data = zstd::decode_all(chunk_data.as_ref())?;
-        let chunk_data_hash = blake3::hash(&chunk_data);
-        eprintln!("hash of {chunk}: {chunk_data_hash}");
     }
 
     {
