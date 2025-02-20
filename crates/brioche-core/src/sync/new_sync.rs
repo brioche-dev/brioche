@@ -4,6 +4,7 @@ use crate::{utils::DisplayDuration, Brioche};
 
 use super::SyncBakesResults;
 
+#[expect(clippy::print_stdout)]
 pub async fn sync_bakes(
     brioche: &Brioche,
     bakes: Vec<(crate::recipe::Recipe, crate::recipe::Artifact)>,

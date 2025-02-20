@@ -12,6 +12,7 @@ pub struct DisplayEventsOptions {
     pub follow_events: Option<std::sync::mpsc::Receiver<anyhow::Result<()>>>,
 }
 
+#[expect(clippy::print_stdout)]
 pub fn display_events<R>(
     reader: &mut ProcessEventReader<R>,
     options: DisplayEventsOptions,

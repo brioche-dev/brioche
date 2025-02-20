@@ -21,6 +21,7 @@ const UPDATE_MANIFEST_URL: &str = "https://releases.brioche.dev/updates/update-m
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[expect(clippy::print_stdout)]
 pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     let client = reqwest::Client::builder()
         .user_agent(brioche_core::USER_AGENT)
@@ -118,6 +119,7 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+#[expect(clippy::print_stdout)]
 async fn get_update_version_manifest(
     client: &reqwest::Client,
 ) -> anyhow::Result<Option<SelfUpdateVersionManifest>> {
@@ -152,6 +154,7 @@ async fn get_update_version_manifest(
     Ok(Some(manifest))
 }
 
+#[expect(clippy::print_stdout)]
 async fn get_update_platform_manifest(
     client: &reqwest::Client,
     platform: brioche_core::platform::Platform,
@@ -188,6 +191,7 @@ async fn get_update_platform_manifest(
     Ok(Some(platform_manifest))
 }
 
+#[expect(clippy::print_stdout)]
 async fn confirm_update() -> anyhow::Result<bool> {
     let (tx, rx) = tokio::sync::oneshot::channel();
 

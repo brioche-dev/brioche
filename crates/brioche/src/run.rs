@@ -43,6 +43,7 @@ pub struct RunArgs {
     args: Vec<std::ffi::OsString>,
 }
 
+#[expect(clippy::print_stderr)]
 pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = if args.quiet {
         brioche_core::reporter::start_null_reporter()

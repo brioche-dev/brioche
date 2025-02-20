@@ -236,6 +236,7 @@ enum ConsoleReporter {
     },
 }
 
+#[expect(clippy::print_stderr)]
 impl ConsoleReporter {
     fn emit(&mut self, lines: superconsole::Lines) {
         match self {
@@ -482,6 +483,7 @@ impl ConsoleReporter {
     }
 }
 
+#[expect(clippy::print_stderr)]
 fn print_job_content(jobs: &HashMap<JobId, Job>, stream: &JobOutputStream, content: &[u8]) {
     let content = bstr::BStr::new(content);
 

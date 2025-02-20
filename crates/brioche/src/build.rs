@@ -48,6 +48,7 @@ pub struct BuildArgs {
     display: super::DisplayMode,
 }
 
+#[expect(clippy::print_stdout)]
 pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
         args.display.to_console_reporter_kind(),
