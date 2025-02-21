@@ -143,9 +143,13 @@ impl BriocheCompilerHost {
                     }
                 };
 
-                let resolved = self
-                    .bridge
-                    .resolve_specifier(import_specifier.clone(), specifier.clone());
+                let resolved = tokio::task::spawn_blocking({
+                    let bridge = self.bridge.clone();
+                    let specifier = specifier.clone();
+                    move || bridge.resolve_specifier(import_specifier, specifier)
+                })
+                .await?;
+
                 let resolved = match resolved {
                     Ok(resolved) => resolved,
                     Err(error) => {
