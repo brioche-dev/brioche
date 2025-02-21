@@ -1,4 +1,4 @@
-use std::{os::unix::prelude::PermissionsExt, path::Path};
+use std::{os::unix::prelude::PermissionsExt as _, path::Path};
 
 use assert_matches::assert_matches;
 use brioche_core::{output::create_local_output, recipe::Artifact, Brioche};

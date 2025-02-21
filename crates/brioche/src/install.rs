@@ -10,7 +10,7 @@ use brioche_core::reporter::Reporter;
 use brioche_core::utils::DisplayDuration;
 use brioche_core::Brioche;
 use clap::Parser;
-use tracing::Instrument;
+use tracing::Instrument as _;
 
 use crate::consolidate_result;
 

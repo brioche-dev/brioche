@@ -4,10 +4,10 @@ use std::{
     sync::{atomic::AtomicUsize, Arc},
 };
 
-use bstr::ByteSlice;
+use bstr::ByteSlice as _;
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_otlp::WithHttpConfig;
-use superconsole::style::Stylize;
+use opentelemetry_otlp::WithHttpConfig as _;
+use superconsole::style::Stylize as _;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
 
 use crate::utils::{output_buffer::OutputBuffer, DisplayDuration};
@@ -236,6 +236,7 @@ enum ConsoleReporter {
     },
 }
 
+#[expect(clippy::print_stderr)]
 impl ConsoleReporter {
     fn emit(&mut self, lines: superconsole::Lines) {
         match self {
@@ -482,6 +483,7 @@ impl ConsoleReporter {
     }
 }
 
+#[expect(clippy::print_stderr)]
 fn print_job_content(jobs: &HashMap<JobId, Job>, stream: &JobOutputStream, content: &[u8]) {
     let content = bstr::BStr::new(content);
 

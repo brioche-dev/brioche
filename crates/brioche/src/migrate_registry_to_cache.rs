@@ -30,6 +30,7 @@ pub struct MigrateRegistryToCacheArgs {
     cache_dir: PathBuf,
 }
 
+#[expect(clippy::print_stdout)]
 pub async fn migrate_registry_to_cache(args: MigrateRegistryToCacheArgs) -> anyhow::Result<()> {
     let (reporter, _guard) = brioche_core::reporter::console::start_console_reporter(
         brioche_core::reporter::console::ConsoleReporterKind::Plain,

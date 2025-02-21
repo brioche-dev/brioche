@@ -798,8 +798,6 @@ async fn load_project_inner(
                     projects.dirty_lockfiles.insert(lockfile_path, new_lockfile);
                 }
                 ProjectLocking::Locked => {
-                    println!("lockfile: {lockfile:?}");
-                    println!("new_lockfile: {new_lockfile:?}");
                     anyhow::bail!("lockfile at {} is out of date", lockfile_path.display());
                 }
             }

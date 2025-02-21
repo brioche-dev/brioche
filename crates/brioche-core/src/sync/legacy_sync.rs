@@ -10,6 +10,7 @@ use crate::{
 
 use super::SyncBakesResults;
 
+#[expect(clippy::print_stdout)]
 pub async fn sync_bakes(
     brioche: &Brioche,
     bakes: Vec<(crate::recipe::Recipe, crate::recipe::Artifact)>,
@@ -89,6 +90,7 @@ pub async fn sync_bakes(
     })
 }
 
+#[expect(clippy::print_stdout)]
 pub async fn sync_recipe_references(
     brioche: &Brioche,
     references: &RecipeReferences,
@@ -190,6 +192,7 @@ pub struct SyncRecipeReferencesResult {
     pub num_new_recipes: usize,
 }
 
+#[expect(clippy::print_stdout)]
 pub async fn sync_project_references(
     brioche: &Brioche,
     references: &ProjectReferences,

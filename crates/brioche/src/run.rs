@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use anyhow::Context as _;
 use brioche_core::{project::ProjectLocking, utils::DisplayDuration};
 use clap::Parser;
-use tracing::Instrument;
+use tracing::Instrument as _;
 
 #[derive(Debug, Parser)]
 pub struct RunArgs {
@@ -43,6 +43,7 @@ pub struct RunArgs {
     args: Vec<std::ffi::OsString>,
 }
 
+#[expect(clippy::print_stderr)]
 pub async fn run(args: RunArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = if args.quiet {
         brioche_core::reporter::start_null_reporter()

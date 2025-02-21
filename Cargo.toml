@@ -8,6 +8,9 @@ resolver = "2"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+print_stdout = { level = "warn" }
+print_stderr = { level = "warn" }
+unused_trait_names = { level = "warn" }
 
 [profile.dev]
 # Enable optimizations for debug builds because the JS runs slow without it.

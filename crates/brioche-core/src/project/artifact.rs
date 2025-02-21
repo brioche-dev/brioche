@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use bstr::ByteSlice;
+use bstr::ByteSlice as _;
 
 use crate::{
     recipe::{Artifact, ArtifactDiscriminants, Directory},

@@ -3,7 +3,7 @@ use std::{path::PathBuf, process::ExitCode};
 use anyhow::Context as _;
 use brioche_core::{fs_utils, project::ProjectLocking, utils::DisplayDuration};
 use clap::Parser;
-use tracing::Instrument;
+use tracing::Instrument as _;
 
 #[derive(Debug, Parser)]
 pub struct BuildArgs {
@@ -48,6 +48,7 @@ pub struct BuildArgs {
     display: super::DisplayMode,
 }
 
+#[expect(clippy::print_stdout)]
 pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
         args.display.to_console_reporter_kind(),

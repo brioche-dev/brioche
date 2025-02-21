@@ -189,6 +189,7 @@ struct AnalyzeArgs {
     project: PathBuf,
 }
 
+#[expect(clippy::print_stdout)]
 async fn analyze(args: AnalyzeArgs) -> anyhow::Result<()> {
     let vfs = brioche_core::vfs::Vfs::immutable();
     let project = brioche_core::project::analyze::analyze_project(&vfs, &args.project).await?;
@@ -202,6 +203,7 @@ struct ExportProjectArgs {
     project: PathBuf,
 }
 
+#[expect(clippy::print_stdout)]
 async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
     #[derive(Debug, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]

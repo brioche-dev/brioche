@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeMap, future::Future};
 
-use anyhow::Context;
+use anyhow::Context as _;
 use assert_matches::assert_matches;
 use pretty_assertions::assert_eq;
 
