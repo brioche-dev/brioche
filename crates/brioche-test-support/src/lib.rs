@@ -4,7 +4,7 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
     process::Output,
-    sync::{Arc, OnceLock},
+    sync::{atomic::AtomicU32, Arc, OnceLock},
 };
 
 use anyhow::Context as _;
@@ -17,7 +17,12 @@ use brioche_core::{
     },
     Brioche, BriocheBuilder,
 };
-use tokio::{io::AsyncSeekExt as _, sync::Mutex};
+use futures::TryFutureExt as _;
+use tokio::{
+    io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
+    sync::Mutex,
+};
+use tower_lsp::lsp_types::{self, notification, request};
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
     brioche_test_with(|builder| builder).await
@@ -846,4 +851,314 @@ impl TestContext {
 
         mocks
     }
+}
+
+#[expect(clippy::print_stderr)]
+pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
+    let (brioche, context) = brioche_test_with(|builder| {
+        builder
+            .registry_client(brioche_core::registry::RegistryClient::disabled())
+            .vfs(brioche_core::vfs::Vfs::mutable())
+    })
+    .await;
+
+    let projects = brioche_core::project::Projects::default();
+    let (service, socket) = tower_lsp::LspService::new({
+        let brioche = brioche.clone();
+        move |client| {
+            futures::executor::block_on(async move {
+                let lsp_server =
+                    brioche_core::script::lsp::BriocheLspServer::new(brioche, projects, client)
+                        .await?;
+                anyhow::Ok(lsp_server)
+            })
+            .expect("failed to build LSP")
+        }
+    });
+
+    let (client_io, server_io) = tokio::io::duplex(4096);
+    let (client_in, mut client_out) = tokio::io::split(client_io);
+    let (server_in, server_out) = tokio::io::split(server_io);
+
+    let (request_tx, mut request_rx) = tokio::sync::mpsc::unbounded_channel();
+    let response_handlers: Arc<
+        tokio::sync::Mutex<HashMap<JsonRpcId, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+    > = Default::default();
+
+    // Used to indicate that one of the LSP client tasks has failed,
+    // meaning in-flight requests will not receive a response. This can
+    // be used to ensure we don't wait forever for a response that
+    // won't arrive
+    let cancellation_token = tokio_util::sync::CancellationToken::new();
+
+    tokio::spawn({
+        async move {
+            while let Some(message) = request_rx.recv().await {
+                let content =
+                    serde_json::to_string(&message).context("failed to serialize message")?;
+                let content_length = content.len();
+                let content_length =
+                    u64::try_from(content_length).context("content length out of range")?;
+
+                let protocol_message = format!("Content-Length: {content_length}\r\n\r\n{content}");
+                client_out
+                    .write_all(protocol_message.as_bytes())
+                    .await
+                    .context("failed to write message")?;
+            }
+
+            anyhow::Ok(())
+        }
+        .inspect_err({
+            let cancellation_token = cancellation_token.clone();
+            move |error| {
+                eprintln!("LSP client_out task returned error: {error:#}");
+                cancellation_token.cancel();
+            }
+        })
+    });
+
+    tokio::spawn({
+        let response_handlers = response_handlers.clone();
+        async move {
+            let mut client_in = tokio::io::BufReader::new(client_in);
+
+            loop {
+                let mut line = String::new();
+                let read_bytes = client_in.read_line(&mut line).await?;
+                if read_bytes == 0 {
+                    break;
+                }
+
+                let mut headers = vec![];
+
+                // Read headers
+                loop {
+                    if line.trim().is_empty() {
+                        break;
+                    }
+
+                    let Some((header, value)) = line.split_once(": ") else {
+                        anyhow::bail!("invalid header line: {line:?}");
+                    };
+                    headers.push((header.to_string(), value.to_string()));
+
+                    line.clear();
+                    let read_bytes = client_in.read_line(&mut line).await?;
+                    if read_bytes == 0 {
+                        anyhow::bail!("unexpected end of stream")
+                    };
+                }
+
+                // Get Content-Length header
+                let content_length_value = headers
+                    .iter()
+                    .find_map(|(header, value)| {
+                        if header.eq_ignore_ascii_case("Content-Length") {
+                            Some(value)
+                        } else {
+                            None
+                        }
+                    })
+                    .context("request did not include Content-Length header")?;
+                let content_length_value: u64 =
+                    content_length_value.trim_end().parse().with_context(|| {
+                        format!("invalid value for Content-Length header: {content_length_value:?}")
+                    })?;
+                let content_length_value: usize = content_length_value
+                    .try_into()
+                    .context("Content-Length out of range")?;
+
+                // Read body
+                let mut content = bstr::BString::new(vec![0; content_length_value]);
+                client_in
+                    .read_exact(&mut content)
+                    .await
+                    .context("failed to read message body")?;
+
+                let message: JsonRpcResponse =
+                    serde_json::from_slice(&content).with_context(|| {
+                        format!(
+                            "failed to deserialize message body: {content:?}",
+                        )
+                    })?;
+
+                if let Some(id) = &message.id {
+                    // Received a response message, find the handler
+                    // to send it to
+                    let mut response_handler = response_handlers.lock().await.remove(id).with_context(|| format!("received LSP message, but no associated handler is listening for it: {content:?}"))?;
+
+                    response_handler.send(message).map_err(|_| anyhow::anyhow!("failed to send message to channel: {content:?}"))?;
+                } else if message.error.is_some() {
+                    // Received an error message, but it has no request
+                    // ID meaning it must be a notification from the server
+
+                    anyhow::bail!("received LSP error notification: {content:?}");
+                } else {
+                    // Received a non-error notification from the server,
+                    // ignore it
+                }
+            }
+
+            anyhow::Ok(())
+        }
+        .inspect_err({
+            let cancellation_token = cancellation_token.clone();
+            move |error| {
+                eprintln!("LSP client_in task returned error: {error:#}");
+                cancellation_token.cancel();
+            }
+        })
+    });
+
+    tokio::spawn(tower_lsp::Server::new(server_in, server_out, socket).serve(service));
+
+    let mut lsp = LspContext {
+        request_tx,
+        response_handlers,
+        next_id: Arc::new(AtomicU32::new(1)),
+        cancellation_token,
+
+        // Use a temporary value for the initialization result
+        initialize_result: Default::default(),
+    };
+
+    // Send initialize request to the LSP server before returning, and
+    // save the initialization result
+    lsp.initialize_result = lsp
+        .request::<request::Initialize>(lsp_types::InitializeParams::default())
+        .await;
+
+    lsp.notify::<notification::Initialized>(lsp_types::InitializedParams {})
+        .await;
+
+    (brioche, context, lsp)
+}
+
+pub struct LspContext {
+    request_tx: tokio::sync::mpsc::UnboundedSender<JsonRpcRequest>,
+    response_handlers:
+        Arc<tokio::sync::Mutex<HashMap<JsonRpcId, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
+    next_id: Arc<AtomicU32>,
+    cancellation_token: tokio_util::sync::CancellationToken,
+    pub initialize_result: lsp_types::InitializeResult,
+}
+
+impl LspContext {
+    pub async fn request<T>(&self, params: T::Params) -> T::Result
+    where
+        T: request::Request,
+    {
+        let id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let id = JsonRpcId::Number(
+            serde_json::Number::from_u128(id.into()).expect("failed to serialize ID"),
+        );
+        let message = JsonRpcRequest {
+            jsonrpc: JsonRpcVersion::V2_0,
+            id: Some(id.clone()),
+            method: T::METHOD.into(),
+            params: serde_json::to_value(params).expect("failed to serialize params"),
+        };
+
+        let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+        {
+            self.response_handlers.lock().await.insert(id, res_tx);
+        }
+
+        self.request_tx
+            .send(message)
+            .expect("failed to send request message");
+
+        let res = self
+            .cancellation_token
+            .run_until_cancelled(res_rx)
+            .await
+            .expect("request cancelled")
+            .expect("failed to receive response");
+
+        let result = match res.into_result() {
+            Ok(result) => result,
+            Err(error) => {
+                panic!("LSP request for {} failed: {error:#?}", T::METHOD);
+            }
+        };
+
+        let result: T::Result = serde_json::from_value(result)
+            .with_context(|| format!("failed to deserialize LSP response for {}", T::METHOD))
+            .unwrap();
+        result
+    }
+
+    pub async fn notify<T>(&self, params: T::Params)
+    where
+        T: notification::Notification,
+    {
+        let message = JsonRpcRequest {
+            jsonrpc: JsonRpcVersion::V2_0,
+            id: None,
+            method: T::METHOD.into(),
+            params: serde_json::to_value(params).expect("failed to serialize params"),
+        };
+
+        self.request_tx
+            .send(message)
+            .expect("failed to send notification message");
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct JsonRpcRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<JsonRpcId>,
+
+    jsonrpc: JsonRpcVersion,
+    method: String,
+    params: serde_json::Value,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct JsonRpcResponse {
+    jsonrpc: JsonRpcVersion,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<JsonRpcId>,
+    result: Option<serde_json::Value>,
+    error: Option<JsonRpcError>,
+}
+
+impl JsonRpcResponse {
+    #[expect(clippy::print_stderr)]
+    fn into_result(self) -> Result<serde_json::Value, JsonRpcError> {
+        if let Some(error) = self.error {
+            return Err(error);
+        };
+
+        if let Some(result) = self.result {
+            return Ok(result);
+        };
+
+        eprintln!("warning: JSON RPC message seems to have a null value");
+        Ok(serde_json::Value::Null)
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct JsonRpcError {
+    code: i128,
+    message: String,
+    data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+enum JsonRpcVersion {
+    #[serde(rename = "2.0")]
+    V2_0,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum JsonRpcId {
+    Number(serde_json::Number),
+    String(String),
 }
