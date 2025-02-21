@@ -47,7 +47,12 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
   }
 
   readFile(fileName: string): string | undefined {
-    return brioche.readFile(brioche.fromTsUrl(fileName));
+    const uri = brioche.fromTsUrl(fileName);
+    if (fileName.startsWith("file://")) {
+      this.files.add(uri);
+    }
+
+    return brioche.readFile(uri);
   }
 
   getSourceFile(fileName: string): ts.SourceFile {
@@ -130,7 +135,6 @@ class Lsp {
   diagnostic(params: lsp.DocumentDiagnosticParams): lsp.Diagnostic[] {
     const fileName = params.textDocument.uri;
     const tsUrl = brioche.toTsUrl(fileName);
-    this.host.files.add(fileName);
 
     const sourceFile = this.host.getSourceFile(fileName);
     const tsLangaugeDiagnostics = this.languageService.getSemanticDiagnostics(tsUrl);
