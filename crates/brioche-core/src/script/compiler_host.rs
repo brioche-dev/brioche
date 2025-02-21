@@ -42,6 +42,18 @@ impl BriocheCompilerHost {
         }
     }
 
+    pub async fn is_document_loaded(
+        &self,
+        specifier: &BriocheModuleSpecifier,
+    ) -> anyhow::Result<bool> {
+        let documents = self
+            .documents
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+
+        Ok(documents.contains_key(specifier))
+    }
+
     pub async fn load_documents(
         &self,
         specifiers: Vec<BriocheModuleSpecifier>,

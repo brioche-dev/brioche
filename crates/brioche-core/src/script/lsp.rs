@@ -41,6 +41,26 @@ impl BriocheLspServer {
         })
     }
 
+    async fn load_document(&self, uri: &url::Url) -> anyhow::Result<()> {
+        let specifier = lsp_uri_to_module_specifier(uri)?;
+        self.compiler_host
+            .load_documents(vec![specifier.clone()])
+            .await?;
+        Ok(())
+    }
+
+    async fn load_document_if_not_loaded(&self, uri: &url::Url) -> anyhow::Result<()> {
+        let specifier = lsp_uri_to_module_specifier(uri)?;
+
+        if !self.compiler_host.is_document_loaded(&specifier).await? {
+            self.compiler_host
+                .load_documents(vec![specifier.clone()])
+                .await?;
+        }
+
+        Ok(())
+    }
+
     async fn diagnostics(
         &self,
         text_document: TextDocumentIdentifier,
@@ -98,28 +118,13 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        tracing::info!(uri = %params.text_document.uri, "did open");
+        let text_document_uri = &params.text_document.uri;
 
-        let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
-        match specifier {
-            Ok(specifier) => {
-                let result = self
-                    .compiler_host
-                    .load_documents(vec![specifier.clone()])
-                    .await;
-                match result {
-                    Ok(()) => {}
-                    Err(error) => {
-                        tracing::warn!("failed to load document {specifier}: {error:#}");
-                    }
-                }
-            }
-            Err(error) => {
-                tracing::warn!(
-                    "failed to parse URI {}: {error:#}",
-                    params.text_document.uri
-                );
-            }
+        tracing::info!(uri = %text_document_uri, "did open");
+
+        let load_result = self.load_document(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!("failed to load document {text_document_uri}: {error:#}",);
         }
 
         let diagnostics = self
@@ -140,7 +145,7 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        tracing::info!(uri = %params.text_document.uri, "did open");
+        tracing::info!(uri = %params.text_document.uri, "did save");
 
         if let Ok(BriocheModuleSpecifier::File { path: module_path }) =
             (&params.text_document.uri).try_into()
@@ -216,7 +221,6 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        tracing::info!(uri = %params.text_document.uri, "did update");
         if let Some(change) = params.content_changes.first() {
             let result = self
                 .compiler_host
@@ -247,6 +251,15 @@ impl LanguageServer for BriocheLspServer {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         tracing::info!("completion");
+
+        let text_document_uri = &params.text_document_position.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during completion request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Vec<CompletionItem>>(JsLspMessage::Completion(params.clone()))
@@ -266,6 +279,15 @@ impl LanguageServer for BriocheLspServer {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoTypeDefinitionResponse>> {
         tracing::info!("goto definition");
+
+        let text_document_uri = &params.text_document_position_params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during goto definition request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<Location>>(JsLspMessage::GotoDefinition(
@@ -284,6 +306,15 @@ impl LanguageServer for BriocheLspServer {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         tracing::info!("hover");
+
+        let text_document_uri = &params.text_document_position_params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during hover request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<Hover>>(JsLspMessage::Hover(params.clone()))
@@ -300,6 +331,15 @@ impl LanguageServer for BriocheLspServer {
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         tracing::info!("references");
+
+        let text_document_uri = &params.text_document_position.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during references request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<Vec<Location>>>(JsLspMessage::References(params.clone()))
@@ -318,6 +358,14 @@ impl LanguageServer for BriocheLspServer {
         &self,
         params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let text_document_uri = &params.text_document_position_params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during document highlight request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<Vec<DocumentHighlight>>>(JsLspMessage::DocumentHighlight(params.clone()))
@@ -336,6 +384,16 @@ impl LanguageServer for BriocheLspServer {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
+        tracing::info!("prepare rename");
+
+        let text_document_uri = &params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during prepare rename request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<PrepareRenameResponse>>(JsLspMessage::PrepareRename(params.clone()))
@@ -351,6 +409,16 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        tracing::info!("rename");
+
+        let text_document_uri = &params.text_document_position.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during rename request: {error:#}"
+            );
+        }
+
         let prepare_rename = self
             .prepare_rename(params.text_document_position.clone())
             .await?;
@@ -374,6 +442,14 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let text_document_uri = &params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during formatting request: {error:#}"
+            );
+        }
+
         let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
         let specifier = match specifier {
             Ok(specifier) => specifier,
@@ -435,26 +511,12 @@ impl LanguageServer for BriocheLspServer {
             .log_message(MessageType::INFO, "diagnostic")
             .await;
 
-        let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
-        match specifier {
-            Ok(specifier) => {
-                let result = self
-                    .compiler_host
-                    .load_documents(vec![specifier.clone()])
-                    .await;
-                match result {
-                    Ok(()) => {}
-                    Err(error) => {
-                        tracing::warn!("failed to load document {specifier}: {error:#}");
-                    }
-                }
-            }
-            Err(error) => {
-                tracing::warn!(
-                    "failed to parse URI {}: {error:#}",
-                    params.text_document.uri
-                );
-            }
+        let text_document_uri = &params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during diagnostic request: {error:#}"
+            );
         }
 
         let response = self
