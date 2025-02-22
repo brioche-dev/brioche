@@ -1286,6 +1286,7 @@ dependencies = [
  "serde_json",
  "tempdir",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "toml",
  "tower-lsp",
@@ -7815,6 +7816,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

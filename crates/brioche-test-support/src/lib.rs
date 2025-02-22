@@ -17,7 +17,7 @@ use brioche_core::{
     },
     Brioche, BriocheBuilder,
 };
-use futures::{FutureExt as _, TryFutureExt as _};
+use futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
 use tokio::{
     io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
     sync::Mutex,
@@ -613,6 +613,15 @@ impl TestContext {
         dst
     }
 
+    pub async fn write_lockfile(
+        &self,
+        path: impl AsRef<Path>,
+        contents: &brioche_core::project::Lockfile,
+    ) -> PathBuf {
+        self.write_file(path, serde_json::to_string_pretty(&contents).unwrap())
+            .await
+    }
+
     pub async fn write_toml<T>(&self, path: impl AsRef<Path>, contents: &T) -> PathBuf
     where
         T: serde::Serialize,
@@ -853,8 +862,14 @@ impl TestContext {
     }
 }
 
-#[expect(clippy::print_stderr)]
 pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
+    brioche_lsp_test_with(|builder| builder).await
+}
+
+#[expect(clippy::print_stderr)]
+pub async fn brioche_lsp_test_with(
+    f: impl FnOnce(BriocheBuilder) -> BriocheBuilder + Clone + Send + Sync + 'static,
+) -> (Brioche, TestContext, LspContext) {
     let (brioche, context) = brioche_test_with(|builder| {
         builder
             .registry_client(brioche_core::registry::RegistryClient::disabled())
@@ -870,6 +885,7 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
         let null_reporter = null_reporter.clone();
         let brioche_data_dir = brioche_data_dir.clone();
         let registry_server_url = registry_server_url.clone();
+        let f = f.clone();
         let remote_brioche_fut = async move {
             let remote_brioche_builder = brioche_core::BriocheBuilder::new(null_reporter.clone())
                 .config(brioche_core::config::BriocheConfig::default())
@@ -883,6 +899,7 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
                 ))
                 .cache_client(brioche_core::cache::CacheClient::default())
                 .self_exec_processes(false);
+            let remote_brioche_builder = f(remote_brioche_builder);
             anyhow::Ok(remote_brioche_builder)
         };
         remote_brioche_fut.boxed()
@@ -912,8 +929,9 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
 
     let (request_tx, mut request_rx) = tokio::sync::mpsc::unbounded_channel();
     let response_handlers: Arc<
-        tokio::sync::Mutex<HashMap<JsonRpcId, tokio::sync::oneshot::Sender<JsonRpcResponse>>>,
+        tokio::sync::Mutex<HashMap<JsonRpcId, tokio::sync::oneshot::Sender<JsonRpcMessage>>>,
     > = Default::default();
+    let notification_tx = tokio::sync::broadcast::Sender::new(100);
 
     // Used to indicate that one of the LSP client tasks has failed,
     // meaning in-flight requests will not receive a response. This can
@@ -950,6 +968,7 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
 
     tokio::spawn({
         let response_handlers = response_handlers.clone();
+        let notification_tx = notification_tx.clone();
         async move {
             let mut client_in = tokio::io::BufReader::new(client_in);
 
@@ -1006,7 +1025,7 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
                     .await
                     .context("failed to read message body")?;
 
-                let message: JsonRpcResponse =
+                let message: JsonRpcMessage =
                     serde_json::from_slice(&content).with_context(|| {
                         format!(
                             "failed to deserialize message body: {content:?}",
@@ -1025,8 +1044,8 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
 
                     anyhow::bail!("received LSP error notification: {content:?}");
                 } else {
-                    // Received a non-error notification from the server,
-                    // ignore it
+                    // Try to broadcast notification
+                    let _ = notification_tx.send(message);
                 }
             }
 
@@ -1046,6 +1065,7 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
     let mut lsp = LspContext {
         request_tx,
         response_handlers,
+        notification_tx,
         next_id: Arc::new(AtomicU32::new(1)),
         cancellation_token,
 
@@ -1066,9 +1086,10 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
 }
 
 pub struct LspContext {
-    request_tx: tokio::sync::mpsc::UnboundedSender<JsonRpcRequest>,
+    request_tx: tokio::sync::mpsc::UnboundedSender<JsonRpcMessage>,
     response_handlers:
-        Arc<tokio::sync::Mutex<HashMap<JsonRpcId, tokio::sync::oneshot::Sender<JsonRpcResponse>>>>,
+        Arc<tokio::sync::Mutex<HashMap<JsonRpcId, tokio::sync::oneshot::Sender<JsonRpcMessage>>>>,
+    notification_tx: tokio::sync::broadcast::Sender<JsonRpcMessage>,
     next_id: Arc<AtomicU32>,
     cancellation_token: tokio_util::sync::CancellationToken,
     pub initialize_result: lsp_types::InitializeResult,
@@ -1085,11 +1106,13 @@ impl LspContext {
         let id = JsonRpcId::Number(
             serde_json::Number::from_u128(id.into()).expect("failed to serialize ID"),
         );
-        let message = JsonRpcRequest {
+        let message = JsonRpcMessage {
             jsonrpc: JsonRpcVersion::V2_0,
             id: Some(id.clone()),
-            method: T::METHOD.into(),
-            params: serde_json::to_value(params).expect("failed to serialize params"),
+            method: Some(T::METHOD.to_string()),
+            params: Some(serde_json::to_value(params).expect("failed to serialize params")),
+            result: None,
+            error: None,
         };
 
         let (res_tx, res_rx) = tokio::sync::oneshot::channel();
@@ -1108,7 +1131,7 @@ impl LspContext {
             .expect("request cancelled")
             .expect("failed to receive response");
 
-        let result = match res.into_result() {
+        let result = match res.into_response_result() {
             Ok(result) => result,
             Err(error) => {
                 panic!("LSP request for {} failed: {error:#?}", T::METHOD);
@@ -1125,41 +1148,67 @@ impl LspContext {
     where
         T: notification::Notification,
     {
-        let message = JsonRpcRequest {
+        let message = JsonRpcMessage {
             jsonrpc: JsonRpcVersion::V2_0,
             id: None,
-            method: T::METHOD.into(),
-            params: serde_json::to_value(params).expect("failed to serialize params"),
+            method: Some(T::METHOD.to_string()),
+            params: Some(serde_json::to_value(params).expect("failed to serialize params")),
+            error: None,
+            result: None,
         };
 
         self.request_tx
             .send(message)
             .expect("failed to send notification message");
     }
+
+    pub fn subscribe_to_notifications<T>(
+        &self,
+    ) -> impl futures::stream::Stream<Item = anyhow::Result<T::Params>>
+    where
+        T: notification::Notification,
+    {
+        let notification_rx = self.notification_tx.subscribe();
+        tokio_stream::wrappers::BroadcastStream::new(notification_rx)
+            .map(anyhow::Ok)
+            .try_filter_map(|notification| async {
+                let notification = notification?;
+                if notification.method.as_deref() == Some(T::METHOD) {
+                    let Some(params) = notification.params else {
+                        anyhow::bail!("JSON RPC notification message did not include params");
+                    };
+                    let params: T::Params = serde_json::from_value(params)?;
+                    Ok(Some(params))
+                } else {
+                    Ok(None)
+                }
+            })
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct JsonRpcRequest {
+struct JsonRpcMessage {
+    jsonrpc: JsonRpcVersion,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     id: Option<JsonRpcId>,
 
-    jsonrpc: JsonRpcVersion,
-    method: String,
-    params: serde_json::Value,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct JsonRpcResponse {
-    jsonrpc: JsonRpcVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
-    id: Option<JsonRpcId>,
+    method: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    params: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     result: Option<serde_json::Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<JsonRpcError>,
 }
 
-impl JsonRpcResponse {
+impl JsonRpcMessage {
     #[expect(clippy::print_stderr)]
-    fn into_result(self) -> Result<serde_json::Value, JsonRpcError> {
+    fn into_response_result(self) -> Result<serde_json::Value, JsonRpcError> {
         if let Some(error) = self.error {
             return Err(error);
         };
@@ -1168,8 +1217,12 @@ impl JsonRpcResponse {
             return Ok(result);
         };
 
-        eprintln!("warning: JSON RPC message seems to have a null value");
-        Ok(serde_json::Value::Null)
+        eprintln!("warning: tried to parse JSON RPC message as a response, but both result and error were None");
+        Err(JsonRpcError {
+            code: 12345678,
+            message: "Failed to parse JSON RPC message as a result".to_string(),
+            data: None,
+        })
     }
 }
 
