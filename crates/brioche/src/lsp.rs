@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use clap::Parser;
+use futures::FutureExt as _;
 
 #[derive(Debug, Parser)]
 pub struct LspArgs {
@@ -20,8 +23,25 @@ pub async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
                 .build()
                 .await?;
             let projects = brioche_core::project::Projects::default();
-            let lsp_server =
-                brioche_core::script::lsp::BriocheLspServer::new(brioche, projects, client).await?;
+
+            let (null_reporter, _null_guard) = brioche_core::reporter::start_null_reporter();
+            let remote_brioche_builder = move || {
+                let null_reporter = null_reporter.clone();
+                let remote_brioche_fut = async move {
+                    let remote_brioche_builder =
+                        brioche_core::BriocheBuilder::new(null_reporter.clone());
+                    anyhow::Ok(remote_brioche_builder)
+                };
+                remote_brioche_fut.boxed()
+            };
+
+            let lsp_server = brioche_core::script::lsp::BriocheLspServer::new(
+                brioche,
+                projects,
+                client,
+                Arc::new(remote_brioche_builder),
+            )
+            .await?;
             anyhow::Ok(lsp_server)
         })
         .expect("failed to build LSP")

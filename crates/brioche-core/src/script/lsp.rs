@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::Context as _;
 use tower_lsp::jsonrpc::Result;
@@ -19,15 +20,26 @@ use super::specifier::BriocheModuleSpecifier;
 /// lockfile in the Language Server
 const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
+pub type BuildBriocheFn = dyn Fn() -> futures::future::BoxFuture<'static, anyhow::Result<BriocheBuilder>>
+    + Send
+    + Sync
+    + 'static;
+
 pub struct BriocheLspServer {
     bridge: RuntimeBridge,
     compiler_host: BriocheCompilerHost,
     client: Client,
     js_lsp: JsLspTask,
+    remote_brioche_builder: Arc<BuildBriocheFn>,
 }
 
 impl BriocheLspServer {
-    pub async fn new(brioche: Brioche, projects: Projects, client: Client) -> anyhow::Result<Self> {
+    pub async fn new(
+        brioche: Brioche,
+        projects: Projects,
+        client: Client,
+        remote_brioche_builder: Arc<BuildBriocheFn>,
+    ) -> anyhow::Result<Self> {
         let bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
 
         let compiler_host = BriocheCompilerHost::new(bridge.clone()).await;
@@ -38,6 +50,7 @@ impl BriocheLspServer {
             compiler_host,
             client,
             js_lsp,
+            remote_brioche_builder,
         })
     }
 
@@ -154,6 +167,7 @@ impl LanguageServer for BriocheLspServer {
             let (lockfile_tx, lockfile_rx) = tokio::sync::oneshot::channel();
 
             std::thread::spawn({
+                let remote_brioche_builder = self.remote_brioche_builder.clone();
                 let bridge = self.bridge.clone();
                 let module_path = module_path.clone();
                 move || {
@@ -161,6 +175,7 @@ impl LanguageServer for BriocheLspServer {
 
                     local_set.spawn_local(async move {
                         let result = try_update_lockfile_for_module(
+                            remote_brioche_builder,
                             bridge,
                             module_path,
                             LOCKFILE_LOAD_TIMEOUT,
@@ -546,27 +561,24 @@ impl LanguageServer for BriocheLspServer {
 }
 
 async fn try_update_lockfile_for_module(
+    build_remote_brioche: Arc<BuildBriocheFn>,
     bridge: RuntimeBridge,
     module_path: PathBuf,
     load_timeout: std::time::Duration,
 ) -> anyhow::Result<bool> {
     let project_path = bridge.project_root_for_module_path(module_path).await?;
 
-    // The instances of `Brioche` and `Projects` used for the LSP aren't
-    // suitable for generating lockfiles (access to the registry is disabled,
-    // and files may be dirty in-memory copies). We create temporary instances
-    // so we can build the lockfile properly.
-    let (null_reporter, _null_reporter_guard) = crate::reporter::start_null_reporter();
-    let brioche = BriocheBuilder::new(null_reporter)
-        .build()
-        .await
-        .context("failed to build `Brioche` instance")?;
+    // Build a "remote" Brioche instance, and load the project into a blank
+    // `Projects` instance to avoid conflicts with the `Projects` instance
+    // used throughout the LSP (where files may be dirty in-memory
+    // copies). This will let us update the lockfile starting from a blank
+    // slate, and properly pull any new registry imports.
+    let remote_brioche = (build_remote_brioche)().await?.build().await?;
     let projects = Projects::default();
-
     tokio::time::timeout(
         load_timeout,
         projects.load(
-            &brioche,
+            &remote_brioche,
             &project_path,
             ProjectValidation::Minimal,
             ProjectLocking::Unlocked,

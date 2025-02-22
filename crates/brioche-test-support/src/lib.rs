@@ -17,7 +17,7 @@ use brioche_core::{
     },
     Brioche, BriocheBuilder,
 };
-use futures::TryFutureExt as _;
+use futures::{FutureExt as _, TryFutureExt as _};
 use tokio::{
     io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
     sync::Mutex,
@@ -862,14 +862,43 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
     })
     .await;
 
+    let (null_reporter, _null_guard) = brioche_core::reporter::start_null_reporter();
+    let brioche_data_dir = brioche.data_dir.clone();
+    let registry_server_url: url::Url = context.registry_server.url().parse().unwrap();
+    let remote_brioche_builder = move || {
+        let null_reporter = null_reporter.clone();
+        let brioche_data_dir = brioche_data_dir.clone();
+        let registry_server_url = registry_server_url.clone();
+        let remote_brioche_fut = async move {
+            let remote_brioche_builder = brioche_core::BriocheBuilder::new(null_reporter.clone())
+                .config(brioche_core::config::BriocheConfig::default())
+                .data_dir(brioche_data_dir)
+                .registry_client(brioche_core::registry::RegistryClient::new_with_client(
+                    reqwest_middleware::ClientBuilder::new(reqwest::Client::new()).build(),
+                    registry_server_url.clone(),
+                    brioche_core::registry::RegistryAuthentication::Admin {
+                        password: "admin".to_string(),
+                    },
+                ))
+                .cache_client(brioche_core::cache::CacheClient::default())
+                .self_exec_processes(false);
+            anyhow::Ok(remote_brioche_builder)
+        };
+        remote_brioche_fut.boxed()
+    };
+
     let projects = brioche_core::project::Projects::default();
     let (service, socket) = tower_lsp::LspService::new({
         let brioche = brioche.clone();
         move |client| {
             futures::executor::block_on(async move {
-                let lsp_server =
-                    brioche_core::script::lsp::BriocheLspServer::new(brioche, projects, client)
-                        .await?;
+                let lsp_server = brioche_core::script::lsp::BriocheLspServer::new(
+                    brioche,
+                    projects,
+                    client,
+                    Arc::new(remote_brioche_builder),
+                )
+                .await?;
                 anyhow::Ok(lsp_server)
             })
             .expect("failed to build LSP")
