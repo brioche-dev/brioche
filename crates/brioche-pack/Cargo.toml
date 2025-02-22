@@ -7,7 +7,7 @@ rust-version.workspace = true
 [dependencies]
 bincode = { version = "2.0.0-rc.3" }
 bstr = { version = "1.11.3", features = ["serde"] }
-serde = { version = "1.0.217", features = ["derive"] }
+serde = { version = "1.0.218", features = ["derive"] }
 serde_with = { version = "3.12.0" }
 thiserror = "2.0.11"
 tick-encoding = "0.1.3"
