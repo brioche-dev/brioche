@@ -19,6 +19,7 @@ pub async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
             let (reporter, _guard) = brioche_core::reporter::start_lsp_reporter(client.clone());
             let brioche = brioche_core::BriocheBuilder::new(reporter)
                 .registry_client(brioche_core::registry::RegistryClient::disabled())
+                .cache_client(brioche_core::cache::CacheClient::default())
                 .vfs(brioche_core::vfs::Vfs::mutable())
                 .build()
                 .await?;

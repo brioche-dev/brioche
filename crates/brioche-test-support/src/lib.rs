@@ -858,6 +858,7 @@ pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
     let (brioche, context) = brioche_test_with(|builder| {
         builder
             .registry_client(brioche_core::registry::RegistryClient::disabled())
+            .cache_client(brioche_core::cache::CacheClient::default())
             .vfs(brioche_core::vfs::Vfs::mutable())
     })
     .await;
