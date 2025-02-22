@@ -134,9 +134,10 @@ impl Projects {
         let project_hash = resolve_project_from_registry(brioche, project_name, version)
             .await
             .with_context(|| format!("failed to resolve '{project_name}' from registry"))?;
-        let local_path = fetch_project_from_cache(self, brioche, project_hash)
-            .await
-            .with_context(|| format!("failed to fetch '{project_name}' from registry"))?;
+        let local_path =
+            fetch_project_from_cache(self, brioche, project_hash, ProjectValidation::Standard)
+                .await
+                .with_context(|| format!("failed to fetch '{project_name}' from registry"))?;
 
         let loaded_project_hash = self
             .load(
@@ -857,7 +858,7 @@ async fn try_load_path_dependency_with_errors(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 async fn try_load_registry_dependency_with_errors(
     projects: &Projects,
     brioche: &Brioche,
@@ -872,7 +873,7 @@ async fn try_load_registry_dependency_with_errors(
     errors: &mut Vec<LoadProjectError>,
 ) -> Option<ProjectHash> {
     let resolved_dep_result = resolve_dependency_to_local_path(
-        projects, brioche, workspace, name, version, locking, lockfile,
+        projects, brioche, workspace, name, version, validation, locking, lockfile,
     )
     .await;
     let resolved_dep = match resolved_dep_result {
@@ -936,12 +937,14 @@ async fn try_load_registry_dependency_with_errors(
     Some(actual_hash)
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn resolve_dependency_to_local_path(
     projects: &Projects,
     brioche: &Brioche,
     workspace: Option<&Workspace>,
     dependency_name: &str,
     dependency_version: &Version,
+    validation: ProjectValidation,
     locking: ProjectLocking,
     lockfile: Option<&Lockfile>,
 ) -> anyhow::Result<ResolvedDependency> {
@@ -984,7 +987,7 @@ async fn resolve_dependency_to_local_path(
         },
     };
 
-    let local_path = fetch_project_from_cache(projects, brioche, dep_hash)
+    let local_path = fetch_project_from_cache(projects, brioche, dep_hash, validation)
         .await
         .with_context(|| format!("failed to fetch '{dependency_name}' from cache"))?;
 
@@ -1022,6 +1025,7 @@ async fn fetch_project_from_cache(
     projects: &Projects,
     brioche: &Brioche,
     project_hash: ProjectHash,
+    validation: ProjectValidation,
 ) -> anyhow::Result<PathBuf> {
     // Use a mutex to ensure we don't try to fetch the same project more
     // than once at a time
@@ -1039,10 +1043,26 @@ async fn fetch_project_from_cache(
         .join("projects")
         .join(project_hash.to_string());
 
-    let local_project_hash = local_project_hash(brioche, &local_path).await?;
-    if local_project_hash == Some(project_hash) {
-        return Ok(local_path);
+    match validation {
+        ProjectValidation::Standard => {
+            let local_project_hash = local_project_hash(brioche, &local_path).await?;
+            if local_project_hash == Some(project_hash) {
+                // Local project hash matches, so no need to fetch
+                return Ok(local_path);
+            }
+        }
+        ProjectValidation::Minimal => {
+            let local_project_exists = tokio::fs::try_exists(&local_path).await?;
+            if local_project_exists {
+                // Directory for the local project exists. No need to fetch,
+                // and no need to validate since validation wasn't requested
+                return Ok(local_path);
+            }
+        }
     }
+
+    // By this point, we know the project doesn't exist locally so we
+    // need to fetch it.
 
     let project_artifact_hash = crate::cache::load_project_artifact_hash(brioche, project_hash)
         .await?
