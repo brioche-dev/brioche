@@ -207,16 +207,22 @@ impl LanguageServer for BriocheLspServer {
 
         // Try to reload the project for the current document so we can
         // resolve new dependencies
-        let reload_result = self
+        let _ = self
             .compiler_host
             .reload_module_project(&params.text_document.uri)
-            .await;
-        match reload_result {
-            Ok(()) => {}
-            Err(error) => {
+            .await
+            .inspect_err(|error| {
                 tracing::warn!("failed to reload module project: {error:#}");
-            }
-        }
+            });
+
+        // Reload the current document. This ensures any new referenced
+        // modules are loaded too
+        let _ = self
+            .load_document(&params.text_document.uri)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!("failed to load document after saving: {error:#}");
+            });
 
         let diagnostics = self
             .diagnostics(TextDocumentIdentifier {
