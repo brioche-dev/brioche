@@ -301,7 +301,7 @@ class Lsp {
       return null;
     }
 
-    const position = ts.getPositionOfLineAndCharacter(
+    const position = tryGetPositionOfLineAndCharacter(
       sourceFile,
       params.position.line,
       params.position.character,
@@ -370,11 +370,15 @@ class Lsp {
       return null;
     }
 
-    const position = ts.getPositionOfLineAndCharacter(
+    const position = tryGetPositionOfLineAndCharacter(
       sourceFile,
       params.position.line,
       params.position.character,
     );
+    if (position == null) {
+      return null;
+    }
+
     const rename = this.languageService.findRenameLocations(brioche.toTsUrl(fileName), position, false, false, {});
     if (rename == null) {
       return null;
