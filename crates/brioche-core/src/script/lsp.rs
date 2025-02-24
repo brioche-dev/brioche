@@ -18,7 +18,7 @@ use super::specifier::BriocheModuleSpecifier;
 
 /// The maximum time we spend resolving projects when regenerating a
 /// lockfile in the Language Server
-const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 pub type BuildBriocheFn = dyn Fn() -> futures::future::BoxFuture<'static, anyhow::Result<BriocheBuilder>>
     + Send
