@@ -135,9 +135,14 @@ impl LanguageServer for BriocheLspServer {
 
         tracing::info!(uri = %text_document_uri, "did open");
 
-        let load_result = self.load_document(text_document_uri).await;
-        if let Err(error) = load_result {
-            tracing::warn!("failed to load document {text_document_uri}: {error:#}",);
+        let result = self
+            .compiler_host
+            .update_document(text_document_uri, &params.text_document.text)
+            .await;
+        if let Err(error) = result {
+            tracing::warn!(
+                "failed to update document {text_document_uri} while opening: {error:#}",
+            );
         }
 
         let diagnostics = self
