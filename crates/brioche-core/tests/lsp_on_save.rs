@@ -441,7 +441,7 @@ async fn test_lsp_on_save_fetches_dependency_and_updates_lockfile() -> anyhow::R
 }
 
 #[tokio::test]
-async fn test_lsp_on_save_only_updates_dependencies_in_lockfile() -> anyhow::Result<()> {
+async fn test_lsp_on_save_only_adds_new_dependencies_in_lockfile() -> anyhow::Result<()> {
     let cache = brioche_test_support::new_cache();
     let (_brioche, mut context, lsp) = brioche_test_support::brioche_lsp_test_with({
         let cache = cache.clone();
@@ -572,9 +572,12 @@ async fn test_lsp_on_save_only_updates_dependencies_in_lockfile() -> anyhow::Res
     let project_lockfile: brioche_core::project::Lockfile =
         serde_json::from_str(&project_lockfile_contents)?;
 
-    // Validate that the lockfile only updated the 'dependencies' list
+    // Validate that the lockfile only added 'foo' as a dependency. Statics
+    // and unused dependencies should not be touched when saving in the LSP
     let expected_updated_lockfile = brioche_core::project::Lockfile {
-        dependencies: [("foo".into(), foo_hash)].into_iter().collect(),
+        dependencies: [("foo".into(), foo_hash), ("bar".into(), bar_hash)]
+            .into_iter()
+            .collect(),
         ..project_initial_lockfile
     };
     assert_eq!(project_lockfile, expected_updated_lockfile);

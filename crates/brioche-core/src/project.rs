@@ -765,19 +765,24 @@ async fn load_project_inner(
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
 
         // If the lockfile doesn't need to be fully valid, ensure that
-        // the new lockfile includes old statics that weren't updated. This
-        // can mean that e.g. unnecessary downloads are kept, but this is
-        // appropriate for situations like the LSP
+        // the new lockfile includes old statics and dependencies that
+        // weren't updated. This can mean that e.g. unnecessary downloads
+        // and dependencies are kept, but this is appropriate for
+        // situations like the LSP
         match validation {
             ProjectValidation::Standard => {}
             ProjectValidation::Minimal => {
                 let Lockfile {
-                    dependencies: _,
+                    dependencies: new_dependencies,
                     downloads: new_downloads,
                     git_refs: new_git_refs,
                 } = &mut new_lockfile;
 
                 if let Some(lockfile) = &lockfile {
+                    for (name, hash) in &lockfile.dependencies {
+                        new_dependencies.entry(name.clone()).or_insert(*hash);
+                    }
+
                     for (url, hash) in &lockfile.downloads {
                         new_downloads
                             .entry(url.clone())
