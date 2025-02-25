@@ -1274,7 +1274,9 @@ version = "0.1.4"
 dependencies = [
  "anyhow",
  "brioche-core",
+ "bstr",
  "directories",
+ "futures",
  "hex",
  "mockito",
  "object_store",
@@ -1284,9 +1286,13 @@ dependencies = [
  "serde_json",
  "tempdir",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
  "toml",
+ "tower-lsp",
  "tracing",
  "ulid",
+ "url",
  "zstd",
 ]
 
@@ -7810,6 +7816,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -7825,6 +7832,7 @@ dependencies = [
  "futures-util",
  "hashbrown 0.14.5",
  "pin-project-lite",
+ "slab",
  "tokio",
 ]
 

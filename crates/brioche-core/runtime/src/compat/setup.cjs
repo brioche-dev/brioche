@@ -1,3 +1,4 @@
+import "./console";
 import { TextEncoder, TextDecoder } from "./text-encoding";
 
 globalThis["TextEncoder"] = TextEncoder;

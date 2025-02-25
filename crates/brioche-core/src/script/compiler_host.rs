@@ -42,6 +42,18 @@ impl BriocheCompilerHost {
         }
     }
 
+    pub async fn is_document_loaded(
+        &self,
+        specifier: &BriocheModuleSpecifier,
+    ) -> anyhow::Result<bool> {
+        let documents = self
+            .documents
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+
+        Ok(documents.contains_key(specifier))
+    }
+
     pub async fn load_documents(
         &self,
         specifiers: Vec<BriocheModuleSpecifier>,
@@ -131,9 +143,13 @@ impl BriocheCompilerHost {
                     }
                 };
 
-                let resolved = self
-                    .bridge
-                    .resolve_specifier(import_specifier.clone(), specifier.clone());
+                let resolved = tokio::task::spawn_blocking({
+                    let bridge = self.bridge.clone();
+                    let specifier = specifier.clone();
+                    move || bridge.resolve_specifier(import_specifier, specifier)
+                })
+                .await?;
+
                 let resolved = match resolved {
                     Ok(resolved) => resolved,
                     Err(error) => {

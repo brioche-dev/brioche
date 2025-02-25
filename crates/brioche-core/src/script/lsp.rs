@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::Context as _;
 use tower_lsp::jsonrpc::Result;
@@ -17,17 +18,28 @@ use super::specifier::BriocheModuleSpecifier;
 
 /// The maximum time we spend resolving projects when regenerating a
 /// lockfile in the Language Server
-const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+pub type BuildBriocheFn = dyn Fn() -> futures::future::BoxFuture<'static, anyhow::Result<BriocheBuilder>>
+    + Send
+    + Sync
+    + 'static;
 
 pub struct BriocheLspServer {
     bridge: RuntimeBridge,
     compiler_host: BriocheCompilerHost,
     client: Client,
     js_lsp: JsLspTask,
+    remote_brioche_builder: Arc<BuildBriocheFn>,
 }
 
 impl BriocheLspServer {
-    pub async fn new(brioche: Brioche, projects: Projects, client: Client) -> anyhow::Result<Self> {
+    pub async fn new(
+        brioche: Brioche,
+        projects: Projects,
+        client: Client,
+        remote_brioche_builder: Arc<BuildBriocheFn>,
+    ) -> anyhow::Result<Self> {
         let bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
 
         let compiler_host = BriocheCompilerHost::new(bridge.clone()).await;
@@ -38,7 +50,28 @@ impl BriocheLspServer {
             compiler_host,
             client,
             js_lsp,
+            remote_brioche_builder,
         })
+    }
+
+    async fn load_document(&self, uri: &url::Url) -> anyhow::Result<()> {
+        let specifier = lsp_uri_to_module_specifier(uri)?;
+        self.compiler_host
+            .load_documents(vec![specifier.clone()])
+            .await?;
+        Ok(())
+    }
+
+    async fn load_document_if_not_loaded(&self, uri: &url::Url) -> anyhow::Result<()> {
+        let specifier = lsp_uri_to_module_specifier(uri)?;
+
+        if !self.compiler_host.is_document_loaded(&specifier).await? {
+            self.compiler_host
+                .load_documents(vec![specifier.clone()])
+                .await?;
+        }
+
+        Ok(())
     }
 
     async fn diagnostics(
@@ -98,28 +131,18 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        tracing::info!(uri = %params.text_document.uri, "did open");
+        let text_document_uri = &params.text_document.uri;
 
-        let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
-        match specifier {
-            Ok(specifier) => {
-                let result = self
-                    .compiler_host
-                    .load_documents(vec![specifier.clone()])
-                    .await;
-                match result {
-                    Ok(()) => {}
-                    Err(error) => {
-                        tracing::warn!("failed to load document {specifier}: {error:#}");
-                    }
-                }
-            }
-            Err(error) => {
-                tracing::warn!(
-                    "failed to parse URI {}: {error:#}",
-                    params.text_document.uri
-                );
-            }
+        tracing::info!(uri = %text_document_uri, "did open");
+
+        let result = self
+            .compiler_host
+            .update_document(text_document_uri, &params.text_document.text)
+            .await;
+        if let Err(error) = result {
+            tracing::warn!(
+                "failed to update document {text_document_uri} while opening: {error:#}",
+            );
         }
 
         let diagnostics = self
@@ -140,7 +163,7 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        tracing::info!(uri = %params.text_document.uri, "did open");
+        tracing::info!(uri = %params.text_document.uri, "did save");
 
         if let Ok(BriocheModuleSpecifier::File { path: module_path }) =
             (&params.text_document.uri).try_into()
@@ -149,6 +172,7 @@ impl LanguageServer for BriocheLspServer {
             let (lockfile_tx, lockfile_rx) = tokio::sync::oneshot::channel();
 
             std::thread::spawn({
+                let remote_brioche_builder = self.remote_brioche_builder.clone();
                 let bridge = self.bridge.clone();
                 let module_path = module_path.clone();
                 move || {
@@ -156,6 +180,7 @@ impl LanguageServer for BriocheLspServer {
 
                     local_set.spawn_local(async move {
                         let result = try_update_lockfile_for_module(
+                            remote_brioche_builder,
                             bridge,
                             module_path,
                             LOCKFILE_LOAD_TIMEOUT,
@@ -187,16 +212,22 @@ impl LanguageServer for BriocheLspServer {
 
         // Try to reload the project for the current document so we can
         // resolve new dependencies
-        let reload_result = self
+        let _ = self
             .compiler_host
             .reload_module_project(&params.text_document.uri)
-            .await;
-        match reload_result {
-            Ok(()) => {}
-            Err(error) => {
+            .await
+            .inspect_err(|error| {
                 tracing::warn!("failed to reload module project: {error:#}");
-            }
-        }
+            });
+
+        // Reload the current document. This ensures any new referenced
+        // modules are loaded too
+        let _ = self
+            .load_document(&params.text_document.uri)
+            .await
+            .inspect_err(|error| {
+                tracing::warn!("failed to load document after saving: {error:#}");
+            });
 
         let diagnostics = self
             .diagnostics(TextDocumentIdentifier {
@@ -216,7 +247,6 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        tracing::info!(uri = %params.text_document.uri, "did update");
         if let Some(change) = params.content_changes.first() {
             let result = self
                 .compiler_host
@@ -247,6 +277,15 @@ impl LanguageServer for BriocheLspServer {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         tracing::info!("completion");
+
+        let text_document_uri = &params.text_document_position.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during completion request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Vec<CompletionItem>>(JsLspMessage::Completion(params.clone()))
@@ -266,6 +305,15 @@ impl LanguageServer for BriocheLspServer {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoTypeDefinitionResponse>> {
         tracing::info!("goto definition");
+
+        let text_document_uri = &params.text_document_position_params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during goto definition request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<Location>>(JsLspMessage::GotoDefinition(
@@ -284,6 +332,15 @@ impl LanguageServer for BriocheLspServer {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         tracing::info!("hover");
+
+        let text_document_uri = &params.text_document_position_params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during hover request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<Hover>>(JsLspMessage::Hover(params.clone()))
@@ -300,6 +357,15 @@ impl LanguageServer for BriocheLspServer {
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         tracing::info!("references");
+
+        let text_document_uri = &params.text_document_position.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during references request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<Vec<Location>>>(JsLspMessage::References(params.clone()))
@@ -318,6 +384,14 @@ impl LanguageServer for BriocheLspServer {
         &self,
         params: DocumentHighlightParams,
     ) -> Result<Option<Vec<DocumentHighlight>>> {
+        let text_document_uri = &params.text_document_position_params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during document highlight request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<Vec<DocumentHighlight>>>(JsLspMessage::DocumentHighlight(params.clone()))
@@ -336,6 +410,16 @@ impl LanguageServer for BriocheLspServer {
         &self,
         params: TextDocumentPositionParams,
     ) -> Result<Option<PrepareRenameResponse>> {
+        tracing::info!("prepare rename");
+
+        let text_document_uri = &params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during prepare rename request: {error:#}"
+            );
+        }
+
         let response = self
             .js_lsp
             .send::<Option<PrepareRenameResponse>>(JsLspMessage::PrepareRename(params.clone()))
@@ -351,6 +435,16 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        tracing::info!("rename");
+
+        let text_document_uri = &params.text_document_position.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during rename request: {error:#}"
+            );
+        }
+
         let prepare_rename = self
             .prepare_rename(params.text_document_position.clone())
             .await?;
@@ -374,6 +468,14 @@ impl LanguageServer for BriocheLspServer {
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let text_document_uri = &params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during formatting request: {error:#}"
+            );
+        }
+
         let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
         let specifier = match specifier {
             Ok(specifier) => specifier,
@@ -435,26 +537,12 @@ impl LanguageServer for BriocheLspServer {
             .log_message(MessageType::INFO, "diagnostic")
             .await;
 
-        let specifier = lsp_uri_to_module_specifier(&params.text_document.uri);
-        match specifier {
-            Ok(specifier) => {
-                let result = self
-                    .compiler_host
-                    .load_documents(vec![specifier.clone()])
-                    .await;
-                match result {
-                    Ok(()) => {}
-                    Err(error) => {
-                        tracing::warn!("failed to load document {specifier}: {error:#}");
-                    }
-                }
-            }
-            Err(error) => {
-                tracing::warn!(
-                    "failed to parse URI {}: {error:#}",
-                    params.text_document.uri
-                );
-            }
+        let text_document_uri = &params.text_document.uri;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        if let Err(error) = load_result {
+            tracing::warn!(
+                "failed to load document {text_document_uri} during diagnostic request: {error:#}"
+            );
         }
 
         let response = self
@@ -484,27 +572,24 @@ impl LanguageServer for BriocheLspServer {
 }
 
 async fn try_update_lockfile_for_module(
+    build_remote_brioche: Arc<BuildBriocheFn>,
     bridge: RuntimeBridge,
     module_path: PathBuf,
     load_timeout: std::time::Duration,
 ) -> anyhow::Result<bool> {
     let project_path = bridge.project_root_for_module_path(module_path).await?;
 
-    // The instances of `Brioche` and `Projects` used for the LSP aren't
-    // suitable for generating lockfiles (access to the registry is disabled,
-    // and files may be dirty in-memory copies). We create temporary instances
-    // so we can build the lockfile properly.
-    let (null_reporter, _null_reporter_guard) = crate::reporter::start_null_reporter();
-    let brioche = BriocheBuilder::new(null_reporter)
-        .build()
-        .await
-        .context("failed to build `Brioche` instance")?;
+    // Build a "remote" Brioche instance, and load the project into a blank
+    // `Projects` instance to avoid conflicts with the `Projects` instance
+    // used throughout the LSP (where files may be dirty in-memory
+    // copies). This will let us update the lockfile starting from a blank
+    // slate, and properly pull any new registry imports.
+    let remote_brioche = (build_remote_brioche)().await?.build().await?;
     let projects = Projects::default();
-
     tokio::time::timeout(
         load_timeout,
         projects.load(
-            &brioche,
+            &remote_brioche,
             &project_path,
             ProjectValidation::Minimal,
             ProjectLocking::Unlocked,
