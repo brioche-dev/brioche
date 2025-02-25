@@ -11,3 +11,5 @@ updates:
     cargo:
       patterns:
         - "*"
+      exclude-patterns:
+        - "biome_*"
