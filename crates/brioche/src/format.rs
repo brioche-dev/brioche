@@ -12,7 +12,7 @@ use crate::consolidate_result;
 #[derive(Debug, Parser)]
 pub struct FormatArgs {
     /// The path to the project directory to format
-    #[arg(short, long)]
+    #[arg(short, long, default_value = ".")]
     project: Vec<PathBuf>,
 
     /// Check formatting without writing changes
