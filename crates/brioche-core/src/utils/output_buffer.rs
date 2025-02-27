@@ -68,8 +68,7 @@ where
         let new_total_bytes = self.total_bytes.saturating_add(content.len());
         let mut drop_bytes = self
             .max_bytes
-            .map(|max_bytes| new_total_bytes.saturating_sub(max_bytes))
-            .unwrap_or(0);
+            .map_or(0, |max_bytes| new_total_bytes.saturating_sub(max_bytes));
         while drop_bytes > 0 {
             // Get the oldest content
             let oldest_content = self
@@ -178,8 +177,7 @@ where
                     let content_start = complete.len().saturating_sub(remaining_bytes);
                     &complete[content_start..]
                 });
-                let complete_content_length =
-                    complete_content.map(|complete| complete.len()).unwrap_or(0);
+                let complete_content_length = complete_content.map_or(0, |complete| complete.len());
 
                 // If we have a separator (newline) to add, truncate it
                 // so it fits within the remaining space
@@ -188,7 +186,7 @@ where
                     let separator_start = separator.len().saturating_sub(remaining_bytes);
                     &separator[separator_start..]
                 });
-                let separator_length = separator.map(|separator| separator.len()).unwrap_or(0);
+                let separator_length = separator.map_or(0, |separator| separator.len());
 
                 // Truncate the partial content to fit within whatever
                 // space we have left over
@@ -204,8 +202,8 @@ where
         self.total_bytes = self
             .total_bytes
             .saturating_add(partial_content.len())
-            .saturating_add(complete_content.map(|content| content.len()).unwrap_or(0))
-            .saturating_add(separator.map(|separator| separator.len()).unwrap_or(0));
+            .saturating_add(complete_content.map_or(0, |content| content.len()))
+            .saturating_add(separator.map_or(0, |separator| separator.len()));
 
         if let Some(complete_content) = complete_content {
             let prior_partial = self.partial_prepend.remove(&stream);

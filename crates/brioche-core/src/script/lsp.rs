@@ -34,15 +34,15 @@ pub struct BriocheLspServer {
 }
 
 impl BriocheLspServer {
-    pub async fn new(
+    pub fn new(
         brioche: Brioche,
         projects: Projects,
         client: Client,
         remote_brioche_builder: Arc<BuildBriocheFn>,
     ) -> anyhow::Result<Self> {
-        let bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
+        let bridge = RuntimeBridge::new(brioche, projects);
 
-        let compiler_host = BriocheCompilerHost::new(bridge.clone()).await;
+        let compiler_host = BriocheCompilerHost::new(bridge.clone());
         let js_lsp = js_lsp_task(compiler_host.clone(), bridge.clone());
 
         Ok(Self {
@@ -65,7 +65,7 @@ impl BriocheLspServer {
     async fn load_document_if_not_loaded(&self, uri: &url::Url) -> anyhow::Result<()> {
         let specifier = lsp_uri_to_module_specifier(uri)?;
 
-        if !self.compiler_host.is_document_loaded(&specifier).await? {
+        if !self.compiler_host.is_document_loaded(&specifier)? {
             self.compiler_host
                 .load_documents(vec![specifier.clone()])
                 .await?;
@@ -487,7 +487,7 @@ impl LanguageServer for BriocheLspServer {
 
         let contents = self
             .compiler_host
-            .read_loaded_document(specifier, |doc| doc.contents.clone());
+            .read_loaded_document(&specifier, |doc| doc.contents.clone());
         let contents = match contents {
             Ok(Some(contents)) => contents,
             Ok(None) => {
@@ -650,7 +650,7 @@ impl JsLspTask {
             tracing::warn!(
                 "failed to deserialize response: {:?}",
                 serde_json::to_string(&response)
-            )
+            );
         })?;
 
         Ok(response)
@@ -811,18 +811,15 @@ fn call_method(
 
     let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
     let result = method.call(&mut js_scope, value.into(), &args);
-    let result = match result {
-        Some(result) => result,
-        None => {
-            if let Some(exception) = js_scope.exception() {
-                return Err(deno_core::error::JsError::from_v8_exception(
-                    &mut js_scope,
-                    exception,
-                ))
-                .with_context(|| format!("error when calling {method_name:?}"));
-            } else {
-                anyhow::bail!("unknown error when calling {method_name:?}");
-            }
+    let Some(result) = result else {
+        if let Some(exception) = js_scope.exception() {
+            return Err(deno_core::error::JsError::from_v8_exception(
+                &mut js_scope,
+                exception,
+            ))
+            .with_context(|| format!("error when calling {method_name:?}"));
+        } else {
+            anyhow::bail!("unknown error when calling {method_name:?}");
         }
     };
 

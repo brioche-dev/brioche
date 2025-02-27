@@ -104,7 +104,7 @@ async fn run_publish(
 
             if response.tags.is_empty() {
                 reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("Project already up to date: {} {}", name, version),
+                    &format!("Project already up to date: {name} {version}"),
                     superconsole::style::ContentStyle::default(),
                 ));
             } else {
@@ -123,10 +123,7 @@ async fn run_publish(
                     .join("\n");
 
                 reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!(
-                        "🚀 Published project {} {}\nUpdated tags:\n{}",
-                        name, version, tags_info
-                    ),
+                    &format!("🚀 Published project {name} {version}\nUpdated tags:\n{tags_info}"),
                     superconsole::style::ContentStyle::default(),
                 ));
             }

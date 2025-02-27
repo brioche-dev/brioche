@@ -147,9 +147,10 @@ where
         Ok(4)
     }
 
+    #[expect(clippy::cast_possible_truncation)]
     async fn write_duration(&mut self, duration: Duration) -> anyhow::Result<usize> {
         let milliseconds = duration.as_millis();
-        let milliseconds = std::cmp::min(milliseconds, u32::MAX as _);
+        let milliseconds = std::cmp::min(milliseconds, u32::MAX.into());
         let milliseconds = milliseconds as u32;
 
         let length = self.write_u32(milliseconds).await?;

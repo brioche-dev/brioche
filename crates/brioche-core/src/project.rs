@@ -157,7 +157,7 @@ impl Projects {
         Ok(loaded_project_hash)
     }
 
-    pub async fn clear(&self, project_hash: ProjectHash) -> anyhow::Result<bool> {
+    pub fn clear(&self, project_hash: ProjectHash) -> anyhow::Result<bool> {
         let mut projects = self
             .inner
             .write()
@@ -184,7 +184,7 @@ impl Projects {
             .projects_to_paths
             .get(&project_hash)
             .and_then(|paths| paths.iter().next())
-            .with_context(|| format!("project root not found for hash {}", project_hash))?;
+            .with_context(|| format!("project root not found for hash {project_hash}"))?;
         Ok(project_root.clone())
     }
 
@@ -491,11 +491,8 @@ impl ProjectsInner {
         specifier: &super::script::specifier::BriocheModuleSpecifier,
         static_: &StaticQuery,
     ) -> anyhow::Result<Option<StaticOutput>> {
-        let path = match specifier {
-            super::script::specifier::BriocheModuleSpecifier::File { path } => path,
-            _ => {
-                anyhow::bail!("could not get static for specifier {specifier}");
-            }
+        let super::script::specifier::BriocheModuleSpecifier::File { path } = specifier else {
+            anyhow::bail!("could not get static for specifier {specifier}");
         };
 
         let project_hash = self
@@ -826,7 +823,7 @@ async fn load_project_inner(
     Ok((project_hash, project, errors))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 async fn try_load_path_dependency_with_errors(
     projects: &Projects,
     brioche: &Brioche,

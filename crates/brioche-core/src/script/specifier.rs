@@ -41,8 +41,8 @@ impl std::str::FromStr for BriocheImportSpecifier {
 impl std::fmt::Display for BriocheImportSpecifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BriocheImportSpecifier::Local(specifier) => write!(f, "{}", specifier),
-            BriocheImportSpecifier::External(specifier) => write!(f, "{}", specifier),
+            BriocheImportSpecifier::Local(specifier) => write!(f, "{specifier}"),
+            BriocheImportSpecifier::External(specifier) => write!(f, "{specifier}"),
         }
     }
 }
@@ -172,7 +172,7 @@ impl std::fmt::Display for BriocheModuleSpecifier {
 
 pub fn runtime_specifiers_with_contents()
 -> impl Iterator<Item = (BriocheModuleSpecifier, Cow<'static, [u8]>)> {
-    crate::RuntimeFiles::iter().flat_map(|path| {
+    crate::RuntimeFiles::iter().filter_map(|path| {
         let file = crate::RuntimeFiles::get(&path)?;
         let specifier = BriocheModuleSpecifier::Runtime {
             subpath: RelativePathBuf::from(&*path),
@@ -223,19 +223,16 @@ pub fn resolve(
 ) -> anyhow::Result<BriocheModuleSpecifier> {
     match referrer {
         BriocheModuleSpecifier::Runtime { subpath } => {
-            let specifier_path = match specifier {
-                BriocheImportSpecifier::Local(BriocheLocalImportSpecifier::Relative(
-                    specifier_path,
-                )) => specifier_path,
-                _ => {
-                    anyhow::bail!("invalid specifier '{specifier}' imported from {referrer}");
-                }
+            let BriocheImportSpecifier::Local(BriocheLocalImportSpecifier::Relative(
+                specifier_path,
+            )) = specifier
+            else {
+                anyhow::bail!("invalid specifier '{specifier}' imported from {referrer}");
             };
 
             let new_subpath = subpath
                 .parent()
-                .map(|parent| parent.to_owned())
-                .unwrap_or(RelativePathBuf::from(""))
+                .map_or(RelativePathBuf::from(""), |parent| parent.to_owned())
                 .join(specifier_path);
 
             let candidates = [
@@ -270,8 +267,7 @@ pub fn resolve(
                 )) => {
                     let new_subpath = subpath
                         .parent()
-                        .map(|parent| parent.to_owned())
-                        .unwrap_or(RelativePathBuf::from(""))
+                        .map_or(RelativePathBuf::from(""), |parent| parent.to_owned())
                         .join_normalized(specifier_path);
 
                     let candidate_module_path = new_subpath.to_logical_path(&project_root);

@@ -176,7 +176,7 @@ fn main() -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Args::RunSandbox(args) => {
-            let exit_code = run_sandbox::run_sandbox(args);
+            let exit_code = run_sandbox::run_sandbox(&args);
 
             Ok(exit_code)
         }
@@ -246,7 +246,7 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
 
     guard.shutdown_console().await;
 
-    println!("{}", serialized);
+    println!("{serialized}");
     Ok(())
 }
 
@@ -319,7 +319,7 @@ fn consolidate_result(
     match result {
         Err(err) => {
             reporter.emit(superconsole::Lines::from_multiline_string(
-                &format!("Error occurred with {project_name}: {err}", err = err),
+                &format!("Error occurred with {project_name}: {err}"),
                 superconsole::style::ContentStyle {
                     foreground_color: Some(superconsole::style::Color::Red),
                     ..superconsole::style::ContentStyle::default()

@@ -104,17 +104,14 @@ async fn evaluate_with_deno(
 
                 let result = export_value.call(&mut js_scope, module_namespace.into(), &[]);
 
-                let result = match result {
-                    Some(result) => result,
-                    None => {
-                        if let Some(exception) = js_scope.exception() {
-                            return Err(anyhow::anyhow!(
-                                deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
-                            ))
-                            .with_context(|| format!("error when calling {export}"));
-                        } else {
-                            anyhow::bail!("unknown error when calling {export}");
-                        }
+                let Some(result) = result else {
+                    if let Some(exception) = js_scope.exception() {
+                        return Err(anyhow::anyhow!(
+                            deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
+                        ))
+                        .with_context(|| format!("error when calling {export}"));
+                    } else {
+                        anyhow::bail!("unknown error when calling {export}");
                     }
                 };
                 deno_core::v8::Global::new(&mut js_scope, result)
@@ -144,18 +141,14 @@ async fn evaluate_with_deno(
                     .context("expected `briocheSerialize` to be a function")?;
 
                 let serialized_result = result_serialize.call(&mut js_scope, resolved_result.into(), &[]);
-
-                let serialized_result = match serialized_result {
-                    Some(serialized_result) => serialized_result,
-                    None => {
-                        if let Some(exception) = js_scope.exception() {
-                            return Err(anyhow::anyhow!(
-                                deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
-                            ))
-                            .with_context(|| format!("error when serializing result from {export}"));
-                        } else {
-                            anyhow::bail!("unknown error when serializing result from {export}");
-                        }
+                let Some(serialized_result) = serialized_result else {
+                    if let Some(exception) = js_scope.exception() {
+                        return Err(anyhow::anyhow!(
+                            deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
+                        ))
+                        .with_context(|| format!("error when serializing result from {export}"));
+                    } else {
+                        anyhow::bail!("unknown error when serializing result from {export}");
                     }
                 };
 

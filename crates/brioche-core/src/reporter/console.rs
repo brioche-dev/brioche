@@ -42,7 +42,7 @@ pub fn start_console_reporter(
 
     let brioche_otel_enabled = matches!(
         std::env::var("BRIOCHE_ENABLE_OTEL").as_deref(),
-        Ok("1") | Ok("true")
+        Ok("1" | "true")
     );
 
     let start = std::time::Instant::now();
@@ -53,89 +53,83 @@ pub fn start_console_reporter(
         tx: tx.clone(),
     };
 
-    std::thread::spawn({
-        let queued_lines = queued_lines.clone();
-        move || {
-            let superconsole = match kind {
-                ConsoleReporterKind::Auto => superconsole::SuperConsole::new(),
-                ConsoleReporterKind::SuperConsole => Some(superconsole::SuperConsole::forced_new(
-                    superconsole::Dimensions {
-                        width: 80,
-                        height: 24,
-                    },
-                )),
-                ConsoleReporterKind::Plain | ConsoleReporterKind::PlainReduced => None,
-            };
-
-            let jobs = HashMap::new();
-            let job_outputs = OutputBuffer::with_max_capacity(1024 * 1024);
-            let mut console = match (superconsole, kind) {
-                (Some(console), _) => {
-                    let root = JobsComponent {
-                        start,
-                        jobs,
-                        job_outputs,
-                    };
-                    ConsoleReporter::SuperConsole { console, root }
-                }
-                (_, ConsoleReporterKind::SuperConsole) => {
-                    unreachable!();
-                }
-                (_, ConsoleReporterKind::Auto | ConsoleReporterKind::Plain) => {
-                    ConsoleReporter::Plain {
-                        jobs,
-                        job_outputs: Some(job_outputs),
-                    }
-                }
-                (_, ConsoleReporterKind::PlainReduced) => ConsoleReporter::Plain {
-                    jobs,
-                    job_outputs: None,
+    std::thread::spawn(move || {
+        let superconsole = match kind {
+            ConsoleReporterKind::Auto => superconsole::SuperConsole::new(),
+            ConsoleReporterKind::SuperConsole => Some(superconsole::SuperConsole::forced_new(
+                superconsole::Dimensions {
+                    width: 80,
+                    height: 24,
                 },
+            )),
+            ConsoleReporterKind::Plain | ConsoleReporterKind::PlainReduced => None,
+        };
+
+        let jobs = HashMap::new();
+        let job_outputs = OutputBuffer::with_max_capacity(1024 * 1024);
+        let mut console = match (superconsole, kind) {
+            (Some(console), _) => {
+                let root = JobsComponent {
+                    start,
+                    jobs,
+                    job_outputs,
+                };
+                ConsoleReporter::SuperConsole { console, root }
+            }
+            (_, ConsoleReporterKind::SuperConsole) => {
+                unreachable!();
+            }
+            (_, ConsoleReporterKind::Auto | ConsoleReporterKind::Plain) => ConsoleReporter::Plain {
+                jobs,
+                job_outputs: Some(job_outputs),
+            },
+            (_, ConsoleReporterKind::PlainReduced) => ConsoleReporter::Plain {
+                jobs,
+                job_outputs: None,
+            },
+        };
+
+        let mut last_render: Option<std::time::Instant> = None;
+        let mut running = true;
+        while running {
+            // Sleep long enough to try and hit our target render rate
+            if let Some(last_render) = last_render {
+                let elapsed_since_last_render = last_render.elapsed();
+                let wait_until_next_render = RENDER_RATE.saturating_sub(elapsed_since_last_render);
+                let wait_until_next_render =
+                    wait_until_next_render.clamp(MIN_RENDER_WAIT, RENDER_RATE);
+
+                std::thread::sleep(wait_until_next_render);
             };
 
-            let mut last_render: Option<std::time::Instant> = None;
-            let mut running = true;
-            while running {
-                // Sleep long enough to try and hit our target render rate
-                if let Some(last_render) = last_render {
-                    let elapsed_since_last_render = last_render.elapsed();
-                    let wait_until_next_render =
-                        RENDER_RATE.saturating_sub(elapsed_since_last_render);
-                    let wait_until_next_render =
-                        wait_until_next_render.clamp(MIN_RENDER_WAIT, RENDER_RATE);
+            let _ = console.render();
 
-                    std::thread::sleep(wait_until_next_render);
-                };
+            last_render = Some(std::time::Instant::now());
 
-                let _ = console.render();
-
-                last_render = Some(std::time::Instant::now());
-
-                while let Ok(event) = rx.try_recv() {
-                    match event {
-                        ReportEvent::Emit { lines } => {
-                            console.emit(lines);
-                        }
-                        ReportEvent::AddJob { id, job } => {
-                            console.add_job(id, job);
-                        }
-                        ReportEvent::UpdateJobState { id, update } => {
-                            console.update_job(id, update);
-                        }
-                        ReportEvent::Shutdown => {
-                            running = false;
-                        }
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    ReportEvent::Emit { lines } => {
+                        console.emit(lines);
                     }
-                }
-                let mut queued_lines = queued_lines.blocking_write();
-                for lines in queued_lines.drain(..) {
-                    console.emit(lines);
+                    ReportEvent::AddJob { id, job } => {
+                        console.add_job(id, job);
+                    }
+                    ReportEvent::UpdateJobState { id, update } => {
+                        console.update_job(id, update);
+                    }
+                    ReportEvent::Shutdown => {
+                        running = false;
+                    }
                 }
             }
-
-            let _ = console.finalize();
-            let _ = shutdown_tx.send(());
+            let mut queued_lines = queued_lines.blocking_write();
+            for lines in queued_lines.drain(..) {
+                console.emit(lines);
+            }
         }
+
+        let _ = console.finalize();
+        let _ = shutdown_tx.send(());
     });
 
     let guard;
@@ -260,7 +254,7 @@ impl ConsoleReporter {
             ConsoleReporter::Plain { jobs, .. } => {
                 match &job {
                     NewJob::Download { url, started_at: _ } => {
-                        eprintln!("Downloading {}", url);
+                        eprintln!("Downloading {url}");
                     }
                     NewJob::Unarchive { started_at: _ } => {}
                     NewJob::Process { status: _ } => {}
@@ -604,7 +598,7 @@ impl superconsole::Component for JobsComponent {
                 };
                 let job_label = string_with_width(&job_label, JOB_LABEL_WIDTH, "…");
 
-                format!("{job_label:0$}│ ", JOB_LABEL_WIDTH)
+                format!("{job_label:JOB_LABEL_WIDTH$}│ ")
             };
 
             // Pick a color based on the job ID
@@ -616,7 +610,7 @@ impl superconsole::Component for JobsComponent {
             ]);
             job_output_lines.push(styled_line);
 
-            last_job_id = Some(stream.job_id)
+            last_job_id = Some(stream.job_id);
         }
 
         let summary_line = match mode {
@@ -669,6 +663,7 @@ impl superconsole::Component for JobsComponent {
 struct JobComponent<'a>(JobId, &'a Job);
 
 impl superconsole::Component for JobComponent<'_> {
+    #[expect(clippy::cast_possible_truncation)]
     fn draw_unchecked(
         &self,
         dimensions: superconsole::Dimensions,
@@ -734,7 +729,7 @@ impl superconsole::Component for JobComponent<'_> {
 
                 let truncated_url = string_with_width(url.as_str(), remaining_width, "…");
 
-                let progress_bar_progress = progress_percent.unwrap_or(0) as f64 / 100.0;
+                let progress_bar_progress = f64::from(progress_percent.unwrap_or(0)) / 100.0;
 
                 line.extend(progress_bar_spans(
                     &truncated_url,
@@ -773,7 +768,7 @@ impl superconsole::Component for JobComponent<'_> {
                         .saturating_sub(1)
                         .saturating_sub(line.len());
 
-                    let progress_bar_progress = *progress_percent as f64 / 100.0;
+                    let progress_bar_progress = f64::from(*progress_percent) / 100.0;
 
                     line.push(superconsole::Span::new_unstyled_lossy(" "));
                     line.extend(progress_bar_spans(
@@ -791,8 +786,7 @@ impl superconsole::Component for JobComponent<'_> {
             } => {
                 let child_id = status
                     .child_id()
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "?".to_string());
+                    .map_or_else(|| "?".to_string(), |id| id.to_string());
 
                 let indicator = match status {
                     ProcessStatus::Preparing { created_at } => {
@@ -895,12 +889,12 @@ impl superconsole::Component for JobComponent<'_> {
                 let fetching_message = if job.is_complete() {
                     format!(
                         "Fetch {fetch_kind}: {downloaded_blobs} blob{s}",
-                        s = if *downloaded_blobs != 1 { "s" } else { "" }
+                        s = if *downloaded_blobs == 1 { "" } else { "s" }
                     )
                 } else if let Some(total_blobs) = total_blobs {
                     format!(
                         "Fetch {fetch_kind}: {downloaded_blobs} / {total_blobs} blob{s}",
-                        s = if *downloaded_blobs != 1 { "s" } else { "" }
+                        s = if *downloaded_blobs == 1 { "" } else { "s" }
                     )
                 } else {
                     format!("Fetch {fetch_kind}")
@@ -967,7 +961,7 @@ fn string_with_width<'a>(s: &'a str, num_chars: usize, replacement: &str) -> Cow
 
     match s_chars.cmp(&num_chars) {
         std::cmp::Ordering::Equal => Cow::Borrowed(s),
-        std::cmp::Ordering::Less => Cow::Owned(format!("{s:0$}", num_chars)),
+        std::cmp::Ordering::Less => Cow::Owned(format!("{s:num_chars$}")),
         std::cmp::Ordering::Greater => {
             let replacement_chars = replacement.chars().count();
             let keep_chars = num_chars.saturating_sub(replacement_chars);
@@ -1020,10 +1014,11 @@ fn indicator_span(kind: IndicatorKind) -> superconsole::Span {
     }
 }
 
+#[expect(clippy::cast_possible_truncation)]
 fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [superconsole::Span; 2] {
     let filled = ((width as f64) * progress) as usize;
 
-    let padded = format!("{interior:0$.0$}", width);
+    let padded = format!("{interior:width$.width$}");
     let (filled_part, unfilled_part) = if progress <= 0.0 {
         ("", &*padded)
     } else if progress >= 1.0 {

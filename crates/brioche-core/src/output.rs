@@ -53,7 +53,7 @@ pub async fn create_output(
     Ok(())
 }
 
-#[allow(clippy::multiple_bound_locations)]
+#[expect(clippy::multiple_bound_locations)]
 #[async_recursion::async_recursion]
 async fn create_output_inner<'a: 'async_recursion>(
     brioche: &Brioche,
@@ -390,7 +390,7 @@ async fn create_local_output_inner(
             Artifact::Directory(_) => {
                 set_directory_permissions(&local_path, SetDirectoryPermissions { readonly: true })
                     .await
-                    .context("failed to set permissions for local output directory")?
+                    .context("failed to set permissions for local output directory")?;
             }
             Artifact::Symlink { .. } => {}
         }

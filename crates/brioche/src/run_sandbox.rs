@@ -14,7 +14,7 @@ pub struct RunSandboxArgs {
 }
 
 #[expect(clippy::print_stderr)]
-pub fn run_sandbox(args: RunSandboxArgs) -> ExitCode {
+pub fn run_sandbox(args: &RunSandboxArgs) -> ExitCode {
     let backend = match serde_json::from_str::<SandboxBackend>(&args.backend) {
         Ok(backend) => backend,
         Err(error) => {

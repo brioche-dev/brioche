@@ -41,8 +41,7 @@ pub async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
                 projects,
                 client,
                 Arc::new(remote_brioche_builder),
-            )
-            .await?;
+            )?;
             anyhow::Ok(lsp_server)
         })
         .expect("failed to build LSP")

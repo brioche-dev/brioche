@@ -32,8 +32,7 @@ async fn test_lsp_completions_simple() -> anyhow::Result<()> {
             1,
             project_root_contents.to_string(),
         ),
-    })
-    .await;
+    });
 
     let completion_response = lsp
         .request::<request::Completion>(lsp_types::CompletionParams {
@@ -102,8 +101,7 @@ async fn test_lsp_completions_from_import() -> anyhow::Result<()> {
             1,
             project_root_contents.to_string(),
         ),
-    })
-    .await;
+    });
 
     let completion_response = lsp
         .request::<request::Completion>(lsp_types::CompletionParams {
@@ -187,8 +185,7 @@ async fn test_lsp_completions_from_local_registry_import() -> anyhow::Result<()>
             1,
             project_root_contents.to_string(),
         ),
-    })
-    .await;
+    });
 
     // Get completions. This should be able to complete the function from
     // 'foo' since it's already saved locally
@@ -286,8 +283,7 @@ async fn test_lsp_completions_from_remote_registry_import() -> anyhow::Result<()
             1,
             project_root_contents.to_string(),
         ),
-    })
-    .await;
+    });
 
     // Consume a diagnostics notification triggered by opening the document
     tokio::time::timeout(WAIT_TIMEOUT, diagnostics_stream.try_next())
@@ -368,8 +364,7 @@ async fn test_lsp_completions_from_workspace_import() -> anyhow::Result<()> {
             1,
             project_root_contents.to_string(),
         ),
-    })
-    .await;
+    });
 
     let completion_response = lsp
         .request::<request::Completion>(lsp_types::CompletionParams {
@@ -438,8 +433,7 @@ async fn test_lsp_completions_in_unsaved_edited_file() -> anyhow::Result<()> {
             "#}
             .to_string(),
         ),
-    })
-    .await;
+    });
 
     let completion_response = lsp
         .request::<request::Completion>(lsp_types::CompletionParams {

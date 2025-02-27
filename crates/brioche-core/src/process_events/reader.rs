@@ -200,7 +200,7 @@ where
                 .length
                 .try_into()
                 .map_err(|_| ProcessEventReadError::LengthOutOfRange {
-                    length: end_marker.length as _,
+                    length: end_marker.length.try_into().unwrap_or_default(),
                 })?;
 
         // Get the position of the start marker for the event by subtracting
@@ -249,7 +249,7 @@ where
             .checked_add(PROCESS_EVENT_MARKER_LENGTH)
             .and_then(|offset| offset.try_into().ok())
             .ok_or(ProcessEventReadError::LengthOutOfRange {
-                length: marker.length as _,
+                length: marker.length.try_into().unwrap_or_default(),
             })?;
 
         self.reader
@@ -274,7 +274,7 @@ where
             .checked_add(PROCESS_EVENT_MARKER_LENGTH)
             .and_then(|offset| offset.try_into().ok())
             .ok_or(ProcessEventReadError::LengthOutOfRange {
-                length: marker.length as _,
+                length: marker.length.try_into().unwrap_or_default(),
             })?;
 
         self.reader.seek(std::io::SeekFrom::Start(

@@ -77,12 +77,9 @@ pub async fn migrate_registry_to_cache(args: MigrateRegistryToCacheArgs) -> anyh
         for row in recipes_reader.deserialize() {
             let row: RecipeRecord = row?;
             let recipe = serde_json::from_str::<Recipe>(&row.recipe_json);
-            let recipe = match recipe {
-                Ok(recipe) => recipe,
-                Err(_) => {
-                    num_invalid_recipes += 1;
-                    continue;
-                }
+            let Ok(recipe) = recipe else {
+                num_invalid_recipes += 1;
+                continue;
             };
 
             let Ok(artifact) = Artifact::try_from(recipe) else {
@@ -105,12 +102,9 @@ pub async fn migrate_registry_to_cache(args: MigrateRegistryToCacheArgs) -> anyh
         for row in projects_reader.deserialize() {
             let row: ProjectRecord = row?;
             let project = serde_json::from_str::<Project>(&row.project_json);
-            let project = match project {
-                Ok(project) => project,
-                Err(_) => {
-                    num_invalid_projects += 1;
-                    continue;
-                }
+            let Ok(project) = project else {
+                num_invalid_projects += 1;
+                continue;
             };
 
             let hash_matches = row.project_hash.validate_matches(&project).is_ok();

@@ -117,7 +117,7 @@ async fn bake_lazy_process_template_to_process_template(
                     .components
                     .push(CompleteProcessTemplateComponent::Literal {
                         value: value.clone(),
-                    })
+                    });
             }
             ProcessTemplateComponent::Input { recipe } => {
                 let artifact = super::bake(brioche, recipe.clone(), scope).await?;
@@ -237,11 +237,8 @@ async fn resolve_command(
 
         // Try to get the artifact referred to by the command
         let command_artifact = subpath_dir.get(brioche, &command_literal).await;
-        let command_artifact = match &command_artifact {
-            Ok(Some(command_artifact)) => command_artifact,
-            _ => {
-                continue;
-            }
+        let Ok(Some(command_artifact)) = &command_artifact else {
+            continue;
         };
 
         // Ensure the command artifact is either an executable file
@@ -524,7 +521,7 @@ pub async fn bake_process(
     };
 
     let events_path = bake_dir.path().join("events.bin.zst");
-    let (mut event_writer_tx, mut event_writer_rx) = tokio::sync::mpsc::channel(100);
+    let (event_writer_tx, mut event_writer_rx) = tokio::sync::mpsc::channel(100);
 
     // Spawn a task to write events so we can cleanly shut down the event writer
     let event_writer_task = brioche.task_tracker.spawn({
@@ -594,7 +591,7 @@ pub async fn bake_process(
             job_id,
             &mut job_status,
             events_started_at,
-            &mut event_writer_tx,
+            &event_writer_tx,
         )
         .await
     } else {
@@ -701,7 +698,7 @@ async fn run_sandboxed_self_exec(
     job_id: JobId,
     job_status: &mut ProcessStatus,
     events_started_at: std::time::Instant,
-    event_writer_tx: &mut tokio::sync::mpsc::Sender<ProcessEventWriterAction>,
+    event_writer_tx: &tokio::sync::mpsc::Sender<ProcessEventWriterAction>,
 ) -> anyhow::Result<()> {
     tracing::debug!(?sandbox_config, "running sandboxed process");
 
@@ -922,7 +919,7 @@ async fn build_process_template(
             CompleteProcessTemplateComponent::Literal { value } => {
                 result.components.push(SandboxTemplateComponent::Literal {
                     value: value.clone(),
-                })
+                });
             }
             CompleteProcessTemplateComponent::Input { artifact } => {
                 let local_output =
@@ -976,7 +973,7 @@ async fn build_process_template(
                             mode: HostPathMode::ReadWriteCreate,
                             guest_path_hint: dirs.guest_resource_dir.into(),
                         },
-                    }))
+                    }));
             }
             CompleteProcessTemplateComponent::InputResourceDirs => {
                 for (n, (host, guest)) in dirs.host_guest_input_resource_dirs.iter().enumerate() {
@@ -994,7 +991,7 @@ async fn build_process_template(
                                 mode: HostPathMode::Read,
                                 guest_path_hint: guest.clone(),
                             },
-                        }))
+                        }));
                 }
             }
             CompleteProcessTemplateComponent::HomeDir => {
@@ -1006,7 +1003,7 @@ async fn build_process_template(
                             mode: HostPathMode::ReadWriteCreate,
                             guest_path_hint: dirs.guest_home_dir.into(),
                         },
-                    }))
+                    }));
             }
             CompleteProcessTemplateComponent::WorkDir => {
                 result
@@ -1017,7 +1014,7 @@ async fn build_process_template(
                             mode: HostPathMode::ReadWriteCreate,
                             guest_path_hint: dirs.guest_work_dir.into(),
                         },
-                    }))
+                    }));
             }
             CompleteProcessTemplateComponent::TempDir => {
                 result
@@ -1028,7 +1025,7 @@ async fn build_process_template(
                             mode: HostPathMode::ReadWriteCreate,
                             guest_path_hint: dirs.guest_temp_dir.into(),
                         },
-                    }))
+                    }));
             }
         }
     }
@@ -1524,7 +1521,7 @@ impl SandboxBackendSelector {
             ]),
             command: SandboxTemplate {
                 components: vec![
-                    SandboxTemplateComponent::Path(rootfs_recipes_sandbox_path.clone()),
+                    SandboxTemplateComponent::Path(rootfs_recipes_sandbox_path),
                     SandboxTemplateComponent::Literal {
                         value: "/bin/sh".into(),
                     },
@@ -1585,7 +1582,7 @@ impl SandboxBackendSelector {
         let result = tokio::task::spawn_blocking({
             let backend = backend.clone();
             let config = self.sandbox_config.clone();
-            let output_path = self.output_path.to_owned();
+            let output_path = self.output_path.clone();
             move || check_sandbox_backend_sync(backend, config, &output_path)
         })
         .await??;

@@ -458,10 +458,10 @@ impl std::fmt::Display for StackFrame {
         let file_name = self.file_name.as_deref().unwrap_or("<unknown>");
         match (self.line_number, self.column_number) {
             (Some(line), Some(column)) => {
-                write!(f, "{file_name}:{}:{}", line, column)
+                write!(f, "{file_name}:{line}:{column}")
             }
             (Some(line), None) => {
-                write!(f, "{file_name}:{}", line)
+                write!(f, "{file_name}:{line}")
             }
             (None, _) => {
                 write!(f, "{file_name}")

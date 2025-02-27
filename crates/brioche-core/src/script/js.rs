@@ -33,13 +33,13 @@ fn op_brioche_version() -> String {
 }
 
 #[deno_core::op2]
-fn op_brioche_console(#[serde] level: ConsoleLevel, #[string] message: String) {
+fn op_brioche_console(#[serde] level: ConsoleLevel, #[string] message: &str) {
     match level {
-        ConsoleLevel::Log => tracing::info!("{}", message),
-        ConsoleLevel::Debug => tracing::debug!("{}", message),
-        ConsoleLevel::Info => tracing::info!("{}", message),
-        ConsoleLevel::Warn => tracing::warn!("{}", message),
-        ConsoleLevel::Error => tracing::error!("{}", message),
+        ConsoleLevel::Log => tracing::info!("{message}"),
+        ConsoleLevel::Debug => tracing::debug!("{message}"),
+        ConsoleLevel::Info => tracing::info!("{message}"),
+        ConsoleLevel::Warn => tracing::warn!("{message}"),
+        ConsoleLevel::Error => tracing::error!("{message}"),
     }
 }
 

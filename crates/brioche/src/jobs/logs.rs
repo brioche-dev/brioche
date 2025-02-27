@@ -34,7 +34,7 @@ const ZSTD_SKIPPABLE_FRAME_MAGIC: &[u8] = &[0x2A, 0x4D, 0x18];
 trait ReadSeek: std::io::Read + std::io::Seek {}
 impl<T: std::io::Read + std::io::Seek> ReadSeek for T {}
 
-pub fn logs(args: LogsArgs) -> anyhow::Result<()> {
+pub fn logs(args: &LogsArgs) -> anyhow::Result<()> {
     let input: Box<dyn ReadSeek> = if args.path.to_str() == Some("-") {
         anyhow::ensure!(
             !args.follow,
@@ -94,7 +94,7 @@ pub fn logs(args: LogsArgs) -> anyhow::Result<()> {
 
     display_events(
         &mut reader,
-        DisplayEventsOptions {
+        &DisplayEventsOptions {
             limit: args.limit,
             reverse: args.reverse,
             follow_events,

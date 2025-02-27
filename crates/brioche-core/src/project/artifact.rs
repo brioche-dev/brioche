@@ -185,7 +185,7 @@ pub async fn save_projects_from_artifact(
             loaded_projects.insert(project_hash);
         } else {
             // Project has not been loaded, so queue it to be loaded
-            unloaded_projects.push((project_hash, local_path, entry))
+            unloaded_projects.push((project_hash, local_path, entry));
         }
     }
 
@@ -201,7 +201,7 @@ pub async fn save_projects_from_artifact(
         } else {
             // Project does not exist (or has a different hash), so we
             // should save it from the artifact
-            needed_paths.push((project_hash, local_path, artifact))
+            needed_paths.push((project_hash, local_path, artifact));
         }
     }
 

@@ -53,7 +53,7 @@ pub async fn create_input(
 
             // Add nodes and edges for all files/directories/symlinks
             let root_node = add_input_plan_nodes(
-                InputOptions {
+                &mut InputOptions {
                     input_path: &input_path,
                     remove_input,
                     resource_dir: resource_dir.as_deref(),
@@ -84,7 +84,7 @@ pub async fn create_input(
     // limit the maximum concurrency.
     let mut nodes_to_blobs_tasks = vec![];
     for node in file_nodes {
-        let path = plan.nodes_to_paths[&node].to_owned();
+        let path = plan.nodes_to_paths[&node].clone();
         let brioche = brioche.clone();
         let remove_blob = plan.paths_to_remove.contains(&path);
 
@@ -132,7 +132,7 @@ pub async fn create_input(
     // Create an artifact for each node
     for node_index in planned_nodes {
         let node = &plan.graph[node_index];
-        let path = plan.nodes_to_paths[&node_index].to_owned();
+        let path = plan.nodes_to_paths[&node_index].clone();
 
         let artifact = match node {
             CreateInputPlanNode::File { is_executable } => {
@@ -188,11 +188,11 @@ pub async fn create_input(
                     .graph
                     .edges_directed(node_index, petgraph::Direction::Outgoing);
                 for edge in edges_out {
-                    let entry_name = match &edge.weight() {
-                        CreateInputPlanEdge::DirectoryEntry { file_name } => file_name,
-                        _ => {
-                            anyhow::bail!("unexpected edge for directory node: {:?}", edge.weight())
-                        }
+                    let CreateInputPlanEdge::DirectoryEntry {
+                        file_name: entry_name,
+                    } = &edge.weight()
+                    else {
+                        anyhow::bail!("unexpected edge for directory node: {:?}", edge.weight())
                     };
 
                     let entry_node_index = edge.target();
@@ -290,7 +290,7 @@ struct CreateInputPlan {
 }
 
 fn add_input_plan_nodes(
-    options: InputOptions,
+    options: &mut InputOptions,
     plan: &mut CreateInputPlan,
 ) -> anyhow::Result<petgraph::graph::NodeIndex> {
     if let Some(node) = plan.paths_to_nodes.get(options.input_path) {
@@ -330,7 +330,7 @@ fn add_input_plan_nodes(
 
             if let Some(resource) = resource {
                 let resource_node = add_input_plan_nodes(
-                    InputOptions {
+                    &mut InputOptions {
                         input_path: &resource.path,
                         remove_input: false,
                         resource_dir: options.resource_dir,
@@ -366,9 +366,7 @@ fn add_input_plan_nodes(
         })?;
         let target = bstr::BString::from(target);
 
-        let node_index = plan.graph.add_node(CreateInputPlanNode::Symlink {
-            target: target.clone(),
-        });
+        let node_index = plan.graph.add_node(CreateInputPlanNode::Symlink { target });
 
         plan.paths_to_nodes
             .insert(options.input_path.to_owned(), node_index);
@@ -449,7 +447,7 @@ fn add_input_plan_nodes(
             }
 
             let target_node = add_input_plan_nodes(
-                InputOptions {
+                &mut InputOptions {
                     input_path: &resolved_path,
                     remove_input: false,
                     resource_dir: options.resource_dir,
@@ -487,7 +485,7 @@ fn add_input_plan_nodes(
             let file_name = bstr::BString::from(file_name);
 
             let dir_entry_node = add_input_plan_nodes(
-                InputOptions {
+                &mut InputOptions {
                     input_path: &dir_entry.path(),
                     remove_input: false,
                     resource_dir: options.resource_dir,
@@ -518,9 +516,11 @@ fn add_input_plan_indirect_resources(plan: &mut CreateInputPlan) -> anyhow::Resu
         .graph
         .edge_references()
         .filter_map(|edge| {
-            let resource_path = match edge.weight() {
-                CreateInputPlanEdge::Resource { path } => path,
-                _ => return None,
+            let CreateInputPlanEdge::Resource {
+                path: resource_path,
+            } = edge.weight()
+            else {
+                return None;
             };
 
             let node = edge.source();
@@ -558,9 +558,8 @@ fn add_input_plan_indirect_resources(plan: &mut CreateInputPlan) -> anyhow::Resu
                     resource_paths.push((node, path.clone(), subresource_node));
                 }
                 CreateInputPlanEdge::SymlinkTarget => {
-                    let target = match &plan.graph[resource_node] {
-                        CreateInputPlanNode::Symlink { target } => target,
-                        _ => anyhow::bail!("non-symlink node has symlink target edge"),
+                    let CreateInputPlanNode::Symlink { target } = &plan.graph[resource_node] else {
+                        anyhow::bail!("non-symlink node has symlink target edge");
                     };
 
                     let mut target_path = resource_path.clone();

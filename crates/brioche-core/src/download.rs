@@ -7,6 +7,7 @@ use crate::{
     reporter::job::{NewJob, UpdateJob},
 };
 
+#[expect(clippy::cast_possible_truncation)]
 #[tracing::instrument(skip(brioche, expected_hash))]
 pub async fn download(
     brioche: &Brioche,

@@ -15,6 +15,7 @@ const SECS_PRECISION: usize = 2;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DisplayDuration(pub std::time::Duration);
 
+#[expect(clippy::cast_possible_truncation)]
 impl std::fmt::Display for DisplayDuration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let max_width = f.precision().unwrap_or(usize::MAX);
@@ -35,7 +36,7 @@ impl std::fmt::Display for DisplayDuration {
                 .saturating_sub(2);
 
             let secs_precision = std::cmp::min(secs_fractional_width, SECS_PRECISION);
-            write!(&mut unaligned, "{secs:.0$}s", secs_precision)?;
+            write!(&mut unaligned, "{secs:.secs_precision$}s")?;
         } else {
             // Use the rounded seconds, and break them up into hours,
             // minutes, and days

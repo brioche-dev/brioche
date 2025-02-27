@@ -33,7 +33,7 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     let update_manifest = get_update_platform_manifest(&client, platform).await?;
 
     let Some(update_manifest) = update_manifest else {
-        println!("No updates available for {}", CURRENT_VERSION);
+        println!("No updates available for {CURRENT_VERSION}");
         return Ok(false);
     };
 
@@ -75,10 +75,10 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     let actual_hash = sha2::Sha256::digest(&new_update);
     let actual_hash_string = hex::encode(actual_hash);
 
-    if actual_hash_string.to_lowercase() != update_manifest.sha256.to_lowercase() {
+    if !actual_hash_string.eq_ignore_ascii_case(&update_manifest.sha256) {
         println!("Downloaded update does not match expected hash");
         println!("  Expected: {}", update_manifest.sha256);
-        println!("  Actual:   {}", actual_hash_string);
+        println!("  Actual:   {actual_hash_string}");
         anyhow::bail!("hash mismatch");
     }
 

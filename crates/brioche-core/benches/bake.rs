@@ -27,7 +27,7 @@ fn cached_bake_deep_dir(bencher: divan::Bencher) {
             .await
             .unwrap();
         });
-    })
+    });
 }
 
 #[divan::bench]
@@ -50,7 +50,7 @@ fn cached_bake_wide_dir(bencher: divan::Bencher) {
             .await
             .unwrap();
         });
-    })
+    });
 }
 
 #[divan::bench]
@@ -73,7 +73,7 @@ fn cached_bake_deep_merge(bencher: divan::Bencher) {
             .await
             .unwrap();
         });
-    })
+    });
 }
 
 #[divan::bench]
@@ -96,7 +96,7 @@ fn cached_bake_wide_merge(bencher: divan::Bencher) {
             .await
             .unwrap();
         });
-    })
+    });
 }
 
 fn set_up_bench() -> RecipesContext {

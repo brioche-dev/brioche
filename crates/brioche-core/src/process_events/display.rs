@@ -15,7 +15,7 @@ pub struct DisplayEventsOptions {
 #[expect(clippy::print_stdout)]
 pub fn display_events<R>(
     reader: &mut ProcessEventReader<R>,
-    options: DisplayEventsOptions,
+    options: &DisplayEventsOptions,
 ) -> anyhow::Result<()>
 where
     R: std::io::Read + std::io::Seek,
@@ -124,16 +124,16 @@ where
                     };
 
                     let Some(line_number) = stack_frame.line_number else {
-                        println!("- {}", file_name);
+                        println!("- {file_name}");
                         continue;
                     };
 
                     let Some(column_number) = stack_frame.column_number else {
-                        println!("- {}:{}", file_name, line_number);
+                        println!("- {file_name}:{line_number}");
                         continue;
                     };
 
-                    println!("- {}:{}:{}", file_name, line_number, column_number);
+                    println!("- {file_name}:{line_number}:{column_number}");
                 }
 
                 if stack_frames.is_empty() {

@@ -287,8 +287,8 @@ impl BriocheBuilder {
                         };
                         Some(config::CacheConfig {
                             url,
-                            read_only,
                             max_concurrent_operations,
+                            read_only,
                             allow_http,
                         })
                     }
