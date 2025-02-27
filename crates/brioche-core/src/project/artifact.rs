@@ -7,11 +7,11 @@ use anyhow::Context as _;
 use bstr::ByteSlice as _;
 
 use crate::{
-    recipe::{Artifact, ArtifactDiscriminants, Directory},
     Brioche,
+    recipe::{Artifact, ArtifactDiscriminants, Directory},
 };
 
-use super::{analyze::StaticQuery, ProjectHash, Projects};
+use super::{ProjectHash, Projects, analyze::StaticQuery};
 
 pub async fn create_artifact_with_projects(
     brioche: &Brioche,
@@ -271,7 +271,11 @@ pub async fn save_projects_from_artifact(
             .await?;
 
         // Validate that the project hash matches
-        anyhow::ensure!(expected_project_hash == project_hash, "expected directory {} to have project hash {expected_project_hash}, but was {project_hash}", local_path.display());
+        anyhow::ensure!(
+            expected_project_hash == project_hash,
+            "expected directory {} to have project hash {expected_project_hash}, but was {project_hash}",
+            local_path.display()
+        );
 
         loaded_projects.insert(project_hash);
     }

@@ -5,7 +5,7 @@ use tokio::io::AsyncWriteExt as _;
 
 use crate::reporter::job::ProcessStream;
 
-use super::{ProcessEvent, ProcessEventKind, ProcessEventMarker, PROCESS_EVENT_MAGIC};
+use super::{PROCESS_EVENT_MAGIC, ProcessEvent, ProcessEventKind, ProcessEventMarker};
 
 pub struct ProcessEventWriter<W>
 where

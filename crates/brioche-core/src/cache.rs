@@ -4,10 +4,10 @@ use anyhow::Context as _;
 use tokio::io::AsyncWriteExt as _;
 
 use crate::{
+    Brioche,
     project::ProjectHash,
     recipe::{Artifact, RecipeHash},
     reporter::job::CacheFetchKind,
-    Brioche,
 };
 
 mod archive;

@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use brioche_core::{
+    Brioche,
     bake::BakeScope,
     cache::CacheClient,
     recipe::{Recipe, WithMeta},
-    Brioche,
 };
 use brioche_test_support::tpl;
 

@@ -45,7 +45,9 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     println!("  Path: {}", brioche_path.display());
 
     if !cfg!(feature = "self-update") {
-        println!("Self-updating is is disabled for this version of Brioche, please visit https://brioche.dev/help/manual-update for instructions on updating to the latest version");
+        println!(
+            "Self-updating is is disabled for this version of Brioche, please visit https://brioche.dev/help/manual-update for instructions on updating to the latest version"
+        );
         return Ok(false);
     }
 

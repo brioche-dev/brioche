@@ -3,13 +3,13 @@ use std::rc::Rc;
 use anyhow::Context as _;
 
 use crate::{
+    Brioche,
     bake::BakeScope,
     project::{ProjectHash, Projects},
     recipe::{Recipe, WithMeta},
-    Brioche,
 };
 
-use super::{bridge::RuntimeBridge, BriocheModuleLoader};
+use super::{BriocheModuleLoader, bridge::RuntimeBridge};
 
 #[tracing::instrument(skip(brioche, projects, project_hash), fields(%project_hash), err)]
 pub async fn evaluate(

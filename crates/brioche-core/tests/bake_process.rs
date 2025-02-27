@@ -7,12 +7,12 @@ use assert_matches::assert_matches;
 use pretty_assertions::assert_eq;
 
 use brioche_core::{
+    Hash,
     platform::current_platform,
     recipe::{
         ArchiveFormat, Artifact, CompressionFormat, Directory, DownloadRecipe, File, ProcessRecipe,
         Recipe, Unarchive, WithMeta,
     },
-    Hash,
 };
 use brioche_test_support::{
     bake_without_meta, default_process, home_dir, input_resource_dirs, output_path, resource_dir,
@@ -362,40 +362,44 @@ fn test_bake_process_cached_equivalent_inputs() -> anyhow::Result<()> {
         assert_eq!(empty_dir_1_baked, empty_dir_2_baked);
 
         let process_random_1 = Recipe::Process(ProcessRecipe {
-        command: tpl("/usr/bin/env"),
-        args: vec![
-            tpl("sh"),
-            tpl("-c"),
-            tpl("echo $input >> $BRIOCHE_OUTPUT; cat /dev/urandom | head -c 1024 >> $BRIOCHE_OUTPUT"),
-        ],
-        env: BTreeMap::from_iter([
-            ("BRIOCHE_OUTPUT".into(), output_path()),
-            (
-                "PATH".into(),
-                tpl_join([template_input(utils()), tpl("/bin")]),
-            ),
-            ("input".into(), template_input(empty_dir_1)),
-        ]),
-        ..default_process()
-    });
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(
+                    "echo $input >> $BRIOCHE_OUTPUT; cat /dev/urandom | head -c 1024 >> $BRIOCHE_OUTPUT",
+                ),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("input".into(), template_input(empty_dir_1)),
+            ]),
+            ..default_process()
+        });
 
         let process_random_2 = Recipe::Process(ProcessRecipe {
-        command: tpl("/usr/bin/env"),
-        args: vec![
-            tpl("sh"),
-            tpl("-c"),
-            tpl("echo $input >> $BRIOCHE_OUTPUT; cat /dev/urandom | head -c 1024 >> $BRIOCHE_OUTPUT"),
-        ],
-        env: BTreeMap::from_iter([
-            ("BRIOCHE_OUTPUT".into(), output_path()),
-            (
-                "PATH".into(),
-                tpl_join([template_input(utils()), tpl("/bin")]),
-            ),
-            ("input".into(), template_input(empty_dir_2)),
-        ]),
-        ..default_process()
-    });
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(
+                    "echo $input >> $BRIOCHE_OUTPUT; cat /dev/urandom | head -c 1024 >> $BRIOCHE_OUTPUT",
+                ),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("input".into(), template_input(empty_dir_2)),
+            ]),
+            ..default_process()
+        });
 
         // Both processes are different, but their inputs bake to identical
         // artifacts, so this should be a cache hit.
@@ -431,40 +435,44 @@ fn test_bake_process_cached_equivalent_inputs_parallel() -> anyhow::Result<()> {
         assert_eq!(empty_dir_1_baked, empty_dir_2_baked);
 
         let process_random_1 = Recipe::Process(ProcessRecipe {
-        command: tpl("/usr/bin/env"),
-        args: vec![
-            tpl("sh"),
-            tpl("-c"),
-            tpl("echo $input >> $BRIOCHE_OUTPUT; cat /dev/urandom | head -c 1024 >> $BRIOCHE_OUTPUT"),
-        ],
-        env: BTreeMap::from_iter([
-            ("BRIOCHE_OUTPUT".into(), output_path()),
-            (
-                "PATH".into(),
-                tpl_join([template_input(utils()), tpl("/bin")]),
-            ),
-            ("input".into(), template_input(empty_dir_1)),
-        ]),
-        ..default_process()
-    });
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(
+                    "echo $input >> $BRIOCHE_OUTPUT; cat /dev/urandom | head -c 1024 >> $BRIOCHE_OUTPUT",
+                ),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("input".into(), template_input(empty_dir_1)),
+            ]),
+            ..default_process()
+        });
 
         let process_random_2 = Recipe::Process(ProcessRecipe {
-        command: tpl("/usr/bin/env"),
-        args: vec![
-            tpl("sh"),
-            tpl("-c"),
-            tpl("echo $input >> $BRIOCHE_OUTPUT; cat /dev/urandom | head -c 1024 >> $BRIOCHE_OUTPUT"),
-        ],
-        env: BTreeMap::from_iter([
-            ("BRIOCHE_OUTPUT".into(), output_path()),
-            (
-                "PATH".into(),
-                tpl_join([template_input(utils()), tpl("/bin")]),
-            ),
-            ("input".into(), template_input(empty_dir_2)),
-        ]),
-        ..default_process()
-    });
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(
+                    "echo $input >> $BRIOCHE_OUTPUT; cat /dev/urandom | head -c 1024 >> $BRIOCHE_OUTPUT",
+                ),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("input".into(), template_input(empty_dir_2)),
+            ]),
+            ..default_process()
+        });
 
         let process_random_1_proxy =
             brioche_core::bake::create_proxy(&brioche, process_random_1.clone()).await?;

@@ -1,9 +1,9 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use brioche_core::{
+    Brioche,
     project::{ProjectHash, ProjectLocking, ProjectValidation, Projects},
     reporter::Reporter,
-    Brioche,
 };
 use clap::Parser;
 

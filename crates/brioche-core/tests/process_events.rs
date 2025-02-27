@@ -4,9 +4,9 @@ use jiff::Zoned;
 
 use brioche_core::{
     process_events::{
-        create_process_output_events, reader::ProcessEventReader, writer::ProcessEventWriter,
-        CreateProcessOutputEventError, ProcessEvent, ProcessEventDescription, ProcessExitedEvent,
-        ProcessOutputEvent, ProcessSpawnedEvent, PROCESS_EVENT_MAGIC,
+        CreateProcessOutputEventError, PROCESS_EVENT_MAGIC, ProcessEvent, ProcessEventDescription,
+        ProcessExitedEvent, ProcessOutputEvent, ProcessSpawnedEvent, create_process_output_events,
+        reader::ProcessEventReader, writer::ProcessEventWriter,
     },
     recipe::{CompleteProcessRecipe, CompleteProcessTemplate, Meta},
     reporter::job::ProcessStream,

@@ -3,8 +3,8 @@ use futures::TryStreamExt as _;
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
 use crate::{
-    reporter::job::{NewJob, UpdateJob},
     Brioche,
+    reporter::job::{NewJob, UpdateJob},
 };
 
 #[tracing::instrument(skip(brioche, expected_hash))]

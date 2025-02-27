@@ -1,6 +1,6 @@
 use crate::{
-    recipe::{Artifact, Directory},
     Brioche,
+    recipe::{Artifact, Directory},
 };
 
 pub async fn bake_collect_references(

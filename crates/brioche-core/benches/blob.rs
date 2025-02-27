@@ -1,4 +1,4 @@
-use brioche_core::blob::{get_save_blob_permit, save_blob, save_blob_from_reader, SaveBlobOptions};
+use brioche_core::blob::{SaveBlobOptions, get_save_blob_permit, save_blob, save_blob_from_reader};
 
 fn main() {
     divan::main();

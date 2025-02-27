@@ -2,13 +2,13 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Context as _;
+use brioche_core::Brioche;
 use brioche_core::project::ProjectHash;
 use brioche_core::project::ProjectLocking;
 use brioche_core::project::ProjectValidation;
 use brioche_core::project::Projects;
 use brioche_core::reporter::Reporter;
 use brioche_core::utils::DisplayDuration;
-use brioche_core::Brioche;
 use clap::Parser;
 use tracing::Instrument as _;
 

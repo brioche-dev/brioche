@@ -3,8 +3,8 @@ use std::collections::{BTreeSet, HashMap};
 use assert_matches::assert_matches;
 use brioche_core::{
     project::{
-        analyze::{analyze_project, ImportAnalysis, ProjectAnalysis, StaticInclude, StaticQuery},
         DependencyDefinition, ProjectDefinition, Version,
+        analyze::{ImportAnalysis, ProjectAnalysis, StaticInclude, StaticQuery, analyze_project},
     },
     script::specifier::{BriocheImportSpecifier, BriocheModuleSpecifier},
 };
@@ -586,8 +586,8 @@ async fn test_analyze_static_brioche_download_with_project_version_brackets() ->
 }
 
 #[tokio::test]
-async fn test_analyze_static_brioche_download_with_project_version_cross_module_error(
-) -> anyhow::Result<()> {
+async fn test_analyze_static_brioche_download_with_project_version_cross_module_error()
+-> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;

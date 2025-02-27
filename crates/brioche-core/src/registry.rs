@@ -9,10 +9,10 @@ use futures::{FutureExt as _, StreamExt as _, TryStreamExt as _};
 use tokio::io::AsyncReadExt as _;
 
 use crate::{
+    Brioche,
     blob::BlobHash,
     project::{Project, ProjectHash},
     recipe::{Artifact, Recipe, RecipeHash},
-    Brioche,
 };
 
 const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);

@@ -6,8 +6,8 @@ use std::{
 
 use assert_matches::assert_matches;
 use brioche_core::{
-    recipe::{Artifact, Meta},
     Brioche,
+    recipe::{Artifact, Meta},
 };
 use pretty_assertions::assert_eq;
 

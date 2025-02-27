@@ -20,13 +20,13 @@ use futures::{StreamExt as _, TryStreamExt as _};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::{
+    Brioche,
     blob::{BlobHash, SaveBlobOptions},
     recipe::{Artifact, Recipe, RecipeHash},
     reporter::{
-        job::{CacheFetchKind, NewJob, UpdateJob},
         JobId,
+        job::{CacheFetchKind, NewJob, UpdateJob},
     },
-    Brioche,
 };
 
 const MARKER: &[u8; 32] = b"brioche_artifact_archive_v0     ";

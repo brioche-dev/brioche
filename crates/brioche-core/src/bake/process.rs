@@ -11,6 +11,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tracing::Instrument as _;
 
 use crate::{
+    Brioche,
     process_events::{
         ProcessEvent, ProcessEventDescription, ProcessExitedEvent, ProcessSpawnedEvent,
     },
@@ -20,14 +21,13 @@ use crate::{
         ProcessRecipe, ProcessTemplate, ProcessTemplateComponent, Recipe, Unarchive, WithMeta,
     },
     reporter::{
-        job::{NewJob, ProcessPacket, ProcessStatus, ProcessStream, UpdateJob},
         JobId,
+        job::{NewJob, ProcessPacket, ProcessStatus, ProcessStream, UpdateJob},
     },
     sandbox::{
         HostPathMode, SandboxBackend, SandboxExecutionConfig, SandboxPath, SandboxPathOptions,
         SandboxTemplate, SandboxTemplateComponent,
     },
-    Brioche,
 };
 
 const GUEST_UID_HINT: u32 = 1099;
@@ -1122,7 +1122,9 @@ async fn append_dependency_envs(
                                 target: env_value_target,
                             } = env_value_entry
                             else {
-                                anyhow::bail!("expected `brioche-env.d/env/{env_var}/{env_value_entry_name}` to be a symlink");
+                                anyhow::bail!(
+                                    "expected `brioche-env.d/env/{env_var}/{env_value_entry_name}` to be a symlink"
+                                );
                             };
 
                             // Get the path of the symlink relative to the
@@ -1303,7 +1305,9 @@ async fn select_sandbox_backend(
                             );
                             crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path }
                         } else {
-                            anyhow::bail!("could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)");
+                            anyhow::bail!(
+                                "could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)"
+                            );
                         }
                     }
                 }
@@ -1330,7 +1334,9 @@ async fn select_sandbox_backend(
                         if let Some(proot_path) = proot_path {
                             crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path }
                         } else {
-                            anyhow::bail!("could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)");
+                            anyhow::bail!(
+                                "could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)"
+                            );
                         }
                     }
                 }
@@ -1388,7 +1394,9 @@ async fn auto_select_sandbox_backend(
         }
     }
 
-    anyhow::bail!("could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)");
+    anyhow::bail!(
+        "could not find a working backend to run processes (see https://brioche.dev/help/sandbox-backend)"
+    );
 }
 
 #[cfg_attr(not(target_os = "linux"), expect(dead_code))]

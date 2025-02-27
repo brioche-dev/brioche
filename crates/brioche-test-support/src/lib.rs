@@ -4,18 +4,18 @@ use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
     process::Output,
-    sync::{atomic::AtomicU32, Arc, OnceLock},
+    sync::{Arc, OnceLock, atomic::AtomicU32},
 };
 
 use anyhow::Context as _;
 use brioche_core::{
+    Brioche, BriocheBuilder,
     blob::{BlobHash, SaveBlobOptions},
     project::{self, ProjectHash, ProjectLocking, ProjectValidation, Projects},
     recipe::{
         CreateDirectory, Directory, DownloadRecipe, File, ProcessRecipe, ProcessTemplate,
         ProcessTemplateComponent, Recipe, WithMeta,
     },
-    Brioche, BriocheBuilder,
 };
 use futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
 use tokio::{
@@ -1217,7 +1217,9 @@ impl JsonRpcMessage {
             return Ok(result);
         };
 
-        eprintln!("warning: tried to parse JSON RPC message as a response, but both result and error were None");
+        eprintln!(
+            "warning: tried to parse JSON RPC message as a response, but both result and error were None"
+        );
         Err(JsonRpcError {
             code: 12345678,
             message: "Failed to parse JSON RPC message as a result".to_string(),

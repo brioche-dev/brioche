@@ -1,6 +1,6 @@
 use crate::{
-    recipe::{Directory, DownloadRecipe, File},
     Brioche,
+    recipe::{Directory, DownloadRecipe, File},
 };
 
 #[tracing::instrument(skip(brioche, download), fields(url = %download.url))]

@@ -1,4 +1,4 @@
-use brioche_core::{recipe::Recipe, Brioche};
+use brioche_core::{Brioche, recipe::Recipe};
 
 pub async fn bake_to_recipe(brioche: &Brioche, recipe: &Recipe) -> Recipe {
     let artifact = brioche_test_support::bake_without_meta(brioche, recipe.clone()).await;

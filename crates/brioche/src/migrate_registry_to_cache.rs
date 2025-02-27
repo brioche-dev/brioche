@@ -6,14 +6,14 @@ use std::{
 
 use anyhow::Context as _;
 use brioche_core::{
+    Brioche,
     blob::BlobHash,
     project::{
-        analyze::{GitRefOptions, StaticOutput, StaticOutputKind, StaticQuery},
         Lockfile, Project, ProjectHash, Projects,
+        analyze::{GitRefOptions, StaticOutput, StaticOutputKind, StaticQuery},
     },
     recipe::{Artifact, Recipe, RecipeHash},
     utils::DisplayDuration,
-    Brioche,
 };
 use clap::Parser;
 use tokio::io::AsyncWriteExt as _;
@@ -337,7 +337,10 @@ pub async fn migrate_registry_to_cache(args: MigrateRegistryToCacheArgs) -> anyh
         DisplayDuration(start.elapsed())
     );
 
-    println!("[{}] Finished migrating registry to cache num_new_artifacts={num_new_artifacts} num_existing_artifacts={num_existing_artifacts}", DisplayDuration(start.elapsed()));
+    println!(
+        "[{}] Finished migrating registry to cache num_new_artifacts={num_new_artifacts} num_existing_artifacts={num_existing_artifacts}",
+        DisplayDuration(start.elapsed())
+    );
 
     Ok(())
 }

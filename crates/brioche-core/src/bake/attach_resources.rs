@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use anyhow::Context as _;
 
 use crate::{
-    recipe::{Artifact, ArtifactDiscriminants, Directory},
     Brioche,
+    recipe::{Artifact, ArtifactDiscriminants, Directory},
 };
 
 /// Recursively walk a directory, attaching resources to directory entries

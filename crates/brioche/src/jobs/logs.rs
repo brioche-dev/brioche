@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use brioche_core::{
     process_events::{
-        display::{display_events, DisplayEventsOptions},
         PROCESS_EVENT_MAGIC,
+        display::{DisplayEventsOptions, display_events},
     },
     utils::io::NotSeekable,
 };

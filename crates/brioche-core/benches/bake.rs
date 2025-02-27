@@ -1,6 +1,6 @@
 use brioche_core::{
-    recipe::{Directory, Recipe, WithMeta},
     Brioche,
+    recipe::{Directory, Recipe, WithMeta},
 };
 
 fn main() {

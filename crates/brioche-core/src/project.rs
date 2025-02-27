@@ -12,7 +12,7 @@ use tokio::io::AsyncReadExt as _;
 
 use crate::recipe::Artifact;
 
-use super::{vfs::FileId, Brioche};
+use super::{Brioche, vfs::FileId};
 
 pub mod analyze;
 pub mod artifact;
@@ -1247,16 +1247,17 @@ async fn resolve_static(
                     for entry in walkdir::WalkDir::new(&module_dir_path) {
                         let entry =
                             entry.context("failed to get directory entry while matching globs")?;
-                        let relative_entry_path =
-                            pathdiff::diff_paths(entry.path(), &module_dir_path).with_context(
-                                || {
-                                    format!(
-                                    "failed to resolve matched path {} relative to module path {}",
-                                    entry.path().display(),
-                                    module_dir_path.display(),
-                                )
-                                },
-                            )?;
+                        let relative_entry_path = pathdiff::diff_paths(
+                            entry.path(),
+                            &module_dir_path,
+                        )
+                        .with_context(|| {
+                            format!(
+                                "failed to resolve matched path {} relative to module path {}",
+                                entry.path().display(),
+                                module_dir_path.display(),
+                            )
+                        })?;
                         if glob_set.is_match(&relative_entry_path) {
                             paths.push((entry.path().to_owned(), relative_entry_path));
                         }

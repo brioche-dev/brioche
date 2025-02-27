@@ -4,8 +4,8 @@ use futures::{StreamExt as _, TryStreamExt as _};
 use tracing::Instrument as _;
 
 use crate::{
-    references::{ProjectReferences, RecipeReferences},
     Brioche,
+    references::{ProjectReferences, RecipeReferences},
 };
 
 use super::SyncBakesResults;

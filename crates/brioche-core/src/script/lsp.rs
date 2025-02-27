@@ -9,7 +9,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::project::{ProjectLocking, ProjectValidation, Projects};
-use crate::script::compiler_host::{brioche_compiler_host, BriocheCompilerHost};
+use crate::script::compiler_host::{BriocheCompilerHost, brioche_compiler_host};
 use crate::script::format::format_code;
 use crate::{Brioche, BriocheBuilder};
 

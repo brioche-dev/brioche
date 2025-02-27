@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Context as _;
 
-use crate::{blob::BlobHash, Brioche};
+use crate::{Brioche, blob::BlobHash};
 
 #[derive(Debug, Clone)]
 pub struct Vfs {

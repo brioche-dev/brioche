@@ -1,6 +1,6 @@
 use futures::{StreamExt as _, TryStreamExt as _};
 
-use crate::{utils::DisplayDuration, Brioche};
+use crate::{Brioche, utils::DisplayDuration};
 
 use super::SyncBakesResults;
 
