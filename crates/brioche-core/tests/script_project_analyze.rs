@@ -586,6 +586,49 @@ async fn test_analyze_static_brioche_download_with_project_version_brackets() ->
 }
 
 #[tokio::test]
+async fn test_analyze_static_brioche_download_with_project_extras() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                interface Project {
+                    name?: string;
+                    version?: string;
+                    extra?: Record<string, unknown>;
+                }
+
+                export const project = ({
+                    version: "1.0.0" satisfies string,
+                    extra: {
+                        ["domain"]: (`example.com` as string),
+                    },
+                }) satisfies Project as const;
+
+                export function () {
+                    return Brioche.download(`https://${project.extra["domain"]}/v${project["version"]}/download.tar.gz`);
+                }
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    let root_module = &project.local_modules[&project.root_module];
+
+    assert_eq!(
+        root_module.statics,
+        BTreeSet::from_iter([StaticQuery::Download {
+            url: "https://example.com/v1.0.0/download.tar.gz".parse()?,
+        }]),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_analyze_static_brioche_download_with_project_version_cross_module_error(
 ) -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
