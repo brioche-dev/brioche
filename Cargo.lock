@@ -991,16 +991,15 @@ dependencies = [
 
 [[package]]
 name = "biome_rowan"
-version = "0.5.7"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3c2dc25a7ba6ae89526340034abed6c89fac35b79060786771e32ed4aac77e7"
+checksum = "5ee4442bc598e3baead7453c4070b8b326f3b54287a583105d6ffd13c28b3ef0"
 dependencies = [
  "biome_text_edit",
  "biome_text_size",
  "countme",
- "hashbrown 0.12.3",
- "memoffset 0.8.0",
- "rustc-hash 1.1.0",
+ "hashbrown 0.14.5",
+ "rustc-hash 2.1.1",
  "tracing",
 ]
 
@@ -4525,15 +4524,6 @@ name = "memoffset"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5de893c32cde5f383baa4c04c5d6dbdd735cfd4a794b0debdb2bb1b421da5ff4"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
-name = "memoffset"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d61c719bcfbcf5d62b3a09efa6088de8c54bc0bfcd3ea7ae39fcc186108b8de1"
 dependencies = [
  "autocfg",
 ]
