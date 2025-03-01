@@ -1006,9 +1006,9 @@ dependencies = [
 
 [[package]]
 name = "biome_text_edit"
-version = "0.5.7"
+version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d486fdd96d5dad6428213ce64e6b9eb5bfb2fce6387fe901e844d386283de509"
+checksum = "a5b42189daa66f0dd20af2a4dd405c28ccf4f5a687c08a5fa4d8e1b31ce2295b"
 dependencies = [
  "biome_text_size",
  "serde",
