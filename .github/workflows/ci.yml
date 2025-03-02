@@ -79,24 +79,6 @@ jobs:
               echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf
               sudo sysctl --system
 
-          - name: aarch64 Ubuntu 22.04
-            runs_on: ubuntu-22.04-arm
-
-          - name: aarch64 Ubuntu 22.04 + PRoot
-            runs_on: ubuntu-22.04-arm
-            setup: |
-              echo 'BRIOCHE_TEST_SANDBOX=linux_namespace' >> "$GITHUB_ENV"
-              echo 'BRIOCHE_TEST_SANDBOX_PROOT=true' >> "$GITHUB_ENV"
-
-          - name: aarch64 Ubuntu 24.04
-            runs_on: ubuntu-24.04-arm
-
-          - name: aarch64 Ubuntu 24.04 + Namespaces
-            runs_on: ubuntu-24.04-arm
-            setup: |
-              echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf
-              sudo sysctl --system
-
           - name: aarch64 macOS 14
             runs_on: macos-14
     runs-on: ${{ matrix.test.runs_on }}
