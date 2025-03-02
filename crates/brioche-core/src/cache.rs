@@ -48,8 +48,9 @@ pub async fn cache_client_from_config_or_default(
     config: Option<&crate::config::CacheConfig>,
 ) -> anyhow::Result<CacheClient> {
     let max_concurrent_operations = config
-        .map(|config| config.max_concurrent_operations)
-        .unwrap_or(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS);
+        .map_or(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS, |config| {
+            config.max_concurrent_operations
+        });
     let (url, writable) = match config {
         Some(config) => (config.url.clone(), !config.read_only),
         None => (DEFAULT_CACHE_URL.parse()?, false),

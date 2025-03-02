@@ -50,7 +50,7 @@ async fn check_with_deno(
         // https://github.com/brioche-dev/brioche/pull/105#issuecomment-2241289605
         let result = runtime.block_on(async move {
             let module_loader = super::BriocheModuleLoader::new(bridge.clone());
-            let compiler_host = super::compiler_host::BriocheCompilerHost::new(bridge).await;
+            let compiler_host = super::compiler_host::BriocheCompilerHost::new(bridge);
 
             // Load all of the provided specifiers
             compiler_host
@@ -107,21 +107,18 @@ async fn check_with_deno(
             let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
 
             let result = export.call(&mut js_scope, module_namespace.into(), &[files]);
-            let result = match result {
-                Some(result) => result,
-                None => {
-                    let error_message = js_scope
-                        .exception()
-                        .map(|exception| {
-                            anyhow::anyhow!(deno_core::error::JsError::from_v8_exception(
-                                &mut js_scope,
-                                exception
-                            ))
-                        })
-                        .unwrap_or_else(|| anyhow::anyhow!("unknown error when calling function"));
-                    return Err(error_message)
-                        .with_context(|| format!("error when calling {export_key_name:?}"));
-                }
+            let Some(result) = result else {
+                let error_message = js_scope.exception().map_or_else(
+                    || anyhow::anyhow!("unknown error when calling function"),
+                    |exception| {
+                        anyhow::anyhow!(deno_core::error::JsError::from_v8_exception(
+                            &mut js_scope,
+                            exception
+                        ))
+                    },
+                );
+                return Err(error_message)
+                    .with_context(|| format!("error when calling {export_key_name:?}"));
             };
 
             // Deserialize the result as an array of `Dignostic` values

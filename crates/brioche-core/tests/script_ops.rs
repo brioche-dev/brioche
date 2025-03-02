@@ -132,9 +132,8 @@ async fn test_script_osp_stack_frames_from_exception() -> anyhow::Result<()> {
         .value;
     let artifact = brioche_test_support::bake_without_meta(&brioche, recipe).await?;
 
-    let file = match artifact {
-        brioche_core::recipe::Artifact::File(file) => file,
-        _ => panic!("expected file artifact"),
+    let brioche_core::recipe::Artifact::File(file) = artifact else {
+        panic!("expected file artifact");
     };
     let blob_path = brioche_core::blob::local_blob_path(&brioche, file.content_blob);
     let content = tokio::fs::read_to_string(&blob_path).await?;

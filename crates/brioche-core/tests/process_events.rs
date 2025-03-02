@@ -411,7 +411,7 @@ fn test_process_event_create_output_events() {
     let event_lengths = create_process_output_events(
         Duration::ZERO,
         ProcessStream::Stdout,
-        &[0; ProcessOutputEvent::MAX_CONTENT_LENGTH],
+        &vec![0; ProcessOutputEvent::MAX_CONTENT_LENGTH],
     )
     .map(|event| event.content().len())
     .collect::<Vec<_>>();
@@ -420,7 +420,7 @@ fn test_process_event_create_output_events() {
     let event_lengths = create_process_output_events(
         Duration::ZERO,
         ProcessStream::Stdout,
-        &[0; ProcessOutputEvent::MAX_CONTENT_LENGTH + 1],
+        &vec![0; ProcessOutputEvent::MAX_CONTENT_LENGTH + 1],
     )
     .map(|event| event.content().len())
     .collect::<Vec<_>>();
@@ -429,7 +429,7 @@ fn test_process_event_create_output_events() {
     let event_lengths = create_process_output_events(
         Duration::ZERO,
         ProcessStream::Stdout,
-        &[0; (ProcessOutputEvent::MAX_CONTENT_LENGTH * 2) + 5],
+        &vec![0; (ProcessOutputEvent::MAX_CONTENT_LENGTH * 2) + 5],
     )
     .map(|event| event.content().len())
     .collect::<Vec<_>>();

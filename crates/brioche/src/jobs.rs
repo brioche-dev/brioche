@@ -13,7 +13,7 @@ pub enum JobsSubcommand {
 pub fn jobs(command: JobsSubcommand) -> anyhow::Result<ExitCode> {
     match command {
         JobsSubcommand::Logs(args) => {
-            logs::logs(args)?;
+            logs::logs(&args)?;
 
             Ok(ExitCode::SUCCESS)
         }

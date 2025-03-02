@@ -26,7 +26,7 @@ pub async fn sync_bakes(
         .buffer_unordered(25)
         .try_fold(0, |mut sum, is_new_artifact| async move {
             if is_new_artifact {
-                sum += 1
+                sum += 1;
             }
 
             Ok(sum)
@@ -45,7 +45,7 @@ pub async fn sync_bakes(
         .buffer_unordered(25)
         .try_fold(0, |mut sum, is_new_bake| async move {
             if is_new_bake {
-                sum += 1
+                sum += 1;
             }
 
             Ok(sum)

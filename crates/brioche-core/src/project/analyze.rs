@@ -54,9 +54,8 @@ impl StaticQuery {
         let recipe_hash = match output {
             StaticOutput::RecipeHash(hash) => Some(*hash),
             StaticOutput::Kind(StaticOutputKind::Download { hash }) => {
-                let download_url = match self {
-                    StaticQuery::Download { url } => url,
-                    _ => anyhow::bail!("expected download query"),
+                let Self::Download { url: download_url } = self else {
+                    anyhow::bail!("expected download query");
                 };
                 let recipe = crate::recipe::Recipe::Download(crate::recipe::DownloadRecipe {
                     url: download_url.clone(),
@@ -167,7 +166,7 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
                 let expr = init.expression().with_context(|| {
                     format!("{file_line}: invalid project export: failed to parse expression")
                 })?;
-                anyhow::Ok(expr.clone())
+                anyhow::Ok(expr)
             })
             .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
 
@@ -646,11 +645,8 @@ fn expression_to_json(
             let mut values = Vec::new();
             for (n, element) in array.elements().iter().enumerate() {
                 let element = element.with_context(|| format!("[{n}]: syntax error"))?;
-                let element = match element {
-                    biome_js_syntax::AnyJsArrayElement::AnyJsExpression(expression) => expression,
-                    _ => {
-                        anyhow::bail!("[{n}]: unsupported array element");
-                    }
+                let biome_js_syntax::AnyJsArrayElement::AnyJsExpression(element) = element else {
+                    anyhow::bail!("[{n}]: unsupported array element");
                 };
                 let element =
                     expression_to_json(&element, env).with_context(|| format!("[{n}]"))?;
@@ -794,7 +790,7 @@ fn expression_to_json(
                 }
             };
 
-            Ok(value.clone())
+            Ok(value)
         }
         Expr::JsParenthesizedExpression(expr) => {
             let value = expression_to_json(&expr.expression()?, env)?;

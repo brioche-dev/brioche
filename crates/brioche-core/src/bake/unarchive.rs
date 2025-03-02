@@ -12,6 +12,7 @@ use crate::{
     reporter::job::{NewJob, UpdateJob},
 };
 
+#[expect(clippy::cast_possible_truncation)]
 #[tracing::instrument(skip(brioche, unarchive), fields(file_recipe = %unarchive.file.hash(), archive = ?unarchive.archive, compression = ?unarchive.compression))]
 pub async fn bake_unarchive(
     brioche: &Brioche,
@@ -95,10 +96,7 @@ pub async fn bake_unarchive(
                             tar::EntryType::Symlink => {
                                 let link_name =
                                     archive_entry.link_name_bytes().with_context(|| {
-                                        format!(
-                                "unsupported tar archive: no link name for symlink entry at {}",
-                                entry_path
-                            )
+                                        format!("unsupported tar archive: no link name for symlink entry at {entry_path}")
                                     })?;
 
                                 ArchiveEntry::Symlink {
@@ -108,10 +106,7 @@ pub async fn bake_unarchive(
                             tar::EntryType::Link => {
                                 let link_name =
                                     archive_entry.link_name_bytes().with_context(|| {
-                                        format!(
-                                "unsupported tar archive: no link name for hardlink entry at {}",
-                                entry_path
-                            )
+                                        format!("unsupported tar archive: no link name for hardlink entry at {entry_path}")
                                     })?;
 
                                 ArchiveEntry::Link {
@@ -125,9 +120,7 @@ pub async fn bake_unarchive(
                             }
                             other => {
                                 anyhow::bail!(
-                                    "unsupported tar archive: unsupported entry type {:?} at {}",
-                                    other,
-                                    entry_path
+                                    "unsupported tar archive: unsupported entry type {other:?} at {entry_path}"
                                 );
                             }
                         };
@@ -147,14 +140,11 @@ pub async fn bake_unarchive(
 
                     for i in 0..archive.len() {
                         let mut archive_file = archive.by_index(i)?;
-                        let entry_path = match archive_file.enclosed_name() {
-                            Some(path) => path,
-                            None => {
-                                anyhow::bail!(
-                                    "unsupported zip archive: zip archive contains an invalid file path: {:?}",
-                                    archive_file.name(),
-                                );
-                            }
+                        let Some(entry_path) = archive_file.enclosed_name() else {
+                            anyhow::bail!(
+                                "unsupported zip archive: zip archive contains an invalid file path: {:?}",
+                                archive_file.name(),
+                            );
                         };
                         let entry_path = bstr::BString::new(
                             entry_path.as_os_str().as_encoded_bytes().to_owned(),
@@ -218,10 +208,7 @@ pub async fn bake_unarchive(
                 ArchiveEntry::Symlink { target } => Some(Artifact::Symlink { target }),
                 ArchiveEntry::Link { link_name } => {
                     let linked_entry = directory_entries.get(&link_name).with_context(|| {
-                        format!(
-                            "unsupported tar archive: could not find target for link entry at {}",
-                            entry_path
-                        )
+                        format!("unsupported tar archive: could not find target for link entry at {entry_path}")
                     })?;
                     Some(linked_entry.value.clone())
                 }

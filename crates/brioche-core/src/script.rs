@@ -77,11 +77,7 @@ impl BriocheModuleLoader {
             },
         )?;
 
-        if let Entry::Vacant(entry) = self
-            .sources
-            .borrow_mut()
-            .entry(brioche_module_specifier.clone())
-        {
+        if let Entry::Vacant(entry) = self.sources.borrow_mut().entry(brioche_module_specifier) {
             let source_map = transpiled
                 .clone()
                 .into_source()
@@ -105,7 +101,7 @@ impl BriocheModuleLoader {
         &self,
         specifier: &str,
         referrer: &str,
-        kind: deno_core::ResolutionKind,
+        kind: &deno_core::ResolutionKind,
     ) -> anyhow::Result<deno_core::ModuleSpecifier> {
         if let deno_core::ResolutionKind::MainModule = kind {
             let resolved = specifier.parse()?;
@@ -134,7 +130,7 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         referrer: &str,
         kind: deno_core::ResolutionKind,
     ) -> Result<deno_core::ModuleSpecifier, deno_core::error::ModuleLoaderError> {
-        self.resolve_module(specifier, referrer, kind)
+        self.resolve_module(specifier, referrer, &kind)
             .map_err(|error| AnyError(error).into())
     }
 

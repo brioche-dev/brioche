@@ -75,7 +75,7 @@ impl Vfs {
             .inner
             .write()
             .map_err(|_| anyhow::anyhow!("failed to acquire VFS lock"))?;
-        vfs.contents.insert(file_id, contents.clone());
+        vfs.contents.insert(file_id, contents);
 
         let locations = vfs.ids_to_locations.get_mut(&file_id).unwrap();
         for location in locations.iter() {
@@ -166,7 +166,7 @@ impl std::fmt::Display for FileId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Hash(hash) => write!(f, "{hash}"),
-            Self::Mutable(ulid) => write!(f, "{}", ulid),
+            Self::Mutable(ulid) => write!(f, "{ulid}"),
         }
     }
 }

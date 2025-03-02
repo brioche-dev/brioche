@@ -1,3 +1,5 @@
+#![expect(clippy::needless_pass_by_value)]
+
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
@@ -22,7 +24,7 @@ pub struct BriocheCompilerHost {
 }
 
 impl BriocheCompilerHost {
-    pub async fn new(bridge: RuntimeBridge) -> Self {
+    pub fn new(bridge: RuntimeBridge) -> Self {
         let documents: HashMap<_, _> = specifier::runtime_specifiers_with_contents()
             .map(|(specifier, contents)| {
                 let contents = std::str::from_utf8(&contents)
@@ -42,10 +44,7 @@ impl BriocheCompilerHost {
         }
     }
 
-    pub async fn is_document_loaded(
-        &self,
-        specifier: &BriocheModuleSpecifier,
-    ) -> anyhow::Result<bool> {
+    pub fn is_document_loaded(&self, specifier: &BriocheModuleSpecifier) -> anyhow::Result<bool> {
         let documents = self
             .documents
             .read()
@@ -203,14 +202,14 @@ impl BriocheCompilerHost {
 
     pub fn read_loaded_document<R>(
         &self,
-        specifier: BriocheModuleSpecifier,
+        specifier: &BriocheModuleSpecifier,
         f: impl FnOnce(&BriocheDocument) -> R,
     ) -> anyhow::Result<Option<R>> {
         let documents = self
             .documents
             .read()
             .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
-        let Some(document) = documents.get(&specifier) else {
+        let Some(document) = documents.get(specifier) else {
             return Ok(None);
         };
 
@@ -235,40 +234,6 @@ impl BriocheCompilerHost {
                 doc.version += 1;
             });
         }
-
-        //     let mut documents = self
-        //     .documents
-        //     .write()
-        //     .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
-        // documents.entry(specifier.clone()).and_modify(|doc| {
-        //     doc.version += 1;
-        // });
-
-        // match &specifier {
-        //     BriocheModuleSpecifier::File { path } => {
-        //         let project = self
-        //             .projects
-        //             .find_containing_project(path)
-        //             .with_context(|| format!("no project found for path '{}'", path.display()))?;
-
-        //         if let Some(project) = project {
-        //             self.projects.clear(project).await?;
-        //         }
-
-        //         self.projects
-        //             .load_from_module_path(&self.brioche, path, false)
-        //             .await?;
-
-        //         let mut documents = self
-        //             .documents
-        //             .write()
-        //             .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
-        //         documents.entry(specifier.clone()).and_modify(|doc| {
-        //             doc.version += 1;
-        //         });
-        //     }
-        //     BriocheModuleSpecifier::Runtime { .. } => {}
-        // }
 
         Ok(())
     }
@@ -295,7 +260,9 @@ deno_core::extension!(brioche_compiler_host,
     },
 );
 
-fn brioche_compiler_host_state(state: Rc<RefCell<OpState>>) -> anyhow::Result<BriocheCompilerHost> {
+fn brioche_compiler_host_state(
+    state: &Rc<RefCell<OpState>>,
+) -> anyhow::Result<BriocheCompilerHost> {
     let state = state.try_borrow()?;
     let compiler_host = state
         .try_borrow::<BriocheCompilerHost>()
@@ -311,11 +278,11 @@ pub fn op_brioche_file_read(
     state: Rc<RefCell<OpState>>,
     #[string] path: &str,
 ) -> Result<Option<Arc<String>>, super::AnyError> {
-    let compiler_host = brioche_compiler_host_state(state)?;
+    let compiler_host = brioche_compiler_host_state(&state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
 
-    let contents = compiler_host.read_loaded_document(specifier, |doc| doc.contents.clone())?;
+    let contents = compiler_host.read_loaded_document(&specifier, |doc| doc.contents.clone())?;
     Ok(contents)
 }
 
@@ -324,11 +291,11 @@ pub fn op_brioche_file_exists(
     state: Rc<RefCell<OpState>>,
     #[string] path: &str,
 ) -> Result<bool, super::AnyError> {
-    let compiler_host = brioche_compiler_host_state(state)?;
+    let compiler_host = brioche_compiler_host_state(&state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
 
-    let result = compiler_host.read_loaded_document(specifier, |_| ())?;
+    let result = compiler_host.read_loaded_document(&specifier, |_| ())?;
     Ok(result.is_some())
 }
 
@@ -338,11 +305,11 @@ pub fn op_brioche_file_version(
     state: Rc<RefCell<OpState>>,
     #[string] path: &str,
 ) -> Result<Option<u64>, super::AnyError> {
-    let compiler_host = brioche_compiler_host_state(state)?;
+    let compiler_host = brioche_compiler_host_state(&state)?;
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
 
-    let version = compiler_host.read_loaded_document(specifier, |doc| doc.version)?;
+    let version = compiler_host.read_loaded_document(&specifier, |doc| doc.version)?;
     Ok(version)
 }
 
@@ -353,7 +320,7 @@ pub fn op_brioche_resolve_module(
     #[string] specifier: &str,
     #[string] referrer: &str,
 ) -> Option<String> {
-    let compiler_host = brioche_compiler_host_state(state).ok()?;
+    let compiler_host = brioche_compiler_host_state(&state).ok()?;
 
     let referrer: BriocheModuleSpecifier = referrer.parse().ok()?;
     let specifier: BriocheImportSpecifier = specifier.parse().ok()?;

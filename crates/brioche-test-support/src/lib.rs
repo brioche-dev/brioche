@@ -113,7 +113,7 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
                 recipes.push_back(recipe.value);
             }
             Recipe::Merge { directories } => {
-                recipes.extend(directories.into_iter().map(|recipe| recipe.value))
+                recipes.extend(directories.into_iter().map(|recipe| recipe.value));
             }
             Recipe::Peel {
                 directory,
@@ -915,8 +915,7 @@ pub async fn brioche_lsp_test_with(
                     projects,
                     client,
                     Arc::new(remote_brioche_builder),
-                )
-                .await?;
+                )?;
                 anyhow::Ok(lsp_server)
             })
             .expect("failed to build LSP")
@@ -1079,8 +1078,7 @@ pub async fn brioche_lsp_test_with(
         .request::<request::Initialize>(lsp_types::InitializeParams::default())
         .await;
 
-    lsp.notify::<notification::Initialized>(lsp_types::InitializedParams {})
-        .await;
+    lsp.notify::<notification::Initialized>(lsp_types::InitializedParams {});
 
     (brioche, context, lsp)
 }
@@ -1144,7 +1142,7 @@ impl LspContext {
         result
     }
 
-    pub async fn notify<T>(&self, params: T::Params)
+    pub fn notify<T>(&self, params: T::Params)
     where
         T: notification::Notification,
     {

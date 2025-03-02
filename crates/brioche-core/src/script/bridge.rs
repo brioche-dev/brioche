@@ -120,7 +120,7 @@ impl RuntimeBridge {
                             };
 
                             if let Some(project) = project {
-                                let result = projects.clear(project).await;
+                                let result = projects.clear(project);
                                 match result {
                                     Ok(_) => {}
                                     Err(error) => {

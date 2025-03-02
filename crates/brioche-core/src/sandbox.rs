@@ -96,7 +96,6 @@ impl From<std::process::ExitStatus> for ExitStatus {
     fn from(status: std::process::ExitStatus) -> Self {
         use std::os::unix::process::ExitStatusExt as _;
 
-        #[allow(clippy::manual_map)]
         if let Some(signal) = status.signal() {
             Self::Signal(signal)
         } else if let Some(code) = status.code() {

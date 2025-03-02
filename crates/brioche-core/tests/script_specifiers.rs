@@ -6,7 +6,7 @@ use brioche_core::{
     },
 };
 
-async fn resolve(
+fn resolve(
     projects: &Projects,
     specifier: &str,
     referrer: &BriocheModuleSpecifier,
@@ -87,19 +87,19 @@ async fn test_specifier_resolve_relative() -> anyhow::Result<()> {
     let (projects, _) = brioche_test_support::load_project(&brioche, &project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
-    let sibling_specifier = resolve(&projects, "./test.txt", &referrer).await?;
+    let sibling_specifier = resolve(&projects, "./test.txt", &referrer)?;
     assert_eq!(
         sibling_specifier,
         BriocheModuleSpecifier::from_path(&foo_test_path),
     );
 
-    let inner_specifier = resolve(&projects, "./inner/test.txt", &referrer).await?;
+    let inner_specifier = resolve(&projects, "./inner/test.txt", &referrer)?;
     assert_eq!(
         inner_specifier,
         BriocheModuleSpecifier::from_path(&foo_inner_test_path),
     );
 
-    let outer_specifier = resolve(&projects, "../test.txt", &referrer).await?;
+    let outer_specifier = resolve(&projects, "../test.txt", &referrer)?;
     assert_eq!(
         outer_specifier,
         BriocheModuleSpecifier::from_path(&test_path),
@@ -135,19 +135,19 @@ async fn test_specifier_resolve_project_relative() -> anyhow::Result<()> {
     let (projects, _) = brioche_test_support::load_project(&brioche, &project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
-    let root_specifier = resolve(&projects, "/test.txt", &referrer).await?;
+    let root_specifier = resolve(&projects, "/test.txt", &referrer)?;
     assert_eq!(
         root_specifier,
         BriocheModuleSpecifier::from_path(&test_path),
     );
 
-    let foo_specifier = resolve(&projects, "/foo/test.txt", &referrer).await?;
+    let foo_specifier = resolve(&projects, "/foo/test.txt", &referrer)?;
     assert_eq!(
         foo_specifier,
         BriocheModuleSpecifier::from_path(&foo_test_path),
     );
 
-    let inner_specifier = resolve(&projects, "/foo/inner/test.txt", &referrer).await?;
+    let inner_specifier = resolve(&projects, "/foo/inner/test.txt", &referrer)?;
     assert_eq!(
         inner_specifier,
         BriocheModuleSpecifier::from_path(&foo_inner_test_path),
@@ -180,31 +180,31 @@ async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
     let (projects, _) = brioche_test_support::load_project(&brioche, &project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
-    let sibling_specifier = resolve(&projects, "./", &referrer).await?;
+    let sibling_specifier = resolve(&projects, "./", &referrer)?;
     assert_eq!(
         sibling_specifier,
         BriocheModuleSpecifier::from_path(&foo_main_path),
     );
 
-    let sibling_bare_specifier = resolve(&projects, ".", &referrer).await?;
+    let sibling_bare_specifier = resolve(&projects, ".", &referrer)?;
     assert_eq!(
         sibling_bare_specifier,
         BriocheModuleSpecifier::from_path(&foo_main_path),
     );
 
-    let inner_specifier = resolve(&projects, "./inner", &referrer).await?;
+    let inner_specifier = resolve(&projects, "./inner", &referrer)?;
     assert_eq!(
         inner_specifier,
         BriocheModuleSpecifier::from_path(&foo_inner_main_path),
     );
 
-    let outer_specifier = resolve(&projects, "../", &referrer).await?;
+    let outer_specifier = resolve(&projects, "../", &referrer)?;
     assert_eq!(
         outer_specifier,
         BriocheModuleSpecifier::from_path(&main_path),
     );
 
-    let outer_bare_specifier = resolve(&projects, "..", &referrer).await?;
+    let outer_bare_specifier = resolve(&projects, "..", &referrer)?;
     assert_eq!(
         outer_bare_specifier,
         BriocheModuleSpecifier::from_path(&main_path),
@@ -237,25 +237,25 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
     let (projects, _) = brioche_test_support::load_project(&brioche, &project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&foo_hello_path);
 
-    let root_specifier = resolve(&projects, "/", &referrer).await?;
+    let root_specifier = resolve(&projects, "/", &referrer)?;
     assert_eq!(
         root_specifier,
         BriocheModuleSpecifier::from_path(&main_path),
     );
 
-    let foo_specifier = resolve(&projects, "/foo/", &referrer).await?;
+    let foo_specifier = resolve(&projects, "/foo/", &referrer)?;
     assert_eq!(
         foo_specifier,
         BriocheModuleSpecifier::from_path(&foo_main_path),
     );
 
-    let foo_bare_specifier = resolve(&projects, "/foo", &referrer).await?;
+    let foo_bare_specifier = resolve(&projects, "/foo", &referrer)?;
     assert_eq!(
         foo_bare_specifier,
         BriocheModuleSpecifier::from_path(&foo_main_path),
     );
 
-    let inner_specifier = resolve(&projects, "/foo/inner", &referrer).await?;
+    let inner_specifier = resolve(&projects, "/foo/inner", &referrer)?;
     assert_eq!(
         inner_specifier,
         BriocheModuleSpecifier::from_path(&foo_inner_main_path),
@@ -353,7 +353,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
     let (projects, _) = brioche_test_support::load_project(&brioche, &root_project_dir).await?;
     let referrer = BriocheModuleSpecifier::from_path(&bar_file_path);
 
-    let baz_specifier = resolve(&projects, "baz", &referrer).await?;
+    let baz_specifier = resolve(&projects, "baz", &referrer)?;
     assert_eq!(
         baz_specifier,
         BriocheModuleSpecifier::from_path(&baz_main_path),
@@ -361,10 +361,10 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
 
     // Resolving paths under a dependency is not allowed
 
-    let baz_file_specifier = resolve(&projects, "baz/file.txt", &referrer).await;
+    let baz_file_specifier = resolve(&projects, "baz/file.txt", &referrer);
     assert_matches!(baz_file_specifier, Err(_));
 
-    let baz_inner_specifier = resolve(&projects, "baz/inner/file.txt", &referrer).await;
+    let baz_inner_specifier = resolve(&projects, "baz/inner/file.txt", &referrer);
     assert_matches!(baz_inner_specifier, Err(_));
 
     Ok(())

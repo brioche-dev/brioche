@@ -1003,8 +1003,8 @@ impl ArtifactBuilder {
                 };
 
                 Artifact::File(crate::recipe::File {
-                    executable,
                     content_blob,
+                    executable,
                     resources,
                 })
             }
