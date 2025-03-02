@@ -11,5 +11,5 @@ updates:
       cargo:
         patterns:
           - "*"
-ignore:
-  - dependency-name: "biome_*"
+    ignore:
+      - dependency-name: "biome_*"
