@@ -56,31 +56,30 @@ jobs:
           brioche check
           brioche fmt --check
   test:
-    name: Run tests
+    name: Run tests [${{ matrix.platform.runs_on }}]
     strategy:
       matrix:
         platform:
-          # Ubuntu 22.04
-          - runs_on: ubuntu-22.04
+          - name: Ubuntu 22.04
+            runs_on: ubuntu-22.04
 
-          # Ubuntu 22.04 but configured to use PRoot explicitly
-          - runs_on: ubuntu-22.04
+          - name: Ubuntu 22.04 + PRoot
+            runs_on: ubuntu-22.04
             setup: |
               echo 'BRIOCHE_TEST_SANDBOX=linux_namespace' >> "$GITHUB_ENV"
               echo 'BRIOCHE_TEST_SANDBOX_PROOT=true' >> "$GITHUB_ENV"
 
-          # Ubuntu 24.04 with default config, which restricts user namespaces.
-          # So, this test should fallback to using PRoot by default
-          - runs_on: ubuntu-24.04
+          - name: Ubuntu 24.04
+            runs_on: ubuntu-24.04
 
-          # Ubuntu 24.04, but enabling unrestricted user namespaces
-          - runs_on: ubuntu-24.04
+          - name: Ubuntu 24.04 + Namespaces
+            runs_on: ubuntu-24.04
             setup: |
               echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf
               sudo sysctl --system
 
-          # macOS 14
-          - runs_on: macos-14
+          - name: macOS 14
+            runs_on: macos-14
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
       - name: Checkout code
@@ -93,7 +92,7 @@ jobs:
       - name: Run tests
         run: cargo test --all --release
   build:
-    name: Build artifacts
+    name: Build artifacts [${{ matrix.platform.name }}]
     if: github.event_name == 'push'
     strategy:
       matrix:
@@ -102,12 +101,8 @@ jobs:
             runs_on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
           - name: aarch64-linux
-            runs_on: ubuntu-22.04
+            runs_on: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            features: openssl/vendored
-            install_deps: |
-              sudo apt-get install -y gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-              echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc' >> $GITHUB_ENV
           - name: x86_64-macos
             runs_on: macos-14
             target: x86_64-apple-darwin
