@@ -1,15 +1,15 @@
 version: 2
 updates:
-- package-ecosystem: "cargo"
-  directory: "/"
-  schedule:
-    interval: "weekly"
-    day: "friday"
-    time: "17:00"
-    timezone: "America/Los_Angeles"
-  groups:
-    cargo:
-      patterns:
-        - "*"
-      exclude-patterns:
-        - "biome_*"
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "friday"
+      time: "17:00"
+      timezone: "America/Los_Angeles"
+    groups:
+      cargo:
+        patterns:
+          - "*"
+ignore:
+  - dependency-name: "biome_*"
