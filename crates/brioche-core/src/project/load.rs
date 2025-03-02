@@ -1,19 +1,20 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
+use petgraph::visit::EdgeRef as _;
 use tokio::io::AsyncReadExt as _;
 
 use crate::{Brioche, recipe::Artifact};
 
 use super::{
     DependencyDefinition, Lockfile, Project, ProjectHash, ProjectLocking, ProjectValidation,
-    Projects, Version, Workspace, WorkspaceMember,
-    analyze::{GitRefOptions, StaticOutput, StaticOutputKind, StaticQuery},
+    Projects, Version, Workspace, WorkspaceDefinition, WorkspaceMember,
+    analyze::{GitRefOptions, ProjectAnalysis, StaticOutput, StaticOutputKind, StaticQuery},
 };
 
 pub async fn load_project(
@@ -53,224 +54,323 @@ pub async fn load_project(
     Ok(project_hash)
 }
 
-async fn load_project_inner(
+struct ProjectNodeDetails {
+    project_analysis: ProjectAnalysis,
+    lockfile: LockfileState,
+    lockfile_path: PathBuf,
+    workspace: Option<Workspace>,
+    dependency_errors: HashMap<String, anyhow::Error>,
+}
+
+struct ProjectGraph {
+    graph: petgraph::stable_graph::StableDiGraph<PathBuf, String>,
+    nodes_by_path: HashMap<PathBuf, petgraph::stable_graph::NodeIndex>,
+    expected_hashes: HashMap<petgraph::stable_graph::NodeIndex, ProjectHash>,
+    project_details: HashMap<petgraph::stable_graph::NodeIndex, ProjectNodeDetails>,
+    workspaces: HashMap<PathBuf, WorkspaceDefinition>,
+}
+
+async fn build_project_graph(
     config: &LoadProjectConfig,
-    path: &Path,
-    depth: u32,
-) -> anyhow::Result<(ProjectHash, Arc<Project>, Vec<LoadProjectError>)> {
-    tracing::debug!(path = %path.display(), "resolving project");
-
-    let path = tokio::fs::canonicalize(path)
-        .await
-        .with_context(|| format!("failed to canonicalize path {}", path.display()))?;
-
-    // Find the workspace, if the project has one
-    let workspace = find_workspace(&path).await?;
-
-    let project_analysis = super::analyze::analyze_project(&config.brioche.vfs, &path).await?;
-
-    // Get the current lockfile
-    let lockfile_path = path.join("brioche.lock");
-    let current_lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await;
-    let current_lockfile: Option<Lockfile> = match current_lockfile_contents {
-        Ok(contents) => match serde_json::from_str(&contents) {
-            Ok(lockfile) => Some(lockfile),
-            Err(error) => match config.locking {
-                ProjectLocking::Locked => {
-                    return Err(error).context(format!(
-                        "failed to parse lockfile at {}",
-                        lockfile_path.display()
-                    ));
-                }
-                ProjectLocking::Unlocked => None,
-            },
-        },
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => match config.locking {
-            ProjectLocking::Locked => {
-                anyhow::bail!("lockfile not found: {}", lockfile_path.display());
-            }
-            ProjectLocking::Unlocked => None,
-        },
-        Err(error) => {
-            return Err(error).context(format!(
-                "failed to read lockfile at {}",
-                lockfile_path.display()
-            ));
-        }
-    };
-
-    // Use the current lockfile (if present), then start with an empty lockfile
-    // to track changes
-    let mut lockfile = LockfileState {
-        current_lockfile,
-        fresh_lockfile: Lockfile::default(),
-    };
-
-    let mut errors = vec![];
-
-    // Ensure that the currently-loaded project hasn't exceeded the max depth
-    let dep_depth = depth
-        .checked_sub(1)
-        .context("project dependency depth exceeded")?;
+    project_path: &Path,
+) -> anyhow::Result<ProjectGraph> {
+    let mut graph: petgraph::stable_graph::StableDiGraph<PathBuf, String> =
+        petgraph::stable_graph::StableGraph::new();
+    let mut expected_hashes = HashMap::new();
+    let mut project_details = HashMap::new();
+    let mut workspaces = HashMap::new();
 
     // Use a regex to validate dependency names
     static DEPENDENCY_NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let dependency_name_regex = DEPENDENCY_NAME_REGEX
         .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
 
-    // Resolve each dependency, which gives us the local paths to load
-    let resolved_dependencies: HashMap<_, _> =
-        futures::stream::iter(project_analysis.dependencies())
-            .map(async |(name, dependency_def)| {
-                // Validate the dependency name
-                anyhow::ensure!(
-                    dependency_name_regex.is_match(&name),
-                    "invalid dependency name"
-                );
+    let mut nodes_by_path = HashMap::new();
+    let mut queued_paths = VecDeque::from_iter([(
+        ResolvedDependency {
+            expected_hash: None,
+            local_path: project_path.to_owned(),
+            locking: config.locking,
+            should_lock: None,
+        },
+        None,
+    )]);
+    while let Some((resolved_project, referrer)) = queued_paths.pop_front() {
+        // Customize the config based on how the project was resolved
+        let mut config = config.clone();
+        config.locking = resolved_project.locking;
 
-                // Try to resolve the dependency to a local path
-                let resolved_dep_result = resolve_dependency_to_local_path(
-                    config,
-                    &path,
-                    workspace.as_ref(),
-                    &name,
-                    &dependency_def,
-                    lockfile.current_lockfile.as_ref(),
-                )
-                .await;
-                anyhow::Ok((name, resolved_dep_result))
-            })
-            .buffer_unordered(10)
-            .try_collect()
-            .await?;
-
-    // Load each dependency
-    let mut dependencies = HashMap::new();
-    for (name, resolved_dep_result) in resolved_dependencies {
-        let resolved_dep = match resolved_dep_result {
-            Ok(resolved) => resolved,
-            Err(error) => {
-                // Dependency failed to resolve, so add it to the list
-                // of errors
-                errors.push(LoadProjectError::FailedToResolveDependency {
-                    name,
-                    cause: format!("{error:#}"),
-                });
-                continue;
-            }
-        };
-
-        let mut resolved_dep_config = config.clone();
-        resolved_dep_config.locking = resolved_dep.locking;
-        let result = Box::pin(load_project_inner(
-            &resolved_dep_config,
-            &resolved_dep.local_path,
-            dep_depth,
-        ))
-        .await;
-        let (dep_hash, _, dep_errors) = match result {
-            Ok(dep) => dep,
-            Err(error) => {
-                // Failed to load resolved dependency, add it to the list
-                // of errors
-                errors.push(LoadProjectError::FailedToLoadDependency {
-                    name,
-                    cause: format!("{error:#}"),
-                });
-                continue;
-            }
-        };
-
-        if let Some(expected_hash) = resolved_dep.expected_hash {
-            if expected_hash != dep_hash {
-                // The resolved dependency locally has a different hash
-                // than it should (e.g. a project we downloaded from the cache)
-                errors.push(LoadProjectError::FailedToLoadDependency {
-                    name: name.clone(),
-                    cause: format!(
-                        "resolved dependency at '{}' did not match expected hash",
-                        resolved_dep.local_path.display()
-                    ),
-                });
-            }
-        }
-
-        // Add the errors returned while loading the dependency, if any
-        errors.extend(
-            dep_errors
-                .into_iter()
-                .map(|error| LoadProjectError::DependencyError {
-                    name: name.clone(),
-                    error: Box::new(error),
-                }),
-        );
-
-        // Update the lockfile if the dependency should be recorded (e.g.
-        // it's from the registry)
-        if let Some(should_lock) = resolved_dep.should_lock {
-            lockfile
-                .fresh_lockfile
-                .dependencies
-                .insert(name.clone(), should_lock);
-        }
-
-        dependencies.insert(name, dep_hash);
-    }
-
-    // Load the statics from all of the project's modules
-    let modules = project_analysis
-        .local_modules
-        .values()
-        .map(|module| (module.project_subpath.clone(), module.file_id))
-        .collect();
-    let mut statics = HashMap::new();
-    for module in project_analysis.local_modules.values() {
-        let mut module_statics = BTreeMap::new();
-        for static_ in &module.statics {
-            // Only resolve the static if we need a fully valid project
-            match config.validation {
-                ProjectValidation::Standard => {
-                    let recipe_hash = resolve_static(
-                        &config.brioche,
-                        &path,
-                        module,
-                        static_,
-                        config.locking,
-                        &mut lockfile,
+        // Canonicalize the project's path
+        let project_path = resolved_project.local_path;
+        let project_path = tokio::fs::canonicalize(&project_path)
+            .await
+            .with_context(|| {
+                let referrer_path = referrer
+                    .as_ref()
+                    .and_then(|(parent_node, _)| graph.node_weight(*parent_node));
+                if let Some(referrer_path) = referrer_path {
+                    format!(
+                        "failed to canonicalize project path {} (referenced from {})",
+                        project_path.display(),
+                        referrer_path.display()
                     )
-                    .await?;
-                    module_statics.insert(static_.clone(), Some(recipe_hash));
+                } else {
+                    format!(
+                        "failed to canonicalize project path {}",
+                        project_path.display()
+                    )
                 }
-                ProjectValidation::Minimal => {
-                    module_statics.insert(static_.clone(), None);
-                }
+            })?;
+
+        // Get or insert the node for the resolved project path
+        let node = *nodes_by_path
+            .entry(project_path.clone())
+            .or_insert_with_key(|path| graph.add_node(path.clone()));
+
+        // Record the expected hash if set while resolving (e.g. for
+        // registry projects)
+        if let Some(expected_hash) = resolved_project.expected_hash {
+            let previous_expected_hash = expected_hashes.insert(node, expected_hash);
+            let conflicting_expected_hash =
+                previous_expected_hash.filter(|hash| *hash != expected_hash);
+            if let Some(conflicting_expected_hash) = conflicting_expected_hash {
+                anyhow::bail!(
+                    "encountered project {} that has conflicting hashes {conflicting_expected_hash} and {expected_hash}",
+                    project_path.display(),
+                );
             }
         }
 
-        if !module_statics.is_empty() {
-            statics.insert(module.project_subpath.clone(), module_statics);
+        // Insert the project details if not already inserted
+        if let std::collections::hash_map::Entry::Vacant(entry) = project_details.entry(node) {
+            // Find the workspace, if the project has one
+            let workspace = find_workspace(&project_path, &mut workspaces).await?;
+
+            // Analyze the project
+            let project_analysis =
+                super::analyze::analyze_project(&config.brioche.vfs, &project_path).await?;
+
+            // Get the current lockfile
+            let lockfile_path = project_path.join("brioche.lock");
+            let current_lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await;
+            let current_lockfile: Option<Lockfile> = match current_lockfile_contents {
+                Ok(contents) => match serde_json::from_str(&contents) {
+                    Ok(lockfile) => Some(lockfile),
+                    Err(error) => match resolved_project.locking {
+                        ProjectLocking::Locked => {
+                            return Err(error).context(format!(
+                                "failed to parse lockfile at {}",
+                                lockfile_path.display()
+                            ));
+                        }
+                        ProjectLocking::Unlocked => None,
+                    },
+                },
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => {
+                    return Err(error).context(format!(
+                        "failed to read lockfile at {}",
+                        lockfile_path.display()
+                    ));
+                }
+            };
+
+            // Use the current lockfile (if present), then start with an empty lockfile
+            // to track changes
+            let mut lockfile = LockfileState {
+                current_lockfile,
+                fresh_lockfile: Lockfile::default(),
+            };
+
+            // Resolve each dependency, which gives us the local paths to load
+            let resolved_dependencies: HashMap<_, _> =
+                futures::stream::iter(project_analysis.dependencies())
+                    .map(async |(name, dependency_def)| {
+                        // Validate the dependency name
+                        anyhow::ensure!(
+                            dependency_name_regex.is_match(&name),
+                            "invalid dependency name"
+                        );
+
+                        // Try to resolve the dependency to a local path
+                        let resolved_dep_result = resolve_dependency_to_local_path(
+                            &config,
+                            &project_path,
+                            workspace.as_ref(),
+                            &name,
+                            &dependency_def,
+                            lockfile.current_lockfile.as_ref(),
+                        )
+                        .await;
+                        anyhow::Ok((name, resolved_dep_result))
+                    })
+                    .buffer_unordered(10)
+                    .try_collect()
+                    .await?;
+
+            let mut dependency_errors = HashMap::new();
+            for (name, resolved_dep_result) in resolved_dependencies {
+                match resolved_dep_result {
+                    Ok(resolved_dep) => {
+                        // Update the lockfile if the dependency should be recorded (e.g.
+                        // it's from the registry)
+                        if let Some(should_lock) = resolved_dep.should_lock {
+                            lockfile
+                                .fresh_lockfile
+                                .dependencies
+                                .insert(name.clone(), should_lock);
+                        }
+
+                        // Enqueue the resolved dependency to be added
+                        // to the graph
+                        queued_paths.push_back((resolved_dep, Some((node, name))));
+                    }
+                    Err(error) => {
+                        dependency_errors.insert(name, error);
+                    }
+                }
+            }
+
+            entry.insert(ProjectNodeDetails {
+                project_analysis,
+                lockfile_path,
+                lockfile,
+                workspace,
+                dependency_errors,
+            });
         }
+
+        if let Some((parent_node, dep_name)) = referrer {
+            graph.update_edge(parent_node, node, dep_name);
+        };
     }
 
-    // Build the project from its components and compute the project hash
-    let project = Project {
-        definition: project_analysis.definition,
-        dependencies,
-        modules,
-        statics,
-    };
-    let project = Arc::new(project);
-    let project_hash = ProjectHash::from_serializable(&project)?;
+    Ok(ProjectGraph {
+        graph,
+        expected_hashes,
+        nodes_by_path,
+        project_details,
+        workspaces,
+    })
+}
 
-    if !errors.is_empty() {
-        tracing::debug!(?path, ?errors, "project loaded with errors");
-    }
-    {
-        let mut projects = config
-            .projects
-            .inner
-            .write()
-            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+async fn load_project_inner(
+    config: &LoadProjectConfig,
+    path: &Path,
+    depth: u32,
+) -> anyhow::Result<(ProjectHash, Arc<Project>, Vec<LoadProjectError>)> {
+    tracing::debug!(path = %path.display(), "resolving project");
+    let path = tokio::fs::canonicalize(path).await?;
+
+    // Build the project graph
+    let mut project_graph = build_project_graph(config, &path).await?;
+
+    // Topologically sort the nodes. This tells us if we have any cyclic
+    // dependencies, and additionally gives us the order so dependencies
+    // come before each dependent project
+    let nodes = petgraph::algo::toposort(petgraph::visit::Reversed(&project_graph.graph), None)
+        .map_err(|error| {
+            let project_path = &project_graph.graph[error.node_id()];
+            anyhow::anyhow!(
+                "project {} includes a cyclic import",
+                project_path.display()
+            )
+        })?;
+
+    let root_node = project_graph.nodes_by_path[&path];
+
+    // Build a `Project` value for each node
+    let mut nodes_to_projects =
+        HashMap::<_, (ProjectHash, Arc<Project>, Vec<LoadProjectError>)>::new();
+    for node in nodes {
+        let path = &project_graph.graph[node];
+        let mut details = project_graph
+            .project_details
+            .remove(&node)
+            .expect("details not found for project graph node");
+        let mut errors = vec![];
+
+        for (name, error) in details.dependency_errors {
+            errors.push(LoadProjectError::FailedToResolveDependency {
+                name,
+                cause: format!("{error:#}"),
+            });
+        }
+
+        let mut statics = HashMap::new();
+        for module in details.project_analysis.local_modules.values() {
+            let mut module_statics = BTreeMap::new();
+            for static_ in &module.statics {
+                // Only resolve the static if we need a fully valid project
+                let resolved_static = match config.validation {
+                    ProjectValidation::Standard => {
+                        let resolved_static = resolve_static(
+                            &config.brioche,
+                            path,
+                            module,
+                            static_,
+                            config.locking,
+                            &mut details.lockfile,
+                        )
+                        .await;
+                        Some(resolved_static)
+                    }
+                    ProjectValidation::Minimal => None,
+                };
+
+                match resolved_static {
+                    Some(Ok(static_output)) => {
+                        module_statics.insert(static_.clone(), Some(static_output));
+                    }
+                    Some(Err(error)) => {
+                        module_statics.insert(static_.clone(), None);
+                        errors.push(LoadProjectError::FailedToLoadStatic {
+                            static_query: static_.clone(),
+                            cause: format!("{error:#}"),
+                        });
+                    }
+                    None => {
+                        module_statics.insert(static_.clone(), None);
+                    }
+                }
+            }
+
+            if !module_statics.is_empty() {
+                statics.insert(module.project_subpath.clone(), module_statics);
+            }
+        }
+
+        let mut dependencies = HashMap::new();
+        let edges = project_graph
+            .graph
+            .edges_directed(node, petgraph::Direction::Outgoing);
+        for edge in edges {
+            let dep_name = edge.weight();
+            let (dep_project_hash, _, dep_errors) = &nodes_to_projects[&edge.target()];
+            dependencies.insert(dep_name.clone(), *dep_project_hash);
+
+            for error in &dep_errors[..] {
+                errors.push(LoadProjectError::DependencyError {
+                    name: dep_name.clone(),
+                    error: Box::new(error.clone()),
+                });
+            }
+        }
+
+        let modules = details
+            .project_analysis
+            .local_modules
+            .values()
+            .map(|module| (module.project_subpath.clone(), module.file_id))
+            .collect();
+
+        let project = Arc::new(Project {
+            definition: details.project_analysis.definition,
+            dependencies,
+            modules,
+            statics,
+        });
+        let project_hash = ProjectHash::from_serializable(&project)?;
 
         // If the lockfile doesn't need to be fully valid, ensure that
         // the new lockfile includes old statics and dependencies that
@@ -284,9 +384,9 @@ async fn load_project_inner(
                     dependencies: new_dependencies,
                     downloads: new_downloads,
                     git_refs: new_git_refs,
-                } = &mut lockfile.fresh_lockfile;
+                } = &mut details.lockfile.fresh_lockfile;
 
-                if let Some(lockfile) = &lockfile.current_lockfile {
+                if let Some(lockfile) = &details.lockfile.current_lockfile {
                     for (name, hash) in &lockfile.dependencies {
                         new_dependencies.entry(name.clone()).or_insert(*hash);
                     }
@@ -306,7 +406,13 @@ async fn load_project_inner(
             }
         }
 
-        match (lockfile.is_up_to_date(), config.locking) {
+        let mut projects = config
+            .projects
+            .inner
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+
+        match (details.lockfile.is_up_to_date(), config.locking) {
             (true, _) => {
                 // Lockfile is up-to-date
             }
@@ -316,31 +422,50 @@ async fn load_project_inner(
 
                 projects
                     .dirty_lockfiles
-                    .insert(lockfile_path, lockfile.fresh_lockfile);
+                    .insert(details.lockfile_path, details.lockfile.fresh_lockfile);
             }
             (false, ProjectLocking::Locked) => {
                 // Lockfile is out of date and we're loading in "locked"
                 // mode, meaning we expected it to be up-to-date
 
-                anyhow::bail!("lockfile at {} is out of date", lockfile_path.display());
+                anyhow::bail!(
+                    "lockfile at {} is out of date",
+                    details.lockfile_path.display()
+                );
             }
         }
 
-        // Insert the new project
-        projects.projects.insert(project_hash, project.clone());
+        if !errors.is_empty() {
+            tracing::debug!(?path, ?errors, "project loaded with errors");
+        }
+        nodes_to_projects.insert(node, (project_hash, project.clone(), errors.clone()));
+
+        if let Some(expected_hash) = project_graph.expected_hashes.remove(&node) {
+            if expected_hash != project_hash {
+                errors.push(LoadProjectError::InvalidProjectHash {
+                    path: project_graph.graph[node].clone(),
+                    expected_hash: expected_hash.to_string(),
+                    actual_hash: project_hash.to_string(),
+                });
+            }
+        }
+
+        projects.projects.insert(project_hash, project);
         projects
             .paths_to_projects
-            .insert(path.clone(), project_hash);
+            .insert(path.to_owned(), project_hash);
         projects
             .projects_to_paths
             .entry(project_hash)
             .or_default()
-            .insert(path);
-        projects
-            .project_load_errors
-            .insert(project_hash, errors.clone());
+            .insert(path.to_owned());
+
+        projects.project_load_errors.insert(project_hash, errors);
     }
 
+    let (project_hash, project, errors) = nodes_to_projects
+        .remove(&root_node)
+        .expect("results for root project not found");
     Ok((project_hash, project, errors))
 }
 
@@ -578,29 +703,57 @@ async fn resolve_workspace_project_path(
     Ok(None)
 }
 
-async fn find_workspace(project_path: &Path) -> anyhow::Result<Option<Workspace>> {
+async fn find_workspace(
+    project_path: &Path,
+    workspaces: &mut HashMap<PathBuf, WorkspaceDefinition>,
+) -> anyhow::Result<Option<Workspace>> {
     for workspace_path in project_path.ancestors().skip(1) {
+        let entry = match workspaces.entry(workspace_path.to_path_buf()) {
+            std::collections::hash_map::Entry::Occupied(entry) => {
+                // Workspace already loaded with the given path
+                return Ok(Some(Workspace {
+                    path: entry.key().clone(),
+                    definition: entry.get().clone(),
+                }));
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => entry,
+        };
+
+        // Try to read the workspace definition
         let workspace_def_path = workspace_path.join("brioche_workspace.toml");
-        if tokio::fs::try_exists(&workspace_def_path).await? {
-            let workspace_def = tokio::fs::read_to_string(&workspace_def_path)
-                .await
-                .with_context(|| {
+        let workspace_def_contents = tokio::fs::read_to_string(&workspace_def_path).await;
+        let workspace_def_contents = match workspace_def_contents {
+            Ok(workspace_def) => workspace_def,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // Workspace file not found, keep searching
+                continue;
+            }
+            Err(error) => {
+                // Failed to read workspace file
+                return Err(error).with_context(|| {
                     format!(
                         "failed to read workspace file {}",
                         workspace_def_path.display()
                     )
                 })?;
-            let workspace_def = toml::from_str(&workspace_def).with_context(|| {
+            }
+        };
+
+        // Parse the workspace definition
+        let workspace_def: WorkspaceDefinition = toml::from_str(&workspace_def_contents)
+            .with_context(|| {
                 format!(
                     "failed to parse workspace file {}",
                     workspace_def_path.display()
                 )
             })?;
-            return Ok(Some(Workspace {
-                definition: workspace_def,
-                path: workspace_path.to_owned(),
-            }));
-        }
+
+        // Insert the workspace definition
+        entry.insert_entry(workspace_def.clone());
+        return Ok(Some(Workspace {
+            path: workspace_path.to_path_buf(),
+            definition: workspace_def,
+        }));
     }
 
     Ok(None)
@@ -989,8 +1142,17 @@ pub enum LoadProjectError {
         name: String,
         cause: String,
     },
+    FailedToLoadStatic {
+        static_query: StaticQuery,
+        cause: String,
+    },
     DependencyError {
         name: String,
         error: Box<LoadProjectError>,
+    },
+    InvalidProjectHash {
+        path: PathBuf,
+        expected_hash: String,
+        actual_hash: String,
     },
 }
