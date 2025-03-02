@@ -31,7 +31,7 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
 pub async fn brioche_test_with(
     f: impl FnOnce(BriocheBuilder) -> BriocheBuilder,
 ) -> (Brioche, TestContext) {
-    let temp = tempdir::TempDir::new("brioche-test").unwrap();
+    let temp = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let registry_server = mockito::Server::new_async().await;
 
     let brioche_data_dir = temp.path().join("brioche-data");
@@ -568,7 +568,7 @@ pub fn new_cache() -> Arc<dyn object_store::ObjectStore> {
 
 pub struct TestContext {
     brioche: Brioche,
-    temp: tempdir::TempDir,
+    temp: tempfile::TempDir,
     pub registry_server: mockito::ServerGuard,
     _reporter_guard: brioche_core::reporter::ReporterGuard,
 }

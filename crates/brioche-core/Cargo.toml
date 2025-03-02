@@ -142,7 +142,7 @@ divan = "0.1.17"
 indoc = "2.0.5"
 mockito = "1.6.1"
 pretty_assertions = "1.4.1"
-tempdir = "0.3.7"
+tempfile = "3.17.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libmount = "0.1.15"

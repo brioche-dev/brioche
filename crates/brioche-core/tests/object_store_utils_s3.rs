@@ -54,7 +54,7 @@ async fn test_object_store_utils_s3_credentials_explicit_credentials_with_sessio
 
 #[tokio::test]
 async fn test_object_store_utils_s3_credentials_from_env_files() {
-    let tempdir = tempdir::TempDir::new("brioche-test").unwrap();
+    let tempdir = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let credentials_path = tempdir.path().join("credentials");
     tokio::fs::write(
         &credentials_path,
@@ -87,7 +87,7 @@ async fn test_object_store_utils_s3_credentials_from_env_files() {
 
 #[tokio::test]
 async fn test_object_store_utils_s3_credentials_from_env_files_with_session_token() {
-    let tempdir = tempdir::TempDir::new("brioche-test").unwrap();
+    let tempdir = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let credentials_path = tempdir.path().join("credentials");
     tokio::fs::write(
         &credentials_path,
@@ -121,7 +121,7 @@ async fn test_object_store_utils_s3_credentials_from_env_files_with_session_toke
 
 #[tokio::test]
 async fn test_object_store_utils_s3_credentials_from_env_files_with_profile() {
-    let tempdir = tempdir::TempDir::new("brioche-test").unwrap();
+    let tempdir = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let credentials_path = tempdir.path().join("credentials");
     tokio::fs::write(
         &credentials_path,
@@ -205,7 +205,7 @@ async fn test_object_store_utils_s3_config_explicit_endpoint() {
 
 #[tokio::test]
 async fn test_object_store_utils_s3_config_values_from_env_files() {
-    let tempdir = tempdir::TempDir::new("brioche-test").unwrap();
+    let tempdir = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let config_path = tempdir.path().join("credentials");
     tokio::fs::write(
         &config_path,
@@ -241,7 +241,7 @@ async fn test_object_store_utils_s3_config_values_from_env_files() {
 
 #[tokio::test]
 async fn test_object_store_utils_s3_config_values_from_env_files_with_profile() {
-    let tempdir = tempdir::TempDir::new("brioche-test").unwrap();
+    let tempdir = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let config_path = tempdir.path().join("credentials");
     tokio::fs::write(
         &config_path,
@@ -281,7 +281,7 @@ async fn test_object_store_utils_s3_config_values_from_env_files_with_profile() 
 
 #[tokio::test]
 async fn test_object_store_utils_s3_config_values_from_env_files_with_service_config() {
-    let tempdir = tempdir::TempDir::new("brioche-test").unwrap();
+    let tempdir = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let config_path = tempdir.path().join("credentials");
     tokio::fs::write(
         &config_path,
