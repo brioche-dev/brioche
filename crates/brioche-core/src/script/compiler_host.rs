@@ -236,40 +236,6 @@ impl BriocheCompilerHost {
             });
         }
 
-        //     let mut documents = self
-        //     .documents
-        //     .write()
-        //     .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
-        // documents.entry(specifier.clone()).and_modify(|doc| {
-        //     doc.version += 1;
-        // });
-
-        // match &specifier {
-        //     BriocheModuleSpecifier::File { path } => {
-        //         let project = self
-        //             .projects
-        //             .find_containing_project(path)
-        //             .with_context(|| format!("no project found for path '{}'", path.display()))?;
-
-        //         if let Some(project) = project {
-        //             self.projects.clear(project).await?;
-        //         }
-
-        //         self.projects
-        //             .load_from_module_path(&self.brioche, path, false)
-        //             .await?;
-
-        //         let mut documents = self
-        //             .documents
-        //             .write()
-        //             .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
-        //         documents.entry(specifier.clone()).and_modify(|doc| {
-        //             doc.version += 1;
-        //         });
-        //     }
-        //     BriocheModuleSpecifier::Runtime { .. } => {}
-        // }
-
         Ok(())
     }
 }
