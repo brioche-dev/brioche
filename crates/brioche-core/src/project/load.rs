@@ -118,51 +118,103 @@ async fn load_project_inner(
     let dependency_name_regex = DEPENDENCY_NAME_REGEX
         .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
 
-    // Load each of the project's dependencies
-    let mut dependencies = HashMap::new();
-    for (name, dependency_def) in project_analysis.dependencies() {
-        anyhow::ensure!(
-            dependency_name_regex.is_match(&name),
-            "invalid dependency name"
-        );
+    // Resolve each dependency, which gives us the local paths to load
+    let resolved_dependencies: HashMap<_, _> =
+        futures::stream::iter(project_analysis.dependencies())
+            .map(async |(name, dependency_def)| {
+                // Validate the dependency name
+                anyhow::ensure!(
+                    dependency_name_regex.is_match(&name),
+                    "invalid dependency name"
+                );
 
-        let dependency_hash = match dependency_def {
-            DependencyDefinition::Path { path: subpath } => {
-                let dep_path = path.join(subpath);
-                let load_result = try_load_path_dependency_with_errors(
+                // Try to resolve the dependency to a local path
+                let resolved_dep_result = resolve_dependency_to_local_path(
                     config,
-                    &name,
-                    &dep_path,
-                    dep_depth,
-                    &mut errors,
-                )
-                .await;
-                let Some(dep_hash) = load_result else {
-                    continue;
-                };
-
-                dep_hash
-            }
-            DependencyDefinition::Version(version) => {
-                let load_result = try_load_registry_dependency_with_errors(
-                    config,
+                    &path,
                     workspace.as_ref(),
                     &name,
-                    &version,
-                    dep_depth,
-                    &mut lockfile,
-                    &mut errors,
+                    &dependency_def,
+                    lockfile.current_lockfile.as_ref(),
                 )
                 .await;
-                let Some(dep_hash) = load_result else {
-                    continue;
-                };
+                anyhow::Ok((name, resolved_dep_result))
+            })
+            .buffer_unordered(10)
+            .try_collect()
+            .await?;
 
-                dep_hash
+    // Load each dependency
+    let mut dependencies = HashMap::new();
+    for (name, resolved_dep_result) in resolved_dependencies {
+        let resolved_dep = match resolved_dep_result {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                // Dependency failed to resolve, so add it to the list
+                // of errors
+                errors.push(LoadProjectError::FailedToResolveDependency {
+                    name,
+                    cause: format!("{error:#}"),
+                });
+                continue;
             }
         };
 
-        dependencies.insert(name, dependency_hash);
+        let mut resolved_dep_config = config.clone();
+        resolved_dep_config.locking = resolved_dep.locking;
+        let result = Box::pin(load_project_inner(
+            &resolved_dep_config,
+            &resolved_dep.local_path,
+            dep_depth,
+        ))
+        .await;
+        let (dep_hash, _, dep_errors) = match result {
+            Ok(dep) => dep,
+            Err(error) => {
+                // Failed to load resolved dependency, add it to the list
+                // of errors
+                errors.push(LoadProjectError::FailedToLoadDependency {
+                    name,
+                    cause: format!("{error:#}"),
+                });
+                continue;
+            }
+        };
+
+        if let Some(expected_hash) = resolved_dep.expected_hash {
+            if expected_hash != dep_hash {
+                // The resolved dependency locally has a different hash
+                // than it should (e.g. a project we downloaded from the cache)
+                errors.push(LoadProjectError::FailedToLoadDependency {
+                    name: name.clone(),
+                    cause: format!(
+                        "resolved dependency at '{}' did not match expected hash",
+                        resolved_dep.local_path.display()
+                    ),
+                });
+            }
+        }
+
+        // Add the errors returned while loading the dependency, if any
+        errors.extend(
+            dep_errors
+                .into_iter()
+                .map(|error| LoadProjectError::DependencyError {
+                    name: name.clone(),
+                    error: Box::new(error),
+                }),
+        );
+
+        // Update the lockfile if the dependency should be recorded (e.g.
+        // it's from the registry)
+        if let Some(should_lock) = resolved_dep.should_lock {
+            lockfile
+                .fresh_lockfile
+                .dependencies
+                .insert(name.clone(), should_lock);
+        }
+
+        dependencies.insert(name, dep_hash);
     }
 
     // Load the statics from all of the project's modules
@@ -311,118 +363,39 @@ struct LoadProjectConfig {
     locking: ProjectLocking,
 }
 
-async fn try_load_path_dependency_with_errors(
-    config: &LoadProjectConfig,
-    name: &str,
-    dep_path: &Path,
-    dep_depth: u32,
-    errors: &mut Vec<LoadProjectError>,
-) -> Option<ProjectHash> {
-    let result = Box::pin(load_project_inner(config, dep_path, dep_depth)).await;
-
-    match result {
-        Ok((dep_hash, _, dep_errors)) => {
-            errors.extend(
-                dep_errors
-                    .into_iter()
-                    .map(|error| LoadProjectError::DependencyError {
-                        name: name.to_owned(),
-                        error: Box::new(error),
-                    }),
-            );
-
-            Some(dep_hash)
-        }
-        Err(error) => {
-            errors.push(LoadProjectError::FailedToLoadDependency {
-                name: name.to_owned(),
-                cause: format!("{error:#}"),
-            });
-            None
-        }
-    }
-}
-
-async fn try_load_registry_dependency_with_errors(
-    config: &LoadProjectConfig,
-    workspace: Option<&Workspace>,
-    name: &str,
-    version: &Version,
-    dep_depth: u32,
-    lockfile: &mut LockfileState,
-    errors: &mut Vec<LoadProjectError>,
-) -> Option<ProjectHash> {
-    let resolved_dep_result = resolve_dependency_to_local_path(
-        config,
-        workspace,
-        name,
-        version,
-        lockfile.current_lockfile.as_ref(),
-    )
-    .await;
-    let resolved_dep = match resolved_dep_result {
-        Ok(resolved_dep) => resolved_dep,
-        Err(error) => {
-            errors.push(LoadProjectError::FailedToLoadDependency {
-                name: name.to_owned(),
-                cause: format!("{error:#}"),
-            });
-            return None;
-        }
-    };
-
-    let mut resolved_dep_config = config.clone();
-    resolved_dep_config.locking = resolved_dep.locking;
-
-    let result = Box::pin(load_project_inner(
-        &resolved_dep_config,
-        &resolved_dep.local_path,
-        dep_depth,
-    ))
-    .await;
-    let (actual_hash, _, dep_errors) = match result {
-        Ok(dep) => dep,
-        Err(error) => {
-            errors.push(LoadProjectError::FailedToLoadDependency {
-                name: name.to_owned(),
-                cause: format!("{error:#}"),
-            });
-            return None;
-        }
-    };
-
-    if let Some(expected_hash) = resolved_dep.expected_hash {
-        if expected_hash != actual_hash {
-            errors.push(LoadProjectError::FailedToLoadDependency {
-                name: name.to_owned(),
-                cause: format!(
-                    "resolved dependency at '{}' did not match expected hash",
-                    resolved_dep.local_path.display()
-                ),
-            });
-        }
-    }
-
-    errors.extend(
-        dep_errors
-            .into_iter()
-            .map(|error| LoadProjectError::DependencyError {
-                name: name.to_owned(),
-                error: Box::new(error),
-            }),
-    );
-
-    if let Some(should_lock) = resolved_dep.should_lock {
-        lockfile
-            .fresh_lockfile
-            .dependencies
-            .insert(name.to_owned(), should_lock);
-    }
-
-    Some(actual_hash)
-}
-
 async fn resolve_dependency_to_local_path(
+    config: &LoadProjectConfig,
+    project_path: &Path,
+    workspace: Option<&Workspace>,
+    dependency_name: &str,
+    dependency_definition: &DependencyDefinition,
+    current_lockfile: Option<&Lockfile>,
+) -> anyhow::Result<ResolvedDependency> {
+    match dependency_definition {
+        DependencyDefinition::Path { path } => {
+            let local_path = project_path.join(path);
+            Ok(ResolvedDependency {
+                expected_hash: None,
+                local_path,
+                locking: config.locking,
+                should_lock: None,
+            })
+        }
+        DependencyDefinition::Version(version) => {
+            let resolved = resolve_dependency_version_to_local_path(
+                config,
+                workspace,
+                dependency_name,
+                version,
+                current_lockfile,
+            )
+            .await?;
+            Ok(resolved)
+        }
+    }
+}
+
+async fn resolve_dependency_version_to_local_path(
     config: &LoadProjectConfig,
     workspace: Option<&Workspace>,
     dependency_name: &str,
@@ -1008,6 +981,10 @@ pub async fn local_project_hash(
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LoadProjectError {
+    FailedToResolveDependency {
+        name: String,
+        cause: String,
+    },
     FailedToLoadDependency {
         name: String,
         cause: String,
