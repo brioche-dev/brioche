@@ -55,8 +55,7 @@ async fn test_lsp_on_save_respects_existing_lock() -> anyhow::Result<()> {
             1,
             project_root_contents.to_string(),
         ),
-    })
-    ;
+    });
 
     let completion_response = lsp
         .request::<request::Completion>(lsp_types::CompletionParams {
@@ -153,8 +152,7 @@ async fn test_lsp_on_save_fetches_locked_dependency() -> anyhow::Result<()> {
             1,
             project_root_contents.to_string(),
         ),
-    })
-    ;
+    });
 
     // Consume a diagnostics notification triggered by opening the document
     tokio::time::timeout(WAIT_TIMEOUT, diagnostics_stream.try_next())
@@ -196,8 +194,7 @@ async fn test_lsp_on_save_fetches_locked_dependency() -> anyhow::Result<()> {
     lsp.notify::<notification::DidSaveTextDocument>(lsp_types::DidSaveTextDocumentParams {
         text_document: TextDocumentIdentifier::new(Url::from_file_path(&project_root).unwrap()),
         text: None,
-    })
-    ;
+    });
 
     // Wait for the server to publish diagnostics after saving. This is
     // the most reliable indicator currently that the server finished
@@ -317,8 +314,7 @@ async fn test_lsp_on_save_fetches_dependency_and_updates_lockfile() -> anyhow::R
             1,
             project_root_contents.to_string(),
         ),
-    })
-    ;
+    });
 
     // Consume a diagnostics notification triggered by opening the document
     tokio::time::timeout(WAIT_TIMEOUT, diagnostics_stream.try_next())
@@ -360,8 +356,7 @@ async fn test_lsp_on_save_fetches_dependency_and_updates_lockfile() -> anyhow::R
     lsp.notify::<notification::DidSaveTextDocument>(lsp_types::DidSaveTextDocumentParams {
         text_document: TextDocumentIdentifier::new(Url::from_file_path(&project_root).unwrap()),
         text: None,
-    })
-    ;
+    });
 
     // Wait for the server to publish diagnostics after saving. This is
     // the most reliable indicator currently that the server finished
@@ -540,8 +535,7 @@ async fn test_lsp_on_save_only_adds_new_dependencies_in_lockfile() -> anyhow::Re
             1,
             project_root_contents.to_string(),
         ),
-    })
-    ;
+    });
 
     // Consume a diagnostics notification triggered by opening the document
     tokio::time::timeout(WAIT_TIMEOUT, diagnostics_stream.try_next())
@@ -553,8 +547,7 @@ async fn test_lsp_on_save_only_adds_new_dependencies_in_lockfile() -> anyhow::Re
     lsp.notify::<notification::DidSaveTextDocument>(lsp_types::DidSaveTextDocumentParams {
         text_document: TextDocumentIdentifier::new(Url::from_file_path(&project_root).unwrap()),
         text: None,
-    })
-    ;
+    });
 
     // Wait for the server to publish diagnostics after saving. This is
     // the most reliable indicator currently that the LSP finished with saving
