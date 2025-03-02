@@ -22,7 +22,7 @@ pub async fn load_project(
     path: PathBuf,
     validation: ProjectValidation,
     locking: ProjectLocking,
-    depth: usize,
+    depth: u32,
 ) -> anyhow::Result<ProjectHash> {
     let rt = tokio::runtime::Handle::current();
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -30,8 +30,17 @@ pub async fn load_project(
         let local_set = tokio::task::LocalSet::new();
 
         local_set.spawn_local(async move {
-            let result =
-                load_project_inner(&projects, &brioche, &path, validation, locking, depth).await;
+            let result = Box::pin(load_project_inner(
+                &LoadProjectConfig {
+                    projects,
+                    brioche,
+                    locking,
+                    validation,
+                },
+                &path,
+                depth,
+            ))
+            .await;
             let _ = tx.send(result).inspect_err(|err| {
                 tracing::warn!("failed to send project load result: {err:?}");
             });
@@ -44,30 +53,29 @@ pub async fn load_project(
     Ok(project_hash)
 }
 
-#[async_recursion::async_recursion(?Send)]
 async fn load_project_inner(
-    projects: &Projects,
-    brioche: &Brioche,
+    config: &LoadProjectConfig,
     path: &Path,
-    validation: ProjectValidation,
-    locking: ProjectLocking,
-    depth: usize,
+    depth: u32,
 ) -> anyhow::Result<(ProjectHash, Arc<Project>, Vec<LoadProjectError>)> {
     tracing::debug!(path = %path.display(), "resolving project");
 
     let path = tokio::fs::canonicalize(path)
         .await
         .with_context(|| format!("failed to canonicalize path {}", path.display()))?;
+
+    // Find the workspace, if the project has one
     let workspace = find_workspace(&path).await?;
 
-    let project_analysis = super::analyze::analyze_project(&brioche.vfs, &path).await?;
+    let project_analysis = super::analyze::analyze_project(&config.brioche.vfs, &path).await?;
 
+    // Get the current lockfile
     let lockfile_path = path.join("brioche.lock");
-    let lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await;
-    let lockfile: Option<Lockfile> = match lockfile_contents {
+    let current_lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await;
+    let current_lockfile: Option<Lockfile> = match current_lockfile_contents {
         Ok(contents) => match serde_json::from_str(&contents) {
             Ok(lockfile) => Some(lockfile),
-            Err(error) => match locking {
+            Err(error) => match config.locking {
                 ProjectLocking::Locked => {
                     return Err(error).context(format!(
                         "failed to parse lockfile at {}",
@@ -77,7 +85,7 @@ async fn load_project_inner(
                 ProjectLocking::Unlocked => None,
             },
         },
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => match locking {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => match config.locking {
             ProjectLocking::Locked => {
                 anyhow::bail!("lockfile not found: {}", lockfile_path.display());
             }
@@ -91,20 +99,30 @@ async fn load_project_inner(
         }
     };
 
-    let mut new_lockfile = Lockfile::default();
+    // Use the current lockfile (if present), then start with an empty lockfile
+    // to track changes
+    let mut lockfile = LockfileState {
+        current_lockfile,
+        fresh_lockfile: Lockfile::default(),
+    };
+
     let mut errors = vec![];
 
+    // Ensure that the currently-loaded project hasn't exceeded the max depth
+    let dep_depth = depth
+        .checked_sub(1)
+        .context("project dependency depth exceeded")?;
+
+    // Use a regex to validate dependency names
     static DEPENDENCY_NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let dependency_name_regex = DEPENDENCY_NAME_REGEX
         .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
 
-    let dep_depth = depth
-        .checked_sub(1)
-        .context("project dependency depth exceeded")?;
+    // Load each of the project's dependencies
     let mut dependencies = HashMap::new();
-    for (name, dependency_def) in &project_analysis.definition.dependencies {
+    for (name, dependency_def) in project_analysis.dependencies() {
         anyhow::ensure!(
-            dependency_name_regex.is_match(name),
+            dependency_name_regex.is_match(&name),
             "invalid dependency name"
         );
 
@@ -112,12 +130,9 @@ async fn load_project_inner(
             DependencyDefinition::Path { path: subpath } => {
                 let dep_path = path.join(subpath);
                 let load_result = try_load_path_dependency_with_errors(
-                    projects,
-                    brioche,
-                    name,
+                    config,
+                    &name,
                     &dep_path,
-                    validation,
-                    locking,
                     dep_depth,
                     &mut errors,
                 )
@@ -130,16 +145,12 @@ async fn load_project_inner(
             }
             DependencyDefinition::Version(version) => {
                 let load_result = try_load_registry_dependency_with_errors(
-                    projects,
-                    brioche,
+                    config,
                     workspace.as_ref(),
-                    name,
-                    version,
-                    validation,
-                    locking,
-                    lockfile.as_ref(),
+                    &name,
+                    &version,
                     dep_depth,
-                    &mut new_lockfile,
+                    &mut lockfile,
                     &mut errors,
                 )
                 .await;
@@ -151,52 +162,10 @@ async fn load_project_inner(
             }
         };
 
-        dependencies.insert(name.to_owned(), dependency_hash);
+        dependencies.insert(name, dependency_hash);
     }
 
-    for module in project_analysis.local_modules.values() {
-        for import_analysis in module.imports.values() {
-            let super::analyze::ImportAnalysis::ExternalProject(dep_name) = import_analysis else {
-                continue;
-            };
-
-            anyhow::ensure!(
-                dependency_name_regex.is_match(dep_name),
-                "invalid imported dependency name: {dep_name}",
-            );
-
-            match dependencies.entry(dep_name.clone()) {
-                std::collections::hash_map::Entry::Occupied(_) => {
-                    // Dependency already exists
-                }
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    // Dependency not included explicitly, so load it from
-                    // the registry. Equivalent to using a version of `*`
-                    let load_result = try_load_registry_dependency_with_errors(
-                        projects,
-                        brioche,
-                        workspace.as_ref(),
-                        dep_name,
-                        &Version::Any,
-                        validation,
-                        locking,
-                        lockfile.as_ref(),
-                        dep_depth,
-                        &mut new_lockfile,
-                        &mut errors,
-                    )
-                    .await;
-                    let Some(dep_hash) = load_result else {
-                        continue;
-                    };
-
-                    // Add it as a dependency
-                    entry.insert(dep_hash);
-                }
-            }
-        }
-    }
-
+    // Load the statics from all of the project's modules
     let modules = project_analysis
         .local_modules
         .values()
@@ -207,16 +176,15 @@ async fn load_project_inner(
         let mut module_statics = BTreeMap::new();
         for static_ in &module.statics {
             // Only resolve the static if we need a fully valid project
-            match validation {
+            match config.validation {
                 ProjectValidation::Standard => {
                     let recipe_hash = resolve_static(
-                        brioche,
+                        &config.brioche,
                         &path,
                         module,
                         static_,
-                        locking,
-                        lockfile.as_ref(),
-                        &mut new_lockfile,
+                        config.locking,
+                        &mut lockfile,
                     )
                     .await?;
                     module_statics.insert(static_.clone(), Some(recipe_hash));
@@ -232,6 +200,7 @@ async fn load_project_inner(
         }
     }
 
+    // Build the project from its components and compute the project hash
     let project = Project {
         definition: project_analysis.definition,
         dependencies,
@@ -244,9 +213,9 @@ async fn load_project_inner(
     if !errors.is_empty() {
         tracing::debug!(?path, ?errors, "project loaded with errors");
     }
-
     {
-        let mut projects = projects
+        let mut projects = config
+            .projects
             .inner
             .write()
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
@@ -256,16 +225,16 @@ async fn load_project_inner(
         // weren't updated. This can mean that e.g. unnecessary downloads
         // and dependencies are kept, but this is appropriate for
         // situations like the LSP
-        match validation {
+        match config.validation {
             ProjectValidation::Standard => {}
             ProjectValidation::Minimal => {
                 let Lockfile {
                     dependencies: new_dependencies,
                     downloads: new_downloads,
                     git_refs: new_git_refs,
-                } = &mut new_lockfile;
+                } = &mut lockfile.fresh_lockfile;
 
-                if let Some(lockfile) = &lockfile {
+                if let Some(lockfile) = &lockfile.current_lockfile {
                     for (name, hash) in &lockfile.dependencies {
                         new_dependencies.entry(name.clone()).or_insert(*hash);
                     }
@@ -285,17 +254,27 @@ async fn load_project_inner(
             }
         }
 
-        if lockfile.as_ref() != Some(&new_lockfile) {
-            match locking {
-                ProjectLocking::Unlocked => {
-                    projects.dirty_lockfiles.insert(lockfile_path, new_lockfile);
-                }
-                ProjectLocking::Locked => {
-                    anyhow::bail!("lockfile at {} is out of date", lockfile_path.display());
-                }
+        match (lockfile.is_up_to_date(), config.locking) {
+            (true, _) => {
+                // Lockfile is up-to-date
+            }
+            (false, ProjectLocking::Unlocked) => {
+                // Lockfile is out of date but we're loading it "unlocked",
+                // so record the lockfile as dirty
+
+                projects
+                    .dirty_lockfiles
+                    .insert(lockfile_path, lockfile.fresh_lockfile);
+            }
+            (false, ProjectLocking::Locked) => {
+                // Lockfile is out of date and we're loading in "locked"
+                // mode, meaning we expected it to be up-to-date
+
+                anyhow::bail!("lockfile at {} is out of date", lockfile_path.display());
             }
         }
 
+        // Insert the new project
         projects.projects.insert(project_hash, project.clone());
         projects
             .paths_to_projects
@@ -313,19 +292,33 @@ async fn load_project_inner(
     Ok((project_hash, project, errors))
 }
 
-#[expect(clippy::too_many_arguments)]
-async fn try_load_path_dependency_with_errors(
-    projects: &Projects,
-    brioche: &Brioche,
-    name: &str,
-    dep_path: &Path,
+struct LockfileState {
+    current_lockfile: Option<Lockfile>,
+    fresh_lockfile: Lockfile,
+}
+
+impl LockfileState {
+    fn is_up_to_date(&self) -> bool {
+        self.current_lockfile.as_ref() == Some(&self.fresh_lockfile)
+    }
+}
+
+#[derive(Clone)]
+struct LoadProjectConfig {
+    projects: Projects,
+    brioche: Brioche,
     validation: ProjectValidation,
     locking: ProjectLocking,
-    dep_depth: usize,
+}
+
+async fn try_load_path_dependency_with_errors(
+    config: &LoadProjectConfig,
+    name: &str,
+    dep_path: &Path,
+    dep_depth: u32,
     errors: &mut Vec<LoadProjectError>,
 ) -> Option<ProjectHash> {
-    let result =
-        load_project_inner(projects, brioche, dep_path, validation, locking, dep_depth).await;
+    let result = Box::pin(load_project_inner(config, dep_path, dep_depth)).await;
 
     match result {
         Ok((dep_hash, _, dep_errors)) => {
@@ -350,22 +343,21 @@ async fn try_load_path_dependency_with_errors(
     }
 }
 
-#[expect(clippy::too_many_arguments)]
 async fn try_load_registry_dependency_with_errors(
-    projects: &Projects,
-    brioche: &Brioche,
+    config: &LoadProjectConfig,
     workspace: Option<&Workspace>,
     name: &str,
     version: &Version,
-    validation: ProjectValidation,
-    locking: ProjectLocking,
-    lockfile: Option<&Lockfile>,
-    dep_depth: usize,
-    new_lockfile: &mut Lockfile,
+    dep_depth: u32,
+    lockfile: &mut LockfileState,
     errors: &mut Vec<LoadProjectError>,
 ) -> Option<ProjectHash> {
     let resolved_dep_result = resolve_dependency_to_local_path(
-        projects, brioche, workspace, name, version, validation, locking, lockfile,
+        config,
+        workspace,
+        name,
+        version,
+        lockfile.current_lockfile.as_ref(),
     )
     .await;
     let resolved_dep = match resolved_dep_result {
@@ -379,14 +371,14 @@ async fn try_load_registry_dependency_with_errors(
         }
     };
 
-    let result = load_project_inner(
-        projects,
-        brioche,
+    let mut resolved_dep_config = config.clone();
+    resolved_dep_config.locking = resolved_dep.locking;
+
+    let result = Box::pin(load_project_inner(
+        &resolved_dep_config,
         &resolved_dep.local_path,
-        validation,
-        resolved_dep.locking,
         dep_depth,
-    )
+    ))
     .await;
     let (actual_hash, _, dep_errors) = match result {
         Ok(dep) => dep,
@@ -421,7 +413,8 @@ async fn try_load_registry_dependency_with_errors(
     );
 
     if let Some(should_lock) = resolved_dep.should_lock {
-        new_lockfile
+        lockfile
+            .fresh_lockfile
             .dependencies
             .insert(name.to_owned(), should_lock);
     }
@@ -429,16 +422,12 @@ async fn try_load_registry_dependency_with_errors(
     Some(actual_hash)
 }
 
-#[expect(clippy::too_many_arguments)]
 async fn resolve_dependency_to_local_path(
-    projects: &Projects,
-    brioche: &Brioche,
+    config: &LoadProjectConfig,
     workspace: Option<&Workspace>,
     dependency_name: &str,
     dependency_version: &Version,
-    validation: ProjectValidation,
-    locking: ProjectLocking,
-    lockfile: Option<&Lockfile>,
+    current_lockfile: Option<&Lockfile>,
 ) -> anyhow::Result<ResolvedDependency> {
     if let Some(workspace) = workspace {
         if let Some(workspace_path) =
@@ -453,7 +442,7 @@ async fn resolve_dependency_to_local_path(
             return Ok(ResolvedDependency {
                 local_path: workspace_path,
                 expected_hash: None,
-                locking,
+                locking: config.locking,
                 should_lock: None,
             });
         }
@@ -462,12 +451,12 @@ async fn resolve_dependency_to_local_path(
     // TODO: Validate that the requested dependency version matches the
     // version in the lockfile
     let lockfile_dep_hash =
-        lockfile.and_then(|lockfile| lockfile.dependencies.get(dependency_name));
+        current_lockfile.and_then(|lockfile| lockfile.dependencies.get(dependency_name));
     let dep_hash = match lockfile_dep_hash {
         Some(dep_hash) => *dep_hash,
-        None => match locking {
+        None => match config.locking {
             ProjectLocking::Unlocked => {
-                resolve_project_from_registry(brioche, dependency_name, dependency_version)
+                resolve_project_from_registry(&config.brioche, dependency_name, dependency_version)
                     .await
                     .with_context(|| {
                         format!("failed to resolve '{dependency_name}' from registry")
@@ -479,9 +468,14 @@ async fn resolve_dependency_to_local_path(
         },
     };
 
-    let local_path = fetch_project_from_cache(projects, brioche, dep_hash, validation)
-        .await
-        .with_context(|| format!("failed to fetch '{dependency_name}' from cache"))?;
+    let local_path = fetch_project_from_cache(
+        &config.projects,
+        &config.brioche,
+        dep_hash,
+        config.validation,
+    )
+    .await
+    .with_context(|| format!("failed to fetch '{dependency_name}' from cache"))?;
 
     Ok(ResolvedDependency {
         local_path,
@@ -645,8 +639,7 @@ async fn resolve_static(
     module: &super::analyze::ModuleAnalysis,
     static_: &StaticQuery,
     locking: ProjectLocking,
-    lockfile: Option<&Lockfile>,
-    new_lockfile: &mut Lockfile,
+    lockfile: &mut LockfileState,
 ) -> anyhow::Result<StaticOutput> {
     match static_ {
         StaticQuery::Include(include) => {
@@ -794,7 +787,10 @@ async fn resolve_static(
             Ok(StaticOutput::RecipeHash(recipe_hash))
         }
         StaticQuery::Download { url } => {
-            let current_download_hash = lockfile.and_then(|lockfile| lockfile.downloads.get(url));
+            let current_download_hash = lockfile
+                .current_lockfile
+                .as_ref()
+                .and_then(|lockfile| lockfile.downloads.get(url));
 
             let download_hash: crate::Hash;
             let blob_hash: Option<crate::blob::BlobHash>;
@@ -879,7 +875,8 @@ async fn resolve_static(
             }
 
             // Update the new lockfile with the download hash
-            new_lockfile
+            lockfile
+                .fresh_lockfile
                 .downloads
                 .insert(url.clone(), download_hash.clone());
 
@@ -888,7 +885,7 @@ async fn resolve_static(
             }))
         }
         StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
-            let current_commit = lockfile.and_then(|lockfile| {
+            let current_commit = lockfile.current_lockfile.as_ref().and_then(|lockfile| {
                 lockfile
                     .git_refs
                     .get(repository)
@@ -915,7 +912,11 @@ async fn resolve_static(
             };
 
             // Update the new lockfile with the commit
-            let repo_refs = new_lockfile.git_refs.entry(repository.clone()).or_default();
+            let repo_refs = lockfile
+                .fresh_lockfile
+                .git_refs
+                .entry(repository.clone())
+                .or_default();
             repo_refs.insert(ref_.clone(), commit.clone());
 
             Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }))
@@ -979,8 +980,10 @@ pub async fn local_project_hash(
                 module,
                 static_,
                 ProjectLocking::Locked,
-                Some(&lockfile),
-                &mut Lockfile::default(),
+                &mut LockfileState {
+                    current_lockfile: Some(lockfile.clone()),
+                    fresh_lockfile: Lockfile::default(),
+                },
             )
             .await?;
             module_statics.insert(static_.clone(), Some(static_output));
