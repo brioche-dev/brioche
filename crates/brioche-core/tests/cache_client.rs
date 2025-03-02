@@ -412,14 +412,14 @@ async fn build_artifact_with_some_small_files(
         )
         .await
         .unwrap();
-    // directory
-    //     .insert(
-    //         brioche,
-    //         b"little-files/empty.txt",
-    //         Some(brioche_test_support::file(empty_blob, false)),
-    //     )
-    //     .await
-    //     .unwrap();
+    directory
+        .insert(
+            brioche,
+            b"little-files/empty.txt",
+            Some(brioche_test_support::file(empty_blob, false)),
+        )
+        .await
+        .unwrap();
 
     Artifact::Directory(directory)
 }

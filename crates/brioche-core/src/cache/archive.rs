@@ -10,7 +10,7 @@
 //! up into similarly-sized chunks that can be fetched in parallel.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     ops::Range,
     sync::Arc,
 };
@@ -539,16 +539,24 @@ pub async fn read_artifact_archive(
 
     // Determine which blobs we need to read from the archive. We skip over
     // any blobs that we already have locally
-    let needed_blobs = tokio::task::spawn_blocking({
+    let (needed_blobs, empty_blobs) = tokio::task::spawn_blocking({
         let brioche = brioche.clone();
         move || {
             let mut needed_blobs = vec![];
+            let mut empty_blobs = vec![];
             for (blob_hash, range) in blobs {
                 let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
                 if !blob_path.try_exists()? {
-                    // Blob doesn't exist locally, so add it to the list
-                    // we need from the archive
-                    needed_blobs.push((blob_hash, range));
+                    if range.is_empty() {
+                        // Blob doesn't exist locally but is empty. We'll
+                        // create it separately from the rest to avoid
+                        // special-case rules around ranges
+                        empty_blobs.push(blob_hash);
+                    } else {
+                        // Blob doesn't exist locally, so add it to the list
+                        // we need from the archive
+                        needed_blobs.push((blob_hash, range));
+                    }
                 }
             }
 
@@ -556,7 +564,7 @@ pub async fn read_artifact_archive(
             // in the archive, since we can't rewind the reader
             needed_blobs.sort_by_key(|(_, range)| range.start);
 
-            anyhow::Ok(needed_blobs)
+            anyhow::Ok((needed_blobs, empty_blobs))
         }
     })
     .await??;
@@ -575,6 +583,23 @@ pub async fn read_artifact_archive(
             total_blobs: Some(total_needed_blobs),
         },
     );
+
+    // If the archive contained a hash for an empty blob, create it separately
+    // since we don't need to read the archive to create it. Normally, this
+    // loop will run at most once, but could run multiple times if a malformed
+    // archive has different hashes for the empty blob
+    for blob_hash in empty_blobs {
+        let mut permit = crate::blob::get_save_blob_permit().await?;
+
+        // Create the empty blob and validate the hash
+        crate::blob::save_blob(
+            brioche,
+            &mut permit,
+            &[],
+            SaveBlobOptions::new().expected_blob_hash(Some(blob_hash)),
+        )
+        .await?;
+    }
 
     match data {
         DataEntry::Inline => {
@@ -624,24 +649,12 @@ pub async fn read_artifact_archive(
             // determine which parts of which chunks we need to read
 
             // For each blob, determine if we can read it by reading from
-            // a single chunk or if we need to read it from multiple chunks
-            // (or if it's empty). We also group blobs that can all be read
-            // from the same chunk.
+            // a single chunk or if we need to read it from multiple chunks.
+            // We also group blobs that can all be read from the same chunk.
             let mut single_chunks = HashMap::<_, Vec<_>>::new();
             let mut multi_chunks = HashMap::new();
-            let mut empty_blobs = HashSet::new();
 
             for (blob_hash, blob_range) in needed_blobs {
-                if blob_range.is_empty() {
-                    // Empty blob. We handle this specially so we can both
-                    // avoid fetching any chunks for it, and so we don't need
-                    // to special-case the logic for determining which chunks
-                    // to fetch
-
-                    empty_blobs.insert(blob_hash);
-                    continue;
-                }
-
                 // Get the chunk containing the first byte of the blob
                 let head_chunk = chunks.range(..=blob_range.start).next_back();
                 let Some((_, head_chunk)) = head_chunk else {
@@ -696,12 +709,7 @@ pub async fn read_artifact_archive(
                     .map(|(chunk, blobs)| BlobsFetch::BlobsFromChunk { chunk, blobs })
                     .chain(multi_chunks.into_iter().map(|(blob_hash, chunks)| {
                         BlobsFetch::BlobFromChunks { blob_hash, chunks }
-                    }))
-                    .chain(
-                        empty_blobs
-                            .into_iter()
-                            .map(|blob_hash| BlobsFetch::EmptyBlob { blob_hash }),
-                    );
+                    }));
 
             // Fetch all the blobs from the chunks concurrently
             let concurrent_chunk_fetches = brioche
@@ -759,27 +767,6 @@ async fn fetch_blobs_from_chunks(
     let mut permit = crate::blob::get_save_blob_permit().await?;
 
     match fetch {
-        BlobsFetch::EmptyBlob { blob_hash } => {
-            // Create an empty blob. There's no need to fetch anything, so
-            // this saves an empty blob and validates the hash we got
-            // from the archive
-
-            crate::blob::save_blob(
-                &brioche,
-                &mut permit,
-                &[],
-                SaveBlobOptions::new().expected_blob_hash(Some(blob_hash)),
-            )
-            .await?;
-
-            brioche.reporter.update_job(
-                job_id,
-                UpdateJob::CacheFetchAdd {
-                    downloaded_data: Some(0),
-                    downloaded_blobs: Some(1),
-                },
-            );
-        }
         BlobsFetch::BlobsFromChunk { chunk, blobs } => {
             // Fetch one or more blobs from a single chunk. Because the
             // chunk is compressed, we have to read from the start
@@ -1053,9 +1040,6 @@ enum BlobsFetch {
     BlobFromChunks {
         blob_hash: BlobHash,
         chunks: Vec<(ChunkEntry, Range<u64>)>,
-    },
-    EmptyBlob {
-        blob_hash: BlobHash,
     },
 }
 

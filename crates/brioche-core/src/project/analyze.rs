@@ -796,11 +796,26 @@ fn expression_to_json(
 
             Ok(value.clone())
         }
-        Expr::JsParenthesizedExpression(_) => todo!(),
-        Expr::TsAsExpression(_) => todo!(),
-        Expr::TsNonNullAssertionExpression(_) => todo!(),
-        Expr::TsSatisfiesExpression(_) => todo!(),
-        Expr::TsTypeAssertionExpression(_) => todo!(),
+        Expr::JsParenthesizedExpression(expr) => {
+            let value = expression_to_json(&expr.expression()?, env)?;
+            Ok(value)
+        }
+        Expr::TsAsExpression(expr) => {
+            let value = expression_to_json(&expr.expression()?, env)?;
+            Ok(value)
+        }
+        Expr::TsNonNullAssertionExpression(expr) => {
+            let value = expression_to_json(&expr.expression()?, env)?;
+            Ok(value)
+        }
+        Expr::TsSatisfiesExpression(expr) => {
+            let value = expression_to_json(&expr.expression()?, env)?;
+            Ok(value)
+        }
+        Expr::TsTypeAssertionExpression(expr) => {
+            let value = expression_to_json(&expr.expression()?, env)?;
+            Ok(value)
+        }
         _ => {
             anyhow::bail!("unsupported expression");
         }
