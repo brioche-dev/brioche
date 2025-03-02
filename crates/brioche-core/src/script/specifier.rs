@@ -170,8 +170,8 @@ impl std::fmt::Display for BriocheModuleSpecifier {
     }
 }
 
-pub fn runtime_specifiers_with_contents(
-) -> impl Iterator<Item = (BriocheModuleSpecifier, Cow<'static, [u8]>)> {
+pub fn runtime_specifiers_with_contents()
+-> impl Iterator<Item = (BriocheModuleSpecifier, Cow<'static, [u8]>)> {
     crate::RuntimeFiles::iter().flat_map(|path| {
         let file = crate::RuntimeFiles::get(&path)?;
         let specifier = BriocheModuleSpecifier::Runtime {

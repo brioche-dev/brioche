@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use futures::{stream::FuturesUnordered, TryStreamExt as _};
+use futures::{TryStreamExt as _, stream::FuturesUnordered};
 use sqlx::Acquire as _;
 use tracing::Instrument as _;
 
@@ -14,11 +14,11 @@ use crate::{
 };
 
 use super::{
-    recipe::{Artifact, CreateDirectory, Directory, File, Meta, Recipe, RecipeHash, WithMeta},
     Brioche,
+    recipe::{Artifact, CreateDirectory, Directory, File, Meta, Recipe, RecipeHash, WithMeta},
 };
 
-pub use process::{process_rootfs_recipes, ProcessRootfsRecipes};
+pub use process::{ProcessRootfsRecipes, process_rootfs_recipes};
 
 mod attach_resources;
 mod collect_references;

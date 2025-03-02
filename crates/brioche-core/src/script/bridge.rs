@@ -6,14 +6,14 @@ use joinery::JoinableIterator as _;
 use tracing::Instrument as _;
 
 use crate::{
+    Brioche,
     bake::BakeScope,
     blob::BlobHash,
     project::{
-        analyze::{GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery},
         ProjectHash, ProjectLocking, ProjectValidation, Projects,
+        analyze::{GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery},
     },
     recipe::{Artifact, DownloadRecipe, Recipe, WithMeta},
-    Brioche,
 };
 
 use super::specifier::{self, BriocheImportSpecifier, BriocheModuleSpecifier};

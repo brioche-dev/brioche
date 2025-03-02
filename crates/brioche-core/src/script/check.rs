@@ -3,9 +3,9 @@ use std::rc::Rc;
 use anyhow::Context as _;
 
 use crate::{
+    Brioche,
     project::{ProjectHash, Projects},
     vfs::Vfs,
-    Brioche,
 };
 
 use super::{bridge::RuntimeBridge, specifier::BriocheModuleSpecifier};

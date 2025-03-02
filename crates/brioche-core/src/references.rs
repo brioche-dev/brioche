@@ -8,13 +8,13 @@ use joinery::JoinableIterator as _;
 use sqlx::{Acquire as _, Arguments as _};
 
 use crate::{
+    Brioche,
     blob::BlobHash,
     project::{Project, ProjectHash, Projects},
     recipe::{
         Artifact, CompleteProcessRecipe, CompleteProcessTemplateComponent, ProcessRecipe,
         ProcessTemplateComponent, Recipe, RecipeHash,
     },
-    Brioche,
 };
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]

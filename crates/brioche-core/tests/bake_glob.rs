@@ -1,8 +1,8 @@
 use core::panic;
 
 use brioche_core::{
-    recipe::{Directory, Recipe, WithMeta},
     Brioche,
+    recipe::{Directory, Recipe, WithMeta},
 };
 
 pub async fn bake_to_recipe(brioche: &Brioche, recipe: &Recipe) -> Recipe {

@@ -7,8 +7,8 @@ use anyhow::Context as _;
 use bstr::ByteSlice as _;
 
 use super::{
-    recipe::{Artifact, Directory, File},
     Brioche,
+    recipe::{Artifact, Directory, File},
 };
 
 struct LocalOutputLock(());

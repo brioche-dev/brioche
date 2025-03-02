@@ -2,10 +2,10 @@ use std::{collections::HashSet, sync::Arc};
 
 use assert_matches::assert_matches;
 use brioche_core::{
+    Brioche,
     blob::BlobHash,
     cache::CacheClient,
     recipe::{Artifact, Recipe},
-    Brioche,
 };
 use futures::StreamExt as _;
 

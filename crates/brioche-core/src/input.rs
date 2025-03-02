@@ -12,8 +12,8 @@ use tracing::Instrument as _;
 use crate::fs_utils::{is_executable, logical_path_bytes, set_directory_rwx_recursive};
 
 use super::{
-    recipe::{Artifact, Directory, File, Meta, WithMeta},
     Brioche,
+    recipe::{Artifact, Directory, File, Meta, WithMeta},
 };
 
 pub struct InputOptions<'a> {

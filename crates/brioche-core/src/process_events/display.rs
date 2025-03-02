@@ -4,7 +4,7 @@ use bstr::ByteSlice as _;
 
 use crate::{reporter::job::ProcessStream, utils::output_buffer::OutputBuffer};
 
-use super::{reader::ProcessEventReader, ProcessEvent};
+use super::{ProcessEvent, reader::ProcessEventReader};
 
 pub struct DisplayEventsOptions {
     pub reverse: bool,

@@ -185,7 +185,9 @@ pub enum ProcessEventReadError {
     #[error("process event file ended abruptly")]
     CutOff,
 
-    #[error("process event file appears to be corrupted: start marker {start_marker:?} did not match end marker {end_marker:?}")]
+    #[error(
+        "process event file appears to be corrupted: start marker {start_marker:?} did not match end marker {end_marker:?}"
+    )]
     EventMarkerDidNotMatch {
         start_marker: ProcessEventMarker,
         end_marker: ProcessEventMarker,

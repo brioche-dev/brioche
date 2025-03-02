@@ -1,11 +1,11 @@
 use anyhow::Context as _;
 
 use crate::{
+    Brioche,
     project::{ProjectHash, Projects},
     recipe::Artifact,
     references::ProjectReferences,
     registry::CreateProjectTagsResponse,
-    Brioche,
 };
 
 pub async fn publish_project(

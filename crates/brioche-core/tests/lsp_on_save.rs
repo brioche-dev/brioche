@@ -1,8 +1,8 @@
 use brioche_core::cache::CacheClient;
 use futures::TryStreamExt as _;
 use tower_lsp::lsp_types::{
-    self, notification, request, Position, TextDocumentIdentifier, TextDocumentItem,
-    TextDocumentPositionParams,
+    self, Position, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams,
+    notification, request,
 };
 use url::Url;
 

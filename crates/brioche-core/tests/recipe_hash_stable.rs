@@ -3,9 +3,9 @@
 use std::collections::BTreeMap;
 
 use brioche_core::{
+    Hash,
     platform::Platform,
     recipe::{DownloadRecipe, ProcessRecipe, ProcessTemplate, ProcessTemplateComponent, Recipe},
-    Hash,
 };
 use pretty_assertions::assert_eq;
 

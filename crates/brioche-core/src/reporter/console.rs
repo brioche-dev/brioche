@@ -1,21 +1,21 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{Arc, atomic::AtomicUsize},
 };
 
 use bstr::ByteSlice as _;
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithHttpConfig as _;
 use superconsole::style::Stylize as _;
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _, Layer as _};
+use tracing_subscriber::{Layer as _, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
-use crate::utils::{output_buffer::OutputBuffer, DisplayDuration};
+use crate::utils::{DisplayDuration, output_buffer::OutputBuffer};
 
 use super::{
+    JobId, ReportEvent, Reporter, ReporterGuard,
     job::{Job, NewJob, ProcessStatus, ProcessStream, UpdateJob},
-    tracing_debug_filter, tracing_output_filter, tracing_root_filter, JobId, ReportEvent, Reporter,
-    ReporterGuard,
+    tracing_debug_filter, tracing_output_filter, tracing_root_filter,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -1033,11 +1033,7 @@ fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [supercons
             .char_indices()
             .find_map(
                 |(index, _)| {
-                    if index >= filled {
-                        Some(index)
-                    } else {
-                        None
-                    }
+                    if index >= filled { Some(index) } else { None }
                 },
             )
             .unwrap_or(0);

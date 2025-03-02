@@ -13,7 +13,7 @@ use wax::Pattern as _;
 
 use crate::encoding::TickEncoded;
 
-use super::{blob::BlobHash, platform::Platform, Brioche, Hash};
+use super::{Brioche, Hash, blob::BlobHash, platform::Platform};
 
 #[serde_with::serde_as]
 #[derive(
@@ -246,7 +246,10 @@ pub async fn get_recipes(
         let expected_recipe_hash: RecipeHash = recipe_hash.parse()?;
         let recipe_hash = recipe.hash();
 
-        anyhow::ensure!(expected_recipe_hash == recipe_hash, "expected recipe hash from database to be {expected_recipe_hash}, but was {recipe_hash}");
+        anyhow::ensure!(
+            expected_recipe_hash == recipe_hash,
+            "expected recipe hash from database to be {expected_recipe_hash}, but was {recipe_hash}"
+        );
 
         cached_recipes
             .recipes_by_hash

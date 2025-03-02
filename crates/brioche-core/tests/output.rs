@@ -1,7 +1,7 @@
 use std::{os::unix::prelude::PermissionsExt as _, path::Path};
 
 use assert_matches::assert_matches;
-use brioche_core::{output::create_local_output, recipe::Artifact, Brioche};
+use brioche_core::{Brioche, output::create_local_output, recipe::Artifact};
 use pretty_assertions::assert_eq;
 
 async fn dir_is_empty(path: impl AsRef<Path>) -> bool {

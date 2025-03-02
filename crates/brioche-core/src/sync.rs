@@ -1,6 +1,6 @@
 use anyhow::Context as _;
 
-use crate::{project::ProjectHash, references::ProjectReferences, Brioche};
+use crate::{Brioche, project::ProjectHash, references::ProjectReferences};
 
 mod legacy_sync;
 mod new_sync;

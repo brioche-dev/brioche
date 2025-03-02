@@ -4,12 +4,12 @@ use anyhow::Context as _;
 use bstr::BString;
 
 use crate::{
+    Brioche,
     blob::BlobHash,
     recipe::{
         ArchiveFormat, Artifact, CompressionFormat, Directory, File, Meta, Unarchive, WithMeta,
     },
     reporter::job::{NewJob, UpdateJob},
-    Brioche,
 };
 
 #[tracing::instrument(skip(brioche, unarchive), fields(file_recipe = %unarchive.file.hash(), archive = ?unarchive.archive, compression = ?unarchive.compression))]

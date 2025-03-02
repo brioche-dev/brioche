@@ -6,8 +6,9 @@ use std::{
 use crate::{reporter::job::ProcessStream, utils::io::ReadTracker};
 
 use super::{
-    ProcessEvent, ProcessEventKind, ProcessEventMarker, ProcessEventReadError, ProcessExitedEvent,
-    ProcessOutputEvent, ProcessSpawnedEvent, PROCESS_EVENT_MAGIC, PROCESS_EVENT_MARKER_LENGTH,
+    PROCESS_EVENT_MAGIC, PROCESS_EVENT_MARKER_LENGTH, ProcessEvent, ProcessEventKind,
+    ProcessEventMarker, ProcessEventReadError, ProcessExitedEvent, ProcessOutputEvent,
+    ProcessSpawnedEvent,
 };
 
 pub struct ProcessEventReader<R>
