@@ -193,7 +193,7 @@ pub async fn save_projects_from_artifact(
     let mut needed_paths = vec![];
 
     for (project_hash, local_path, artifact) in unloaded_projects {
-        let local_project_hash = super::local_project_hash(brioche, &local_path).await?;
+        let local_project_hash = super::load::local_project_hash(brioche, &local_path).await?;
         if local_project_hash == Some(project_hash) {
             // Project already exists on disk and matches the expected hash,
             // so we can load it from the local directory
