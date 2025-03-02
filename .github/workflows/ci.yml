@@ -55,6 +55,7 @@ jobs:
         run: |
           brioche check
           brioche fmt --check
+
   test:
     name: Run tests [${{ matrix.test.name }}]
     strategy:
@@ -109,6 +110,15 @@ jobs:
       # more disk space, so much so that it can cause the run to fail
       - name: Run tests
         run: cargo test --all --release
+
+  # Extra job that succeeds when all test jobs succeed (useful for PR requirements)
+  all-tests-passed:
+    name: All tests passed
+    needs: [test]
+    runs-on: ubuntu-24.04
+    steps:
+      - run: ':'
+
   build:
     name: Build artifacts [${{ matrix.platform.name }}]
     if: github.event_name == 'push'
@@ -176,6 +186,7 @@ jobs:
           name: brioche-${{ matrix.platform.name }}
           if-no-files-found: error
           path: artifacts/brioche
+
   build-packed:
     name: Build packed artifacts
     if: github.event_name == 'push'
@@ -209,10 +220,11 @@ jobs:
           name: brioche-packed-x86_64-linux
           if-no-files-found: error
           path: artifacts/brioche-packed
+
   push:
     name: Push artifacts
     if: github.event_name == 'push' && github.repository == 'brioche-dev/brioche'
-    needs: [check, test, build, build-packed]
+    needs: [check, all-tests-passed, build, build-packed]
     runs-on: ubuntu-24.04
     steps:
       - name: Install AWS CLI
