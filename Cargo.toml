@@ -9,6 +9,7 @@ members = [
     "crates/brioche-pack",
     "crates/brioche-test-support",
 ]
+resolver = "3"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
