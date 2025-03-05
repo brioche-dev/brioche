@@ -172,8 +172,9 @@ pub fn start_console_reporter(
         };
     };
 
-    let log_file_layer = match std::env::var_os("BRIOCHE_LOG_OUTPUT") {
-        Some(debug_output_path) => {
+    let log_file_layer = std::env::var_os("BRIOCHE_LOG_OUTPUT").map_or_else(
+        || None,
+        |debug_output_path| {
             let debug_output =
                 std::fs::File::create(debug_output_path).expect("failed to open debug output path");
             Some(
@@ -183,9 +184,8 @@ pub fn start_console_reporter(
                     .with_timer(tracing_subscriber::fmt::time::uptime())
                     .with_filter(tracing_debug_filter()),
             )
-        }
-        _ => None,
-    };
+        },
+    );
 
     let tracing_console_layer =
         std::env::var_os("BRIOCHE_CONSOLE").map(|_| console_subscriber::spawn());
@@ -234,10 +234,10 @@ enum ConsoleReporter {
 impl ConsoleReporter {
     fn emit(&mut self, lines: superconsole::Lines) {
         match self {
-            ConsoleReporter::SuperConsole { console, .. } => {
+            Self::SuperConsole { console, .. } => {
                 console.emit(lines);
             }
-            ConsoleReporter::Plain { .. } => {
+            Self::Plain { .. } => {
                 for line in lines {
                     eprintln!("{}", line.to_unstyled());
                 }
@@ -247,11 +247,11 @@ impl ConsoleReporter {
 
     fn add_job(&mut self, id: JobId, job: NewJob) {
         match self {
-            ConsoleReporter::SuperConsole { root, .. } => {
+            Self::SuperConsole { root, .. } => {
                 let new_job = Job::new(job);
                 root.jobs.insert(id, new_job);
             }
-            ConsoleReporter::Plain { jobs, .. } => {
+            Self::Plain { jobs, .. } => {
                 match &job {
                     NewJob::Download { url, started_at: _ } => {
                         eprintln!("Downloading {url}");
@@ -288,7 +288,7 @@ impl ConsoleReporter {
 
     fn update_job(&mut self, id: JobId, update: UpdateJob) {
         match self {
-            ConsoleReporter::SuperConsole { root, .. } => {
+            Self::SuperConsole { root, .. } => {
                 if let UpdateJob::ProcessPushPacket { ref packet, .. } = update {
                     let (stream, bytes) = match &packet.0 {
                         super::job::ProcessPacket::Stdout(bytes) => (ProcessStream::Stdout, bytes),
@@ -296,7 +296,7 @@ impl ConsoleReporter {
                     };
                     root.job_outputs
                         .append(JobOutputStream { job_id: id, stream }, bytes);
-                } else if let UpdateJob::ProcessFlushPackets = update {
+                } else if matches!(update, UpdateJob::ProcessFlushPackets) {
                     root.job_outputs.flush_stream(JobOutputStream {
                         job_id: id,
                         stream: ProcessStream::Stdout,
@@ -312,7 +312,7 @@ impl ConsoleReporter {
                 };
                 let _ = job.update(update);
             }
-            ConsoleReporter::Plain { jobs, job_outputs } => {
+            Self::Plain { jobs, job_outputs } => {
                 let Some(job) = jobs.get(&id) else {
                     return;
                 };
@@ -333,6 +333,7 @@ impl ConsoleReporter {
                     UpdateJob::ProcessUpdateStatus { status } => {
                         let child_id = status.child_id();
 
+                        #[expect(clippy::literal_string_with_formatting_args)]
                         let child_id_label = lazy_format::lazy_format! {
                             match (child_id) {
                                 Some(child_id) => "{child_id}",
@@ -456,10 +457,10 @@ impl ConsoleReporter {
 
     fn render(&mut self) -> anyhow::Result<()> {
         match self {
-            ConsoleReporter::SuperConsole { console, root } => {
+            Self::SuperConsole { console, root } => {
                 console.render(root)?;
             }
-            ConsoleReporter::Plain { .. } => {}
+            Self::Plain { .. } => {}
         }
 
         Ok(())
@@ -467,10 +468,10 @@ impl ConsoleReporter {
 
     fn finalize(self) -> anyhow::Result<()> {
         match self {
-            ConsoleReporter::SuperConsole { console, root } => {
+            Self::SuperConsole { console, root } => {
                 console.finalize(&root)?;
             }
-            ConsoleReporter::Plain { .. } => {}
+            Self::Plain { .. } => {}
         }
 
         anyhow::Ok(())
@@ -486,6 +487,7 @@ fn print_job_content(jobs: &HashMap<JobId, Job>, stream: &JobOutputStream, conte
         Some(Job::Process { status, .. }) => status.child_id(),
         _ => None,
     };
+    #[expect(clippy::literal_string_with_formatting_args)]
     let child_id_label = lazy_format::lazy_format! {
         match (child_id) {
             Some(child_id) => "{child_id}",
@@ -493,10 +495,9 @@ fn print_job_content(jobs: &HashMap<JobId, Job>, stream: &JobOutputStream, conte
         }
     };
 
-    let content = match content.strip_suffix(b"\n") {
-        Some(content) => content,
-        None => content,
-    };
+    let content = content
+        .strip_suffix(b"\n")
+        .map_or_else(|| content, |content| content.into());
 
     for line in content.lines() {
         let line = bstr::BStr::new(line);
@@ -567,10 +568,9 @@ impl superconsole::Component for JobsComponent {
             .flatten();
         let lines_with_streams_rev = contents_rev
             .flat_map(|(stream, content)| {
-                let content = match content.strip_suffix(b"\n") {
-                    Some(content) => content,
-                    None => content,
-                };
+                let content = content
+                    .strip_suffix(b"\n")
+                    .map_or_else(|| content, |content| content.into());
                 let lines_rev = content
                     .lines()
                     .rev()
@@ -592,10 +592,8 @@ impl superconsole::Component for JobsComponent {
                     Some(Job::Process { status, .. }) => status.child_id(),
                     _ => None,
                 };
-                let job_label = match child_id {
-                    Some(child_id) => format!("{child_id}"),
-                    None => "?".to_string(),
-                };
+                let job_label =
+                    child_id.map_or_else(|| "?".to_string(), |child_id| format!("{child_id}"));
                 let job_label = string_with_width(&job_label, JOB_LABEL_WIDTH, "…");
 
                 format!("{job_label:JOB_LABEL_WIDTH$}│ ")
@@ -700,12 +698,14 @@ impl superconsole::Component for JobComponent<'_> {
                 started_at: _,
                 finished_at: _,
             } => {
-                let percentage_span = match progress_percent {
-                    Some(percent) => superconsole::Span::new_unstyled_lossy(
-                        lazy_format::lazy_format!("{percent:>3}%"),
-                    ),
-                    None => superconsole::Span::new_unstyled_lossy("???%"),
-                };
+                let percentage_span = progress_percent.as_ref().map_or_else(
+                    || superconsole::Span::new_unstyled_lossy("???%"),
+                    |percent| {
+                        superconsole::Span::new_unstyled_lossy(lazy_format::lazy_format!(
+                            "{percent:>3}%"
+                        ))
+                    },
+                );
 
                 let indicator = if job.is_complete() {
                     IndicatorKind::Complete
@@ -980,7 +980,7 @@ fn string_with_width<'a>(s: &'a str, num_chars: usize, replacement: &str) -> Cow
     }
 }
 
-fn job_color(job_id: JobId) -> superconsole::style::Color {
+const fn job_color(job_id: JobId) -> superconsole::style::Color {
     const JOB_COLORS: &[superconsole::style::Color] = &[
         superconsole::style::Color::Cyan,
         superconsole::style::Color::Magenta,
@@ -1041,7 +1041,7 @@ fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [supercons
     ]
 }
 
-fn spinner(duration: std::time::Duration, speed: u128) -> &'static str {
+const fn spinner(duration: std::time::Duration, speed: u128) -> &'static str {
     const SPINNERS: &[&str] = &["◜", "◝", "◞", "◟"];
     SPINNERS[(duration.as_millis() / speed) as usize % SPINNERS.len()]
 }

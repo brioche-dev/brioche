@@ -161,12 +161,12 @@ impl BriocheBuilder {
         self
     }
 
-    pub fn self_exec_processes(mut self, self_exec_processes: bool) -> Self {
+    pub const fn self_exec_processes(mut self, self_exec_processes: bool) -> Self {
         self.self_exec_processes = self_exec_processes;
         self
     }
 
-    pub fn keep_temps(mut self, keep_temps: bool) -> Self {
+    pub const fn keep_temps(mut self, keep_temps: bool) -> Self {
         self.keep_temps = keep_temps;
         self
     }
@@ -176,7 +176,7 @@ impl BriocheBuilder {
         self
     }
 
-    pub fn sync(mut self, sync: bool) -> Self {
+    pub const fn sync(mut self, sync: bool) -> Self {
         self.sync = sync;
         self
     }
@@ -233,10 +233,10 @@ impl BriocheBuilder {
 
         let registry_client = self.registry_client.unwrap_or_else(|| {
             let registry_password = std::env::var("BRIOCHE_REGISTRY_PASSWORD").ok();
-            let registry_auth = match registry_password {
-                Some(password) => registry::RegistryAuthentication::Admin { password },
-                None => registry::RegistryAuthentication::Anonymous,
-            };
+            let registry_auth = registry_password
+                .map_or(registry::RegistryAuthentication::Anonymous, |password| {
+                    registry::RegistryAuthentication::Admin { password }
+                });
             let registry_url = config.registry_url.clone().unwrap_or_else(|| {
                 DEFAULT_REGISTRY_URL
                     .parse()
@@ -396,7 +396,7 @@ pub enum Hash {
 impl std::fmt::Display for Hash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Hash::Sha256 { value } => write!(f, "sha256:{}", hex::encode(value)),
+            Self::Sha256 { value } => write!(f, "sha256:{}", hex::encode(value)),
         }
     }
 }

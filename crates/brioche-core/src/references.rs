@@ -37,6 +37,7 @@ pub async fn recipe_references(
             break;
         }
 
+        #[expect(clippy::iter_with_drain)]
         let recipes = crate::recipe::get_recipes(brioche, unvisited.drain(..)).await?;
 
         for recipe in recipes.values() {
@@ -162,7 +163,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 networking: _,
             } = process;
 
-            let templates = [command].into_iter().chain(args).chain(env.values());
+            let templates = std::iter::once(command).chain(args).chain(env.values());
 
             templates
                 .flat_map(|template| &template.components)
@@ -206,7 +207,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 .as_ref()
                 .map(|artifact| Recipe::from((**artifact).clone()));
 
-            let templates = [command].into_iter().chain(args).chain(env.values());
+            let templates = std::iter::once(command).chain(args).chain(env.values());
 
             templates
                 .flat_map(|template| &template.components)

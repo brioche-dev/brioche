@@ -353,14 +353,14 @@ enum DisplayMode {
 }
 
 impl DisplayMode {
-    fn to_console_reporter_kind(self) -> brioche_core::reporter::console::ConsoleReporterKind {
+    const fn to_console_reporter_kind(
+        self,
+    ) -> brioche_core::reporter::console::ConsoleReporterKind {
         match self {
-            DisplayMode::Auto => brioche_core::reporter::console::ConsoleReporterKind::Auto,
-            DisplayMode::Console => {
-                brioche_core::reporter::console::ConsoleReporterKind::SuperConsole
-            }
-            DisplayMode::Plain => brioche_core::reporter::console::ConsoleReporterKind::Plain,
-            DisplayMode::PlainReduced => {
+            Self::Auto => brioche_core::reporter::console::ConsoleReporterKind::Auto,
+            Self::Console => brioche_core::reporter::console::ConsoleReporterKind::SuperConsole,
+            Self::Plain => brioche_core::reporter::console::ConsoleReporterKind::Plain,
+            Self::PlainReduced => {
                 brioche_core::reporter::console::ConsoleReporterKind::PlainReduced
             }
         }

@@ -426,7 +426,7 @@ impl<'a> SaveBlobOptions<'a> {
         self
     }
 
-    pub fn expected_blob_hash(mut self, expected_blob_hash: Option<BlobHash>) -> Self {
+    pub const fn expected_blob_hash(mut self, expected_blob_hash: Option<BlobHash>) -> Self {
         self.expected_blob_hash = expected_blob_hash;
         self
     }
@@ -439,7 +439,7 @@ impl<'a> SaveBlobOptions<'a> {
         self
     }
 
-    pub fn remove_input(mut self, remove_input: bool) -> Self {
+    pub const fn remove_input(mut self, remove_input: bool) -> Self {
         self.remove_input = remove_input;
         self
     }
@@ -544,21 +544,21 @@ fn is_file_exclusive(metadata: &std::fs::Metadata) -> bool {
 pub struct BlobHash(blake3::Hash);
 
 impl BlobHash {
-    pub fn from_blake3(hash: blake3::Hash) -> Self {
+    pub const fn from_blake3(hash: blake3::Hash) -> Self {
         Self(hash)
     }
 
-    pub fn to_blake3(&self) -> blake3::Hash {
+    pub const fn to_blake3(&self) -> blake3::Hash {
         self.0
     }
 
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub const fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
     }
 
-    pub fn for_content(content: &[u8]) -> BlobHash {
+    pub fn for_content(content: &[u8]) -> Self {
         let hash = blake3::hash(content);
-        BlobHash(hash)
+        Self(hash)
     }
 
     pub fn validate_matches(&self, content: &[u8]) -> anyhow::Result<()> {

@@ -80,11 +80,11 @@ pub enum ExitStatus {
 }
 
 impl ExitStatus {
-    pub fn success(&self) -> bool {
+    pub const fn success(&self) -> bool {
         matches!(self, Self::Code(0))
     }
 
-    pub fn code(&self) -> Option<i32> {
+    pub const fn code(&self) -> Option<i32> {
         match self {
             Self::Code(code) => Some(*code),
             _ => None,
@@ -96,19 +96,25 @@ impl From<std::process::ExitStatus> for ExitStatus {
     fn from(status: std::process::ExitStatus) -> Self {
         use std::os::unix::process::ExitStatusExt as _;
 
-        if let Some(signal) = status.signal() {
-            Self::Signal(signal)
-        } else if let Some(code) = status.code() {
-            Self::Code(code)
-        } else {
-            Self::Other {
-                message: status.to_string(),
-            }
-        }
+        status.signal().map_or_else(
+            || {
+                status.code().map_or_else(
+                    || Self::Other {
+                        message: status.to_string(),
+                    },
+                    Self::Code,
+                )
+            },
+            Self::Signal,
+        )
     }
 }
 
-#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
+#[cfg_attr(
+    not(target_os = "linux"),
+    expect(unused_variables),
+    expect(clippy::needless_pass_by_value)
+)]
 pub fn run_sandbox(
     backend: SandboxBackend,
     exec: SandboxExecutionConfig,

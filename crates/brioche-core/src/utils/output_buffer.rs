@@ -25,7 +25,7 @@ impl<K> OutputBuffer<K>
 where
     K: Clone + Ord,
 {
-    pub fn with_max_capacity(max_bytes: usize) -> Self {
+    pub const fn with_max_capacity(max_bytes: usize) -> Self {
         Self {
             total_bytes: 0,
             max_bytes: Some(max_bytes),
@@ -35,7 +35,7 @@ where
         }
     }
 
-    pub fn with_unlimited_capacity() -> Self {
+    pub const fn with_unlimited_capacity() -> Self {
         Self {
             total_bytes: 0,
             max_bytes: None,
@@ -49,13 +49,10 @@ where
         let content = content.as_ref();
 
         // Truncate content so that it fits within `max_bytes`
-        let content = match self.max_bytes {
-            Some(max_bytes) => {
-                let content_start = content.len().saturating_sub(max_bytes);
-                &content[content_start..]
-            }
-            None => content,
-        };
+        let content = self.max_bytes.map_or(content, |max_bytes| {
+            let content_start = content.len().saturating_sub(max_bytes);
+            &content[content_start..]
+        });
 
         // Break the content into the part containing complete lines, and the
         // part that's made up of only partial lines
@@ -146,10 +143,9 @@ where
                 .extend_from_slice(partial_content);
         }
 
-        self.total_bytes = match self.max_bytes {
-            Some(max_bytes) => std::cmp::min(new_total_bytes, max_bytes),
-            None => new_total_bytes,
-        };
+        self.total_bytes = self.max_bytes.map_or(new_total_bytes, |max_bytes| {
+            std::cmp::min(new_total_bytes, max_bytes)
+        });
     }
 
     pub fn prepend(&mut self, stream: K, content: impl AsRef<[u8]>) {
@@ -370,7 +366,7 @@ mod tests {
         stream: ProcessStream,
     }
 
-    fn job_stream(job_id: usize, stream: ProcessStream) -> JobOutputStream {
+    const fn job_stream(job_id: usize, stream: ProcessStream) -> JobOutputStream {
         JobOutputStream { job_id, stream }
     }
 

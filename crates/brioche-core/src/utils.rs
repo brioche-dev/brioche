@@ -96,7 +96,7 @@ impl std::fmt::Display for DisplayDuration {
     }
 }
 
-fn split_unit(little_unit: u64, big_unit_size: u64) -> (u64, u64) {
+const fn split_unit(little_unit: u64, big_unit_size: u64) -> (u64, u64) {
     let big_count = little_unit / big_unit_size;
     let little_remainder = little_unit - (big_count * big_unit_size);
 
@@ -107,7 +107,7 @@ fn split_unit(little_unit: u64, big_unit_size: u64) -> (u64, u64) {
 mod tests {
     use super::DisplayDuration;
 
-    fn display_duration_ms(ms: u64) -> DisplayDuration {
+    const fn display_duration_ms(ms: u64) -> DisplayDuration {
         DisplayDuration(std::time::Duration::from_millis(ms))
     }
 

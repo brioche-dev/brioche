@@ -418,8 +418,7 @@ pub async fn bake_process(
     };
     tokio::try_join!(create_work_dir_fut, create_output_scaffold_fut)?;
 
-    let templates = [&process.command]
-        .into_iter()
+    let templates = std::iter::once(&process.command)
         .chain(&process.args)
         .chain(process.env.values());
     let mut host_input_resource_dirs = vec![];
@@ -669,7 +668,7 @@ async fn run_sandboxed_inline(
     );
 
     let (sandbox_tx, sandbox_rx) = tokio::sync::oneshot::channel();
-    std::thread::spawn(|| {
+    std::thread::spawn(move || {
         let result = crate::sandbox::run_sandbox(backend, sandbox_config);
         sandbox_tx.send(result).unwrap();
     });
@@ -1050,8 +1049,7 @@ enum DependencyEnvVarChange {
 impl DependencyEnvVarChange {
     fn build_components(&self) -> Vec<CompleteProcessTemplateComponent> {
         match self {
-            DependencyEnvVarChange::AppendPath { artifact, subpath }
-            | DependencyEnvVarChange::FallbackPath { artifact, subpath } => {
+            Self::AppendPath { artifact, subpath } | Self::FallbackPath { artifact, subpath } => {
                 let mut subpath = subpath.clone();
 
                 // Build template components representing either `${artifact}` or
@@ -1070,7 +1068,7 @@ impl DependencyEnvVarChange {
                     ]
                 }
             }
-            DependencyEnvVarChange::FallbackValue { value } => {
+            Self::FallbackValue { value } => {
                 vec![CompleteProcessTemplateComponent::Literal {
                     value: value.clone(),
                 }]
@@ -1360,7 +1358,12 @@ async fn select_sandbox_backend(
     }
 }
 
-#[cfg_attr(not(target_os = "linux"), expect(unused_variables))]
+#[cfg_attr(
+    not(target_os = "linux"),
+    expect(unused_variables),
+    expect(clippy::needless_pass_by_ref_mut),
+    expect(clippy::unused_async)
+)]
 async fn auto_select_sandbox_backend(
     backend_selector: &mut SandboxBackendSelector,
 ) -> anyhow::Result<SandboxBackend> {
@@ -1784,7 +1787,7 @@ impl BakeDir {
         })
     }
 
-    fn remove_on_drop(mut self) -> Self {
+    const fn remove_on_drop(mut self) -> Self {
         self.remove_on_drop = true;
         self
     }

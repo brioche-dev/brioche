@@ -271,13 +271,10 @@ async fn run_install(
 
         let install_bin_dir = install_dir.join("bin");
         let install_bin_dir_exists = tokio::fs::try_exists(&install_bin_dir).await?;
-        let is_on_path = match std::env::var_os("PATH") {
-            Some(env_path) => {
-                let mut paths = std::env::split_paths(&env_path);
-                paths.any(|path| path == install_bin_dir)
-            }
-            None => false,
-        };
+        let is_on_path = std::env::var_os("PATH").is_some_and(|env_path| {
+            let mut paths = std::env::split_paths(&env_path);
+            paths.any(|path| path == install_bin_dir)
+        });
 
         if install_bin_dir_exists && !is_on_path {
             reporter.emit(superconsole::Lines::from_multiline_string(

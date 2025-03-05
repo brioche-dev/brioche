@@ -248,14 +248,10 @@ async fn create_output_inner<'a: 'async_recursion>(
             for (path, entry) in directory.entries(brioche).await? {
                 let path = bytes_to_path_component(path.as_bstr())?;
                 let entry_path = options.output_path.join(path);
-                let resource_dir_buf;
-                let resource_dir = match options.resource_dir {
-                    Some(resource_dir) => resource_dir,
-                    None => {
-                        resource_dir_buf = options.output_path.join("brioche-resources.d");
-                        &resource_dir_buf
-                    }
-                };
+                let resource_dir = options.resource_dir.map_or_else(
+                    || options.output_path.join("brioche-resources.d"),
+                    |resource_dir| resource_dir.to_path_buf(),
+                );
 
                 match (&entry, link_lock) {
                     (Artifact::File(file), Some(link_lock)) => {
@@ -264,8 +260,8 @@ async fn create_output_inner<'a: 'async_recursion>(
                                 brioche,
                                 &Artifact::Directory(file.resources.clone()),
                                 OutputOptions {
-                                    output_path: resource_dir,
-                                    resource_dir: Some(resource_dir),
+                                    output_path: &resource_dir,
+                                    resource_dir: Some(&resource_dir),
                                     merge: true,
                                     mtime: options.mtime,
                                     link_locals: options.link_locals,
@@ -291,7 +287,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                             &entry,
                             OutputOptions {
                                 output_path: &entry_path,
-                                resource_dir: Some(resource_dir),
+                                resource_dir: Some(&resource_dir),
                                 merge: true,
                                 mtime: options.mtime,
                                 link_locals: options.link_locals,

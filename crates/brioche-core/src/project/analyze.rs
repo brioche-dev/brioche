@@ -106,8 +106,8 @@ pub enum StaticInclude {
 impl StaticInclude {
     pub fn path(&self) -> &str {
         match self {
-            StaticInclude::File { path } => path,
-            StaticInclude::Directory { path } => path,
+            Self::File { path } => path,
+            Self::Directory { path } => path,
         }
     }
 }

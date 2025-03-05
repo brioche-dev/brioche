@@ -269,62 +269,61 @@ impl Job {
         Ok(())
     }
 
-    pub fn created_at(&self) -> std::time::Instant {
+    pub const fn created_at(&self) -> std::time::Instant {
         match self {
-            Job::Download { started_at, .. }
-            | Job::Unarchive { started_at, .. }
-            | Job::CacheFetch { started_at, .. } => *started_at,
-            Job::Process { status, .. } => status.created_at(),
+            Self::Download { started_at, .. }
+            | Self::Unarchive { started_at, .. }
+            | Self::CacheFetch { started_at, .. } => *started_at,
+            Self::Process { status, .. } => status.created_at(),
         }
     }
 
-    pub fn started_at(&self) -> Option<std::time::Instant> {
+    pub const fn started_at(&self) -> Option<std::time::Instant> {
         match self {
-            Job::Download { started_at, .. }
-            | Job::Unarchive { started_at, .. }
-            | Job::CacheFetch { started_at, .. } => Some(*started_at),
-            Job::Process { status, .. } => status.started_at(),
+            Self::Download { started_at, .. }
+            | Self::Unarchive { started_at, .. }
+            | Self::CacheFetch { started_at, .. } => Some(*started_at),
+            Self::Process { status, .. } => status.started_at(),
         }
     }
 
-    pub fn finished_at(&self) -> Option<std::time::Instant> {
+    pub const fn finished_at(&self) -> Option<std::time::Instant> {
         match self {
-            Job::Download { finished_at, .. }
-            | Job::Unarchive { finished_at, .. }
-            | Job::CacheFetch { finished_at, .. } => *finished_at,
-            Job::Process { status, .. } => status.finished_at(),
+            Self::Download { finished_at, .. }
+            | Self::Unarchive { finished_at, .. }
+            | Self::CacheFetch { finished_at, .. } => *finished_at,
+            Self::Process { status, .. } => status.finished_at(),
         }
     }
 
-    pub fn finalized_at(&self) -> Option<std::time::Instant> {
+    pub const fn finalized_at(&self) -> Option<std::time::Instant> {
         match self {
-            Job::Download { finished_at, .. }
-            | Job::Unarchive { finished_at, .. }
-            | Job::CacheFetch { finished_at, .. } => *finished_at,
-            Job::Process { status, .. } => status.finalized_at(),
+            Self::Download { finished_at, .. }
+            | Self::Unarchive { finished_at, .. }
+            | Self::CacheFetch { finished_at, .. } => *finished_at,
+            Self::Process { status, .. } => status.finalized_at(),
         }
     }
 
     pub fn elapsed(&self) -> Option<std::time::Duration> {
         let started_at = self.started_at()?;
-        let elapsed = if let Some(finished_at) = self.finished_at() {
-            finished_at.saturating_duration_since(started_at)
-        } else {
-            started_at.elapsed()
-        };
+        let elapsed = self.finished_at().map_or_else(
+            || started_at.elapsed(),
+            |finished_at| finished_at.saturating_duration_since(started_at),
+        );
         Some(elapsed)
     }
 
-    pub fn is_complete(&self) -> bool {
+    pub const fn is_complete(&self) -> bool {
         self.finished_at().is_some()
     }
 
     // Returns a priority for the job type. 0 is the lowest priority. Higher
     // priority jobs are displayed first.
-    pub fn job_type_priority(&self) -> u8 {
+    pub const fn job_type_priority(&self) -> u8 {
         match self {
-            Job::Unarchive { .. } => 0,
-            Job::Download { .. } | Job::CacheFetch { .. } | Job::Process { .. } => 2,
+            Self::Unarchive { .. } => 0,
+            Self::Download { .. } | Self::CacheFetch { .. } | Self::Process { .. } => 2,
         }
     }
 }
@@ -381,7 +380,7 @@ pub enum ProcessStatus {
 }
 
 impl ProcessStatus {
-    fn created_at(&self) -> std::time::Instant {
+    const fn created_at(&self) -> std::time::Instant {
         match self {
             Self::Preparing { created_at }
             | Self::Running { created_at, .. }
@@ -390,7 +389,7 @@ impl ProcessStatus {
         }
     }
 
-    fn started_at(&self) -> Option<std::time::Instant> {
+    const fn started_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Preparing { .. } => None,
             Self::Running { started_at, .. }
@@ -399,7 +398,7 @@ impl ProcessStatus {
         }
     }
 
-    fn finished_at(&self) -> Option<std::time::Instant> {
+    const fn finished_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Preparing { .. } | Self::Running { .. } => None,
             Self::Ran { finished_at, .. } | Self::Finalized { finished_at, .. } => {
@@ -408,19 +407,19 @@ impl ProcessStatus {
         }
     }
 
-    fn finalized_at(&self) -> Option<std::time::Instant> {
+    const fn finalized_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Preparing { .. } | Self::Running { .. } | Self::Ran { .. } => None,
             Self::Finalized { finalized_at, .. } => Some(*finalized_at),
         }
     }
 
-    pub fn child_id(&self) -> Option<u32> {
+    pub const fn child_id(&self) -> Option<u32> {
         match self {
-            ProcessStatus::Preparing { .. } => None,
-            ProcessStatus::Running { child_id, .. }
-            | ProcessStatus::Ran { child_id, .. }
-            | ProcessStatus::Finalized { child_id, .. } => *child_id,
+            Self::Preparing { .. } => None,
+            Self::Running { child_id, .. }
+            | Self::Ran { child_id, .. }
+            | Self::Finalized { child_id, .. } => *child_id,
         }
     }
 
