@@ -9,7 +9,7 @@ pub struct AwsS3CredentialProvider {
 }
 
 impl AwsS3CredentialProvider {
-    pub fn new(config: aws_config::SdkConfig) -> Self {
+    pub const fn new(config: aws_config::SdkConfig) -> Self {
         Self { config }
     }
 

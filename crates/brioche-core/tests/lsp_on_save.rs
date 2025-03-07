@@ -502,22 +502,19 @@ async fn test_lsp_on_save_only_adds_new_dependencies_in_lockfile() -> anyhow::Re
     // git refs
     let project_initial_lockfile = brioche_core::project::Lockfile {
         dependencies: [("bar".into(), bar_hash)].into_iter().collect(),
-        downloads: [(
+        downloads: std::iter::once((
             "https://example.com/".parse().unwrap(),
             brioche_core::Hasher::new_sha256().finish().unwrap(),
-        )]
-        .into_iter()
+        ))
         .collect(),
-        git_refs: [(
+        git_refs: std::iter::once((
             "https://example.com/repo.git".parse().unwrap(),
-            [(
+            std::iter::once((
                 "main".into(),
                 "bb43d030babf4df990d7294f10f74ef7e23f7c21".into(),
-            )]
-            .into_iter()
+            ))
             .collect(),
-        )]
-        .into_iter()
+        ))
         .collect(),
     };
     context

@@ -683,8 +683,7 @@ pub async fn read_artifact_archive(
                     // The blob comes from multiple chunks, so add all the
                     // chunks to a list for this blob
 
-                    let chunks = [head_chunk]
-                        .into_iter()
+                    let chunks = std::iter::once(head_chunk)
                         .chain(rest_chunks)
                         .map(|chunk| {
                             // Get the range of bytes needed from this chunk
@@ -972,7 +971,7 @@ impl ArtifactBuilder {
             } => Self::File {
                 executable,
                 content_blob,
-                resources: Box::new(Some(ArtifactBuilder::Directory {
+                resources: Box::new(Some(Self::Directory {
                     entries: HashMap::new(),
                 })),
             },
@@ -991,12 +990,12 @@ impl ArtifactBuilder {
 
     fn build(self, new_recipes: &mut HashMap<RecipeHash, Recipe>) -> Artifact {
         match self {
-            ArtifactBuilder::File {
+            Self::File {
                 executable,
                 content_blob,
                 resources,
             } => {
-                let resources = resources.unwrap_or_else(ArtifactBuilder::empty_dir);
+                let resources = resources.unwrap_or_else(Self::empty_dir);
                 let resources = resources.build(new_recipes);
                 let Artifact::Directory(resources) = resources else {
                     panic!("file resources builder did not return a directory");
@@ -1008,8 +1007,8 @@ impl ArtifactBuilder {
                     resources,
                 })
             }
-            ArtifactBuilder::Symlink { target } => Artifact::Symlink { target },
-            ArtifactBuilder::Directory { entries } => {
+            Self::Symlink { target } => Artifact::Symlink { target },
+            Self::Directory { entries } => {
                 let mut entry_artifact_hashes = BTreeMap::new();
                 let entries = entries
                     .into_iter()

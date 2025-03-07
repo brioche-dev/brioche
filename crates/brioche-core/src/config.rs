@@ -83,6 +83,6 @@ pub struct CacheConfig {
     pub allow_http: Option<bool>,
 }
 
-fn default_cache_max_concurrent_operations() -> usize {
+const fn default_cache_max_concurrent_operations() -> usize {
     200
 }

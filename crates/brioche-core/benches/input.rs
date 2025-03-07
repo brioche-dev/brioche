@@ -270,10 +270,10 @@ enum Removal {
 }
 
 impl Removal {
-    fn should_remove(self) -> bool {
+    const fn should_remove(self) -> bool {
         match self {
-            Removal::Remove => true,
-            Removal::Keep => false,
+            Self::Remove => true,
+            Self::Keep => false,
         }
     }
 }

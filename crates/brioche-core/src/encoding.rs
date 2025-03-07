@@ -23,7 +23,7 @@ where
     T: TryFrom<Vec<u8>>,
     T::Error: std::fmt::Display,
 {
-    fn deserialize<D>(deserializer: D) -> Result<TickEncode<T>, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {

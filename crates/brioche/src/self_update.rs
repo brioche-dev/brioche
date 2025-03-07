@@ -125,13 +125,10 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
 async fn get_update_version_manifest(
     client: &reqwest::Client,
 ) -> anyhow::Result<Option<SelfUpdateVersionManifest>> {
-    let manifest_url = match CUSTOM_UPDATE_MANIFEST_URL {
-        Some(manifest_url) => {
-            println!("Checking for updates from {manifest_url}");
-            manifest_url
-        }
-        None => UPDATE_MANIFEST_URL,
-    };
+    let manifest_url = CUSTOM_UPDATE_MANIFEST_URL.map_or(UPDATE_MANIFEST_URL, |manifest_url| {
+        println!("Checking for updates from {manifest_url}");
+        manifest_url
+    });
     // Download the manifest
     let response = client
         .get(manifest_url)

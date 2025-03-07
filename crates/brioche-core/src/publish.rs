@@ -43,9 +43,7 @@ pub async fn publish_project(
     crate::sync::legacy_sync_project_references(brioche, &project_references, verbose).await?;
 
     // Push new project tags ("latest" plus the version number)
-    let project_tags = ["latest"]
-        .into_iter()
-        .chain(project.definition.version.as_deref());
+    let project_tags = std::iter::once("latest").chain(project.definition.version.as_deref());
     let project_tags = project_tags
         .map(|tag| crate::registry::CreateProjectTagsRequestTag {
             project_name: project_name.clone(),

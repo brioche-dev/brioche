@@ -39,7 +39,7 @@ where
         Ok(Self { reader })
     }
 
-    pub fn pos(&self) -> u64 {
+    pub const fn pos(&self) -> u64 {
         self.reader.cursor
     }
 
@@ -248,7 +248,7 @@ where
             .length
             .checked_add(PROCESS_EVENT_MARKER_LENGTH)
             .and_then(|offset| offset.try_into().ok())
-            .ok_or(ProcessEventReadError::LengthOutOfRange {
+            .ok_or_else(|| ProcessEventReadError::LengthOutOfRange {
                 length: marker.length.try_into().unwrap_or_default(),
             })?;
 
@@ -273,7 +273,7 @@ where
             .length
             .checked_add(PROCESS_EVENT_MARKER_LENGTH)
             .and_then(|offset| offset.try_into().ok())
-            .ok_or(ProcessEventReadError::LengthOutOfRange {
+            .ok_or_else(|| ProcessEventReadError::LengthOutOfRange {
                 length: marker.length.try_into().unwrap_or_default(),
             })?;
 

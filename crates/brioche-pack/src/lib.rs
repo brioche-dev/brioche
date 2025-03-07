@@ -68,14 +68,14 @@ impl Pack {
 
     pub fn should_add_to_executable(&self) -> bool {
         match self {
-            Pack::LdLinux { .. } => true,
-            Pack::Static { library_dirs } => {
+            Self::LdLinux { .. } => true,
+            Self::Static { library_dirs } => {
                 // If the executable is statically linked but contains no
                 // dynamically-linked libraries, then we have no reason to
                 // add it to the executable
                 !library_dirs.is_empty()
             }
-            Pack::Metadata { .. } => true,
+            Self::Metadata { .. } => true,
         }
     }
 }

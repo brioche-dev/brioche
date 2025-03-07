@@ -53,7 +53,7 @@ impl RegistryClient {
         Self::new_with_client(client, url, auth)
     }
 
-    pub fn new_with_client(
+    pub const fn new_with_client(
         client: reqwest_middleware::ClientWithMiddleware,
         url: url::Url,
         auth: RegistryAuthentication,
@@ -61,11 +61,11 @@ impl RegistryClient {
         Self::Enabled { client, url, auth }
     }
 
-    pub fn disabled() -> Self {
+    pub const fn disabled() -> Self {
         Self::Disabled
     }
 
-    pub fn can_sync(&self) -> bool {
+    pub const fn can_sync(&self) -> bool {
         matches!(
             self,
             Self::Enabled {

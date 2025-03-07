@@ -4,7 +4,7 @@ pub struct ReadTracker<R> {
 }
 
 impl<R> ReadTracker<R> {
-    pub fn new(reader: R) -> Self {
+    pub const fn new(reader: R) -> Self {
         Self { reader, cursor: 0 }
     }
 }

@@ -13,6 +13,12 @@ resolver = "3"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cognitive_complexity = "allow"
+future_not_send = "allow"
+significant_drop_tightening = "allow"
+string_lit_as_bytes = "allow"
+too_long_first_doc_paragraph = "allow"
 allow_attributes = "warn"
 cast_lossless = "warn"
 cast_possible_truncation = "warn"

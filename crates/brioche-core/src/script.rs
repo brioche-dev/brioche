@@ -103,7 +103,7 @@ impl BriocheModuleLoader {
         referrer: &str,
         kind: &deno_core::ResolutionKind,
     ) -> anyhow::Result<deno_core::ModuleSpecifier> {
-        if let deno_core::ResolutionKind::MainModule = kind {
+        if matches!(kind, deno_core::ResolutionKind::MainModule) {
             let resolved = specifier.parse()?;
             tracing::debug!(%specifier, %referrer, %resolved, "resolved main module");
             return Ok(resolved);
@@ -307,13 +307,13 @@ impl AnyError {
 
 impl From<AnyError> for deno_core::error::CoreError {
     fn from(value: AnyError) -> Self {
-        deno_core::error::CoreError::JsBox(deno_error::JsErrorBox::from_err(value))
+        Self::JsBox(deno_error::JsErrorBox::from_err(value))
     }
 }
 
 impl From<AnyError> for deno_core::error::ModuleLoaderError {
     fn from(value: AnyError) -> Self {
-        deno_core::error::ModuleLoaderError::Core(value.into())
+        Self::Core(value.into())
     }
 }
 

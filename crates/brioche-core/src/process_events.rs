@@ -124,7 +124,7 @@ pub struct ProcessOutputEvent {
 impl ProcessOutputEvent {
     pub const MAX_CONTENT_LENGTH: usize = 1024 * 1024;
 
-    fn validate_length(length: usize) -> Result<(), CreateProcessOutputEventError> {
+    const fn validate_length(length: usize) -> Result<(), CreateProcessOutputEventError> {
         if length == 0 {
             return Err(CreateProcessOutputEventError::EmptyContent);
         } else if length > Self::MAX_CONTENT_LENGTH {

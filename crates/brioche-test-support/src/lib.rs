@@ -379,7 +379,7 @@ pub fn file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Artifact 
     })
 }
 
-pub fn file_with_resources(
+pub const fn file_with_resources(
     blob: BlobHash,
     executable: bool,
     resources: brioche_core::recipe::Directory,

@@ -144,28 +144,27 @@ impl Recipe {
         self.into()
     }
 
-    pub fn is_expensive_to_bake(&self) -> bool {
+    pub const fn is_expensive_to_bake(&self) -> bool {
         match self {
-            Recipe::Download(_)
-            | Recipe::Process(_)
-            | Recipe::CompleteProcess(_)
-            | Recipe::Sync { .. } => true,
-            Recipe::File { .. }
-            | Recipe::Directory(_)
-            | Recipe::Symlink { .. }
-            | Recipe::Unarchive(_)
-            | Recipe::CreateFile { .. }
-            | Recipe::CreateDirectory(_)
-            | Recipe::Cast { .. }
-            | Recipe::Merge { .. }
-            | Recipe::Peel { .. }
-            | Recipe::Get { .. }
-            | Recipe::Insert { .. }
-            | Recipe::Glob { .. }
-            | Recipe::SetPermissions { .. }
-            | Recipe::CollectReferences { .. }
-            | Recipe::AttachResources { .. }
-            | Recipe::Proxy(_) => false,
+            Self::Download(_) | Self::Process(_) | Self::CompleteProcess(_) | Self::Sync { .. } => {
+                true
+            }
+            Self::File { .. }
+            | Self::Directory(_)
+            | Self::Symlink { .. }
+            | Self::Unarchive(_)
+            | Self::CreateFile { .. }
+            | Self::CreateDirectory(_)
+            | Self::Cast { .. }
+            | Self::Merge { .. }
+            | Self::Peel { .. }
+            | Self::Get { .. }
+            | Self::Insert { .. }
+            | Self::Glob { .. }
+            | Self::SetPermissions { .. }
+            | Self::CollectReferences { .. }
+            | Self::AttachResources { .. }
+            | Self::Proxy(_) => false,
         }
     }
 }
@@ -367,7 +366,7 @@ pub struct WithMeta<T> {
 }
 
 impl<T> WithMeta<T> {
-    pub fn new(value: T, meta: Arc<Meta>) -> Self {
+    pub const fn new(value: T, meta: Arc<Meta>) -> Self {
         Self { value, meta }
     }
 
@@ -670,7 +669,7 @@ pub struct Directory {
 }
 
 impl Directory {
-    pub fn from_entries(entries: BTreeMap<BString, RecipeHash>) -> Self {
+    pub const fn from_entries(entries: BTreeMap<BString, RecipeHash>) -> Self {
         Self { entries }
     }
 
@@ -733,7 +732,7 @@ impl Directory {
         self.entries.is_empty()
     }
 
-    pub fn entry_hashes(&self) -> &BTreeMap<BString, RecipeHash> {
+    pub const fn entry_hashes(&self) -> &BTreeMap<BString, RecipeHash> {
         &self.entries
     }
 
@@ -845,7 +844,7 @@ impl Directory {
             [directory_name, path_components @ ..] => {
                 let replaced = match self.entries.entry(directory_name.to_vec().into()) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
-                        let mut new_directory = Directory::default();
+                        let mut new_directory = Self::default();
                         new_directory
                             .insert_by_components(brioche, full_path, path_components, artifact)
                             .await?;
@@ -1027,20 +1026,20 @@ impl TryFrom<Recipe> for Artifact {
                 executable,
                 resources,
             } => {
-                let resources: Artifact = resources.value.try_into()?;
-                let Artifact::Directory(resources) = resources else {
+                let resources: Self = resources.value.try_into()?;
+                let Self::Directory(resources) = resources else {
                     return Err(RecipeIncomplete);
                 };
-                Ok(Artifact::File(File {
+                Ok(Self::File(File {
                     content_blob: data,
                     executable,
                     resources,
                 }))
             }
-            Recipe::Symlink { target } => Ok(Artifact::Symlink { target }),
-            Recipe::Directory(directory) => Ok(Artifact::Directory(directory)),
+            Recipe::Symlink { target } => Ok(Self::Symlink { target }),
+            Recipe::Directory(directory) => Ok(Self::Directory(directory)),
             Recipe::CreateDirectory(directory) if directory.is_empty() => {
-                Ok(Artifact::Directory(Directory::default()))
+                Ok(Self::Directory(Directory::default()))
             }
             Recipe::Sync { recipe } => recipe.value.try_into(),
             Recipe::Download { .. }
@@ -1073,7 +1072,7 @@ impl From<Artifact> for Recipe {
             }) => Self::File {
                 content_blob: data,
                 executable,
-                resources: Box::new(WithMeta::without_meta(Recipe::Directory(resources))),
+                resources: Box::new(WithMeta::without_meta(Self::Directory(resources))),
             },
             Artifact::Symlink { target } => Self::Symlink { target },
             Artifact::Directory(directory) => Self::Directory(directory),
@@ -1157,7 +1156,7 @@ impl RecipeHash {
         Ok(Self(hash))
     }
 
-    pub fn as_bytes(&self) -> &[u8; blake3::OUT_LEN] {
+    pub const fn as_bytes(&self) -> &[u8; blake3::OUT_LEN] {
         self.0.as_bytes()
     }
 }
@@ -1246,8 +1245,8 @@ impl CompleteProcessTemplate {
         }
     }
 
-    pub fn split_on_literal(&self, splitter: impl AsRef<[u8]>) -> Vec<CompleteProcessTemplate> {
-        let mut result = vec![CompleteProcessTemplate { components: vec![] }];
+    pub fn split_on_literal(&self, splitter: impl AsRef<[u8]>) -> Vec<Self> {
+        let mut result = vec![Self { components: vec![] }];
         for component in &self.components {
             match component {
                 CompleteProcessTemplateComponent::Literal { value } => {
@@ -1279,7 +1278,7 @@ impl CompleteProcessTemplate {
                             }]
                         };
 
-                        CompleteProcessTemplate { components }
+                        Self { components }
                     }));
                 }
                 component => {
@@ -1422,11 +1421,11 @@ mod tests {
         }
     }
 
-    fn output_path() -> CompleteProcessTemplateComponent {
+    const fn output_path() -> CompleteProcessTemplateComponent {
         CompleteProcessTemplateComponent::OutputPath
     }
 
-    fn work_dir() -> CompleteProcessTemplateComponent {
+    const fn work_dir() -> CompleteProcessTemplateComponent {
         CompleteProcessTemplateComponent::WorkDir
     }
 
