@@ -250,12 +250,31 @@ impl Projects {
         Ok(path.to_owned())
     }
 
+    pub fn project_entry(&self, project_hash: ProjectHash) -> anyhow::Result<ProjectEntry> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        projects.project_entry(project_hash).cloned()
+    }
+
     pub fn project(&self, project_hash: ProjectHash) -> anyhow::Result<Arc<Project>> {
         let projects = self
             .inner
             .read()
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
         projects.project(project_hash).cloned()
+    }
+
+    pub fn project_dependencies(
+        &self,
+        project_hash: ProjectHash,
+    ) -> anyhow::Result<HashMap<String, ProjectHash>> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        projects.project_dependencies(project_hash)
     }
 
     pub fn local_paths(&self, project_hash: ProjectHash) -> anyhow::Result<BTreeSet<PathBuf>> {
@@ -366,7 +385,8 @@ impl Projects {
 
 #[derive(Default, Clone)]
 struct ProjectsInner {
-    projects: HashMap<ProjectHash, Arc<Project>>,
+    projects: HashMap<ProjectHash, ProjectEntry>,
+    workspaces: HashMap<WorkspaceHash, Arc<Workspace>>,
     paths_to_projects: HashMap<PathBuf, ProjectHash>,
     projects_to_paths: HashMap<ProjectHash, BTreeSet<PathBuf>>,
     dirty_lockfiles: HashMap<PathBuf, Lockfile>,
@@ -374,10 +394,57 @@ struct ProjectsInner {
 }
 
 impl ProjectsInner {
-    fn project(&self, project_hash: ProjectHash) -> anyhow::Result<&Arc<Project>> {
+    fn project_entry(&self, project_hash: ProjectHash) -> anyhow::Result<&ProjectEntry> {
         self.projects
             .get(&project_hash)
             .with_context(|| format!("project not found for hash {project_hash}"))
+    }
+
+    fn project(&self, project_hash: ProjectHash) -> anyhow::Result<&Arc<Project>> {
+        let project_entry = self.project_entry(project_hash)?;
+        match project_entry {
+            ProjectEntry::WorkspaceMember { workspace, path } => {
+                let project = &self.workspaces[workspace].members[path];
+                Ok(project)
+            }
+            ProjectEntry::Project(project) => Ok(project),
+        }
+    }
+
+    fn project_dependencies(
+        &self,
+        project_hash: ProjectHash,
+    ) -> anyhow::Result<HashMap<String, ProjectHash>> {
+        let project_entry = self.project_entry(project_hash)?;
+        let dependencies = match project_entry {
+            ProjectEntry::WorkspaceMember { workspace: workspace_hash, path } => {
+                let workspace = &self.workspaces[workspace_hash];
+                let project = &workspace.members[path];
+                project.dependencies.iter().map(|(dep_name, dep_ref)| {
+                    let dep_hash = match dep_ref {
+                        DependencyRef::WorkspaceMember { path: dep_path } => {
+                            ProjectHash::from_serializable(&ProjectEntry::WorkspaceMember { workspace: *workspace_hash, path: dep_path.clone() }).expect("failed to calculate ProjectHash")
+                        },
+                        DependencyRef::Project(project_hash) => {
+                            *project_hash
+                        },
+                    };
+                    (dep_name.clone(), dep_hash)
+                }).collect()
+            }
+            ProjectEntry::Project(project) => {
+                project.dependencies.iter().map(|(dep_name, dep_ref)| {
+                    let dep_hash = match dep_ref {
+                        DependencyRef::WorkspaceMember { .. } => {
+                            panic!("unexpected workspace member reference for dependency {dep_name} in project {project_hash}");
+                        },
+                        DependencyRef::Project(hash) => *hash,
+                    };
+                    (dep_name.clone(), dep_hash)
+                }).collect()
+            },
+        };
+        Ok(dependencies)
     }
 
     fn local_paths(&self, project_hash: ProjectHash) -> Option<impl Iterator<Item = &Path> + '_> {
@@ -415,10 +482,7 @@ impl ProjectsInner {
     }
 
     fn project_root_module_path(&self, project_hash: ProjectHash) -> anyhow::Result<PathBuf> {
-        let project = self
-            .projects
-            .get(&project_hash)
-            .with_context(|| format!("project not found for hash {project_hash}"))?;
+        let project = self.project(project_hash)?;
         let project_root = self
             .projects_to_paths
             .get(&project_hash)
@@ -454,10 +518,7 @@ impl ProjectsInner {
         &self,
         project_hash: ProjectHash,
     ) -> anyhow::Result<impl Iterator<Item = PathBuf> + '_> {
-        let project = self
-            .projects
-            .get(&project_hash)
-            .with_context(|| format!("project not found for hash {project_hash}"))?;
+        let project = self.project(project_hash)?;
         let project_root = self
             .projects_to_paths
             .get(&project_hash)
@@ -499,10 +560,7 @@ impl ProjectsInner {
         let project_hash = self
             .find_containing_project(path)
             .with_context(|| format!("project not found for specifier {specifier}"))?;
-        let project = self
-            .projects
-            .get(&project_hash)
-            .with_context(|| format!("project not found for hash {project_hash}"))?;
+        let project = self.project(project_hash)?;
         let project_root = self
             .projects_to_paths
             .get(&project_hash)
@@ -532,27 +590,11 @@ impl ProjectsInner {
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub definition: ProjectDefinition,
-    pub dependencies: HashMap<String, ProjectHash>,
+    pub dependencies: HashMap<String, DependencyRef>,
     pub modules: HashMap<RelativePathBuf, FileId>,
     #[serde_as(as = "HashMap<_, Vec<(_, _)>>")]
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub statics: HashMap<RelativePathBuf, BTreeMap<StaticQuery, Option<StaticOutput>>>,
-}
-
-impl Project {
-    pub fn dependencies(&self) -> impl Iterator<Item = (&str, ProjectHash)> {
-        self.dependencies
-            .iter()
-            .map(|(name, hash)| (name.as_str(), *hash))
-    }
-
-    pub fn dependency_hashes(&self) -> impl Iterator<Item = ProjectHash> + '_ {
-        self.dependencies().map(|(_, hash)| hash)
-    }
-
-    pub fn dependency_hash(&self, name: &str) -> Option<ProjectHash> {
-        self.dependencies.get(name).copied()
-    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -680,6 +722,17 @@ impl std::cmp::PartialOrd for ProjectHash {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyRef {
+    WorkspaceMember {
+        path: RelativePathBuf,
+    },
+    #[serde(untagged)]
+    Project(ProjectHash),
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorkspaceDefinition {
     pub members: Vec<WorkspaceMember>,
@@ -744,6 +797,94 @@ impl std::fmt::Display for WorkspaceMember {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Workspace {
+    members: BTreeMap<RelativePathBuf, Arc<Project>>,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde_with::SerializeDisplay,
+    serde_with::DeserializeFromStr,
+)]
+pub struct WorkspaceHash(blake3::Hash);
+
+impl WorkspaceHash {
+    fn from_serializable<V>(value: &V) -> anyhow::Result<Self>
+    where
+        V: serde::Serialize,
+    {
+        let mut hasher = blake3::Hasher::new();
+
+        json_canon::to_writer(&mut hasher, value)?;
+
+        let hash = hasher.finalize();
+        Ok(Self(hash))
+    }
+
+    pub fn validate_matches(&self, workspace: &Workspace) -> anyhow::Result<()> {
+        let actual_hash = WorkspaceHash::from_serializable(workspace)?;
+        anyhow::ensure!(
+            self == &actual_hash,
+            "workspace hash does not match expected hash"
+        );
+        Ok(())
+    }
+
+    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(blake3::Hash::from_bytes(bytes))
+    }
+
+    pub fn try_from_slice(bytes: &[u8]) -> anyhow::Result<Self> {
+        let bytes = bytes.try_into()?;
+        Ok(Self::from_bytes(bytes))
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        self.0.as_bytes()
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        self.as_bytes().as_slice()
+    }
+
+    pub fn blake3(&self) -> &blake3::Hash {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for WorkspaceHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::str::FromStr for WorkspaceHash {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let hash = blake3::Hash::from_hex(s)?;
+        Ok(Self(hash))
+    }
+}
+
+impl std::cmp::Ord for WorkspaceHash {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.as_bytes().cmp(other.0.as_bytes())
+    }
+}
+
+impl std::cmp::PartialOrd for WorkspaceHash {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
     pub dependencies: BTreeMap<String, ProjectHash>,
@@ -755,11 +896,31 @@ pub struct Lockfile {
     pub git_refs: BTreeMap<url::Url, BTreeMap<String, String>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectEntry {
+    WorkspaceMember {
+        workspace: WorkspaceHash,
+        path: RelativePathBuf,
+    },
+    #[serde(untagged)]
+    Project(Arc<Project>),
+}
+
 fn project_lockfile(project: &Project) -> Lockfile {
     let dependencies = project
         .dependencies
         .iter()
-        .map(|(name, hash)| (name.clone(), *hash))
+        .filter_map(|(name, dep_ref)| {
+            let dep_hash = match dep_ref {
+                DependencyRef::WorkspaceMember { .. } => {
+                    return None;
+                }
+                DependencyRef::Project(hash) => *hash,
+            };
+            Some((name.clone(), dep_hash))
+        })
         .collect();
 
     let mut downloads = BTreeMap::new();

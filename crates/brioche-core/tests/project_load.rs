@@ -3,9 +3,10 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use brioche_core::{
     Brioche,
-    project::{ProjectLocking, ProjectValidation},
+    project::{DependencyRef, ProjectEntry, ProjectLocking, ProjectValidation},
 };
 use brioche_test_support::TestContext;
+use relative_path::RelativePathBuf;
 
 #[tokio::test]
 async fn test_project_load_simple() -> anyhow::Result<()> {
@@ -31,7 +32,7 @@ async fn test_project_load_simple() -> anyhow::Result<()> {
             .unwrap()
             .contains(&project_dir)
     );
-    assert_eq!(project.dependencies().count(), 0);
+    assert!(project.dependencies.is_empty());
 
     Ok(())
 }
@@ -53,7 +54,7 @@ async fn test_project_load_simple_no_definition() -> anyhow::Result<()> {
             .unwrap()
             .contains(&project_dir)
     );
-    assert_eq!(project.dependencies().count(), 0);
+    assert!(project.dependencies.is_empty());
 
     Ok(())
 }
@@ -114,7 +115,6 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -123,7 +123,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
     );
 
     // "foo" from the workspace should take precedence over the repo dep
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     assert!(
         projects
@@ -137,7 +137,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
             .unwrap()
             .contains(&registry_foo_dir)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert_eq!(foo_dep.dependencies.len(), 0);
 
     Ok(())
 }
@@ -203,7 +203,7 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
     );
 
     // "foo" from the workspace should take precedence over the repo dep
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     assert!(
         projects
@@ -217,7 +217,7 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
             .unwrap()
             .contains(&registry_foo_dir)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     Ok(())
 }
@@ -263,7 +263,7 @@ async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
             .contains(&main_project_dir)
     );
 
-    let dep_project_hash = project.dependency_hash("depproject").unwrap();
+    let dep_project_hash = projects.project_dependencies(project_hash).unwrap()["depproject"];
     let dep_project = projects.project(dep_project_hash).unwrap();
     assert!(
         projects
@@ -271,7 +271,7 @@ async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
             .unwrap()
             .contains(&dep_project_dir)
     );
-    assert_eq!(dep_project.dependencies().count(), 0);
+    assert!(dep_project.dependencies.is_empty());
 
     Ok(())
 }
@@ -321,7 +321,7 @@ async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     assert!(
         projects
@@ -329,7 +329,7 @@ async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     mock_foo_latest.assert_async().await;
 
@@ -377,7 +377,7 @@ async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<(
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     assert!(
         projects
@@ -385,7 +385,7 @@ async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<(
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     mock_foo_latest.assert_async().await;
 
@@ -441,7 +441,7 @@ async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::R
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     assert!(
         projects
@@ -449,7 +449,7 @@ async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::R
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     mock_foo_latest.assert_async().await;
 
@@ -503,7 +503,7 @@ async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     assert!(
         projects
@@ -511,7 +511,7 @@ async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     mock_foo_latest.assert_async().await;
 
@@ -564,7 +564,7 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     let foo_path = brioche
         .data_dir
@@ -578,7 +578,7 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     mock_foo_latest.assert_async().await;
 
@@ -643,7 +643,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     let foo_path = brioche
         .data_dir
@@ -657,7 +657,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     mock_foo_latest.assert_async().await;
 
@@ -731,7 +731,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     let foo_path = brioche
         .data_dir
@@ -745,7 +745,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     assert!(foo_path.join("fizz/hello.md").exists());
     assert!(foo_path.join("buzz/hello.txt").exists());
@@ -830,7 +830,7 @@ async fn test_project_load_with_remote_registry_dep_with_subdir_brioche_glob() -
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     let foo_path = brioche
         .data_dir
@@ -844,7 +844,7 @@ async fn test_project_load_with_remote_registry_dep_with_subdir_brioche_glob() -
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     assert!(foo_path.join("subdir/files.bri").exists());
     assert!(foo_path.join("subdir/fizz/hello.md").exists());
@@ -919,7 +919,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
             .contains(&project_dir)
     );
 
-    let foo_dep_hash = project.dependency_hash("foo").unwrap();
+    let foo_dep_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let foo_dep = projects.project(foo_dep_hash).unwrap();
     let foo_path = brioche
         .data_dir
@@ -933,7 +933,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
             .unwrap()
             .contains(&foo_path)
     );
-    assert_eq!(foo_dep.dependencies().count(), 0);
+    assert!(foo_dep.dependencies.is_empty());
 
     mock_foo_latest.assert_async().await;
 
@@ -997,7 +997,10 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
 
     let bar_project = projects.project(bar_hash).expect("bar project not found");
 
-    assert_eq!(bar_project.dependencies.get("foo"), Some(&foo_hash));
+    assert_eq!(
+        bar_project.dependencies.get("foo"),
+        Some(&DependencyRef::Project(foo_hash))
+    );
 
     let bar_project_artifact = brioche_core::project::artifact::create_artifact_with_projects(
         &brioche,
@@ -1038,7 +1041,7 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
         brioche_test_support::load_project(&brioche, &project_dir).await?;
     let project = projects.project(project_hash).unwrap();
 
-    let bar_dep_hash = project.dependency_hash("bar").unwrap();
+    let bar_dep_hash = projects.project_dependencies(project_hash).unwrap()["bar"];
     let bar_dep_project = projects.project(bar_dep_hash).unwrap();
     assert_eq!(bar_project, bar_dep_project);
 
@@ -1123,8 +1126,8 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
     let project_lockfile: brioche_core::project::Lockfile =
         serde_json::from_str(&project_lockfile_contents)?;
 
-    let foo_lockfile_dep_hash = project.dependencies["foo"];
-    assert_eq!(foo_lockfile_dep_hash, foo_hash);
+    let foo_lockfile_dep_hash = &project.dependencies["foo"];
+    assert_eq!(foo_lockfile_dep_hash, &DependencyRef::Project(foo_hash));
 
     // "foo" should be in the lockfile
     assert!(project.dependencies.contains_key("foo"));
@@ -1215,18 +1218,24 @@ async fn test_project_load_complex() -> anyhow::Result<()> {
         brioche_test_support::load_project(&brioche, &main_project_dir).await?;
     let project = projects.project(project_hash).unwrap();
 
-    let main_dep_project_hash = project.dependency_hash("depproject").unwrap();
+    let main_dep_project_hash = projects.project_dependencies(project_hash).unwrap()["depproject"];
     let main_dep_project = projects.project(main_dep_project_hash).unwrap();
 
-    let main_foo_project_hash = project.dependency_hash("foo").unwrap();
+    let main_foo_project_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let main_foo_project = projects.project(main_foo_project_hash).unwrap();
 
-    let main_dep_foo_project_hash = main_dep_project.dependency_hash("foo").unwrap();
+    let main_dep_foo_project_hash = projects
+        .project_dependencies(main_dep_project_hash)
+        .unwrap()["foo"];
     let main_dep_foo_project = projects.project(main_dep_foo_project_hash).unwrap();
 
-    let main_foo_bar_project_hash = main_foo_project.dependency_hash("bar").unwrap();
+    let main_foo_bar_project_hash = projects
+        .project_dependencies(main_foo_project_hash)
+        .unwrap()["bar"];
 
-    let main_dep_foo_bar_project_hash = main_dep_foo_project.dependency_hash("bar").unwrap();
+    let main_dep_foo_bar_project_hash = projects
+        .project_dependencies(main_dep_foo_project_hash)
+        .unwrap()["bar"];
 
     assert!(
         projects
@@ -1336,18 +1345,24 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
         brioche_test_support::load_project(&brioche, &main_project_dir).await?;
     let project = projects.project(project_hash).unwrap();
 
-    let main_dep_project_hash = project.dependency_hash("depproject").unwrap();
+    let main_dep_project_hash = projects.project_dependencies(project_hash).unwrap()["depproject"];
     let main_dep_project = projects.project(main_dep_project_hash).unwrap();
 
-    let main_foo_project_hash = project.dependency_hash("foo").unwrap();
+    let main_foo_project_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
     let main_foo_project = projects.project(main_foo_project_hash).unwrap();
 
-    let main_dep_foo_project_hash = main_dep_project.dependency_hash("foo").unwrap();
+    let main_dep_foo_project_hash = projects
+        .project_dependencies(main_dep_project_hash)
+        .unwrap()["foo"];
     let main_dep_foo_project = projects.project(main_dep_foo_project_hash).unwrap();
 
-    let main_foo_bar_project_hash = main_foo_project.dependency_hash("bar").unwrap();
+    let main_foo_bar_project_hash = projects
+        .project_dependencies(main_foo_project_hash)
+        .unwrap()["bar"];
 
-    let main_dep_foo_bar_project_hash = main_dep_foo_project.dependency_hash("bar").unwrap();
+    let main_dep_foo_bar_project_hash = projects
+        .project_dependencies(main_dep_foo_project_hash)
+        .unwrap()["bar"];
 
     assert!(
         projects

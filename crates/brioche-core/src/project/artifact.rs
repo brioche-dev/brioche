@@ -34,11 +34,18 @@ pub async fn create_artifact_with_projects(
 
         // Get the project
         let project = projects
-            .project(project_hash)
+            .project_entry(project_hash)
             .with_context(|| format!("project {project_hash} not loaded"))?;
+        let project = match project {
+            super::ProjectEntry::WorkspaceMember { .. } => {
+                todo!();
+            }
+            super::ProjectEntry::Project(project) => project,
+        };
 
         // Enqueue each dependency so they get added to the artifact
-        queued_projects.extend(project.dependency_hashes());
+        let project_dependencies = projects.project_dependencies(project_hash)?;
+        queued_projects.extend(project_dependencies.into_values());
 
         // Add statics to the artifact
         for (module_path, statics) in &project.statics {

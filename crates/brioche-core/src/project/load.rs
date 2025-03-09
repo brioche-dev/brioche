@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -7,9 +7,14 @@ use std::{
 use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use petgraph::visit::EdgeRef as _;
+use relative_path::{PathExt as _, RelativePathBuf};
 use tokio::io::AsyncReadExt as _;
 
-use crate::{Brioche, recipe::Artifact};
+use crate::{
+    Brioche,
+    project::{DependencyRef, ProjectEntry, Workspace, WorkspaceHash},
+    recipe::Artifact,
+};
 
 use super::{
     DependencyDefinition, Lockfile, Project, ProjectHash, ProjectLocking, ProjectValidation,
@@ -62,8 +67,33 @@ struct ProjectNodeDetails {
     dependency_errors: HashMap<String, anyhow::Error>,
 }
 
+#[derive(Debug)]
+enum ProjectNode {
+    Project(PathBuf),
+    InitializeWorkspace(PathBuf),
+    FinishWorkspace(PathBuf),
+}
+
+impl ProjectNode {
+    fn path(&self) -> &Path {
+        match self {
+            ProjectNode::Project(path) => path,
+            ProjectNode::InitializeWorkspace(path) => path,
+            ProjectNode::FinishWorkspace(path) => path,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum ProjectEdge {
+    DirectDependency { name: String },
+    WorkspaceDependency { name: String, path: PathBuf },
+    Other,
+}
+
 struct ProjectGraph {
-    graph: petgraph::stable_graph::StableDiGraph<PathBuf, String>,
+    graph: petgraph::stable_graph::StableDiGraph<ProjectNode, ProjectEdge>,
+    sorted_nodes: Vec<petgraph::stable_graph::NodeIndex>,
     nodes_by_path: HashMap<PathBuf, petgraph::stable_graph::NodeIndex>,
     expected_hashes: HashMap<petgraph::stable_graph::NodeIndex, ProjectHash>,
     project_details: HashMap<petgraph::stable_graph::NodeIndex, ProjectNodeDetails>,
@@ -86,6 +116,7 @@ async fn build_project_graph(
         .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
 
     let mut nodes_by_path = HashMap::new();
+    let mut nodes_by_workspace = HashMap::<PathBuf, HashSet<_>>::new();
     let mut queued_paths = VecDeque::from_iter([(
         ResolvedDependency {
             expected_hash: None,
@@ -145,6 +176,12 @@ async fn build_project_graph(
         if let std::collections::hash_map::Entry::Vacant(entry) = project_details.entry(node) {
             // Find the workspace, if the project has one
             let workspace = find_workspace(&project_path, &mut workspaces).await?;
+            if let Some(workspace) = &workspace {
+                nodes_by_workspace
+                    .entry(workspace.path.clone())
+                    .or_default()
+                    .insert(node);
+            }
 
             // Analyze the project
             let project_analysis =
@@ -245,8 +282,91 @@ async fn build_project_graph(
         };
     }
 
+    let mut graph = graph.map(
+        |_, path| ProjectNode::Project(path.clone()),
+        |_, name| ProjectEdge::DirectDependency { name: name.clone() },
+    );
+
+    // Handle graph cycles in a loop. This will finish once the graph
+    // is acyclic or if we've found an invalid cycle
+    let sorted_nodes = loop {
+        let toposort = petgraph::algo::toposort(petgraph::visit::Reversed(&graph), None);
+        let cycle = match toposort {
+            Ok(sorted_nodes) => {
+                // Graph has no cycles, so we're done
+                break sorted_nodes;
+            }
+            Err(cycle) => {
+                // Graph has a cycle, so we need to resolve it
+                cycle
+            }
+        };
+
+        let details = project_details
+            .get(&cycle.node_id())
+            .expect("project node appeared in a cycle but doesn't have any project details");
+        let workspace_details = details.workspace.as_ref().and_then(|workspace| {
+            let workspace_nodes = nodes_by_workspace.remove(&workspace.path)?;
+            Some((workspace.path.clone(), workspace_nodes))
+        });
+        let Some(workspace_details) = workspace_details else {
+            // The cyclic node either isn't part of a workspace, or the
+            // cycle extends outside the workspace. In either case, this
+            // is an invalid cycle
+            let path = graph[cycle.node_id()].path();
+            anyhow::bail!("project {} includes a cyclic import", path.display());
+        };
+
+        // Sanity check: ensure that the cyclic node is included in the
+        // set of workspace nodes
+        assert!(
+            workspace_details.1.contains(&cycle.node_id()),
+            "found a set of workspace nodes, but cyclic node isn't in the set"
+        );
+
+        // Add workspace nodes to the graph
+        let initialize_workspace_node = graph.add_node(ProjectNode::InitializeWorkspace(
+            workspace_details.0.clone(),
+        ));
+        let finish_workspace_node =
+            graph.add_node(ProjectNode::FinishWorkspace(workspace_details.0.clone()));
+
+        for node in &workspace_details.1 {
+            // Add an edge so the "workspace finish" node depends on
+            // the project node
+            graph.add_edge(finish_workspace_node, *node, ProjectEdge::Other);
+
+            // Replace each `DirectDependency` edge within the same workspace
+            // with a `WorkspaceDependency` (with the "workspace initialize"
+            // node as a target)
+            let workspace_edges = graph
+                .edges_directed(*node, petgraph::Direction::Outgoing)
+                .filter_map(|edge| {
+                    if !workspace_details.1.contains(&edge.target()) {
+                        return None;
+                    }
+                    let ProjectEdge::DirectDependency { name } = edge.weight() else {
+                        return None;
+                    };
+
+                    let path = graph[edge.target()].path();
+                    let new_edge = ProjectEdge::WorkspaceDependency {
+                        name: name.clone(),
+                        path: path.to_path_buf(),
+                    };
+                    Some((edge.id(), new_edge))
+                })
+                .collect::<Vec<_>>();
+            for (edge_index, new_edge) in workspace_edges {
+                graph.remove_edge(edge_index);
+                graph.add_edge(*node, initialize_workspace_node, new_edge);
+            }
+        }
+    };
+
     Ok(ProjectGraph {
         graph,
+        sorted_nodes,
         expected_hashes,
         nodes_by_path,
         project_details,
@@ -265,208 +385,313 @@ async fn load_project_inner(
     // Build the project graph
     let mut project_graph = build_project_graph(config, &path).await?;
 
-    // Topologically sort the nodes. This tells us if we have any cyclic
-    // dependencies, and additionally gives us the order so dependencies
-    // come before each dependent project
-    let nodes = petgraph::algo::toposort(petgraph::visit::Reversed(&project_graph.graph), None)
-        .map_err(|error| {
-            let project_path = &project_graph.graph[error.node_id()];
-            anyhow::anyhow!(
-                "project {} includes a cyclic import",
-                project_path.display()
-            )
-        })?;
-
     let root_node = project_graph.nodes_by_path[&path];
 
-    // Build a `Project` value for each node
+    let mut dirty_lockfiles = HashMap::new();
+
     let mut nodes_to_projects =
-        HashMap::<_, (ProjectHash, Arc<Project>, Vec<LoadProjectError>)>::new();
-    for node in nodes {
-        let path = &project_graph.graph[node];
-        let mut details = project_graph
-            .project_details
-            .remove(&node)
-            .expect("details not found for project graph node");
-        let mut errors = vec![];
+        HashMap::<_, (ProjectHash, ProjectEntry, Vec<LoadProjectError>)>::new();
+    let mut workspaces = vec![];
 
-        for (name, error) in details.dependency_errors {
-            errors.push(LoadProjectError::FailedToResolveDependency {
-                name,
-                cause: format!("{error:#}"),
-            });
-        }
+    // Build `Project` and `Workspace` values from the nodes. This is done by
+    // iterating through the nodes in a topologically-sorted order so we
+    // process each node before its children
+    for node in project_graph.sorted_nodes {
+        match &project_graph.graph[node] {
+            ProjectNode::Project(path) => {
+                let mut details = project_graph
+                    .project_details
+                    .remove(&node)
+                    .expect("details not found for project graph node");
+                let mut errors = vec![];
 
-        let mut statics = HashMap::new();
-        for module in details.project_analysis.local_modules.values() {
-            let mut module_statics = BTreeMap::new();
-            for static_ in &module.statics {
-                // Only resolve the static if we need a fully valid project
-                let resolved_static = match config.validation {
-                    ProjectValidation::Standard => {
-                        let resolved_static = resolve_static(
-                            &config.brioche,
-                            path,
-                            module,
-                            static_,
-                            config.locking,
-                            &mut details.lockfile,
-                        )
-                        .await;
-                        Some(resolved_static)
-                    }
-                    ProjectValidation::Minimal => None,
-                };
+                for (name, error) in details.dependency_errors {
+                    errors.push(LoadProjectError::FailedToResolveDependency {
+                        name,
+                        cause: format!("{error:#}"),
+                    });
+                }
 
-                match resolved_static {
-                    Some(Ok(static_output)) => {
-                        module_statics.insert(static_.clone(), Some(static_output));
+                let mut statics = HashMap::new();
+                for module in details.project_analysis.local_modules.values() {
+                    let mut module_statics = BTreeMap::new();
+                    for static_ in &module.statics {
+                        // Only resolve the static if we need a fully valid project
+                        let resolved_static = match config.validation {
+                            ProjectValidation::Standard => {
+                                let resolved_static = resolve_static(
+                                    &config.brioche,
+                                    path,
+                                    module,
+                                    static_,
+                                    config.locking,
+                                    &mut details.lockfile,
+                                )
+                                .await;
+                                Some(resolved_static)
+                            }
+                            ProjectValidation::Minimal => None,
+                        };
+
+                        match resolved_static {
+                            Some(Ok(static_output)) => {
+                                module_statics.insert(static_.clone(), Some(static_output));
+                            }
+                            Some(Err(error)) => {
+                                module_statics.insert(static_.clone(), None);
+                                errors.push(LoadProjectError::FailedToLoadStatic {
+                                    static_query: static_.clone(),
+                                    cause: format!("{error:#}"),
+                                });
+                            }
+                            None => {
+                                module_statics.insert(static_.clone(), None);
+                            }
+                        }
                     }
-                    Some(Err(error)) => {
-                        module_statics.insert(static_.clone(), None);
-                        errors.push(LoadProjectError::FailedToLoadStatic {
-                            static_query: static_.clone(),
-                            cause: format!("{error:#}"),
-                        });
-                    }
-                    None => {
-                        module_statics.insert(static_.clone(), None);
+
+                    if !module_statics.is_empty() {
+                        statics.insert(module.project_subpath.clone(), module_statics);
                     }
                 }
-            }
 
-            if !module_statics.is_empty() {
-                statics.insert(module.project_subpath.clone(), module_statics);
-            }
-        }
+                let mut dependencies = HashMap::new();
+                let edges = project_graph
+                    .graph
+                    .edges_directed(node, petgraph::Direction::Outgoing);
+                for edge in edges {
+                    match edge.weight() {
+                        ProjectEdge::DirectDependency { name: dep_name } => {
+                            let (dep_project_hash, _, dep_errors) =
+                                &nodes_to_projects[&edge.target()];
+                            dependencies.insert(
+                                dep_name.clone(),
+                                DependencyRef::Project(*dep_project_hash),
+                            );
 
-        let mut dependencies = HashMap::new();
-        let edges = project_graph
-            .graph
-            .edges_directed(node, petgraph::Direction::Outgoing);
-        for edge in edges {
-            let dep_name = edge.weight();
-            let (dep_project_hash, _, dep_errors) = &nodes_to_projects[&edge.target()];
-            dependencies.insert(dep_name.clone(), *dep_project_hash);
+                            for error in &dep_errors[..] {
+                                errors.push(LoadProjectError::DependencyError {
+                                    name: dep_name.clone(),
+                                    error: Box::new(error.clone()),
+                                });
+                            }
+                        }
+                        ProjectEdge::WorkspaceDependency {
+                            name: dep_name,
+                            path: dep_path,
+                        } => {
+                            let workspace = details.workspace.as_ref().expect(
+                                "node has WorkspaceDependency edge, but details.workspace is None",
+                            );
+                            let dep_member_path = dep_path.relative_to(&workspace.path).with_context(|| {
+                                    format!("failed to resolve dependency {dep_name:?} at {} relative to workspace path {}", dep_path.display(), workspace.path.display())
+                            })?;
+                            dependencies.insert(
+                                dep_name.clone(),
+                                DependencyRef::WorkspaceMember {
+                                    path: dep_member_path,
+                                },
+                            );
+                        }
+                        ProjectEdge::Other { .. } => {}
+                    }
+                }
 
-            for error in &dep_errors[..] {
-                errors.push(LoadProjectError::DependencyError {
-                    name: dep_name.clone(),
-                    error: Box::new(error.clone()),
+                let modules = details
+                    .project_analysis
+                    .local_modules
+                    .values()
+                    .map(|module| (module.project_subpath.clone(), module.file_id))
+                    .collect();
+
+                let project = Arc::new(Project {
+                    definition: details.project_analysis.definition,
+                    dependencies,
+                    modules,
+                    statics,
                 });
-            }
-        }
+                let project_hash = ProjectHash::from_serializable(&project)?;
 
-        let modules = details
-            .project_analysis
-            .local_modules
-            .values()
-            .map(|module| (module.project_subpath.clone(), module.file_id))
-            .collect();
+                // If the lockfile doesn't need to be fully valid, ensure that
+                // the new lockfile includes old statics and dependencies that
+                // weren't updated. This can mean that e.g. unnecessary downloads
+                // and dependencies are kept, but this is appropriate for
+                // situations like the LSP
+                match config.validation {
+                    ProjectValidation::Standard => {}
+                    ProjectValidation::Minimal => {
+                        let Lockfile {
+                            dependencies: new_dependencies,
+                            downloads: new_downloads,
+                            git_refs: new_git_refs,
+                        } = &mut details.lockfile.fresh_lockfile;
 
-        let project = Arc::new(Project {
-            definition: details.project_analysis.definition,
-            dependencies,
-            modules,
-            statics,
-        });
-        let project_hash = ProjectHash::from_serializable(&project)?;
+                        if let Some(lockfile) = &details.lockfile.current_lockfile {
+                            for (name, hash) in &lockfile.dependencies {
+                                new_dependencies.entry(name.clone()).or_insert(*hash);
+                            }
 
-        // If the lockfile doesn't need to be fully valid, ensure that
-        // the new lockfile includes old statics and dependencies that
-        // weren't updated. This can mean that e.g. unnecessary downloads
-        // and dependencies are kept, but this is appropriate for
-        // situations like the LSP
-        match config.validation {
-            ProjectValidation::Standard => {}
-            ProjectValidation::Minimal => {
-                let Lockfile {
-                    dependencies: new_dependencies,
-                    downloads: new_downloads,
-                    git_refs: new_git_refs,
-                } = &mut details.lockfile.fresh_lockfile;
+                            for (url, hash) in &lockfile.downloads {
+                                new_downloads
+                                    .entry(url.clone())
+                                    .or_insert_with(|| hash.clone());
+                            }
 
-                if let Some(lockfile) = &details.lockfile.current_lockfile {
-                    for (name, hash) in &lockfile.dependencies {
-                        new_dependencies.entry(name.clone()).or_insert(*hash);
-                    }
-
-                    for (url, hash) in &lockfile.downloads {
-                        new_downloads
-                            .entry(url.clone())
-                            .or_insert_with(|| hash.clone());
-                    }
-
-                    for (url, options) in &lockfile.git_refs {
-                        new_git_refs
-                            .entry(url.clone())
-                            .or_insert_with(|| options.clone());
+                            for (url, options) in &lockfile.git_refs {
+                                new_git_refs
+                                    .entry(url.clone())
+                                    .or_insert_with(|| options.clone());
+                            }
+                        }
                     }
                 }
+
+                match (details.lockfile.is_up_to_date(), config.locking) {
+                    (true, _) => {
+                        // Lockfile is up-to-date
+                    }
+                    (false, ProjectLocking::Unlocked) => {
+                        // Lockfile is out of date but we're loading it "unlocked",
+                        // so record the lockfile as dirty
+
+                        dirty_lockfiles
+                            .insert(details.lockfile_path, details.lockfile.fresh_lockfile);
+                    }
+                    (false, ProjectLocking::Locked) => {
+                        // Lockfile is out of date and we're loading in "locked"
+                        // mode, meaning we expected it to be up-to-date
+
+                        anyhow::bail!(
+                            "lockfile at {} is out of date",
+                            details.lockfile_path.display()
+                        );
+                    }
+                }
+
+                if !errors.is_empty() {
+                    tracing::debug!(?path, ?errors, "project loaded with errors");
+                }
+                nodes_to_projects
+                    .insert(node, (project_hash, ProjectEntry::Project(project), errors));
             }
-        }
+            ProjectNode::InitializeWorkspace(_) => {}
+            ProjectNode::FinishWorkspace(workspace_path) => {
+                let project_nodes: Vec<_> = project_graph
+                    .graph
+                    .edges_directed(node, petgraph::Direction::Outgoing)
+                    .map(|edge| edge.target())
+                    .collect();
 
-        let mut projects = config
-            .projects
-            .inner
-            .write()
-            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+                let mut members = BTreeMap::new();
+                let mut member_nodes = vec![];
+                let mut member_load_errors = vec![];
+                for node in project_nodes {
+                    let project_path = project_graph.graph[node].path();
+                    anyhow::ensure!(
+                        project_path.starts_with(workspace_path),
+                        "expected project {} to be a child of workspace {}",
+                        project_path.display(),
+                        workspace_path.display()
+                    );
+                    let workspace_member_path = project_path
+                        .relative_to(workspace_path)
+                        .expect("failed to get project path relative to workspace path");
 
-        match (details.lockfile.is_up_to_date(), config.locking) {
-            (true, _) => {
-                // Lockfile is up-to-date
+                    let (_, project_entry, load_project_errors) = nodes_to_projects
+                        .remove(&node)
+                        .expect("nodes_to_projects did not contain project for workspace member");
+                    let ProjectEntry::Project(project) = project_entry else {
+                        panic!(
+                            "nodes_to_project contained an invalid project entry for workspace member"
+                        );
+                    };
+
+                    member_load_errors.extend(
+                        load_project_errors
+                            .into_iter()
+                            .map(|error| (workspace_member_path.clone(), error)),
+                    );
+
+                    members.insert(workspace_member_path.clone(), project);
+                    member_nodes.push((node, workspace_member_path));
+                }
+
+                let workspace = Workspace { members };
+                let workspace_hash = WorkspaceHash::from_serializable(&workspace)?;
+
+                workspaces.push((workspace_hash, Arc::new(workspace)));
+
+                for (node, workspace_member_path) in member_nodes {
+                    let load_project_errors = member_load_errors
+                        .iter()
+                        .map(|(error_member_path, error)| {
+                            if *error_member_path == workspace_member_path {
+                                error.clone()
+                            } else {
+                                LoadProjectError::WorkspaceMemberError {
+                                    workspace_member_path: error_member_path.clone(),
+                                    error: Box::new(error.clone()),
+                                }
+                            }
+                        })
+                        .collect();
+
+                    let project_entry = ProjectEntry::WorkspaceMember {
+                        workspace: workspace_hash,
+                        path: workspace_member_path,
+                    };
+                    let project_hash = ProjectHash::from_serializable(&project_entry)?;
+                    nodes_to_projects
+                        .insert(node, (project_hash, project_entry, load_project_errors));
+                }
             }
-            (false, ProjectLocking::Unlocked) => {
-                // Lockfile is out of date but we're loading it "unlocked",
-                // so record the lockfile as dirty
+        };
+    }
 
-                projects
-                    .dirty_lockfiles
-                    .insert(details.lockfile_path, details.lockfile.fresh_lockfile);
-            }
-            (false, ProjectLocking::Locked) => {
-                // Lockfile is out of date and we're loading in "locked"
-                // mode, meaning we expected it to be up-to-date
+    let &(project_hash, _, _) = nodes_to_projects
+        .get(&root_node)
+        .expect("results for root project not found");
 
-                anyhow::bail!(
-                    "lockfile at {} is out of date",
-                    details.lockfile_path.display()
-                );
-            }
-        }
+    let mut projects = config
+        .projects
+        .inner
+        .write()
+        .expect("failed to acquire 'projects' lock");
 
-        if !errors.is_empty() {
-            tracing::debug!(?path, ?errors, "project loaded with errors");
-        }
-        nodes_to_projects.insert(node, (project_hash, project.clone(), errors.clone()));
+    projects.dirty_lockfiles.extend(dirty_lockfiles);
+
+    projects.workspaces.extend(workspaces);
+
+    for (node, (project_hash, project_entry, mut errors)) in nodes_to_projects {
+        let path = project_graph.graph[node].path();
 
         if let Some(expected_hash) = project_graph.expected_hashes.remove(&node) {
             if expected_hash != project_hash {
                 errors.push(LoadProjectError::InvalidProjectHash {
-                    path: project_graph.graph[node].clone(),
+                    path: project_graph.graph[node].path().to_path_buf(),
                     expected_hash: expected_hash.to_string(),
                     actual_hash: project_hash.to_string(),
                 });
             }
         }
 
-        projects.projects.insert(project_hash, project);
+        projects.projects.insert(project_hash, project_entry);
         projects
             .paths_to_projects
-            .insert(path.to_owned(), project_hash);
+            .insert(path.to_path_buf(), project_hash);
         projects
             .projects_to_paths
             .entry(project_hash)
             .or_default()
-            .insert(path.to_owned());
-
+            .insert(path.to_path_buf());
         projects.project_load_errors.insert(project_hash, errors);
     }
 
-    let (project_hash, project, errors) = nodes_to_projects
-        .remove(&root_node)
-        .expect("results for root project not found");
-    Ok((project_hash, project, errors))
+    let project = projects
+        .project(project_hash)
+        .expect("root project not found");
+    let errors = projects.project_load_errors[&project_hash].clone();
+    Ok((project_hash, project.clone(), errors))
 }
 
 struct LockfileState {
@@ -1126,7 +1351,11 @@ pub async fn local_project_hash(
         }
     }
 
-    let dependencies = lockfile.dependencies.into_iter().collect();
+    let dependencies = lockfile
+        .dependencies
+        .into_iter()
+        .map(|(dep_name, dep_hash)| (dep_name, DependencyRef::Project(dep_hash)))
+        .collect();
     let project = Project {
         definition: project_analysis.definition,
         dependencies,
@@ -1154,6 +1383,10 @@ pub enum LoadProjectError {
     },
     DependencyError {
         name: String,
+        error: Box<LoadProjectError>,
+    },
+    WorkspaceMemberError {
+        workspace_member_path: RelativePathBuf,
         error: Box<LoadProjectError>,
     },
     InvalidProjectHash {
