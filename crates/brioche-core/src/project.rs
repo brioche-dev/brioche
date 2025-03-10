@@ -680,12 +680,6 @@ impl std::cmp::PartialOrd for ProjectHash {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Workspace {
-    pub definition: WorkspaceDefinition,
-    pub path: PathBuf,
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorkspaceDefinition {
     pub members: Vec<WorkspaceMember>,

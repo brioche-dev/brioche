@@ -13,7 +13,7 @@ use crate::{Brioche, recipe::Artifact};
 
 use super::{
     DependencyDefinition, Lockfile, Project, ProjectHash, ProjectLocking, ProjectValidation,
-    Projects, Version, Workspace, WorkspaceDefinition, WorkspaceMember,
+    Projects, Version, WorkspaceDefinition, WorkspaceMember,
     analyze::{GitRefOptions, ProjectAnalysis, StaticOutput, StaticOutputKind, StaticQuery},
 };
 
@@ -58,7 +58,7 @@ struct ProjectNodeDetails {
     project_analysis: ProjectAnalysis,
     lockfile: LockfileState,
     lockfile_path: PathBuf,
-    workspace: Option<Workspace>,
+    workspace: Option<WorkspaceInfo>,
     dependency_errors: HashMap<String, anyhow::Error>,
 }
 
@@ -491,7 +491,7 @@ struct LoadProjectConfig {
 async fn resolve_dependency_to_local_path(
     config: &LoadProjectConfig,
     project_path: &Path,
-    workspace: Option<&Workspace>,
+    workspace: Option<&WorkspaceInfo>,
     dependency_name: &str,
     dependency_definition: &DependencyDefinition,
     current_lockfile: Option<&Lockfile>,
@@ -522,7 +522,7 @@ async fn resolve_dependency_to_local_path(
 
 async fn resolve_dependency_version_to_local_path(
     config: &LoadProjectConfig,
-    workspace: Option<&Workspace>,
+    workspace: Option<&WorkspaceInfo>,
     dependency_name: &str,
     dependency_version: &Version,
     current_lockfile: Option<&Lockfile>,
@@ -675,7 +675,7 @@ pub async fn fetch_project_from_cache(
 }
 
 async fn resolve_workspace_project_path(
-    workspace: &Workspace,
+    workspace: &WorkspaceInfo,
     project_name: &str,
 ) -> anyhow::Result<Option<PathBuf>> {
     for member in &workspace.definition.members {
@@ -706,12 +706,12 @@ async fn resolve_workspace_project_path(
 async fn find_workspace(
     project_path: &Path,
     workspaces: &mut HashMap<PathBuf, WorkspaceDefinition>,
-) -> anyhow::Result<Option<Workspace>> {
+) -> anyhow::Result<Option<WorkspaceInfo>> {
     for workspace_path in project_path.ancestors().skip(1) {
         let entry = match workspaces.entry(workspace_path.to_path_buf()) {
             std::collections::hash_map::Entry::Occupied(entry) => {
                 // Workspace already loaded with the given path
-                return Ok(Some(Workspace {
+                return Ok(Some(WorkspaceInfo {
                     path: entry.key().clone(),
                     definition: entry.get().clone(),
                 }));
@@ -750,13 +750,19 @@ async fn find_workspace(
 
         // Insert the workspace definition
         entry.insert_entry(workspace_def.clone());
-        return Ok(Some(Workspace {
+        return Ok(Some(WorkspaceInfo {
             path: workspace_path.to_path_buf(),
             definition: workspace_def,
         }));
     }
 
     Ok(None)
+}
+
+#[derive(Debug, Clone)]
+struct WorkspaceInfo {
+    definition: WorkspaceDefinition,
+    path: PathBuf,
 }
 
 async fn resolve_static(
