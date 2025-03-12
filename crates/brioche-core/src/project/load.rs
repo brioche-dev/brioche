@@ -28,7 +28,6 @@ pub async fn load_project(
     path: PathBuf,
     validation: ProjectValidation,
     locking: ProjectLocking,
-    depth: u32,
 ) -> anyhow::Result<ProjectHash> {
     let rt = tokio::runtime::Handle::current();
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -44,7 +43,6 @@ pub async fn load_project(
                     validation,
                 },
                 &path,
-                depth,
             ))
             .await;
             let _ = tx.send(result).inspect_err(|err| {
@@ -97,7 +95,6 @@ struct ProjectGraph {
     nodes_by_path: HashMap<PathBuf, petgraph::stable_graph::NodeIndex>,
     expected_hashes: HashMap<petgraph::stable_graph::NodeIndex, ProjectHash>,
     project_details: HashMap<petgraph::stable_graph::NodeIndex, ProjectNodeDetails>,
-    workspaces: HashMap<PathBuf, WorkspaceDefinition>,
 }
 
 async fn build_project_graph(
@@ -370,14 +367,12 @@ async fn build_project_graph(
         expected_hashes,
         nodes_by_path,
         project_details,
-        workspaces,
     })
 }
 
 async fn load_project_inner(
     config: &LoadProjectConfig,
     path: &Path,
-    depth: u32,
 ) -> anyhow::Result<(ProjectHash, Arc<Project>, Vec<LoadProjectError>)> {
     tracing::debug!(path = %path.display(), "resolving project");
     let path = tokio::fs::canonicalize(path).await?;

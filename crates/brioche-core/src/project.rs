@@ -75,7 +75,6 @@ impl Projects {
             path.to_owned(),
             validation,
             locking,
-            100,
         )
         .await?;
 

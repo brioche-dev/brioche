@@ -3,10 +3,9 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use brioche_core::{
     Brioche,
-    project::{DependencyRef, ProjectEntry, ProjectLocking, ProjectValidation},
+    project::{DependencyRef, ProjectLocking, ProjectValidation},
 };
 use brioche_test_support::TestContext;
-use relative_path::RelativePathBuf;
 
 #[tokio::test]
 async fn test_project_load_simple() -> anyhow::Result<()> {
@@ -194,7 +193,6 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -255,7 +253,6 @@ async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &main_project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -313,7 +310,6 @@ async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -369,7 +365,6 @@ async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<(
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -433,7 +428,6 @@ async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::R
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -495,7 +489,6 @@ async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -556,7 +549,6 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -635,7 +627,6 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -723,7 +714,6 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -822,7 +812,6 @@ async fn test_project_load_with_remote_registry_dep_with_subdir_brioche_glob() -
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -911,7 +900,6 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
     assert!(
         projects
             .local_paths(project_hash)
@@ -1039,7 +1027,6 @@ async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Resul
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
 
     let bar_dep_hash = projects.project_dependencies(project_hash).unwrap()["bar"];
     let bar_dep_project = projects.project(bar_dep_hash).unwrap();
@@ -1216,18 +1203,14 @@ async fn test_project_load_complex() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &main_project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
 
     let main_dep_project_hash = projects.project_dependencies(project_hash).unwrap()["depproject"];
-    let main_dep_project = projects.project(main_dep_project_hash).unwrap();
 
     let main_foo_project_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
-    let main_foo_project = projects.project(main_foo_project_hash).unwrap();
 
     let main_dep_foo_project_hash = projects
         .project_dependencies(main_dep_project_hash)
         .unwrap()["foo"];
-    let main_dep_foo_project = projects.project(main_dep_foo_project_hash).unwrap();
 
     let main_foo_bar_project_hash = projects
         .project_dependencies(main_foo_project_hash)
@@ -1343,18 +1326,14 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &main_project_dir).await?;
-    let project = projects.project(project_hash).unwrap();
 
     let main_dep_project_hash = projects.project_dependencies(project_hash).unwrap()["depproject"];
-    let main_dep_project = projects.project(main_dep_project_hash).unwrap();
 
     let main_foo_project_hash = projects.project_dependencies(project_hash).unwrap()["foo"];
-    let main_foo_project = projects.project(main_foo_project_hash).unwrap();
 
     let main_dep_foo_project_hash = projects
         .project_dependencies(main_dep_project_hash)
         .unwrap()["foo"];
-    let main_dep_foo_project = projects.project(main_dep_foo_project_hash).unwrap();
 
     let main_foo_bar_project_hash = projects
         .project_dependencies(main_foo_project_hash)
