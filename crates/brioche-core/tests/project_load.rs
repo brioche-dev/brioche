@@ -1569,17 +1569,17 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
 
     // Project structure:
     //
-    // main     -> foo/a
-    // foo/a    -> foo/b
-    // foo/b    -> foo/c
-    // foo/c    -> foo/a, bar/v
-    // bar/v    -> bar/w
-    // bar/w    -> bar/x, bar/y, bar/z
-    // bar/x    -> bar/w, bar/y, bar/z
-    // bar/y    -> bar/w, bar/x, bar/z
-    // bar/z    -> baz/fizz
-    // baz/fizz -> baz/buzz
-    // baz/buzz -> (no dependencies)
+    // main     -> foo/a1
+    // foo/a1   -> foo/a2
+    // foo/a2   -> foo/a3
+    // foo/a3   -> foo/a1, bar/b
+    // bar/b    -> bar/c1
+    // bar/c1   -> bar/c2, bar/c3, bar/d
+    // bar/c2   -> bar/c1, bar/c3, bar/d
+    // bar/c3   -> bar/c1, bar/c2, bar/d
+    // bar/d    -> baz/e
+    // baz/e    -> baz/f
+    // baz/f -> (no dependencies)
 
     let main_project_dir = context.mkdir("main").await;
     context
@@ -1588,8 +1588,8 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
             r#"
                 export const project = {
                     dependencies: {
-                        a: {
-                            path: "../foo/a",
+                        a1: {
+                            path: "../foo/a1",
                         },
                     },
                 };
@@ -1601,49 +1601,49 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
         .write_toml(
             "foo/brioche_workspace.toml",
             &brioche_core::project::WorkspaceDefinition {
-                members: vec!["./a".parse()?, "./b".parse()?, "./c".parse()?],
+                members: vec!["./a1".parse()?, "./a2".parse()?, "./a3".parse()?],
             },
         )
         .await;
 
-    let foo_a_project_dir = context.mkdir("foo/a").await;
+    let foo_a1_project_dir = context.mkdir("foo/a1").await;
     context
         .write_file(
-            "foo/a/project.bri",
+            "foo/a1/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        b: "*",
+                        a2: "*",
                     },
                 };
             "#,
         )
         .await;
 
-    let foo_b_project_dir = context.mkdir("foo/b").await;
+    let foo_a2_project_dir = context.mkdir("foo/a2").await;
     context
         .write_file(
-            "foo/b/project.bri",
+            "foo/a2/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        c: "*",
+                        a3: "*",
                     },
                 };
             "#,
         )
         .await;
 
-    let foo_c_project_dir = context.mkdir("foo/c").await;
+    let foo_a3_project_dir = context.mkdir("foo/a3").await;
     context
         .write_file(
-            "foo/c/project.bri",
+            "foo/a3/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        a: "*",
-                        v: {
-                            path: "../../bar/v",
+                        a1: "*",
+                        b: {
+                            path: "../../bar/b",
                         },
                     },
                 };
@@ -1656,91 +1656,91 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
             "bar/brioche_workspace.toml",
             &brioche_core::project::WorkspaceDefinition {
                 members: vec![
-                    "./v".parse()?,
-                    "./w".parse()?,
-                    "./x".parse()?,
-                    "./y".parse()?,
-                    "./z".parse()?,
+                    "./b".parse()?,
+                    "./c1".parse()?,
+                    "./c2".parse()?,
+                    "./c3".parse()?,
+                    "./d".parse()?,
                 ],
             },
         )
         .await;
 
-    let bar_v_project_dir = context.mkdir("bar/v").await;
+    let bar_b_project_dir = context.mkdir("bar/b").await;
     context
         .write_file(
-            "bar/v/project.bri",
+            "bar/b/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        w: "*",
+                        c1: "*",
                     },
                 };
             "#,
         )
         .await;
 
-    let bar_w_project_dir = context.mkdir("bar/w").await;
+    let bar_c1_project_dir = context.mkdir("bar/c1").await;
     context
         .write_file(
-            "bar/w/project.bri",
+            "bar/c1/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        x: "*",
-                        y: "*",
-                        z: "*",
+                        c2: "*",
+                        c3: "*",
+                        d: "*",
                     },
                 };
             "#,
         )
         .await;
 
-    let bar_x_project_dir = context.mkdir("bar/x").await;
+    let bar_c2_project_dir = context.mkdir("bar/c2").await;
     context
         .write_file(
-            "bar/x/project.bri",
+            "bar/c2/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        w: "*",
-                        y: {
-                            path: "../y",
+                        c1: "*",
+                        c3: {
+                            path: "../c3",
                         },
-                        z: "*",
+                        d: "*",
                     },
                 };
             "#,
         )
         .await;
 
-    let bar_y_project_dir = context.mkdir("bar/y").await;
+    let bar_c3_project_dir = context.mkdir("bar/c3").await;
     context
         .write_file(
-            "bar/y/project.bri",
+            "bar/c3/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        w: {
-                            path: "../w",
+                        c1: {
+                            path: "../c1",
                         },
-                        x: "*",
-                        z: "*",
+                        c2: "*",
+                        d: "*",
                     },
                 };
             "#,
         )
         .await;
 
-    let bar_z_project_dir = context.mkdir("bar/z").await;
+    let bar_d_project_dir = context.mkdir("bar/d").await;
     context
         .write_file(
-            "bar/z/project.bri",
+            "bar/d/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        fizz: {
-                            path: "../../baz/fizz",
+                        e: {
+                            path: "../../baz/e",
                         },
                     },
                 };
@@ -1752,29 +1752,29 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
         .write_toml(
             "baz/brioche_workspace.toml",
             &brioche_core::project::WorkspaceDefinition {
-                members: vec!["./fizz".parse()?, "./buzz".parse()?],
+                members: vec!["./e".parse()?, "./f".parse()?],
             },
         )
         .await;
 
-    let baz_fizz_project_dir = context.mkdir("baz/fizz").await;
+    let baz_e_project_dir = context.mkdir("baz/e").await;
     context
         .write_file(
-            "baz/fizz/project.bri",
+            "baz/e/project.bri",
             r#"
                 export const project = {
                     dependencies: {
-                        buzz: "*",
+                        f: "*",
                     },
                 };
             "#,
         )
         .await;
 
-    let baz_buzz_project_dir = context.mkdir("baz/buzz").await;
+    let baz_f_project_dir = context.mkdir("baz/f").await;
     context
         .write_file(
-            "baz/buzz/project.bri",
+            "baz/f/project.bri",
             r#"
                 // Empty project
             "#,
@@ -1783,115 +1783,115 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
 
     let (projects, main_project_hash) =
         brioche_test_support::load_project(&brioche, &main_project_dir).await?;
-    let foo_a_project_hash = projects
-        .find_containing_project(&foo_a_project_dir)?
+    let foo_a1_project_hash = projects
+        .find_containing_project(&foo_a1_project_dir)?
         .unwrap();
-    let foo_b_project_hash = projects
-        .find_containing_project(&foo_b_project_dir)?
+    let foo_a2_project_hash = projects
+        .find_containing_project(&foo_a2_project_dir)?
         .unwrap();
-    let foo_c_project_hash = projects
-        .find_containing_project(&foo_c_project_dir)?
+    let foo_a3_project_hash = projects
+        .find_containing_project(&foo_a3_project_dir)?
         .unwrap();
-    let bar_v_project_hash = projects
-        .find_containing_project(&bar_v_project_dir)?
+    let bar_b_project_hash = projects
+        .find_containing_project(&bar_b_project_dir)?
         .unwrap();
-    let bar_w_project_hash = projects
-        .find_containing_project(&bar_w_project_dir)?
+    let bar_c1_project_hash = projects
+        .find_containing_project(&bar_c1_project_dir)?
         .unwrap();
-    let bar_x_project_hash = projects
-        .find_containing_project(&bar_x_project_dir)?
+    let bar_c2_project_hash = projects
+        .find_containing_project(&bar_c2_project_dir)?
         .unwrap();
-    let bar_y_project_hash = projects
-        .find_containing_project(&bar_y_project_dir)?
+    let bar_c3_project_hash = projects
+        .find_containing_project(&bar_c3_project_dir)?
         .unwrap();
-    let bar_z_project_hash = projects
-        .find_containing_project(&bar_z_project_dir)?
+    let bar_d_project_hash = projects
+        .find_containing_project(&bar_d_project_dir)?
         .unwrap();
-    let baz_fizz_project_hash = projects
-        .find_containing_project(&baz_fizz_project_dir)?
+    let baz_e_project_hash = projects
+        .find_containing_project(&baz_e_project_dir)?
         .unwrap();
-    let baz_buzz_project_hash = projects
-        .find_containing_project(&baz_buzz_project_dir)?
+    let baz_f_project_hash = projects
+        .find_containing_project(&baz_f_project_dir)?
         .unwrap();
 
     let main_project_entry = projects.project_entry(main_project_hash).unwrap();
-    let foo_a_project_entry = projects.project_entry(foo_a_project_hash).unwrap();
-    let foo_b_project_entry = projects.project_entry(foo_b_project_hash).unwrap();
-    let foo_c_project_entry = projects.project_entry(foo_c_project_hash).unwrap();
-    let bar_v_project_entry = projects.project_entry(bar_v_project_hash).unwrap();
-    let bar_w_project_entry = projects.project_entry(bar_w_project_hash).unwrap();
-    let bar_x_project_entry = projects.project_entry(bar_x_project_hash).unwrap();
-    let bar_y_project_entry = projects.project_entry(bar_y_project_hash).unwrap();
-    let bar_z_project_entry = projects.project_entry(bar_z_project_hash).unwrap();
-    let baz_fizz_project_entry = projects.project_entry(baz_fizz_project_hash).unwrap();
-    let baz_buzz_project_entry = projects.project_entry(baz_buzz_project_hash).unwrap();
+    let foo_a1_project_entry = projects.project_entry(foo_a1_project_hash).unwrap();
+    let foo_a2_project_entry = projects.project_entry(foo_a2_project_hash).unwrap();
+    let foo_a3_project_entry = projects.project_entry(foo_a3_project_hash).unwrap();
+    let bar_b_project_entry = projects.project_entry(bar_b_project_hash).unwrap();
+    let bar_c1_project_entry = projects.project_entry(bar_c1_project_hash).unwrap();
+    let bar_c2_project_entry = projects.project_entry(bar_c2_project_hash).unwrap();
+    let bar_c3_project_entry = projects.project_entry(bar_c3_project_hash).unwrap();
+    let bar_d_project_entry = projects.project_entry(bar_d_project_hash).unwrap();
+    let baz_e_project_entry = projects.project_entry(baz_e_project_hash).unwrap();
+    let baz_f_project_entry = projects.project_entry(baz_f_project_hash).unwrap();
 
     assert_matches!(main_project_entry, ProjectEntry::Project(_));
 
-    // a, b, and c are all part of a cycle within the workspace
+    // a1, a2, and a3 are all part of a cycle within the workspace
     let &ProjectEntry::WorkspaceMember {
         workspace: foo_workspace,
         ..
-    } = &foo_a_project_entry
+    } = &foo_a1_project_entry
     else {
         panic!("expected foo_a_project_entry to be a WorkspaceMember");
     };
     assert_eq!(
-        foo_a_project_entry,
+        foo_a1_project_entry,
         ProjectEntry::WorkspaceMember {
             workspace: foo_workspace,
-            path: "a".to_string().into()
+            path: "a1".to_string().into()
         },
     );
     assert_eq!(
-        foo_b_project_entry,
+        foo_a2_project_entry,
         ProjectEntry::WorkspaceMember {
             workspace: foo_workspace,
-            path: "b".to_string().into()
+            path: "a2".to_string().into()
         },
     );
     assert_eq!(
-        foo_c_project_entry,
+        foo_a3_project_entry,
         ProjectEntry::WorkspaceMember {
             workspace: foo_workspace,
-            path: "c".to_string().into()
+            path: "a3".to_string().into()
         },
     );
 
-    // w, x, and y are part of a cycle, while v and z are separate
+    // c1, c2, and c3 are part of a cycle, while b and d are separate
     let &ProjectEntry::WorkspaceMember {
         workspace: bar_workspace,
         ..
-    } = &bar_w_project_entry
+    } = &bar_c1_project_entry
     else {
-        panic!("expected bar_v_project_entry to be a WorkspaceMember");
+        panic!("expected bar_c1_project_entry to be a WorkspaceMember");
     };
-    assert_matches!(bar_v_project_entry, ProjectEntry::Project(_));
+    assert_matches!(bar_b_project_entry, ProjectEntry::Project(_));
     assert_eq!(
-        bar_w_project_entry,
+        bar_c1_project_entry,
         ProjectEntry::WorkspaceMember {
             workspace: bar_workspace,
-            path: "w".to_string().into()
+            path: "c1".to_string().into()
         },
     );
     assert_eq!(
-        bar_x_project_entry,
+        bar_c2_project_entry,
         ProjectEntry::WorkspaceMember {
             workspace: bar_workspace,
-            path: "x".to_string().into()
+            path: "c2".to_string().into()
         },
     );
     assert_eq!(
-        bar_y_project_entry,
+        bar_c3_project_entry,
         ProjectEntry::WorkspaceMember {
             workspace: bar_workspace,
-            path: "y".to_string().into()
+            path: "c3".to_string().into()
         },
     );
-    assert_matches!(bar_z_project_entry, ProjectEntry::Project(_));
+    assert_matches!(bar_d_project_entry, ProjectEntry::Project(_));
 
-    assert_matches!(baz_fizz_project_entry, ProjectEntry::Project(_));
-    assert_matches!(baz_buzz_project_entry, ProjectEntry::Project(_));
+    assert_matches!(baz_e_project_entry, ProjectEntry::Project(_));
+    assert_matches!(baz_f_project_entry, ProjectEntry::Project(_));
 
     Ok(())
 }
