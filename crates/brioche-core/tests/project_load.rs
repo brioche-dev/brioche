@@ -1828,6 +1828,7 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
 
     assert_matches!(main_project_entry, ProjectEntry::Project(_));
 
+    // a, b, and c are all part of a cycle within the workspace
     let &ProjectEntry::WorkspaceMember {
         workspace: foo_workspace,
         ..
@@ -1857,20 +1858,15 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
         },
     );
 
+    // w, x, and y are part of a cycle, while v and z are separate
     let &ProjectEntry::WorkspaceMember {
         workspace: bar_workspace,
         ..
-    } = &bar_v_project_entry
+    } = &bar_w_project_entry
     else {
         panic!("expected bar_v_project_entry to be a WorkspaceMember");
     };
-    assert_eq!(
-        bar_v_project_entry,
-        ProjectEntry::WorkspaceMember {
-            workspace: bar_workspace,
-            path: "v".to_string().into()
-        },
-    );
+    assert_matches!(bar_v_project_entry, ProjectEntry::Project(_));
     assert_eq!(
         bar_w_project_entry,
         ProjectEntry::WorkspaceMember {
@@ -1892,13 +1888,7 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
             path: "y".to_string().into()
         },
     );
-    assert_eq!(
-        bar_z_project_entry,
-        ProjectEntry::WorkspaceMember {
-            workspace: bar_workspace,
-            path: "z".to_string().into()
-        },
-    );
+    assert_matches!(bar_z_project_entry, ProjectEntry::Project(_));
 
     assert_matches!(baz_fizz_project_entry, ProjectEntry::Project(_));
     assert_matches!(baz_buzz_project_entry, ProjectEntry::Project(_));

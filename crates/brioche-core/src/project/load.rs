@@ -284,67 +284,61 @@ async fn build_project_graph(
         |_, name| ProjectEdge::DirectDependency { name: name.clone() },
     );
 
-    // Handle graph cycles in a loop. This will finish once the graph
-    // is acyclic or if we've found an invalid cycle
-    let sorted_nodes = loop {
-        let toposort = petgraph::algo::toposort(petgraph::visit::Reversed(&graph), None);
-        let cycle = match toposort {
-            Ok(sorted_nodes) => {
-                // Graph has no cycles, so we're done
-                break sorted_nodes;
-            }
-            Err(cycle) => {
-                // Graph has a cycle, so we need to resolve it
-                cycle
-            }
-        };
+    // Find strongly-connected components of the graph, giving us groups
+    // of nodes that form cycles. We then resolve each cycle by replacing
+    // edges within the same workspace. We finally join the groups together
+    // by workspace
+    let sccs = petgraph::algo::tarjan_scc(&graph);
+    let mut grouped_workspace_nodes = HashMap::<_, HashSet<_>>::new();
+    for scc in sccs {
+        if scc.len() < 2 {
+            continue;
+        }
 
-        let details = project_details
-            .get(&cycle.node_id())
-            .expect("project node appeared in a cycle but doesn't have any project details");
-        let workspace_details = details.workspace.as_ref().and_then(|workspace| {
-            let workspace_nodes = nodes_by_workspace.remove(&workspace.path)?;
-            Some((workspace.path.clone(), workspace_nodes))
-        });
-        let Some(workspace_details) = workspace_details else {
-            // The cyclic node either isn't part of a workspace, or the
-            // cycle extends outside the workspace. In either case, this
-            // is an invalid cycle
-            let path = graph[cycle.node_id()].path();
-            anyhow::bail!("project {} includes a cyclic import", path.display());
+        let Some(workspace) = &project_details[&scc[0]].workspace else {
+            // Node isn't in a workspace, so don't group it
+            continue;
         };
+        let all_workspace_nodes = &nodes_by_workspace[&workspace.path];
+        let workspace_nodes = scc
+            .iter()
+            .copied()
+            .filter(|node| all_workspace_nodes.contains(node));
 
-        // Sanity check: ensure that the cyclic node is included in the
-        // set of workspace nodes
-        assert!(
-            workspace_details.1.contains(&cycle.node_id()),
-            "found a set of workspace nodes, but cyclic node isn't in the set"
-        );
+        let group = grouped_workspace_nodes
+            .entry(workspace.path.clone())
+            .or_default();
+        group.extend(workspace_nodes);
+    }
+
+    for (workspace_path, nodes) in grouped_workspace_nodes {
+        let all_workspace_nodes = nodes_by_workspace
+            .remove(&workspace_path)
+            .expect("nodes_by_workspace not found for workspace");
 
         // Add workspace nodes to the graph
-        let initialize_workspace_node = graph.add_node(ProjectNode::InitializeWorkspace(
-            workspace_details.0.clone(),
-        ));
+        let initialize_workspace_node =
+            graph.add_node(ProjectNode::InitializeWorkspace(workspace_path.clone()));
         let finish_workspace_node =
-            graph.add_node(ProjectNode::FinishWorkspace(workspace_details.0.clone()));
+            graph.add_node(ProjectNode::FinishWorkspace(workspace_path.clone()));
 
-        for node in &workspace_details.1 {
+        for node in nodes {
             // Add an edge so the "workspace finish" node depends on
             // the project node
-            graph.add_edge(finish_workspace_node, *node, ProjectEdge::Other);
+            graph.add_edge(finish_workspace_node, node, ProjectEdge::Other);
 
             // Replace each `DirectDependency` edge within the same workspace
             // with a `WorkspaceDependency` (with the "workspace initialize"
             // node as a target)
             let workspace_edges = graph
-                .edges_directed(*node, petgraph::Direction::Outgoing)
+                .edges_directed(node, petgraph::Direction::Outgoing)
                 .filter_map(|edge| {
-                    if !workspace_details.1.contains(&edge.target()) {
-                        return None;
-                    }
                     let ProjectEdge::DirectDependency { name } = edge.weight() else {
                         return None;
                     };
+                    if !all_workspace_nodes.contains(&edge.target()) {
+                        return None;
+                    }
 
                     let path = graph[edge.target()].path();
                     let new_edge = ProjectEdge::WorkspaceDependency {
@@ -356,8 +350,20 @@ async fn build_project_graph(
                 .collect::<Vec<_>>();
             for (edge_index, new_edge) in workspace_edges {
                 graph.remove_edge(edge_index);
-                graph.add_edge(*node, initialize_workspace_node, new_edge);
+                graph.add_edge(node, initialize_workspace_node, new_edge);
             }
+        }
+    }
+
+    let toposort = petgraph::algo::toposort(petgraph::visit::Reversed(&graph), None);
+    let sorted_nodes = match toposort {
+        Ok(sorted_nodes) => sorted_nodes,
+        Err(cycle) => {
+            let path = graph[cycle.node_id()].path();
+            anyhow::bail!(
+                "project {} includes an invalid cyclic import",
+                path.display()
+            );
         }
     };
 
