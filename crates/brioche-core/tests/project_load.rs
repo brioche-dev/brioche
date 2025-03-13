@@ -1919,34 +1919,46 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
         },
     );
 
-    // b, d, and f aren't part of any cycles; c1, c2, and c3, form a cycle;
-    // and e1 and e2 form a separate cycle
+    // b, d, and f aren't part of any cycles; c1, c2, and c3 are part of a
+    // cycle and form one group; and e1 and e2 are part of a different cycle
+    // and form a separate group (resulting in the workspace being split)
     let &ProjectEntry::WorkspaceMember {
-        workspace: bar_workspace,
+        workspace: bar_c_workspace,
         ..
     } = &bar_c1_project_entry
     else {
         panic!("expected bar_c1_project_entry to be a WorkspaceMember");
     };
+    let &ProjectEntry::WorkspaceMember {
+        workspace: bar_e_workspace,
+        ..
+    } = &bar_e1_project_entry
+    else {
+        panic!("expected bar_c1_project_entry to be a WorkspaceMember");
+    };
+    assert_ne!(
+        bar_c_workspace, bar_e_workspace,
+        "expected bar_c1_project_entry and bar_e1_project_entry to be split into separate workspaces"
+    );
     assert_matches!(bar_b_project_entry, ProjectEntry::Project(_));
     assert_eq!(
         bar_c1_project_entry,
         ProjectEntry::WorkspaceMember {
-            workspace: bar_workspace,
+            workspace: bar_c_workspace,
             path: "c1".to_string().into()
         },
     );
     assert_eq!(
         bar_c2_project_entry,
         ProjectEntry::WorkspaceMember {
-            workspace: bar_workspace,
+            workspace: bar_c_workspace,
             path: "c2".to_string().into()
         },
     );
     assert_eq!(
         bar_c3_project_entry,
         ProjectEntry::WorkspaceMember {
-            workspace: bar_workspace,
+            workspace: bar_c_workspace,
             path: "c3".to_string().into()
         },
     );
@@ -1954,14 +1966,14 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
     assert_eq!(
         bar_e1_project_entry,
         ProjectEntry::WorkspaceMember {
-            workspace: bar_workspace,
+            workspace: bar_e_workspace,
             path: "e1".to_string().into()
         },
     );
     assert_eq!(
         bar_e2_project_entry,
         ProjectEntry::WorkspaceMember {
-            workspace: bar_workspace,
+            workspace: bar_e_workspace,
             path: "e2".to_string().into()
         },
     );
