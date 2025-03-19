@@ -1983,6 +1983,32 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
     assert_matches!(baz_g_project_entry, ProjectEntry::Project(_));
     assert_matches!(baz_h_project_entry, ProjectEntry::Project(_));
 
+    // Ensure that loading bar/e1 as the root returns the same hash
+    {
+        let (brioche, _context) = brioche_test_support::brioche_test().await;
+        let (projects, fresh_bar_e1_project_hash) =
+            brioche_test_support::load_project(&brioche, &bar_e1_project_dir).await?;
+        let fresh_bar_e2_project_hash = projects
+            .find_containing_project(&bar_e2_project_dir)?
+            .unwrap();
+
+        assert_eq!(bar_e1_project_hash, fresh_bar_e1_project_hash);
+        assert_eq!(bar_e2_project_hash, fresh_bar_e2_project_hash);
+    }
+
+    // Ensure that loading bar/e2 as the root returns the same hash
+    {
+        let (brioche, _context) = brioche_test_support::brioche_test().await;
+        let (projects, fresh_bar_e2_project_hash) =
+            brioche_test_support::load_project(&brioche, &bar_e2_project_dir).await?;
+        let fresh_bar_e1_project_hash = projects
+            .find_containing_project(&bar_e1_project_dir)?
+            .unwrap();
+
+        assert_eq!(bar_e1_project_hash, fresh_bar_e1_project_hash);
+        assert_eq!(bar_e2_project_hash, fresh_bar_e2_project_hash);
+    }
+
     Ok(())
 }
 
