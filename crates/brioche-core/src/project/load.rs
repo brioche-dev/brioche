@@ -65,37 +65,18 @@ struct ProjectNodeDetails {
     dependency_errors: HashMap<String, anyhow::Error>,
 }
 
-#[derive(Debug)]
-enum ProjectNode {
-    Project(PathBuf),
-}
-
-impl ProjectNode {
-    fn path(&self) -> &Path {
-        match self {
-            ProjectNode::Project(path) => path,
-        }
-    }
-}
-
-#[derive(Debug)]
-enum ProjectEdge {
-    DirectDependency { name: String },
-}
-
 struct ProjectGraph {
-    graph: petgraph::stable_graph::StableDiGraph<ProjectNode, ProjectEdge>,
-    nodes_by_path: HashMap<PathBuf, petgraph::stable_graph::NodeIndex>,
-    expected_hashes: HashMap<petgraph::stable_graph::NodeIndex, ProjectHash>,
-    project_details: HashMap<petgraph::stable_graph::NodeIndex, ProjectNodeDetails>,
+    graph: petgraph::graph::DiGraph<PathBuf, String>,
+    nodes_by_path: HashMap<PathBuf, petgraph::graph::NodeIndex>,
+    expected_hashes: HashMap<petgraph::graph::NodeIndex, ProjectHash>,
+    project_details: HashMap<petgraph::graph::NodeIndex, ProjectNodeDetails>,
 }
 
 async fn build_project_graph(
     config: &LoadProjectConfig,
     project_path: &Path,
 ) -> anyhow::Result<ProjectGraph> {
-    let mut graph: petgraph::stable_graph::StableDiGraph<PathBuf, String> =
-        petgraph::stable_graph::StableGraph::new();
+    let mut graph: petgraph::graph::DiGraph<PathBuf, String> = petgraph::Graph::new();
     let mut expected_hashes = HashMap::new();
     let mut project_details = HashMap::new();
     let mut workspaces = HashMap::new();
@@ -272,11 +253,6 @@ async fn build_project_graph(
         };
     }
 
-    let graph = graph.map(
-        |_, path| ProjectNode::Project(path.clone()),
-        |_, name| ProjectEdge::DirectDependency { name: name.clone() },
-    );
-
     Ok(ProjectGraph {
         graph,
         expected_hashes,
@@ -342,7 +318,7 @@ async fn load_project_inner(
             let Some(workspace) = workspace else {
                 anyhow::bail!(
                     "project {} is cyclically imported, but not all dependencies are part of the same workspace",
-                    project_graph.graph[first_node].path().display()
+                    project_graph.graph[first_node].display()
                 );
             };
             Some(workspace)
@@ -352,7 +328,7 @@ async fn load_project_inner(
         let mut group_projects = HashMap::new();
         let mut errors = vec![];
         for &node in &group_nodes {
-            let path = project_graph.graph[node].path();
+            let path = &project_graph.graph[node];
             let mut details = project_graph
                 .project_details
                 .remove(&node)
@@ -416,8 +392,8 @@ async fn load_project_inner(
                 .graph
                 .edges_directed(node, petgraph::Direction::Outgoing);
             for edge in edges {
-                let dep_path = project_graph.graph[edge.target()].path();
-                let ProjectEdge::DirectDependency { name: dep_name } = edge.weight();
+                let dep_path = &project_graph.graph[edge.target()];
+                let dep_name = edge.weight();
                 if edge.target() == node {
                     anyhow::bail!("project {} depends on itself", path.display());
                 } else if group_nodes.contains(&edge.target()) {
@@ -539,7 +515,7 @@ async fn load_project_inner(
             let node_workspace_member_paths = group_projects
                 .iter()
                 .map(|(&node, _)| {
-                    let node_path = project_graph.graph[node].path();
+                    let node_path = &project_graph.graph[node];
                     let workspace_member_path = node_path.relative_to(&workspace.path)?;
                     anyhow::Ok((node, workspace_member_path))
                 })
@@ -575,7 +551,7 @@ async fn load_project_inner(
             if let Some(expected_hash) = project_graph.expected_hashes.remove(&node) {
                 if expected_hash != project_hash {
                     errors.push(LoadProjectError::InvalidProjectHash {
-                        path: project_graph.graph[node].path().to_path_buf(),
+                        path: project_graph.graph[node].clone(),
                         expected_hash: expected_hash.to_string(),
                         actual_hash: project_hash.to_string(),
                     });
@@ -606,12 +582,12 @@ async fn load_project_inner(
     projects.workspaces.extend(workspaces);
 
     for (node, (project_hash, project_entry, mut errors)) in nodes_to_projects {
-        let path = project_graph.graph[node].path();
+        let path = &project_graph.graph[node];
 
         if let Some(expected_hash) = project_graph.expected_hashes.remove(&node) {
             if expected_hash != project_hash {
                 errors.push(LoadProjectError::InvalidProjectHash {
-                    path: project_graph.graph[node].path().to_path_buf(),
+                    path: project_graph.graph[node].clone(),
                     expected_hash: expected_hash.to_string(),
                     actual_hash: project_hash.to_string(),
                 });
@@ -621,12 +597,12 @@ async fn load_project_inner(
         projects.projects.insert(project_hash, project_entry);
         projects
             .paths_to_projects
-            .insert(path.to_path_buf(), project_hash);
+            .insert(path.clone(), project_hash);
         projects
             .projects_to_paths
             .entry(project_hash)
             .or_default()
-            .insert(path.to_path_buf());
+            .insert(path.clone());
         projects.project_load_errors.insert(project_hash, errors);
     }
 
