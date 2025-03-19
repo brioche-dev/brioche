@@ -655,6 +655,27 @@ impl TestContext {
         (projects, project_hash, temp_project_path)
     }
 
+    pub async fn temp_project_by_path(
+        &self,
+        f: impl AsyncFnOnce(&TestContext) -> PathBuf,
+    ) -> (Projects, ProjectHash, PathBuf) {
+        let temp_project_path = f(self).await;
+
+        let projects = Projects::default();
+        let project_hash = projects
+            .load(
+                &self.brioche,
+                &temp_project_path,
+                ProjectValidation::Standard,
+                ProjectLocking::Unlocked,
+            )
+            .await
+            .expect("failed to load temp project");
+        projects.commit_dirty_lockfiles().await.unwrap();
+
+        (projects, project_hash, temp_project_path)
+    }
+
     pub async fn local_registry_project(
         &self,
         f: impl AsyncFnOnce(PathBuf),
@@ -676,6 +697,21 @@ impl TestContext {
         cache: &Arc<dyn object_store::ObjectStore>,
         f: impl AsyncFnOnce(PathBuf),
     ) -> ProjectHash {
+        self.cached_registry_project_by_path(cache, async |context| {
+            let temp_project_path = context
+                .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
+                .await;
+            f(temp_project_path.clone()).await;
+            temp_project_path
+        })
+        .await
+    }
+
+    pub async fn cached_registry_project_by_path(
+        &mut self,
+        cache: &Arc<dyn object_store::ObjectStore>,
+        f: impl AsyncFnOnce(&TestContext) -> PathBuf,
+    ) -> ProjectHash {
         // Create a temporary test context so the project does not get
         // loaded into the current context. We still use the current context
         // to create the mocks
@@ -693,7 +729,7 @@ impl TestContext {
         })
         .await;
 
-        let (projects, project_hash, _) = context.temp_project(f).await;
+        let (projects, project_hash, _) = context.temp_project_by_path(f).await;
 
         let project_artifact = brioche_core::project::artifact::create_artifact_with_projects(
             &brioche,
