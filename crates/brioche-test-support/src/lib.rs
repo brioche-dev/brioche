@@ -724,30 +724,6 @@ impl TestContext {
         project_hash
     }
 
-    pub async fn remote_registry_project_<F, Fut>(&mut self, f: F) -> ProjectHash
-    where
-        F: FnOnce(PathBuf) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
-        // Create a temporary test context so the project does not get
-        // loaded into the current context. We still use the current context
-        // to create the mocks
-        let (brioche, context) = brioche_test_with(|builder| {
-            builder.registry_client(self.brioche.registry_client.clone())
-        })
-        .await;
-
-        let (projects, project_hash, _) = context.temp_project(f).await;
-        let mocks = self
-            .mock_registry_listing(&brioche, &projects, project_hash)
-            .await;
-        for mock in mocks {
-            mock.create_async().await;
-        }
-
-        project_hash
-    }
-
     #[must_use]
     pub fn mock_registry_publish_tag(
         &mut self,
