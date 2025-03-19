@@ -221,7 +221,7 @@ async fn test_eval_import_dep() -> anyhow::Result<()> {
         .await;
 
     let (foo_hash, _) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"

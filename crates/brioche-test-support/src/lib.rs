@@ -630,11 +630,10 @@ impl TestContext {
             .await
     }
 
-    pub async fn temp_project<F, Fut>(&self, f: F) -> (Projects, ProjectHash, PathBuf)
-    where
-        F: FnOnce(PathBuf) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
+    pub async fn temp_project(
+        &self,
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> (Projects, ProjectHash, PathBuf) {
         let temp_project_path = self
             .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
             .await;
@@ -656,11 +655,10 @@ impl TestContext {
         (projects, project_hash, temp_project_path)
     }
 
-    pub async fn local_registry_project<F, Fut>(&self, f: F) -> (ProjectHash, PathBuf)
-    where
-        F: FnOnce(PathBuf) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
+    pub async fn local_registry_project(
+        &self,
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> (ProjectHash, PathBuf) {
         let (_, project_hash, temp_project_path) = self.temp_project(f).await;
 
         let project_path = self
@@ -673,15 +671,11 @@ impl TestContext {
         (project_hash, project_path)
     }
 
-    pub async fn cached_registry_project<F, Fut>(
+    pub async fn cached_registry_project(
         &mut self,
         cache: &Arc<dyn object_store::ObjectStore>,
-        f: F,
-    ) -> ProjectHash
-    where
-        F: FnOnce(PathBuf) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> ProjectHash {
         // Create a temporary test context so the project does not get
         // loaded into the current context. We still use the current context
         // to create the mocks

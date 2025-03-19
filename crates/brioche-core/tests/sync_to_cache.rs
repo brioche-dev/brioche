@@ -36,7 +36,7 @@ async fn test_sync_to_cache_process_and_complete_process() -> anyhow::Result<()>
 
     // Create a dummy project that we can associate the baked output with
     let (_, project_hash, _) = context
-        .temp_project(|path| async move {
+        .temp_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"

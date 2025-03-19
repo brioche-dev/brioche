@@ -83,7 +83,7 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
         .await;
 
     let (registry_foo_hash, registry_foo_dir) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -166,7 +166,7 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
         .await;
 
     let (registry_foo_hash, registry_foo_dir) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -279,7 +279,7 @@ async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -338,7 +338,7 @@ async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<(
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -393,7 +393,7 @@ async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::R
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -456,7 +456,7 @@ async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -518,7 +518,7 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -584,7 +584,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_include() -> an
     let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(path.join("fizz"), "fizz!").await.unwrap();
             tokio::fs::create_dir_all(path.join("buzz/hello"))
                 .await
@@ -668,7 +668,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_glob() -> anyho
     let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::create_dir_all(path.join("fizz")).await.unwrap();
             tokio::fs::write(path.join("fizz/hello.md"), "fizz!")
                 .await
@@ -754,7 +754,7 @@ async fn test_project_load_with_remote_registry_dep_with_subdir_brioche_glob() -
     let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::create_dir_all(path.join("subdir/fizz"))
                 .await
                 .unwrap();
@@ -864,7 +864,7 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
     let download_url = format!("{server_url}/file.txt");
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -1044,7 +1044,7 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
 
     let bar_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -1061,7 +1061,7 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
         .await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -1165,7 +1165,7 @@ async fn test_project_load_complex() -> anyhow::Result<()> {
         .await;
 
     let (bar_hash, bar_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -1182,7 +1182,7 @@ async fn test_project_load_complex() -> anyhow::Result<()> {
         .await;
 
     let (foo_hash, foo_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -1292,7 +1292,7 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
         .await;
 
     let (bar_hash, bar_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -1309,7 +1309,7 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
         .await;
 
     let (foo_hash, foo_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"

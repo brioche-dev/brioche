@@ -284,7 +284,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
         .await;
 
     let (baz_hash, baz_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -307,7 +307,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
     let baz_main_path = baz_path.join("project.bri");
 
     let (bar_hash, bar_path) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -330,7 +330,7 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
     let bar_file_path = bar_path.join("file.txt");
 
     let (foo_hash, _) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"

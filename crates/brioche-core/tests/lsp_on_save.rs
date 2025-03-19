@@ -15,7 +15,7 @@ async fn test_lsp_on_save_respects_existing_lock() -> anyhow::Result<()> {
     let (_brioche, context, lsp) = brioche_test_support::brioche_lsp_test().await;
 
     let (foo_hash, _) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -108,7 +108,7 @@ async fn test_lsp_on_save_fetches_locked_dependency() -> anyhow::Result<()> {
     .await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -274,7 +274,7 @@ async fn test_lsp_on_save_fetches_dependency_and_updates_lockfile() -> anyhow::R
     .await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -450,7 +450,7 @@ async fn test_lsp_on_save_only_adds_new_dependencies_in_lockfile() -> anyhow::Re
     .await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -469,7 +469,7 @@ async fn test_lsp_on_save_only_adds_new_dependencies_in_lockfile() -> anyhow::Re
         .await;
 
     let bar_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
