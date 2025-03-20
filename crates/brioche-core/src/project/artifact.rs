@@ -193,19 +193,18 @@ pub async fn save_projects_from_artifact(
         "the set of workspaces in project artifact does not match the set of workspaces needed by the projects from the artifact (missing: {missing_workspaces:?}, extra: {extra_workspaces:?})"
     );
 
-    // Save the contents of the artifact under `projects/inner`
     let inner_dir_path = brioche.data_dir.join("projects").join("inner");
+    let project_temp_dir_path = brioche.data_dir.join("projects-temp");
+
     tokio::fs::create_dir_all(&inner_dir_path).await?;
-    crate::output::create_output(
+    tokio::fs::create_dir_all(&project_temp_dir_path).await?;
+
+    // Save the contents of the artifact under `projects/inner`
+    write_artifact_atomic(
         brioche,
         &Artifact::Directory(artifact.clone()),
-        crate::output::OutputOptions {
-            link_locals: false,
-            merge: true,
-            output_path: &inner_dir_path,
-            resource_dir: None,
-            mtime: None,
-        },
+        &inner_dir_path,
+        &project_temp_dir_path,
     )
     .await?;
 
@@ -459,6 +458,143 @@ async fn insert_merge(
                 "cannot merge artifact {previous_kind:?} at path {} with {artifact_kind:?}",
                 bstr::BStr::new(path)
             );
+        }
+    }
+
+    Ok(())
+}
+
+/// Write an artifact to the provided path, ensuring each file is created
+/// atomically. Files and symlinks are written to a temporary path then renamed,
+/// and are skipped if the destination path exists before writing. Directories
+/// are merged.
+///
+/// This is very similar to [`brioche_core::outputs::create_output`], but is
+/// designed specifically for the use-case of writing project artifacts, where
+/// each top-level entry uses a content-addressed name.
+async fn write_artifact_atomic(
+    brioche: &Brioche,
+    artifact: &Artifact,
+    output_path: &Path,
+    temp_dir: &Path,
+) -> anyhow::Result<()> {
+    let metadata = tokio::fs::symlink_metadata(&output_path).await;
+    let metadata = match metadata {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!("failed to get metadata for path {}", output_path.display())
+            });
+        }
+    };
+
+    match artifact {
+        Artifact::File(file) => {
+            anyhow::ensure!(
+                file.resources.is_empty(),
+                "cannot write artifact with file resources",
+            );
+
+            if let Some(metadata) = metadata {
+                // Path already exists, so validate that it's a file
+                // and return early
+
+                anyhow::ensure!(
+                    metadata.is_file(),
+                    "trying to write file for artifact, but non-file exists at {}",
+                    output_path.display()
+                );
+                return Ok(());
+            }
+
+            // Write the file to a temp path
+            let temp_path = temp_dir.join(format!("temp-file-{}", ulid::Ulid::new()));
+            crate::output::create_output(
+                brioche,
+                artifact,
+                crate::output::OutputOptions {
+                    link_locals: false,
+                    merge: false,
+                    output_path: &temp_path,
+                    resource_dir: None,
+                    mtime: None,
+                },
+            )
+            .await?;
+
+            // Rename the file to its final path
+            tokio::fs::rename(&temp_path, output_path).await?;
+        }
+        Artifact::Symlink { .. } => {
+            if let Some(metadata) = metadata {
+                // Path already exists, so validate that it's a symlink
+                // and return early
+
+                anyhow::ensure!(
+                    metadata.is_symlink(),
+                    "trying to write symlink for artifact, but non-symlink exists at {}",
+                    output_path.display()
+                );
+                return Ok(());
+            }
+
+            // Create the symlink
+            crate::output::create_output(
+                brioche,
+                artifact,
+                crate::output::OutputOptions {
+                    link_locals: false,
+                    merge: false,
+                    output_path,
+                    resource_dir: None,
+                    mtime: None,
+                },
+            )
+            .await?;
+        }
+        Artifact::Directory(directory) => {
+            if let Some(metadata) = metadata {
+                // Path already exists, so validate that it's a directory
+
+                anyhow::ensure!(
+                    metadata.is_dir(),
+                    "trying to write directory for artifact, but non-directory exists at {}",
+                    output_path.display()
+                );
+            } else {
+                // Directory doesn't exist, so create it
+
+                let result = tokio::fs::create_dir(output_path).await;
+                match result {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                        // Directory was created since we got the path
+                        // metadata, so treat this as a success
+                    }
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!("failed to create directory {}", output_path.display())
+                        })?;
+                    }
+                }
+            }
+
+            // Write each entry artifact
+            let entries = directory.entries(brioche).await?;
+            for (name, entry) in entries {
+                let name = name
+                    .to_str()
+                    .with_context(|| format!("invalid filename {name:?} in artifact"))?;
+                let entry_path = output_path.join(name);
+                Box::pin(write_artifact_atomic(
+                    brioche,
+                    &entry,
+                    &entry_path,
+                    temp_dir,
+                ))
+                .await?;
+            }
         }
     }
 
