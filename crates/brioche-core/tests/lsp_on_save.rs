@@ -32,7 +32,7 @@ async fn test_lsp_on_save_respects_existing_lock() -> anyhow::Result<()> {
     let project_dir = context.mkdir("myproject").await;
 
     let lockfile = brioche_core::project::Lockfile {
-        dependencies: [("foo".to_string(), foo_hash)].into_iter().collect(),
+        dependencies: std::iter::once(("foo".to_string(), foo_hash)).collect(),
         ..Default::default()
     };
     context
@@ -125,7 +125,7 @@ async fn test_lsp_on_save_fetches_locked_dependency() -> anyhow::Result<()> {
     let project_dir = context.mkdir("myproject").await;
 
     let lockfile = brioche_core::project::Lockfile {
-        dependencies: [("foo".to_string(), foo_hash)].into_iter().collect(),
+        dependencies: std::iter::once(("foo".to_string(), foo_hash)).collect(),
         ..Default::default()
     };
     context
@@ -392,7 +392,7 @@ async fn test_lsp_on_save_fetches_dependency_and_updates_lockfile() -> anyhow::R
     assert_eq!(
         project_lockfile,
         brioche_core::project::Lockfile {
-            dependencies: [("foo".into(), foo_hash)].into_iter().collect(),
+            dependencies: std::iter::once(("foo".into(), foo_hash)).collect(),
             ..Default::default()
         },
     );
@@ -501,7 +501,7 @@ async fn test_lsp_on_save_only_adds_new_dependencies_in_lockfile() -> anyhow::Re
     // Initial lockfile contains out-of-date dependencies, downloads, and
     // git refs
     let project_initial_lockfile = brioche_core::project::Lockfile {
-        dependencies: [("bar".into(), bar_hash)].into_iter().collect(),
+        dependencies: std::iter::once(("bar".into(), bar_hash)).collect(),
         downloads: std::iter::once((
             "https://example.com/".parse().unwrap(),
             brioche_core::Hasher::new_sha256().finish().unwrap(),

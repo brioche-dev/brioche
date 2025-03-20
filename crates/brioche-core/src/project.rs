@@ -869,7 +869,7 @@ impl WorkspaceHash {
     }
 
     pub fn validate_matches(&self, workspace: &Workspace) -> anyhow::Result<()> {
-        let actual_hash = WorkspaceHash::from_serializable(workspace)?;
+        let actual_hash = Self::from_serializable(workspace)?;
         anyhow::ensure!(
             self == &actual_hash,
             "workspace hash does not match expected hash"
@@ -877,7 +877,7 @@ impl WorkspaceHash {
         Ok(())
     }
 
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(blake3::Hash::from_bytes(bytes))
     }
 
@@ -886,15 +886,15 @@ impl WorkspaceHash {
         Ok(Self::from_bytes(bytes))
     }
 
-    pub fn as_bytes(&self) -> &[u8; 32] {
+    pub const fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
     }
 
-    pub fn as_slice(&self) -> &[u8] {
+    pub const fn as_slice(&self) -> &[u8] {
         self.as_bytes().as_slice()
     }
 
-    pub fn blake3(&self) -> &blake3::Hash {
+    pub const fn blake3(&self) -> &blake3::Hash {
         &self.0
     }
 }

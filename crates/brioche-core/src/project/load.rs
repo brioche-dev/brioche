@@ -110,18 +110,21 @@ async fn build_project_graph(
                 let referrer_path = referrer
                     .as_ref()
                     .and_then(|(parent_node, _)| graph.node_weight(*parent_node));
-                if let Some(referrer_path) = referrer_path {
-                    format!(
-                        "failed to canonicalize project path {} (referenced from {})",
-                        project_path.display(),
-                        referrer_path.display()
-                    )
-                } else {
-                    format!(
-                        "failed to canonicalize project path {}",
-                        project_path.display()
-                    )
-                }
+                referrer_path.map_or_else(
+                    || {
+                        format!(
+                            "failed to canonicalize project path {}",
+                            project_path.display()
+                        )
+                    },
+                    |referrer_path| {
+                        format!(
+                            "failed to canonicalize project path {} (referenced from {})",
+                            project_path.display(),
+                            referrer_path.display()
+                        )
+                    },
+                )
             })?;
 
         // Get or insert the node for the resolved project path

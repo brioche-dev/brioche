@@ -657,7 +657,7 @@ impl TestContext {
 
     pub async fn temp_project_by_path(
         &self,
-        f: impl AsyncFnOnce(&TestContext) -> PathBuf,
+        f: impl AsyncFnOnce(&Self) -> PathBuf,
     ) -> (Projects, ProjectHash, PathBuf) {
         let temp_project_path = f(self).await;
 
@@ -710,7 +710,7 @@ impl TestContext {
     pub async fn cached_registry_project_by_path(
         &mut self,
         cache: &Arc<dyn object_store::ObjectStore>,
-        f: impl AsyncFnOnce(&TestContext) -> PathBuf,
+        f: impl AsyncFnOnce(&Self) -> PathBuf,
     ) -> ProjectHash {
         // Create a temporary test context so the project does not get
         // loaded into the current context. We still use the current context
