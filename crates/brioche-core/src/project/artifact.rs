@@ -5,13 +5,15 @@ use std::{
 
 use anyhow::Context as _;
 use bstr::ByteSlice as _;
+use relative_path::RelativePathBuf;
 
 use crate::{
     Brioche,
+    project::{ProjectEntry, WorkspaceHash},
     recipe::{Artifact, ArtifactDiscriminants, Directory},
 };
 
-use super::{ProjectHash, Projects, analyze::StaticQuery};
+use super::{Project, ProjectHash, Projects, Workspace, analyze::StaticQuery};
 
 pub async fn create_artifact_with_projects(
     brioche: &Brioche,
@@ -21,6 +23,7 @@ pub async fn create_artifact_with_projects(
     let mut artifact = Directory::default();
 
     let mut written_projects = HashSet::new();
+    let mut written_workspaces = HashSet::new();
     let mut queued_projects = VecDeque::from_iter(project_hashes.iter().copied());
     let mut permit = crate::blob::get_save_blob_permit().await?;
 
@@ -30,130 +33,66 @@ pub async fn create_artifact_with_projects(
             continue;
         }
 
-        let mut project_artifact = Directory::default();
-
-        // Get the project
-        let project = projects
-            .project_entry(project_hash)
-            .with_context(|| format!("project {project_hash} not loaded"))?;
-        let project = match project {
-            super::ProjectEntry::WorkspaceMember { .. } => {
-                todo!();
-            }
-            super::ProjectEntry::Project(project) => project,
-        };
-
         // Enqueue each dependency so they get added to the artifact
         let project_dependencies = projects.project_dependencies(project_hash)?;
         queued_projects.extend(project_dependencies.into_values());
 
-        // Add statics to the artifact
-        for (module_path, statics) in &project.statics {
-            for (static_, output) in statics {
-                let Some(output) = output else {
-                    continue;
-                };
+        // Get the project entry
+        let project = projects
+            .project_entry(project_hash)
+            .with_context(|| format!("project {project_hash} not loaded"))?;
+        match project {
+            super::ProjectEntry::Project(project) => {
+                // A normal (non-cyclic) project. Build an artifact for it
+                // and add it to the root of the artifact
 
-                let recipe_hash = static_.output_recipe_hash(output)?;
+                let project_artifact = project_artifact(brioche, &project, &mut permit).await?;
 
-                let module_dir = module_path.parent().context("no parent dir for module")?;
+                let project_path = project_hash.to_string();
+                insert_non_conflicting(
+                    brioche,
+                    &mut artifact,
+                    project_path.as_bytes(),
+                    &Artifact::Directory(project_artifact),
+                )
+                .await?;
+            }
+            super::ProjectEntry::WorkspaceMember {
+                workspace: workspace_hash,
+                path,
+            } => {
+                // A project that's part of a (cyclic) workspace
+                let workspace_path = format!("workspace-{workspace_hash}");
+                let project_path = project_hash.to_string();
 
-                match static_ {
-                    StaticQuery::Include(include) => {
-                        let recipe_hash =
-                            recipe_hash.context("no recipe hash for include static")?;
-                        let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
-                        let artifact: crate::recipe::Artifact =
-                            recipe.try_into().map_err(|_| {
-                                anyhow::anyhow!("included static recipe is not an artifact")
-                            })?;
-
-                        let include_path = module_dir.join(include.path());
-                        insert_non_conflicting(
-                            brioche,
-                            &mut project_artifact,
-                            include_path.as_str().as_bytes(),
-                            &artifact,
-                        )
-                        .await?;
-                    }
-                    StaticQuery::Glob { .. } => {
-                        let recipe_hash = recipe_hash.context("no recipe hash for glob static")?;
-                        let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
-                        let artifact: crate::recipe::Artifact =
-                            recipe.try_into().map_err(|_| {
-                                anyhow::anyhow!("included static recipe is not an artifact")
-                            })?;
-
-                        insert_merge(
-                            brioche,
-                            &mut project_artifact,
-                            module_dir.as_str().as_bytes(),
-                            &artifact,
-                        )
-                        .await?;
-                    }
-                    StaticQuery::Download { .. } | StaticQuery::GitRef { .. } => {
-                        // Nothing to add
-                    }
+                // Add the workspace to the artifact if it hasn't
+                // already been added
+                if !written_workspaces.insert(workspace_hash) {
+                    let workspace = projects.workspace(workspace_hash)?;
+                    let workspace_artifact =
+                        workspace_artifact(brioche, &workspace, &mut permit).await?;
+                    insert_non_conflicting(
+                        brioche,
+                        &mut artifact,
+                        workspace_path.as_bytes(),
+                        &Artifact::Directory(workspace_artifact),
+                    )
+                    .await?;
                 }
+
+                // Add a symlink for the project into the workspace
+                let project_target = format!("{workspace_path}/{path}");
+                insert_non_conflicting(
+                    brioche,
+                    &mut artifact,
+                    project_path.as_bytes(),
+                    &Artifact::Symlink {
+                        target: project_target.into(),
+                    },
+                )
+                .await?;
             }
         }
-
-        // Add each module to the artifact
-        for (module_path, file_id) in &project.modules {
-            let content_blob = crate::vfs::commit_blob(brioche, *file_id).await?;
-
-            let module_artifact = Artifact::File(crate::recipe::File {
-                content_blob,
-                executable: false,
-                resources: Directory::default(),
-            });
-
-            insert_non_conflicting(
-                brioche,
-                &mut project_artifact,
-                module_path.as_str().as_bytes(),
-                &module_artifact,
-            )
-            .await?;
-        }
-
-        // Add the lockfile to the artifact
-        let lockfile = super::project_lockfile(&project);
-        let lockfile_contents =
-            serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
-
-        let lockfile_blob = crate::blob::save_blob(
-            brioche,
-            &mut permit,
-            lockfile_contents.as_bytes(),
-            crate::blob::SaveBlobOptions::default(),
-        )
-        .await?;
-        let lockfile_artifact = Artifact::File(crate::recipe::File {
-            content_blob: lockfile_blob,
-            executable: false,
-            resources: Directory::default(),
-        });
-
-        insert_non_conflicting(
-            brioche,
-            &mut project_artifact,
-            b"brioche.lock",
-            &lockfile_artifact,
-        )
-        .await?;
-
-        // Add the project to the root artifact
-        let project_path = project_hash.to_string();
-        insert_non_conflicting(
-            brioche,
-            &mut artifact,
-            project_path.as_bytes(),
-            &Artifact::Directory(project_artifact),
-        )
-        .await?;
     }
 
     Ok(artifact)
@@ -164,25 +103,95 @@ pub async fn save_projects_from_artifact(
     projects: &Projects,
     artifact: &Directory,
 ) -> anyhow::Result<HashSet<ProjectHash>> {
-    // Get a list of all project hashes included in the artifact, and validate
-    // that each one has a valid name
     let mut project_hashes = HashSet::new();
+    let mut needed_workspace_hashes = HashSet::new();
+    let mut included_workspace_hashes = HashSet::new();
+
+    // Validate that the projects and workspaces in the project look valid
+    // based on their filenames and file types
     let artifact_entries = artifact.entries(brioche).await?;
     for (name, entry) in &artifact_entries {
         let name = name
             .to_str()
             .with_context(|| format!("non UTF-8 filename in artifact: {name:?}"))?;
-        let project_hash: ProjectHash = name
-            .parse()
-            .with_context(|| format!("invalid filename in artifact: {name:?}"))?;
 
-        anyhow::ensure!(
-            matches!(entry, Artifact::Directory(_)),
-            "expected artifact entry for project {project_hash} to be a directory"
-        );
+        if let Some(workspace_hash) = name.strip_prefix("workspace-") {
+            // Artifact entry looks like a workspace ("workspace-{hash}")
 
-        project_hashes.insert(project_hash);
+            // Parse the workspace hash from the filename
+            let workspace_hash: WorkspaceHash = workspace_hash
+                .parse()
+                .with_context(|| format!("invalid filename in artifact: {name:?}"))?;
+            included_workspace_hashes.insert(workspace_hash);
+
+            // Validate that the workspace is stored as a directory
+            anyhow::ensure!(
+                matches!(entry, Artifact::Directory(_)),
+                "expected artifact entry for workspace {workspace_hash} to be a directory"
+            );
+        } else {
+            // Artifact entry should be a project
+
+            // Parse the project hash from the entry name
+            let project_hash: ProjectHash = name
+                .parse()
+                .with_context(|| format!("invalid filename in artifact: {name:?}"))?;
+            project_hashes.insert(project_hash);
+
+            match entry {
+                Artifact::Directory(_) => {
+                    // Normal project (not part of a workspace)
+                }
+                Artifact::Symlink { target } => {
+                    // Project is a symlink, which indicates its a member
+                    // of a workspace
+
+                    let target = target.to_str().with_context(|| {
+                        format!("non UTF-8 symlink target in artifact: {target:?}")
+                    })?;
+
+                    // Parse the workspace hash and member path from
+                    // the symlink target
+                    let (workspace_path, member_path) = target.split_once('/').with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
+                    let workspace_hash = workspace_path.strip_prefix("workspace-").with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
+                    let workspace_hash: WorkspaceHash = workspace_hash.parse().with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
+                    let member_path = RelativePathBuf::from(member_path);
+                    anyhow::ensure!(
+                        member_path.is_normalized(),
+                        "invlaid workspace member symlink for project {project_hash} in artifact"
+                    );
+                    needed_workspace_hashes.insert(workspace_hash);
+
+                    // Validate that the project hash matches using the
+                    // workspace hash and the member path
+                    let project_entry = ProjectEntry::WorkspaceMember {
+                        workspace: workspace_hash,
+                        path: member_path,
+                    };
+                    let project_entry_hash = ProjectHash::from_serializable(&project_entry)?;
+                    anyhow::ensure!(
+                        project_hash == project_entry_hash,
+                        "project hash {project_hash} did not match hash for workspace member for symlink {target}"
+                    );
+                }
+                Artifact::File(_) => {
+                    anyhow::bail!("did not expect project {project_hash} to be a file");
+                }
+            }
+        }
     }
+
+    // Validate that there are no missing or extra workspaces
+    let missing_workspaces: HashSet<_> = needed_workspace_hashes
+        .difference(&included_workspace_hashes)
+        .collect();
+    let extra_workspaces: HashSet<_> = included_workspace_hashes
+        .difference(&needed_workspace_hashes)
+        .collect();
+    anyhow::ensure!(
+        missing_workspaces.is_empty() && extra_workspaces.is_empty(),
+        "the set of workspaces in project artifact does not match the set of workspaces needed by the projects from the artifact (missing: {missing_workspaces:?}, extra: {extra_workspaces:?})"
+    );
 
     // Save the contents of the artifact under `projects/inner`
     let inner_dir_path = brioche.data_dir.join("projects").join("inner");
@@ -232,6 +241,158 @@ pub async fn save_projects_from_artifact(
     }
 
     Ok(project_hashes)
+}
+
+async fn project_artifact(
+    brioche: &Brioche,
+    project: &Project,
+    permit: &mut crate::blob::SaveBlobPermit<'_>,
+) -> anyhow::Result<Directory> {
+    let mut project_artifact = Directory::default();
+
+    // Add statics to the artifact
+    for (module_path, statics) in &project.statics {
+        for (static_, output) in statics {
+            let Some(output) = output else {
+                continue;
+            };
+
+            let recipe_hash = static_.output_recipe_hash(output)?;
+
+            let module_dir = module_path.parent().context("no parent dir for module")?;
+
+            match static_ {
+                StaticQuery::Include(include) => {
+                    let recipe_hash = recipe_hash.context("no recipe hash for include static")?;
+                    let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
+                    let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
+                        anyhow::anyhow!("included static recipe is not an artifact")
+                    })?;
+
+                    let include_path = module_dir.join(include.path());
+                    insert_non_conflicting(
+                        brioche,
+                        &mut project_artifact,
+                        include_path.as_str().as_bytes(),
+                        &artifact,
+                    )
+                    .await?;
+                }
+                StaticQuery::Glob { .. } => {
+                    let recipe_hash = recipe_hash.context("no recipe hash for glob static")?;
+                    let recipe = crate::recipe::get_recipe(brioche, recipe_hash).await?;
+                    let artifact: crate::recipe::Artifact = recipe.try_into().map_err(|_| {
+                        anyhow::anyhow!("included static recipe is not an artifact")
+                    })?;
+
+                    insert_merge(
+                        brioche,
+                        &mut project_artifact,
+                        module_dir.as_str().as_bytes(),
+                        &artifact,
+                    )
+                    .await?;
+                }
+                StaticQuery::Download { .. } | StaticQuery::GitRef { .. } => {
+                    // Nothing to add
+                }
+            }
+        }
+    }
+
+    // Add each module to the artifact
+    for (module_path, file_id) in &project.modules {
+        let content_blob = crate::vfs::commit_blob(brioche, *file_id).await?;
+
+        let module_artifact = Artifact::File(crate::recipe::File {
+            content_blob,
+            executable: false,
+            resources: Directory::default(),
+        });
+
+        insert_non_conflicting(
+            brioche,
+            &mut project_artifact,
+            module_path.as_str().as_bytes(),
+            &module_artifact,
+        )
+        .await?;
+    }
+
+    // Add the lockfile to the artifact
+    let lockfile = super::project_lockfile(project);
+    let lockfile_contents =
+        serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
+
+    let lockfile_blob = crate::blob::save_blob(
+        brioche,
+        permit,
+        lockfile_contents.as_bytes(),
+        crate::blob::SaveBlobOptions::default(),
+    )
+    .await?;
+    let lockfile_artifact = Artifact::File(crate::recipe::File {
+        content_blob: lockfile_blob,
+        executable: false,
+        resources: Directory::default(),
+    });
+
+    insert_non_conflicting(
+        brioche,
+        &mut project_artifact,
+        b"brioche.lock",
+        &lockfile_artifact,
+    )
+    .await?;
+
+    Ok(project_artifact)
+}
+async fn workspace_artifact(
+    brioche: &Brioche,
+    workspace: &Workspace,
+    permit: &mut crate::blob::SaveBlobPermit<'_>,
+) -> anyhow::Result<Directory> {
+    let mut workspace_artifact = Directory::default();
+
+    // Add each workspace member to the artifact
+    for (path, member) in &workspace.members {
+        let member_artifact = project_artifact(brioche, member, permit).await?;
+        insert_non_conflicting(
+            brioche,
+            &mut workspace_artifact,
+            path.as_str().as_bytes(),
+            &Artifact::Directory(member_artifact),
+        )
+        .await?;
+    }
+    // Add the workspace definition to the artifact
+    let workspace_definition =
+        super::workspace_definition(workspace).context("failed to create workspace definition")?;
+    let workspace_definition_contents =
+        toml::to_string_pretty(&workspace_definition).context("failed to serialize lockfile")?;
+
+    let workspace_definition_blob = crate::blob::save_blob(
+        brioche,
+        permit,
+        workspace_definition_contents.as_bytes(),
+        crate::blob::SaveBlobOptions::default(),
+    )
+    .await?;
+    let workspace_definition_artifact = Artifact::File(crate::recipe::File {
+        content_blob: workspace_definition_blob,
+        executable: false,
+        resources: Directory::default(),
+    });
+
+    insert_non_conflicting(
+        brioche,
+        &mut workspace_artifact,
+        b"brioche_workspace.toml",
+        &workspace_definition_artifact,
+    )
+    .await?;
+
+    Ok(workspace_artifact)
 }
 
 async fn insert_non_conflicting(

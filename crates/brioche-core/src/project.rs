@@ -271,6 +271,14 @@ impl Projects {
         projects.project_dependencies(project_hash)
     }
 
+    fn workspace(&self, workspace_hash: WorkspaceHash) -> anyhow::Result<Arc<Workspace>> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        projects.workspace(workspace_hash).cloned()
+    }
+
     pub fn local_paths(&self, project_hash: ProjectHash) -> anyhow::Result<BTreeSet<PathBuf>> {
         let projects = self
             .inner
@@ -439,6 +447,14 @@ impl ProjectsInner {
             },
         };
         Ok(dependencies)
+    }
+
+    fn workspace(&self, workspace_hash: WorkspaceHash) -> anyhow::Result<&Arc<Workspace>> {
+        let workspace = self
+            .workspaces
+            .get(&workspace_hash)
+            .with_context(|| format!("workspace not found for hash {workspace_hash}"))?;
+        Ok(workspace)
     }
 
     fn local_paths(&self, project_hash: ProjectHash) -> Option<impl Iterator<Item = &Path> + '_> {
@@ -948,4 +964,48 @@ fn project_lockfile(project: &Project) -> Lockfile {
         downloads,
         git_refs,
     }
+}
+
+fn workspace_definition(workspace: &Workspace) -> anyhow::Result<WorkspaceDefinition> {
+    let members = workspace
+        .members
+        .keys()
+        .map(|path| {
+            let Some(last_component) = path.components().next_back() else {
+                anyhow::bail!("invalid workspace member path: {path}");
+            };
+
+            let last_component = match last_component {
+                relative_path::Component::CurDir | relative_path::Component::ParentDir => {
+                    anyhow::bail!("invalid workspace member path: {path}");
+                }
+                relative_path::Component::Normal(component) => component,
+            };
+
+            // Shouldn't fail since we already validated the last component exists
+            let path = path.parent().expect("parent path not found").to_owned();
+
+            for component in path.components() {
+                match component {
+                    relative_path::Component::ParentDir => {
+                        anyhow::bail!("invalid workspace member path: {path}");
+                    }
+                    relative_path::Component::CurDir => {}
+                    relative_path::Component::Normal(component) => {
+                        anyhow::ensure!(
+                            !component.contains('*'),
+                            "invalid wildcard in workspace member path: {path}"
+                        );
+                    }
+                }
+            }
+
+            anyhow::ensure!(
+                !last_component.contains('*'),
+                "invlaid workspace member path: {path}"
+            );
+            Ok(WorkspaceMember::Path(path, last_component.to_string()))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    Ok(WorkspaceDefinition { members })
 }
