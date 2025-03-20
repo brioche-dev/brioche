@@ -1619,6 +1619,106 @@ async fn test_project_load_brioche_include_file_as_directory_error() -> anyhow::
     Ok(())
 }
 
+#[tokio::test]
+async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() -> anyhow::Result<()> {
+    let cache = brioche_test_support::new_cache();
+
+    let foo_hash = {
+        let (brioche, context) = brioche_test_with_cache(cache.clone(), true).await;
+
+        // Create a project
+        let foo_project_dir = context.mkdir("foo").await;
+        context
+            .write_file(
+                "foo/project.bri",
+                r#"
+                    // Foo
+                "#,
+            )
+            .await;
+        let (projects, foo_hash) =
+            brioche_test_support::load_project(&brioche, &foo_project_dir).await?;
+
+        // Create an artifact from the project
+        let mut foo_project_artifact =
+            brioche_core::project::artifact::create_artifact_with_projects(
+                &brioche,
+                &projects,
+                &[foo_hash],
+            )
+            .await?;
+
+        // Read the current `project.bri` file from the current blob to
+        // validate it exists at the path we expect
+        let artifact_project_bri_path = format!("{foo_hash}/project.bri");
+        let previous_project_bri_blob = foo_project_artifact
+            .get(&brioche, artifact_project_bri_path.as_bytes())
+            .await
+            .unwrap();
+        assert_matches!(previous_project_bri_blob, Some(_));
+
+        // Change the artifact so thta the project hash no longer matches
+        // the expected hash
+        let new_project_bri_blob = brioche_test_support::blob(
+            &brioche,
+            r#"
+                // Foo
+                // (This file has been modified so the hash shouldn't match anymore)
+                export const uhOh = "uh oh";
+            "#,
+        )
+        .await;
+        foo_project_artifact
+            .insert(
+                &brioche,
+                artifact_project_bri_path.as_bytes(),
+                Some(brioche_test_support::file(new_project_bri_blob, false)),
+            )
+            .await?;
+
+        // Publish the artifact to the cache with the (incorrect) project hash
+        let foo_artifact = brioche_core::recipe::Artifact::Directory(foo_project_artifact);
+        let foo_artifact_hash = foo_artifact.hash();
+        brioche_core::cache::save_artifact(&brioche, foo_artifact).await?;
+        brioche_core::cache::save_project_artifact_hash(&brioche, foo_hash, foo_artifact_hash)
+            .await?;
+
+        foo_hash
+    };
+
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
+
+    let mock_foo_latest = context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
+        .await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    // Try loading the project. This should fail because `foo` doesn't
+    // have the right hash
+    let result = brioche_test_support::load_project(&brioche, &project_dir)
+        .await
+        .map(|(_, hash)| hash);
+    assert_matches!(result, Err(_));
+
+    mock_foo_latest.assert_async().await;
+
+    Ok(())
+}
+
 async fn brioche_test_with_cache(
     cache: Arc<dyn object_store::ObjectStore>,
     writable: bool,
