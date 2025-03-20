@@ -164,130 +164,74 @@ pub async fn save_projects_from_artifact(
     projects: &Projects,
     artifact: &Directory,
 ) -> anyhow::Result<HashSet<ProjectHash>> {
-    let mut loaded_projects = HashSet::new();
-    let mut unloaded_projects = vec![];
-
-    // Iterate through each entry in the directory. Each one should be a
-    // project directory named after its hash
-    let entries = artifact.entries(brioche).await?;
-    for (name, entry) in entries {
+    // Get a list of all project hashes included in the artifact, and validate
+    // that each one has a valid name
+    let mut project_hashes = HashSet::new();
+    let artifact_entries = artifact.entries(brioche).await?;
+    for (name, entry) in &artifact_entries {
         let name = name
             .to_str()
-            .with_context(|| format!("path {name} is not valid UTF-8"))?;
+            .with_context(|| format!("non UTF-8 filename in artifact: {name:?}"))?;
         let project_hash: ProjectHash = name
             .parse()
-            .with_context(|| format!("path {name} is not a valid project hash"))?;
-        let Artifact::Directory(entry) = entry else {
-            anyhow::bail!("expected path {name} to be a directory");
-        };
+            .with_context(|| format!("invalid filename in artifact: {name:?}"))?;
 
-        let local_path = brioche
-            .data_dir
-            .join("projects")
-            .join(project_hash.to_string());
-
-        if projects.project(project_hash).is_ok() {
-            // Project has already been loaded, so no need to save it
-            // from the artifact
-            loaded_projects.insert(project_hash);
-        } else {
-            // Project has not been loaded, so queue it to be loaded
-            unloaded_projects.push((project_hash, local_path, entry));
-        }
-    }
-
-    let mut ready_paths = vec![];
-    let mut needed_paths = vec![];
-
-    for (project_hash, local_path, artifact) in unloaded_projects {
-        let local_project_hash = super::load::local_project_hash(brioche, &local_path).await?;
-        if local_project_hash == Some(project_hash) {
-            // Project already exists on disk and matches the expected hash,
-            // so we can load it from the local directory
-            ready_paths.push((project_hash, local_path));
-        } else {
-            // Project does not exist (or has a different hash), so we
-            // should save it from the artifact
-            needed_paths.push((project_hash, local_path, artifact));
-        }
-    }
-
-    if !needed_paths.is_empty() {
-        // We have some projects to save from the artifact
-
-        // We store projects under `projects/inner/{hash}`, then create
-        // symlinks once all projects have been saved. This ensures that, if
-        // `projects/{hash}` exists, we know all of its dependencies have
-        // been saved
-        let inner_dir_path = brioche.data_dir.join("projects").join("inner");
-        tokio::fs::create_dir_all(&inner_dir_path).await?;
-
-        let mut new_symlinks = vec![];
-
-        for (project_hash, local_path, entry) in needed_paths {
-            let inner_path = inner_dir_path.join(project_hash.to_string());
-
-            // Remove any partially-written project files if they exist
-            let _ = tokio::fs::remove_dir_all(&inner_path).await;
-
-            // Write the project to the inner directory
-            crate::output::create_output(
-                brioche,
-                &Artifact::Directory(entry),
-                crate::output::OutputOptions {
-                    output_path: &inner_path,
-                    resource_dir: None,
-                    merge: false,
-                    mtime: None,
-                    link_locals: true,
-                },
-            )
-            .await?;
-
-            // Queue up the symlink to create
-            new_symlinks.push((
-                project_hash,
-                local_path,
-                Path::new("inner").join(project_hash.to_string()),
-            ));
-        }
-
-        // Create each symlink
-        for (project_hash, local_path, target_path) in new_symlinks {
-            match tokio::fs::symlink(target_path, &local_path).await {
-                Ok(_) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(error) => {
-                    return Err(error.into());
-                }
-            }
-
-            ready_paths.push((project_hash, local_path));
-        }
-    }
-
-    // Load each unloaded project from the local path
-    for (expected_project_hash, local_path) in ready_paths {
-        let project_hash = projects
-            .load(
-                brioche,
-                &local_path,
-                crate::project::ProjectValidation::Standard,
-                crate::project::ProjectLocking::Locked,
-            )
-            .await?;
-
-        // Validate that the project hash matches
         anyhow::ensure!(
-            expected_project_hash == project_hash,
-            "expected directory {} to have project hash {expected_project_hash}, but was {project_hash}",
-            local_path.display()
+            matches!(entry, Artifact::Directory(_)),
+            "expected artifact entry for project {project_hash} to be a directory"
         );
 
-        loaded_projects.insert(project_hash);
+        project_hashes.insert(project_hash);
     }
 
-    Ok(loaded_projects)
+    // Save the contents of the artifact under `projects/inner`
+    let inner_dir_path = brioche.data_dir.join("projects").join("inner");
+    tokio::fs::create_dir_all(&inner_dir_path).await?;
+    crate::output::create_output(
+        brioche,
+        &Artifact::Directory(artifact.clone()),
+        crate::output::OutputOptions {
+            link_locals: false,
+            merge: true,
+            output_path: &inner_dir_path,
+            resource_dir: None,
+            mtime: None,
+        },
+    )
+    .await?;
+
+    // Create a symlink within `projects` to each project added to
+    // `projects/inner`. We create a symlink within `projects` only after
+    // everything from the artifact is saved so that projects are created
+    // atomically (e.g. so a project isn't written to disk before its
+    // dependencies).
+    for project_hash in &project_hashes {
+        let project_hash_string = project_hash.to_string();
+        let project_symlink = brioche.data_dir.join("projects").join(&project_hash_string);
+        let project_target = Path::new("inner").join(&project_hash_string);
+        tokio::fs::symlink(project_target, project_symlink).await?;
+    }
+
+    // Load each project and validate that the hashes match
+    for project_hash in &project_hashes {
+        let project_hash_string = project_hash.to_string();
+        let project_symlink = brioche.data_dir.join("projects").join(&project_hash_string);
+
+        let loaded_project_hash = projects
+            .load(
+                brioche,
+                &project_symlink,
+                super::ProjectValidation::Standard,
+                super::ProjectLocking::Locked,
+            )
+            .await?;
+        anyhow::ensure!(
+            *project_hash == loaded_project_hash,
+            "saved project {project_hash} from cache, but it had unexpected hash {loaded_project_hash} after loading",
+        );
+    }
+
+    Ok(project_hashes)
 }
 
 async fn insert_non_conflicting(

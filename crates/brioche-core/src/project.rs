@@ -130,14 +130,9 @@ impl Projects {
         let project_hash = load::resolve_project_from_registry(brioche, project_name, version)
             .await
             .with_context(|| format!("failed to resolve '{project_name}' from registry"))?;
-        let local_path = load::fetch_project_from_cache(
-            self,
-            brioche,
-            project_hash,
-            ProjectValidation::Standard,
-        )
-        .await
-        .with_context(|| format!("failed to fetch '{project_name}' from registry"))?;
+        let local_path = load::fetch_project_from_cache(self, brioche, project_hash)
+            .await
+            .with_context(|| format!("failed to fetch '{project_name}' from registry"))?;
 
         let loaded_project_hash = self
             .load(

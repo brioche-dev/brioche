@@ -710,14 +710,9 @@ async fn resolve_dependency_version_to_local_path(
         },
     };
 
-    let local_path = fetch_project_from_cache(
-        &config.projects,
-        &config.brioche,
-        dep_hash,
-        config.validation,
-    )
-    .await
-    .with_context(|| format!("failed to fetch '{dependency_name}' from cache"))?;
+    let local_path = fetch_project_from_cache(&config.projects, &config.brioche, dep_hash)
+        .await
+        .with_context(|| format!("failed to fetch '{dependency_name}' from cache"))?;
 
     Ok(ResolvedDependency {
         local_path,
@@ -753,7 +748,6 @@ pub async fn fetch_project_from_cache(
     projects: &Projects,
     brioche: &Brioche,
     project_hash: ProjectHash,
-    validation: ProjectValidation,
 ) -> anyhow::Result<PathBuf> {
     // Use a mutex to ensure we don't try to fetch the same project more
     // than once at a time
@@ -771,22 +765,11 @@ pub async fn fetch_project_from_cache(
         .join("projects")
         .join(project_hash.to_string());
 
-    match validation {
-        ProjectValidation::Standard => {
-            let local_project_hash = local_project_hash(brioche, &local_path).await?;
-            if local_project_hash == Some(project_hash) {
-                // Local project hash matches, so no need to fetch
-                return Ok(local_path);
-            }
-        }
-        ProjectValidation::Minimal => {
-            let local_project_exists = tokio::fs::try_exists(&local_path).await?;
-            if local_project_exists {
-                // Directory for the local project exists. No need to fetch,
-                // and no need to validate since validation wasn't requested
-                return Ok(local_path);
-            }
-        }
+    let local_project_exists = tokio::fs::try_exists(&local_path).await?;
+    if local_project_exists {
+        // Directory for the local project exists. No need to fetch. The
+        // hash is also validated later on
+        return Ok(local_path);
     }
 
     // By this point, we know the project doesn't exist locally so we
@@ -1198,92 +1181,6 @@ async fn resolve_static(
             Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }))
         }
     }
-}
-
-// TODO: This should be refactored to share code with `load_project_inner`
-pub async fn local_project_hash(
-    brioche: &Brioche,
-    path: &Path,
-) -> anyhow::Result<Option<ProjectHash>> {
-    let real_path = tokio::fs::canonicalize(path).await;
-    let path = match real_path {
-        Ok(path) => path,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(None);
-        }
-        Err(error) => {
-            return Err(error).context(format!("failed to canonicalize path {}", path.display()));
-        }
-    };
-
-    let project_analysis = super::analyze::analyze_project(&brioche.vfs, &path).await;
-    let Ok(project_analysis) = project_analysis else {
-        return Ok(None);
-    };
-
-    let lockfile_path = path.join("brioche.lock");
-    let lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await;
-    let lockfile: Lockfile = match lockfile_contents {
-        Ok(contents) => match serde_json::from_str(&contents) {
-            Ok(lockfile) => lockfile,
-            Err(_) => {
-                return Ok(None);
-            }
-        },
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(None);
-        }
-        Err(error) => {
-            return Err(error).context(format!(
-                "failed to read lockfile at {}",
-                lockfile_path.display()
-            ));
-        }
-    };
-
-    let modules = project_analysis
-        .local_modules
-        .values()
-        .map(|module| (module.project_subpath.clone(), module.file_id))
-        .collect();
-    let mut statics = HashMap::new();
-    for module in project_analysis.local_modules.values() {
-        let mut module_statics = BTreeMap::new();
-        for static_ in &module.statics {
-            let static_output = resolve_static(
-                brioche,
-                &path,
-                module,
-                static_,
-                ProjectLocking::Locked,
-                &mut LockfileState {
-                    current_lockfile: Some(lockfile.clone()),
-                    fresh_lockfile: Lockfile::default(),
-                },
-            )
-            .await?;
-            module_statics.insert(static_.clone(), Some(static_output));
-        }
-
-        if !module_statics.is_empty() {
-            statics.insert(module.project_subpath.clone(), module_statics);
-        }
-    }
-
-    let dependencies = lockfile
-        .dependencies
-        .into_iter()
-        .map(|(dep_name, dep_hash)| (dep_name, DependencyRef::Project(dep_hash)))
-        .collect();
-    let project = Project {
-        definition: project_analysis.definition,
-        dependencies,
-        modules,
-        statics,
-    };
-    let project_hash = ProjectHash::from_serializable(&project)?;
-
-    Ok(Some(project_hash))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
