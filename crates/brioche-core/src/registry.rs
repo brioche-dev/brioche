@@ -534,6 +534,7 @@ pub struct GetProjectTagResponse {
 #[serde(rename_all = "camelCase")]
 pub struct CreateProjectTagsRequest {
     pub tags: Vec<CreateProjectTagsRequestTag>,
+    pub includes_cycles: Option<bool>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -383,6 +383,17 @@ impl Projects {
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
         projects.get_static(specifier, static_)
     }
+
+    pub(crate) fn project_includes_cycles(
+        &self,
+        project_hash: ProjectHash,
+    ) -> anyhow::Result<bool> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        projects.project_includes_cycles(project_hash)
+    }
 }
 
 #[derive(Default, Clone)]
@@ -592,6 +603,26 @@ impl ProjectsInner {
             return Ok(None);
         };
         Ok(Some(output.clone()))
+    }
+
+    fn project_includes_cycles(&self, project_hash: ProjectHash) -> anyhow::Result<bool> {
+        let mut visited_projects = HashSet::new();
+        let mut queued_projects = VecDeque::from_iter([project_hash]);
+        while let Some(project_hash) = queued_projects.pop_front() {
+            if !visited_projects.insert(project_hash) {
+                continue;
+            }
+
+            let project_entry = self.project_entry(project_hash)?;
+            if matches!(project_entry, ProjectEntry::WorkspaceMember { .. }) {
+                return Ok(true);
+            }
+
+            let dependencies = self.project_dependencies(project_hash)?;
+            queued_projects.extend(dependencies.into_values());
+        }
+
+        Ok(false)
     }
 }
 
