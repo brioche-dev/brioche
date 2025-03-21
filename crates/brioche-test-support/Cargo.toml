@@ -5,26 +5,26 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-anyhow = { version = "1.0.96", features = ["backtrace"] }
+anyhow = { version = "1.0.97", features = ["backtrace"] }
 brioche-core = { path = "../brioche-core" }
 bstr = "1.11.3"
 directories = "6.0.0"
 futures = "0.3.31"
 hex = "0.4.3"
-mockito = "1.6.1"
+mockito = "1.7.0"
 object_store = { git = "https://github.com/brioche-dev/arrow-rs.git", branch = "object-store-disable-all-compression-formats" }
-reqwest = "0.12.12"
+reqwest = "0.12.15"
 reqwest-middleware = "0.4.1"
-serde = { version = "1.0.218", features = ["derive"] }
-serde_json = "1.0.139"
-tempfile = "3.17.1"
-tokio = { version = "1.43.0", features = ["full", "tracing"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+tempfile = "3.19.1"
+tokio = { version = "1.44.1", features = ["full", "tracing"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
-tokio-util = { version = "0.7.13", features = ["full"] }
+tokio-util = { version = "0.7.14", features = ["full"] }
 toml = "0.8.20"
 tower-lsp = "0.20.0"
 tracing = "0.1.41"
-ulid = "1.2.0"
+ulid = "1.2.1"
 url = "2.5.4"
 zstd = "0.13.3"
 
