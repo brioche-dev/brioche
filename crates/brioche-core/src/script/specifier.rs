@@ -336,14 +336,14 @@ pub fn resolve(
                     anyhow::bail!("module '{specifier}' not found (imported from {referrer})");
                 }
                 BriocheImportSpecifier::External(dep) => {
-                    let project = projects.project(project_hash)?;
+                    let project_dependencies = projects.project_dependencies(project_hash)?;
                     let dependency_project_hash =
-                        project.dependency_hash(dep).with_context(|| {
+                        project_dependencies.get(dep).with_context(|| {
                             format!("dependency '{specifier}' not found (imported from {referrer})")
                         })?;
 
                     let dependency_root_module_specifier =
-                        projects.project_root_module_specifier(dependency_project_hash)?;
+                        projects.project_root_module_specifier(*dependency_project_hash)?;
                     Ok(dependency_root_module_specifier)
                 }
             }

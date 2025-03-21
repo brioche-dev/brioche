@@ -12,13 +12,42 @@ use crate::{
     vfs::{FileId, Vfs},
 };
 
-use super::ProjectDefinition;
+use super::{DependencyDefinition, ProjectDefinition, Version};
 
 #[derive(Debug, Clone)]
 pub struct ProjectAnalysis {
     pub definition: super::ProjectDefinition,
     pub local_modules: HashMap<BriocheModuleSpecifier, ModuleAnalysis>,
     pub root_module: BriocheModuleSpecifier,
+}
+
+impl ProjectAnalysis {
+    pub fn dependencies(&self) -> HashMap<String, DependencyDefinition> {
+        // Include all dependencies included explicitly in the project definition
+        let mut dependencies = self.definition.dependencies.clone();
+
+        // Add all of the dependencies included implicitly from each module
+        for module in self.local_modules.values() {
+            for import_analysis in module.imports.values() {
+                let super::analyze::ImportAnalysis::ExternalProject(dep_name) = import_analysis
+                else {
+                    // Not an external project import
+                    continue;
+                };
+
+                let dep_entry = dependencies.entry(dep_name.clone());
+                let std::collections::hash_map::Entry::Vacant(dep_entry) = dep_entry else {
+                    // Dependency already added
+                    continue;
+                };
+
+                // Add the dependency, equivalent to using a version of `*`
+                dep_entry.insert(DependencyDefinition::Version(Version::Any));
+            }
+        }
+
+        dependencies
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

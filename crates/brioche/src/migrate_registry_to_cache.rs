@@ -9,7 +9,7 @@ use brioche_core::{
     Brioche,
     blob::BlobHash,
     project::{
-        Lockfile, Project, ProjectHash, Projects,
+        DependencyRef, Lockfile, Project, ProjectHash, Projects,
         analyze::{GitRefOptions, StaticOutput, StaticOutputKind, StaticQuery},
     },
     recipe::{Artifact, Recipe, RecipeHash},
@@ -469,8 +469,13 @@ async fn save_project(
     let dependencies = project
         .dependencies
         .iter()
-        .map(|(name, hash)| (name.clone(), *hash))
-        .collect();
+        .map(|(name, dep_ref)| {
+            let DependencyRef::Project(dep_hash) = dep_ref else {
+                anyhow::bail!("cannot migrate project with circular dependencies");
+            };
+            anyhow::Ok((name.clone(), *dep_hash))
+        })
+        .collect::<anyhow::Result<_>>()?;
 
     let mut downloads = BTreeMap::new();
     let mut git_refs = BTreeMap::new();

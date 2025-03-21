@@ -10,7 +10,7 @@ use sqlx::{Acquire as _, Arguments as _};
 use crate::{
     Brioche,
     blob::BlobHash,
-    project::{Project, ProjectHash, Projects},
+    project::{DependencyRef, Project, ProjectHash, Projects},
     recipe::{
         Artifact, CompleteProcessRecipe, CompleteProcessTemplateComponent, ProcessRecipe,
         ProcessTemplateComponent, Recipe, RecipeHash,
@@ -83,7 +83,12 @@ pub async fn project_references(
         } = &*project;
 
         references.projects.insert(project_hash, project.clone());
-        unvisited.extend(dependencies.values().copied());
+        for dependency in dependencies.values() {
+            let DependencyRef::Project(project_hash) = dependency else {
+                anyhow::bail!("cannot collect references for project with cyclic dependencies");
+            };
+            unvisited.push_back(*project_hash);
+        }
 
         for (module_path, module_file_id) in modules {
             let blob_hash = module_file_id.as_blob_hash()?;

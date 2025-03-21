@@ -630,11 +630,10 @@ impl TestContext {
             .await
     }
 
-    pub async fn temp_project<F, Fut>(&self, f: F) -> (Projects, ProjectHash, PathBuf)
-    where
-        F: FnOnce(PathBuf) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
+    pub async fn temp_project(
+        &self,
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> (Projects, ProjectHash, PathBuf) {
         let temp_project_path = self
             .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
             .await;
@@ -656,11 +655,31 @@ impl TestContext {
         (projects, project_hash, temp_project_path)
     }
 
-    pub async fn local_registry_project<F, Fut>(&self, f: F) -> (ProjectHash, PathBuf)
-    where
-        F: FnOnce(PathBuf) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
+    pub async fn temp_project_by_path(
+        &self,
+        f: impl AsyncFnOnce(&Self) -> PathBuf,
+    ) -> (Projects, ProjectHash, PathBuf) {
+        let temp_project_path = f(self).await;
+
+        let projects = Projects::default();
+        let project_hash = projects
+            .load(
+                &self.brioche,
+                &temp_project_path,
+                ProjectValidation::Standard,
+                ProjectLocking::Unlocked,
+            )
+            .await
+            .expect("failed to load temp project");
+        projects.commit_dirty_lockfiles().await.unwrap();
+
+        (projects, project_hash, temp_project_path)
+    }
+
+    pub async fn local_registry_project(
+        &self,
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> (ProjectHash, PathBuf) {
         let (_, project_hash, temp_project_path) = self.temp_project(f).await;
 
         let project_path = self
@@ -673,15 +692,26 @@ impl TestContext {
         (project_hash, project_path)
     }
 
-    pub async fn cached_registry_project<F, Fut>(
+    pub async fn cached_registry_project(
         &mut self,
         cache: &Arc<dyn object_store::ObjectStore>,
-        f: F,
-    ) -> ProjectHash
-    where
-        F: FnOnce(PathBuf) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> ProjectHash {
+        self.cached_registry_project_by_path(cache, async |context| {
+            let temp_project_path = context
+                .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
+                .await;
+            f(temp_project_path.clone()).await;
+            temp_project_path
+        })
+        .await
+    }
+
+    pub async fn cached_registry_project_by_path(
+        &mut self,
+        cache: &Arc<dyn object_store::ObjectStore>,
+        f: impl AsyncFnOnce(&Self) -> PathBuf,
+    ) -> ProjectHash {
         // Create a temporary test context so the project does not get
         // loaded into the current context. We still use the current context
         // to create the mocks
@@ -699,7 +729,7 @@ impl TestContext {
         })
         .await;
 
-        let (projects, project_hash, _) = context.temp_project(f).await;
+        let (projects, project_hash, _) = context.temp_project_by_path(f).await;
 
         let project_artifact = brioche_core::project::artifact::create_artifact_with_projects(
             &brioche,
@@ -720,30 +750,6 @@ impl TestContext {
         )
         .await
         .expect("failed to save project artifact hash to cache");
-
-        project_hash
-    }
-
-    pub async fn remote_registry_project_<F, Fut>(&mut self, f: F) -> ProjectHash
-    where
-        F: FnOnce(PathBuf) -> Fut,
-        Fut: std::future::Future<Output = ()>,
-    {
-        // Create a temporary test context so the project does not get
-        // loaded into the current context. We still use the current context
-        // to create the mocks
-        let (brioche, context) = brioche_test_with(|builder| {
-            builder.registry_client(self.brioche.registry_client.clone())
-        })
-        .await;
-
-        let (projects, project_hash, _) = context.temp_project(f).await;
-        let mocks = self
-            .mock_registry_listing(&brioche, &projects, project_hash)
-            .await;
-        for mock in mocks {
-            mock.create_async().await;
-        }
 
         project_hash
     }

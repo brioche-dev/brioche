@@ -144,7 +144,7 @@ async fn test_lsp_completions_from_local_registry_import() -> anyhow::Result<()>
     let (_brioche, context, lsp) = brioche_test_support::brioche_lsp_test().await;
 
     let (foo_hash, _) = context
-        .local_registry_project(|path| async move {
+        .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -162,7 +162,7 @@ async fn test_lsp_completions_from_local_registry_import() -> anyhow::Result<()>
 
     // Use a lockfile where 'foo' points to a project we already have locally
     let lockfile = brioche_core::project::Lockfile {
-        dependencies: [("foo".to_string(), foo_hash)].into_iter().collect(),
+        dependencies: std::iter::once(("foo".to_string(), foo_hash)).collect(),
         ..Default::default()
     };
     context
@@ -239,7 +239,7 @@ async fn test_lsp_completions_from_remote_registry_import() -> anyhow::Result<()
     .await;
 
     let foo_hash = context
-        .cached_registry_project(&cache, |path| async move {
+        .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -256,7 +256,7 @@ async fn test_lsp_completions_from_remote_registry_import() -> anyhow::Result<()
     let project_dir = context.mkdir("myproject").await;
 
     let lockfile = brioche_core::project::Lockfile {
-        dependencies: [("foo".to_string(), foo_hash)].into_iter().collect(),
+        dependencies: std::iter::once(("foo".to_string(), foo_hash)).collect(),
         ..Default::default()
     };
     context

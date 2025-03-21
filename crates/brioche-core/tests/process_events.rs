@@ -396,11 +396,10 @@ fn test_process_event_create_output_event() {
 
 #[test]
 fn test_process_event_create_output_events() {
-    let event_lengths =
+    let mut event_lengths =
         create_process_output_events(Duration::ZERO, ProcessStream::Stdout, &[0; 0])
-            .map(|event| event.content().len())
-            .collect::<Vec<_>>();
-    assert!(event_lengths.is_empty());
+            .map(|event| event.content().len());
+    assert!(event_lengths.next().is_none());
 
     let event_lengths =
         create_process_output_events(Duration::ZERO, ProcessStream::Stdout, &[0; 5])

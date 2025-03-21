@@ -5,7 +5,7 @@ async fn test_registry_client_get_project() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (projects, project_hash, _) = context
-        .temp_project(|path| async move {
+        .temp_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
@@ -44,7 +44,7 @@ async fn test_registry_client_get_project_invalid_hash() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (projects, project_hash, _) = context
-        .temp_project(|path| async move {
+        .temp_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
                 r#"
