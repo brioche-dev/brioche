@@ -9,7 +9,7 @@ use brioche_core::{
     Brioche,
     blob::BlobHash,
     project::{
-        Lockfile, Project, ProjectHash, DependencyRef, Projects,
+        DependencyRef, Lockfile, Project, ProjectHash, Projects,
         analyze::{GitRefOptions, StaticOutput, StaticOutputKind, StaticQuery},
     },
     recipe::{Artifact, Recipe, RecipeHash},
