@@ -64,10 +64,7 @@ json-canon = "0.1.3"
 lazy_format = "2.0.3"
 nix = { version = "0.29.0", features = ["user"] }
 num_enum = "0.7.3"
-object_store = { git = "https://github.com/brioche-dev/arrow-rs.git", branch = "object-store-disable-all-compression-formats", features = [
-    "aws",
-    "http",
-] }
+object_store = { version = "0.12.0", features = ["aws", "http"] }
 opentelemetry = "0.28.0"
 opentelemetry-otlp = { version = "0.28.0", default-features = false, features = [
     "http-proto",

@@ -12,7 +12,7 @@ directories = "6.0.0"
 futures = "0.3.31"
 hex = "0.4.3"
 mockito = "1.6.1"
-object_store = { git = "https://github.com/brioche-dev/arrow-rs.git", branch = "object-store-disable-all-compression-formats" }
+object_store = "0.12.0"
 reqwest = "0.12.12"
 reqwest-middleware = "0.4.1"
 serde = { version = "1.0.218", features = ["derive"] }
