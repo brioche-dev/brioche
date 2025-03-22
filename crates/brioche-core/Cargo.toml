@@ -65,13 +65,13 @@ lazy_format = "2.0.3"
 nix = { version = "0.29.0", features = ["user"] }
 num_enum = "0.7.3"
 object_store = { version = "0.12.0", features = ["aws", "http"] }
-opentelemetry = "0.28.0"
-opentelemetry-otlp = { version = "0.28.0", default-features = false, features = [
+opentelemetry = "0.29.0"
+opentelemetry-otlp = { version = "0.29.0", default-features = false, features = [
     "http-proto",
     "reqwest-rustls",
 ] }
-opentelemetry-semantic-conventions = "0.28.0"
-opentelemetry_sdk = { version = "0.28.0", features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = "0.29.0"
+opentelemetry_sdk = { version = "0.29.0", features = ["rt-tokio"] }
 pathdiff = "0.2.3"
 petgraph = "0.7.1"
 regex = "1.11.1"
