@@ -23,7 +23,7 @@ pub use process::{ProcessRootfsRecipes, process_rootfs_recipes};
 mod attach_resources;
 mod collect_references;
 mod download;
-mod process;
+pub mod process;
 mod unarchive;
 
 #[derive(Debug, Default)]
