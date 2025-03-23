@@ -1240,7 +1240,7 @@ async fn append_dependency_envs(
     Ok(())
 }
 
-async fn sandbox_backend(
+pub async fn sandbox_backend(
     brioche: &Brioche,
     platform: crate::platform::Platform,
 ) -> anyhow::Result<SandboxBackend> {

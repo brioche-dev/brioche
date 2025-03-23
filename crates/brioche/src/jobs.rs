@@ -3,18 +3,35 @@ use std::{path::Path, process::ExitCode};
 use brioche_core::{process_events::PROCESS_EVENT_MAGIC, utils::io::NotSeekable};
 use clap::Subcommand;
 
+mod debug_shell;
 mod logs;
 
 #[derive(Debug, Subcommand)]
 pub enum JobsSubcommand {
     /// View logs for a job
     Logs(logs::LogsArgs),
+
+    /// Start a shell in an exited job for debugging.
+    ///
+    /// Note that the job's event file is used for determining which host
+    /// paths should be included in the sandbox, so only use this command
+    /// for event files from sources you trust!
+    DebugShell(debug_shell::DebugShellArgs),
 }
 
 pub fn jobs(command: JobsSubcommand) -> anyhow::Result<ExitCode> {
     match command {
         JobsSubcommand::Logs(args) => {
             logs::logs(&args)?;
+
+            Ok(ExitCode::SUCCESS)
+        }
+        JobsSubcommand::DebugShell(args) => {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            rt.block_on(debug_shell::debug_shell(&args))?;
 
             Ok(ExitCode::SUCCESS)
         }

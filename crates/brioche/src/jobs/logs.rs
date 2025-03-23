@@ -4,9 +4,7 @@ use brioche_core::process_events::display::{DisplayEventsOptions, display_events
 use clap::Parser;
 use notify::Watcher as _;
 
-use crate::jobs::log_file_reader_from_stdin;
-
-use super::log_file_reader_from_path;
+use super::{log_file_reader_from_path, log_file_reader_from_stdin};
 
 #[derive(Debug, Parser)]
 pub struct LogsArgs {
