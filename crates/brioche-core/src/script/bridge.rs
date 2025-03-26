@@ -231,19 +231,18 @@ impl RuntimeBridge {
                         }
                         RuntimeBridgeMessage::GetStatic {
                             specifier,
-                            static_,
+                            options,
                             result_tx,
                         } => {
-                            let static_output = projects.get_static(&specifier, &static_);
+                            let static_output = projects.get_static(&specifier, &options.query);
+                            let callee = options.callee();
                             let static_output = match static_output {
                                 Ok(Some(static_output)) => static_output,
                                 Ok(None) => {
-                                    let error = match static_ {
-                                        StaticQuery::Include(StaticInclude::File { path }) => {
-                                            anyhow::anyhow!("failed to resolve Brioche.includeFile({path:?}) from {specifier}, was the path passed in as a string literal?")
-                                        }
-                                        StaticQuery::Include(StaticInclude::Directory { path }) => {
-                                            anyhow::anyhow!("failed to resolve Brioche.includeDirectory({path:?}) from {specifier}, was the path passed in as a string literal?")
+                                    let error = match &options.query {
+                                        StaticQuery::Include(include) => {
+                                            let path = include.path();
+                                            anyhow::anyhow!("failed to resolve {callee}({path:?}) from {specifier}, was the path passed in as a string literal?")
                                         }
                                         StaticQuery::Glob { patterns } => {
                                             let patterns = patterns
@@ -252,13 +251,13 @@ impl RuntimeBridge {
                                                     lazy_format::lazy_format!("{pattern:?}")
                                                 })
                                                 .join_with(", ");
-                                            anyhow::anyhow!("failed to resolve Brioche.glob({patterns}) from {specifier}, were the patterns passed in as string literals?")
+                                            anyhow::anyhow!("failed to resolve {callee}({patterns}) from {specifier}, were the patterns passed in as string literals?")
                                         }
                                         StaticQuery::Download { url } => {
-                                            anyhow::anyhow!("failed to resolve Brioche.download({url:?}) from {specifier}, was the URL passed in as a string literal?")
+                                            anyhow::anyhow!("failed to resolve {callee}({url:?}) from {specifier}, was the URL passed in as a string literal?")
                                         }
                                         StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
-                                            anyhow::anyhow!("failed to resolve Brioche.gitRef({{ repository: \"{repository}\", ref: {ref_:?} }}) from {specifier}, were the repository and ref values passed in as string literals?")
+                                            anyhow::anyhow!("failed to resolve {callee}({{ repository: \"{repository}\", ref: {ref_:?} }}) from {specifier}, were the repository and ref values passed in as string literals?")
                                         }
                                     };
                                     let _ = result_tx.send(Err(error));
@@ -285,7 +284,7 @@ impl RuntimeBridge {
                                     GetStaticResult::Recipe(recipe)
                                 }
                                 StaticOutput::Kind(StaticOutputKind::Download { hash }) => {
-                                    let StaticQuery::Download { url } = static_ else {
+                                    let StaticQuery::Download { url } = options.query else {
                                         let _ = result_tx.send(Err(anyhow::anyhow!("invalid 'download' static output kind for non-download static")));
                                         return;
                                     };
@@ -296,7 +295,7 @@ impl RuntimeBridge {
                                     }))
                                 }
                                 StaticOutput::Kind(StaticOutputKind::GitRef { commit }) => {
-                                    let StaticQuery::GitRef(git_ref) = static_ else {
+                                    let StaticQuery::GitRef(git_ref) = options.query else {
                                         let _ = result_tx.send(Err(anyhow::anyhow!("invalid 'git_ref' static output kind for non-git ref static")));
                                         return;
                                     };
@@ -458,13 +457,13 @@ impl RuntimeBridge {
     pub async fn get_static(
         &self,
         specifier: BriocheModuleSpecifier,
-        static_: StaticQuery,
+        options: GetStaticOptions,
     ) -> anyhow::Result<GetStaticResult> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
 
         self.tx.send(RuntimeBridgeMessage::GetStatic {
             specifier,
-            static_,
+            options,
             result_tx,
         })?;
         let result = result_rx.await??;
@@ -518,9 +517,33 @@ enum RuntimeBridgeMessage {
     },
     GetStatic {
         specifier: BriocheModuleSpecifier,
-        static_: StaticQuery,
+        options: GetStaticOptions,
         result_tx: tokio::sync::oneshot::Sender<anyhow::Result<GetStaticResult>>,
     },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetStaticOptions {
+    callee: Option<String>,
+    #[serde(flatten)]
+    query: StaticQuery,
+}
+
+impl GetStaticOptions {
+    fn callee(&self) -> &str {
+        if let Some(callee) = &self.callee {
+            return callee;
+        }
+
+        match self.query {
+            StaticQuery::Include(StaticInclude::File { .. }) => "Brioche.includeFile",
+            StaticQuery::Include(StaticInclude::Directory { .. }) => "Brioche.includeDirectory",
+            StaticQuery::Glob { .. } => "Brioche.glob",
+            StaticQuery::Download { .. } => "Brioche.download",
+            StaticQuery::GitRef(..) => "Brioche.gitRef",
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

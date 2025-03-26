@@ -897,6 +897,7 @@ async fn test_eval_brioche_git_ref_and_git_checkout() -> anyhow::Result<()> {
                                 type: "git_ref",
                                 repository,
                                 ref,
+                                callee: "Brioche.gitRef",
                             },
                         );
                     },
@@ -907,6 +908,7 @@ async fn test_eval_brioche_git_ref_and_git_checkout() -> anyhow::Result<()> {
                                 type: "git_ref",
                                 repository,
                                 ref,
+                                callee: "Brioche.gitCheckout",
                             },
                         );
                     },

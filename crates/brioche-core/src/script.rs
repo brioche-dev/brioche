@@ -8,11 +8,11 @@ use std::{
 };
 
 use anyhow::Context as _;
-use bridge::RuntimeBridge;
+use bridge::{GetStaticOptions, RuntimeBridge};
 use deno_core::OpState;
 use specifier::BriocheModuleSpecifier;
 
-use crate::{bake::BakeScope, project::analyze::StaticQuery};
+use crate::bake::BakeScope;
 
 use super::{
     blob::BlobHash,
@@ -276,7 +276,7 @@ pub async fn op_brioche_read_blob(
 pub async fn op_brioche_get_static(
     state: Rc<RefCell<OpState>>,
     #[string] url: String,
-    #[serde] static_: StaticQuery,
+    #[serde] options: GetStaticOptions,
 ) -> Result<bridge::GetStaticResult, AnyError> {
     let bridge = {
         let state = state.try_borrow().map_err(AnyError::new)?;
@@ -288,7 +288,7 @@ pub async fn op_brioche_get_static(
 
     let specifier: BriocheModuleSpecifier = url.parse().map_err(AnyError::new)?;
 
-    let recipe = bridge.get_static(specifier, static_).await?;
+    let recipe = bridge.get_static(specifier, options).await?;
     Ok(recipe)
 }
 
