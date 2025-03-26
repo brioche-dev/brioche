@@ -931,6 +931,139 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
 }
 
 #[tokio::test]
+async fn test_project_load_with_remote_registry_deps_with_common_children() -> anyhow::Result<()> {
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
+
+    let foo_hash = context
+        .cached_registry_project(&cache, async |path| {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const a = 1;
+                    export const b = 2;
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    let mock_foo_latest = context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
+        .await;
+
+    let fizz_hash = context
+        .cached_registry_project(&cache, async |path| {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export { a } from "foo";
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    let mock_fizz_latest = context
+        .mock_registry_publish_tag("fizz", "latest", fizz_hash)
+        .create_async()
+        .await;
+
+    let buzz_hash = context
+        .cached_registry_project(&cache, async |path| {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export { b } from "foo";
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    let mock_buzz_latest = context
+        .mock_registry_publish_tag("buzz", "latest", buzz_hash)
+        .create_async()
+        .await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import { a } from "fizz";
+                import { b } from "buzz";
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+    assert!(
+        projects
+            .local_paths(project_hash)
+            .unwrap()
+            .contains(&project_dir)
+    );
+
+    let fizz_dep_hash = projects.project_dependencies(project_hash).unwrap()["fizz"];
+    let fizz_path = brioche
+        .data_dir
+        .join("projects")
+        .join(fizz_dep_hash.to_string())
+        .canonicalize()
+        .unwrap();
+    assert!(
+        projects
+            .local_paths(fizz_dep_hash)
+            .unwrap()
+            .contains(&fizz_path)
+    );
+
+    let buzz_dep_hash = projects.project_dependencies(project_hash).unwrap()["buzz"];
+    let buzz_path = brioche
+        .data_dir
+        .join("projects")
+        .join(buzz_dep_hash.to_string())
+        .canonicalize()
+        .unwrap();
+    assert!(
+        projects
+            .local_paths(buzz_dep_hash)
+            .unwrap()
+            .contains(&buzz_path)
+    );
+
+    let fizz_foo_dep_hash = projects.project_dependencies(fizz_dep_hash).unwrap()["foo"];
+    let buzz_foo_dep_hash = projects.project_dependencies(buzz_dep_hash).unwrap()["foo"];
+    assert_eq!(fizz_foo_dep_hash, buzz_foo_dep_hash);
+    assert_eq!(fizz_foo_dep_hash, foo_hash);
+
+    let foo_project = projects.project(foo_hash).unwrap();
+    let foo_project_path = brioche
+        .data_dir
+        .join("projects")
+        .join(foo_hash.to_string())
+        .canonicalize()
+        .unwrap();
+    assert!(
+        projects
+            .local_paths(foo_hash)
+            .unwrap()
+            .contains(&foo_project_path)
+    );
+
+    assert!(foo_project.dependencies.is_empty());
+
+    mock_foo_latest.expect_at_least(1).assert_async().await;
+    mock_fizz_latest.assert_async().await;
+    mock_buzz_latest.assert_async().await;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_project_load_with_remote_workspace_registry_dep() -> anyhow::Result<()> {
     let cache = brioche_test_support::new_cache();
     let (brioche, mut context) = brioche_test_with_cache(cache.clone(), true).await;
