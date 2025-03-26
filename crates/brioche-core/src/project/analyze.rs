@@ -562,7 +562,7 @@ where
                         .map(|arg| arg_to_string_literal(arg, env))
                         .map(|arg| {
                             arg.with_context(|| {
-                                format!("{location}: invalid arg to Brioche.includeDirectory")
+                                format!("{location}: invalid arg to Brioche.glob")
                             })
                         })
                         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -607,7 +607,7 @@ where
                         .map(|arg| arg_to_json(arg, env))
                         .map(|arg| {
                             arg.with_context(|| {
-                                format!("{location}: invalid arg to Brioche.download")
+                                format!("{location}: invalid arg to Brioche.gitRef")
                             })
                         })
                         .collect::<anyhow::Result<Vec<_>>>()?;
