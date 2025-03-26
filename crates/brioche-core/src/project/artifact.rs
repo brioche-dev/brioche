@@ -217,7 +217,20 @@ pub async fn save_projects_from_artifact(
         let project_hash_string = project_hash.to_string();
         let project_symlink = brioche.data_dir.join("projects").join(&project_hash_string);
         let project_target = Path::new("inner").join(&project_hash_string);
-        tokio::fs::symlink(project_target, project_symlink).await?;
+
+        let result = tokio::fs::symlink(project_target, project_symlink).await;
+        match result {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // Tried to create symlink, but the path already exists. Since
+                // this symlink is only written once all the project's
+                // dependencies are written, the existing path should already
+                // be valid, so we can safely ignore this error
+            }
+            Err(error) => {
+                return Err(error.into());
+            }
+        }
     }
 
     // Load each project and validate that the hashes match
