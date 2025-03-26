@@ -599,7 +599,7 @@ where
 
                     Ok(Some(StaticQuery::Download { url }))
                 }
-                "gitRef" => {
+                "gitRef" | "gitCheckout" => {
                     // Get the arguments
                     let args = call_expr.arguments()?.args();
                     let args = args
@@ -607,7 +607,7 @@ where
                         .map(|arg| arg_to_json(arg, env))
                         .map(|arg| {
                             arg.with_context(|| {
-                                format!("{location}: invalid arg to Brioche.gitRef")
+                                format!("{location}: invalid arg to Brioche.{callee_member_text}")
                             })
                         })
                         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -617,14 +617,14 @@ where
                         [options] => options.clone(),
                         _ => {
                             anyhow::bail!(
-                                "{location}: Brioche.gitRef() must take exactly one argument",
+                                "{location}: Brioche.{callee_member_text}() must take exactly one argument",
                             );
                         }
                     };
 
                     // Parse the options
                     let options = serde_json::from_value(options).with_context(|| {
-                        format!("{location}: invalid options for Brioche.gitRef, expected an object with the keys `repository` and `ref`")
+                        format!("{location}: invalid options for Brioche.{callee_member_text}, expected an object with the keys `repository` and `ref`")
                     })?;
 
                     Ok(Some(StaticQuery::GitRef(options)))
