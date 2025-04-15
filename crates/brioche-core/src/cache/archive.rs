@@ -354,8 +354,6 @@ pub async fn read_artifact_archive(
         kind: fetch_kind,
         downloaded_bytes: None,
         total_bytes: None,
-        downloaded_blobs: None,
-        total_blobs: None,
         started_at: std::time::Instant::now(),
     });
 
@@ -573,14 +571,11 @@ pub async fn read_artifact_archive(
         .iter()
         .map(|(_, range)| range.end.saturating_sub(range.start))
         .sum::<u64>();
-    let total_needed_blobs: u64 = needed_blobs.len().try_into()?;
     brioche.reporter.update_job(
         job_id,
         UpdateJob::CacheFetchUpdate {
             downloaded_bytes: None,
             total_bytes: Some(total_needed_bytes),
-            downloaded_blobs: None,
-            total_blobs: Some(total_needed_blobs),
         },
     );
 
@@ -637,7 +632,6 @@ pub async fn read_artifact_archive(
                     job_id,
                     UpdateJob::CacheFetchAdd {
                         downloaded_bytes: Some(length),
-                        downloaded_blobs: Some(1),
                     },
                 );
 
@@ -740,8 +734,6 @@ pub async fn read_artifact_archive(
         UpdateJob::CacheFetchUpdate {
             downloaded_bytes: Some(total_needed_bytes),
             total_bytes: Some(total_needed_bytes),
-            downloaded_blobs: Some(total_needed_blobs),
-            total_blobs: Some(total_needed_blobs),
         },
     );
 
@@ -808,7 +800,6 @@ async fn fetch_blobs_from_chunks(
                     job_id,
                     UpdateJob::CacheFetchAdd {
                         downloaded_bytes: Some(length),
-                        downloaded_blobs: Some(1),
                     },
                 );
 
@@ -861,7 +852,6 @@ async fn fetch_blobs_from_chunks(
                             job_id,
                             UpdateJob::CacheFetchAdd {
                                 downloaded_bytes: Some(length),
-                                downloaded_blobs: None,
                             },
                         );
                     }
@@ -890,7 +880,6 @@ async fn fetch_blobs_from_chunks(
                 job_id,
                 UpdateJob::CacheFetchAdd {
                     downloaded_bytes: None,
-                    downloaded_blobs: Some(1),
                 },
             );
 

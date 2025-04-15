@@ -262,8 +262,6 @@ impl ConsoleReporter {
                         kind: super::job::CacheFetchKind::Bake,
                         downloaded_bytes: _,
                         total_bytes: _,
-                        downloaded_blobs: _,
-                        total_blobs: _,
                         started_at: _,
                     } => {
                         eprintln!("Fetching artifact from cache");
@@ -272,8 +270,6 @@ impl ConsoleReporter {
                         kind: super::job::CacheFetchKind::Project,
                         downloaded_bytes: _,
                         total_bytes: _,
-                        downloaded_blobs: _,
-                        total_blobs: _,
                         started_at: _,
                     } => {
                         eprintln!("Fetching project from cache");
@@ -852,8 +848,6 @@ impl superconsole::Component for JobComponent<'_> {
                 kind,
                 downloaded_bytes,
                 total_bytes,
-                downloaded_blobs: _,
-                total_blobs: _,
                 started_at: _,
                 finished_at: _,
             } => {

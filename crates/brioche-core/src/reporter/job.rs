@@ -18,8 +18,6 @@ pub enum NewJob {
         kind: CacheFetchKind,
         downloaded_bytes: Option<u64>,
         total_bytes: Option<u64>,
-        downloaded_blobs: Option<u64>,
-        total_blobs: Option<u64>,
         started_at: std::time::Instant,
     },
 }
@@ -43,13 +41,10 @@ pub enum UpdateJob {
     },
     CacheFetchAdd {
         downloaded_bytes: Option<u64>,
-        downloaded_blobs: Option<u64>,
     },
     CacheFetchUpdate {
         downloaded_bytes: Option<u64>,
         total_bytes: Option<u64>,
-        downloaded_blobs: Option<u64>,
-        total_blobs: Option<u64>,
     },
     CacheFetchFinish {
         finished_at: std::time::Instant,
@@ -77,8 +72,6 @@ pub enum Job {
         kind: CacheFetchKind,
         downloaded_bytes: u64,
         total_bytes: Option<u64>,
-        downloaded_blobs: u64,
-        total_blobs: Option<u64>,
         started_at: std::time::Instant,
         finished_at: Option<std::time::Instant>,
     },
@@ -106,15 +99,11 @@ impl Job {
                 kind,
                 downloaded_bytes,
                 total_bytes,
-                downloaded_blobs,
-                total_blobs,
                 started_at,
             } => Self::CacheFetch {
                 kind,
                 downloaded_bytes: downloaded_bytes.unwrap_or(0),
                 total_bytes,
-                downloaded_blobs: downloaded_blobs.unwrap_or(0),
-                total_blobs,
                 started_at,
                 finished_at: None,
             },
@@ -181,12 +170,9 @@ impl Job {
             }
             UpdateJob::CacheFetchAdd {
                 downloaded_bytes: add_downloaded_bytes,
-                downloaded_blobs: add_downloaded_blobs,
             } => {
                 let Self::CacheFetch {
-                    downloaded_bytes,
-                    downloaded_blobs,
-                    ..
+                    downloaded_bytes, ..
                 } = self
                 else {
                     anyhow::bail!(
@@ -197,23 +183,15 @@ impl Job {
                 if let Some(add_downloaded_bytes) = add_downloaded_bytes {
                     *downloaded_bytes += add_downloaded_bytes;
                 }
-
-                if let Some(add_downloaded_blobs) = add_downloaded_blobs {
-                    *downloaded_blobs += add_downloaded_blobs;
-                }
             }
             UpdateJob::CacheFetchUpdate {
                 downloaded_bytes: new_downloaded_bytes,
                 total_bytes: new_total_bytes,
-                downloaded_blobs: new_downloaded_blobs,
-                total_blobs: new_total_blobs,
             } => {
                 let Self::CacheFetch {
                     kind: _,
                     downloaded_bytes,
                     total_bytes,
-                    downloaded_blobs,
-                    total_blobs,
                     started_at: _,
                     finished_at: _,
                 } = self
@@ -229,12 +207,6 @@ impl Job {
                 if let Some(new_total_bytes) = new_total_bytes {
                     *total_bytes = Some(new_total_bytes);
                 }
-                if let Some(new_downloaded_blobs) = new_downloaded_blobs {
-                    *downloaded_blobs = new_downloaded_blobs;
-                }
-                if let Some(new_total_blobs) = new_total_blobs {
-                    *total_blobs = Some(new_total_blobs);
-                }
             }
             UpdateJob::CacheFetchFinish {
                 finished_at: new_finished_at,
@@ -243,8 +215,6 @@ impl Job {
                     kind: _,
                     downloaded_bytes,
                     total_bytes,
-                    downloaded_blobs,
-                    total_blobs,
                     started_at: _,
                     finished_at,
                 } = self
@@ -256,10 +226,6 @@ impl Job {
 
                 if let Some(total_bytes) = total_bytes {
                     *downloaded_bytes = *total_bytes;
-                }
-
-                if let Some(total_blobs) = total_blobs {
-                    *downloaded_blobs = *total_blobs;
                 }
 
                 *finished_at = Some(new_finished_at);
