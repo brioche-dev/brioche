@@ -3,9 +3,12 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
 };
 
-pub struct ReadTracker<R> {
-    pub reader: R,
-    pub cursor: Arc<AtomicU64>,
+pin_project_lite::pin_project! {
+    pub struct ReadTracker<R> {
+        #[pin]
+        pub reader: R,
+        pub cursor: Arc<AtomicU64>,
+    }
 }
 
 impl<R> ReadTracker<R> {
@@ -52,6 +55,80 @@ where
         let new_pos = self.reader.seek(pos)?;
         self.cursor.store(new_pos, Ordering::Relaxed);
         Ok(new_pos)
+    }
+}
+
+impl<R> tokio::io::AsyncRead for ReadTracker<R>
+where
+    R: tokio::io::AsyncRead,
+{
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let this = self.project();
+
+        let filled_start = buf.filled().len();
+        let result = this.reader.poll_read(cx, buf);
+
+        if matches!(&result, std::task::Poll::Ready(Ok(()))) {
+            let filled_end = buf.filled().len();
+            let n = filled_end.saturating_sub(filled_start);
+            let n_u64: u64 = n.try_into().map_err(std::io::Error::other)?;
+            this.cursor.fetch_add(n_u64, Ordering::Relaxed);
+        }
+
+        result
+    }
+}
+
+impl<R> tokio::io::AsyncBufRead for ReadTracker<R>
+where
+    R: tokio::io::AsyncBufRead,
+{
+    fn poll_fill_buf(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<&[u8]>> {
+        let this = self.project();
+
+        this.reader.poll_fill_buf(cx)
+    }
+
+    fn consume(self: std::pin::Pin<&mut Self>, amt: usize) {
+        let this = self.project();
+
+        let amt_u64: u64 = amt.try_into().unwrap();
+        this.cursor.fetch_add(amt_u64, Ordering::Relaxed);
+        this.reader.consume(amt);
+    }
+}
+
+impl<R> tokio::io::AsyncSeek for ReadTracker<R>
+where
+    R: tokio::io::AsyncSeek,
+{
+    fn start_seek(
+        self: std::pin::Pin<&mut Self>,
+        position: std::io::SeekFrom,
+    ) -> std::io::Result<()> {
+        let this = self.project();
+        this.reader.start_seek(position)
+    }
+
+    fn poll_complete(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<u64>> {
+        let this = self.project();
+
+        let result = this.reader.poll_complete(cx);
+        if let std::task::Poll::Ready(Ok(new_pos)) = &result {
+            this.cursor.store(*new_pos, Ordering::Relaxed);
+        }
+
+        result
     }
 }
 
