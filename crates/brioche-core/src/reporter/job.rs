@@ -16,8 +16,8 @@ pub enum NewJob {
     },
     CacheFetch {
         kind: CacheFetchKind,
-        downloaded_data: Option<u64>,
-        total_data: Option<u64>,
+        downloaded_bytes: Option<u64>,
+        total_bytes: Option<u64>,
         downloaded_blobs: Option<u64>,
         total_blobs: Option<u64>,
         started_at: std::time::Instant,
@@ -42,12 +42,12 @@ pub enum UpdateJob {
         status: ProcessStatus,
     },
     CacheFetchAdd {
-        downloaded_data: Option<u64>,
+        downloaded_bytes: Option<u64>,
         downloaded_blobs: Option<u64>,
     },
     CacheFetchUpdate {
-        downloaded_data: Option<u64>,
-        total_data: Option<u64>,
+        downloaded_bytes: Option<u64>,
+        total_bytes: Option<u64>,
         downloaded_blobs: Option<u64>,
         total_blobs: Option<u64>,
     },
@@ -75,8 +75,8 @@ pub enum Job {
     },
     CacheFetch {
         kind: CacheFetchKind,
-        downloaded_data: u64,
-        total_data: Option<u64>,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
         downloaded_blobs: u64,
         total_blobs: Option<u64>,
         started_at: std::time::Instant,
@@ -104,15 +104,15 @@ impl Job {
             },
             NewJob::CacheFetch {
                 kind,
-                downloaded_data,
-                total_data,
+                downloaded_bytes,
+                total_bytes,
                 downloaded_blobs,
                 total_blobs,
                 started_at,
             } => Self::CacheFetch {
                 kind,
-                downloaded_data: downloaded_data.unwrap_or(0),
-                total_data,
+                downloaded_bytes: downloaded_bytes.unwrap_or(0),
+                total_bytes,
                 downloaded_blobs: downloaded_blobs.unwrap_or(0),
                 total_blobs,
                 started_at,
@@ -180,11 +180,11 @@ impl Job {
                 *status = new_status;
             }
             UpdateJob::CacheFetchAdd {
-                downloaded_data: add_downloaded_data,
+                downloaded_bytes: add_downloaded_bytes,
                 downloaded_blobs: add_downloaded_blobs,
             } => {
                 let Self::CacheFetch {
-                    downloaded_data,
+                    downloaded_bytes,
                     downloaded_blobs,
                     ..
                 } = self
@@ -194,8 +194,8 @@ impl Job {
                     );
                 };
 
-                if let Some(add_downloaded_data) = add_downloaded_data {
-                    *downloaded_data += add_downloaded_data;
+                if let Some(add_downloaded_bytes) = add_downloaded_bytes {
+                    *downloaded_bytes += add_downloaded_bytes;
                 }
 
                 if let Some(add_downloaded_blobs) = add_downloaded_blobs {
@@ -203,15 +203,15 @@ impl Job {
                 }
             }
             UpdateJob::CacheFetchUpdate {
-                downloaded_data: new_downloaded_data,
-                total_data: new_total_data,
+                downloaded_bytes: new_downloaded_bytes,
+                total_bytes: new_total_bytes,
                 downloaded_blobs: new_downloaded_blobs,
                 total_blobs: new_total_blobs,
             } => {
                 let Self::CacheFetch {
                     kind: _,
-                    downloaded_data,
-                    total_data,
+                    downloaded_bytes,
+                    total_bytes,
                     downloaded_blobs,
                     total_blobs,
                     started_at: _,
@@ -223,11 +223,11 @@ impl Job {
                     );
                 };
 
-                if let Some(new_downloaded_data) = new_downloaded_data {
-                    *downloaded_data = new_downloaded_data;
+                if let Some(new_downloaded_bytes) = new_downloaded_bytes {
+                    *downloaded_bytes = new_downloaded_bytes;
                 }
-                if let Some(new_total_data) = new_total_data {
-                    *total_data = Some(new_total_data);
+                if let Some(new_total_bytes) = new_total_bytes {
+                    *total_bytes = Some(new_total_bytes);
                 }
                 if let Some(new_downloaded_blobs) = new_downloaded_blobs {
                     *downloaded_blobs = new_downloaded_blobs;
@@ -241,8 +241,8 @@ impl Job {
             } => {
                 let Self::CacheFetch {
                     kind: _,
-                    downloaded_data,
-                    total_data,
+                    downloaded_bytes,
+                    total_bytes,
                     downloaded_blobs,
                     total_blobs,
                     started_at: _,
@@ -254,8 +254,8 @@ impl Job {
                     );
                 };
 
-                if let Some(total_data) = total_data {
-                    *downloaded_data = *total_data;
+                if let Some(total_bytes) = total_bytes {
+                    *downloaded_bytes = *total_bytes;
                 }
 
                 if let Some(total_blobs) = total_blobs {

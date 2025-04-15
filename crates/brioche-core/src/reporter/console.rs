@@ -260,8 +260,8 @@ impl ConsoleReporter {
                     NewJob::Process { status: _ } => {}
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Bake,
-                        downloaded_data: _,
-                        total_data: _,
+                        downloaded_bytes: _,
+                        total_bytes: _,
                         downloaded_blobs: _,
                         total_blobs: _,
                         started_at: _,
@@ -270,8 +270,8 @@ impl ConsoleReporter {
                     }
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Project,
-                        downloaded_data: _,
-                        total_data: _,
+                        downloaded_bytes: _,
+                        total_bytes: _,
                         downloaded_blobs: _,
                         total_blobs: _,
                         started_at: _,
@@ -849,17 +849,17 @@ impl superconsole::Component for JobComponent<'_> {
             }
             Job::CacheFetch {
                 kind,
-                downloaded_data,
-                total_data,
+                downloaded_bytes,
+                total_bytes,
                 downloaded_blobs,
                 total_blobs,
                 started_at: _,
                 finished_at: _,
             } => {
-                let total_progress = match total_data {
+                let total_progress = match total_bytes {
                     None => 0.0,
                     Some(0) => 1.0,
-                    Some(total_data) => *downloaded_data as f64 / *total_data as f64,
+                    Some(total_bytes) => *downloaded_bytes as f64 / *total_bytes as f64,
                 };
                 let total_percent = (total_progress * 100.0) as u64;
 
