@@ -12,6 +12,7 @@ await esbuild.build({
   define: {
     global: "globalThis",
     "__filename": "\"\"",
+    "process.version": "\"\"",
   },
   plugins: [
     aliasPath({
