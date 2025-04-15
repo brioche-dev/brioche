@@ -1,11 +1,19 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
 pub struct ReadTracker<R> {
     pub reader: R,
-    pub cursor: u64,
+    pub cursor: Arc<AtomicU64>,
 }
 
 impl<R> ReadTracker<R> {
-    pub const fn new(reader: R) -> Self {
-        Self { reader, cursor: 0 }
+    pub fn new(reader: R) -> Self {
+        Self {
+            reader,
+            cursor: Arc::new(AtomicU64::new(0)),
+        }
     }
 }
 
@@ -16,7 +24,7 @@ where
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, std::io::Error> {
         let n = self.reader.read(buf)?;
         let n_u64: u64 = n.try_into().map_err(std::io::Error::other)?;
-        self.cursor += n_u64;
+        self.cursor.fetch_add(n_u64, Ordering::Relaxed);
         Ok(n)
     }
 }
@@ -31,7 +39,7 @@ where
 
     fn consume(&mut self, amt: usize) {
         let amt_u64: u64 = amt.try_into().unwrap();
-        self.cursor += amt_u64;
+        self.cursor.fetch_add(amt_u64, Ordering::Relaxed);
         self.reader.consume(amt);
     }
 }
@@ -42,7 +50,7 @@ where
 {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         let new_pos = self.reader.seek(pos)?;
-        self.cursor = new_pos;
+        self.cursor.store(new_pos, Ordering::Relaxed);
         Ok(new_pos)
     }
 }
