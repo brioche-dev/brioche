@@ -851,8 +851,8 @@ impl superconsole::Component for JobComponent<'_> {
                 kind,
                 downloaded_bytes,
                 total_bytes,
-                downloaded_blobs,
-                total_blobs,
+                downloaded_blobs: _,
+                total_blobs: _,
                 started_at: _,
                 finished_at: _,
             } => {
@@ -882,20 +882,17 @@ impl superconsole::Component for JobComponent<'_> {
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
+                let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                let total_size = total_bytes.map(bytesize::ByteSize);
+
                 let fetch_kind = match kind {
                     super::job::CacheFetchKind::Bake => "artifact",
                     super::job::CacheFetchKind::Project => "project",
                 };
                 let fetching_message = if job.is_complete() {
-                    format!(
-                        "Fetch {fetch_kind}: {downloaded_blobs} blob{s}",
-                        s = if *downloaded_blobs == 1 { "" } else { "s" }
-                    )
-                } else if let Some(total_blobs) = total_blobs {
-                    format!(
-                        "Fetch {fetch_kind}: {downloaded_blobs} / {total_blobs} blob{s}",
-                        s = if *downloaded_blobs == 1 { "" } else { "s" }
-                    )
+                    format!("Fetch {fetch_kind}: {downloaded_size}")
+                } else if let Some(total_size) = total_size {
+                    format!("Fetch {fetch_kind}: {downloaded_size} / {total_size}")
                 } else {
                     format!("Fetch {fetch_kind}")
                 };
