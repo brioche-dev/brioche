@@ -10,6 +10,7 @@ pub enum NewJob {
     },
     Unarchive {
         started_at: std::time::Instant,
+        total_bytes: u64,
     },
     Process {
         status: ProcessStatus,
@@ -25,11 +26,13 @@ pub enum NewJob {
 #[derive(Debug)]
 pub enum UpdateJob {
     Download {
-        progress_percent: Option<u8>,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
         finished_at: Option<std::time::Instant>,
     },
     Unarchive {
-        progress_percent: u8,
+        read_bytes: u64,
+        total_bytes: Option<u64>,
         finished_at: Option<std::time::Instant>,
     },
     ProcessPushPacket {
@@ -55,12 +58,14 @@ pub enum UpdateJob {
 pub enum Job {
     Download {
         url: url::Url,
-        progress_percent: Option<u8>,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
         started_at: std::time::Instant,
         finished_at: Option<std::time::Instant>,
     },
     Unarchive {
-        progress_percent: u8,
+        read_bytes: u64,
+        total_bytes: u64,
         started_at: std::time::Instant,
         finished_at: Option<std::time::Instant>,
     },
@@ -82,12 +87,17 @@ impl Job {
         match new {
             NewJob::Download { url, started_at } => Self::Download {
                 url,
-                progress_percent: Some(0),
+                downloaded_bytes: 0,
+                total_bytes: None,
                 started_at,
                 finished_at: None,
             },
-            NewJob::Unarchive { started_at } => Self::Unarchive {
-                progress_percent: 0,
+            NewJob::Unarchive {
+                started_at,
+                total_bytes,
+            } => Self::Unarchive {
+                read_bytes: 0,
+                total_bytes,
                 started_at,
                 finished_at: None,
             },
@@ -113,33 +123,39 @@ impl Job {
     pub fn update(&mut self, update: UpdateJob) -> anyhow::Result<()> {
         match update {
             UpdateJob::Download {
-                progress_percent: new_progress_percent,
+                downloaded_bytes: new_downloaded_bytes,
+                total_bytes: new_total_bytes,
                 finished_at: new_finished_at,
             } => {
                 let Self::Download {
-                    progress_percent,
+                    downloaded_bytes,
+                    total_bytes,
                     finished_at,
                     ..
                 } = self
                 else {
                     anyhow::bail!("tried to update a non-download job with a download update");
                 };
-                *progress_percent = new_progress_percent;
+                *downloaded_bytes = new_downloaded_bytes;
+                *total_bytes = new_total_bytes.or(*total_bytes);
                 *finished_at = new_finished_at;
             }
             UpdateJob::Unarchive {
-                progress_percent: new_progress_percent,
+                read_bytes: new_read_bytes,
+                total_bytes: new_total_bytes,
                 finished_at: new_finished_at,
             } => {
                 let Self::Unarchive {
-                    progress_percent,
+                    read_bytes,
+                    total_bytes,
                     finished_at,
                     ..
                 } = self
                 else {
                     anyhow::bail!("tried to update a non-unarchive job with an unarchive update");
                 };
-                *progress_percent = new_progress_percent;
+                *read_bytes = new_read_bytes;
+                *total_bytes = new_total_bytes.unwrap_or(*total_bytes);
                 *finished_at = new_finished_at;
             }
             UpdateJob::ProcessPushPacket { packet } => {

@@ -256,7 +256,10 @@ impl ConsoleReporter {
                     NewJob::Download { url, started_at: _ } => {
                         eprintln!("Downloading {url}");
                     }
-                    NewJob::Unarchive { started_at: _ } => {}
+                    NewJob::Unarchive {
+                        started_at: _,
+                        total_bytes: _,
+                    } => {}
                     NewJob::Process { status: _ } => {}
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Bake,
@@ -691,10 +694,15 @@ impl superconsole::Component for JobComponent<'_> {
         let lines = match job {
             Job::Download {
                 url,
-                progress_percent,
+                downloaded_bytes,
+                total_bytes,
                 started_at: _,
                 finished_at: _,
             } => {
+                let progress_fraction = total_bytes
+                    .map(|total_bytes| fraction_of(*downloaded_bytes as f32, total_bytes as f32));
+                let progress_percent = progress_fraction
+                    .map(|progress_fraction| (progress_fraction * 100.0).floor() as u8);
                 let percentage_span = progress_percent.as_ref().map_or_else(
                     || superconsole::Span::new_unstyled_lossy("???%"),
                     |percent| {
@@ -726,21 +734,22 @@ impl superconsole::Component for JobComponent<'_> {
 
                 let truncated_url = string_with_width(url.as_str(), remaining_width, "…");
 
-                let progress_bar_progress = f64::from(progress_percent.unwrap_or(0)) / 100.0;
-
                 line.extend(progress_bar_spans(
                     &truncated_url,
                     remaining_width,
-                    progress_bar_progress,
+                    progress_fraction.unwrap_or(0.0),
                 ));
 
                 superconsole::Lines::from_iter([line])
             }
             Job::Unarchive {
-                progress_percent,
+                read_bytes,
+                total_bytes,
                 started_at: _,
                 finished_at: _,
             } => {
+                let progress_fraction = fraction_of(*read_bytes as f32, *total_bytes as f32);
+                let progress_percent = (progress_fraction * 100.0).floor() as u8;
                 let percentage_span = superconsole::Span::new_unstyled_lossy(
                     lazy_format::lazy_format!("{progress_percent:>3}%"),
                 );
@@ -765,14 +774,8 @@ impl superconsole::Component for JobComponent<'_> {
                         .saturating_sub(1)
                         .saturating_sub(line.len());
 
-                    let progress_bar_progress = f64::from(*progress_percent) / 100.0;
-
                     line.push(superconsole::Span::new_unstyled_lossy(" "));
-                    line.extend(progress_bar_spans(
-                        "",
-                        remaining_width,
-                        progress_bar_progress,
-                    ));
+                    line.extend(progress_bar_spans("", remaining_width, progress_fraction));
                 }
 
                 superconsole::Lines::from_iter([line])
@@ -851,15 +854,13 @@ impl superconsole::Component for JobComponent<'_> {
                 started_at: _,
                 finished_at: _,
             } => {
-                let total_progress = match total_bytes {
-                    None => 0.0,
-                    Some(0) => 1.0,
-                    Some(total_bytes) => *downloaded_bytes as f64 / *total_bytes as f64,
-                };
-                let total_percent = (total_progress * 100.0) as u64;
+                let progress_fraction = total_bytes.map_or(0.0, |total_bytes| {
+                    fraction_of(*downloaded_bytes as f32, total_bytes as f32)
+                });
+                let progress_percent = (progress_fraction * 100.0).floor() as u8;
 
                 let percentage_span = superconsole::Span::new_unstyled_lossy(
-                    lazy_format::lazy_format!("{total_percent:>3}%"),
+                    lazy_format::lazy_format!("{progress_percent:>3}%"),
                 );
 
                 let indicator = if job.is_complete() {
@@ -899,7 +900,7 @@ impl superconsole::Component for JobComponent<'_> {
                 line.extend(progress_bar_spans(
                     &fetching_message,
                     remaining_width,
-                    total_progress,
+                    progress_fraction,
                 ));
 
                 superconsole::Lines::from_iter([line])
@@ -1007,13 +1008,17 @@ fn indicator_span(kind: IndicatorKind) -> superconsole::Span {
 }
 
 #[expect(clippy::cast_possible_truncation)]
-fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [superconsole::Span; 2] {
-    let filled = ((width as f64) * progress) as usize;
+fn progress_bar_spans(
+    interior: &str,
+    width: usize,
+    progress_fraction: f32,
+) -> [superconsole::Span; 2] {
+    let filled = ((width as f32) * progress_fraction) as usize;
 
     let padded = format!("{interior:width$.width$}");
-    let (filled_part, unfilled_part) = if progress <= 0.0 {
+    let (filled_part, unfilled_part) = if progress_fraction <= 0.0 {
         ("", &*padded)
-    } else if progress >= 1.0 {
+    } else if progress_fraction >= 1.0 {
         (&*padded, "")
     } else {
         let split_offset = padded
@@ -1036,6 +1041,14 @@ fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [supercons
 const fn spinner(duration: std::time::Duration, speed: u128) -> &'static str {
     const SPINNERS: &[&str] = &["◜", "◝", "◞", "◟"];
     SPINNERS[(duration.as_millis() / speed) as usize % SPINNERS.len()]
+}
+
+const fn fraction_of(value: f32, total: f32) -> f32 {
+    if total > 0.0 {
+        (value / total).clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
 }
 
 #[cfg(test)]

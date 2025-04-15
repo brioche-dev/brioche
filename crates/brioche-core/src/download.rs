@@ -7,7 +7,6 @@ use crate::{
     reporter::job::{NewJob, UpdateJob},
 };
 
-#[expect(clippy::cast_possible_truncation)]
 #[tracing::instrument(skip(brioche, expected_hash))]
 pub async fn download(
     brioche: &Brioche,
@@ -49,20 +48,21 @@ pub async fn download(
         .compat();
     let download_stream = std::pin::pin!(download_stream);
 
+    let mut last_num_downloaded_bytes = 0;
     let save_blob_options = crate::blob::SaveBlobOptions::new()
         .expected_hash(expected_hash)
-        .on_progress(|bytes_read| {
-            if let Some(content_length) = content_length {
-                let progress_percent = (bytes_read as f64 / content_length as f64) * 100.0;
-                let progress_percent = progress_percent.round().min(99.0) as u8;
-                brioche.reporter.update_job(
-                    job_id,
-                    UpdateJob::Download {
-                        progress_percent: Some(progress_percent),
-                        finished_at: None,
-                    },
-                );
-            }
+        .on_progress(|downloaded_bytes| {
+            let downloaded_bytes: u64 = downloaded_bytes.try_into()?;
+            last_num_downloaded_bytes = downloaded_bytes;
+
+            brioche.reporter.update_job(
+                job_id,
+                UpdateJob::Download {
+                    downloaded_bytes,
+                    total_bytes: content_length,
+                    finished_at: None,
+                },
+            );
 
             Ok(())
         });
@@ -80,7 +80,8 @@ pub async fn download(
     brioche.reporter.update_job(
         job_id,
         UpdateJob::Download {
-            progress_percent: Some(100),
+            downloaded_bytes: last_num_downloaded_bytes,
+            total_bytes: Some(last_num_downloaded_bytes),
             finished_at: Some(std::time::Instant::now()),
         },
     );
