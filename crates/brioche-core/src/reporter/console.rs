@@ -428,7 +428,7 @@ impl ConsoleReporter {
 
                         let Job::CacheFetch {
                             kind,
-                            downloaded_blobs,
+                            downloaded_bytes,
                             ..
                         } = job
                         else {
@@ -439,10 +439,11 @@ impl ConsoleReporter {
                             crate::reporter::job::CacheFetchKind::Project => "project",
                         };
 
+                        let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                        let elapsed_duration = DisplayDuration(elapsed);
+
                         eprintln!(
-                            "Finished fetching {fetch_kind} with {downloaded_blobs} new blob{s} from cache in {}",
-                            DisplayDuration(elapsed),
-                            s = if *downloaded_blobs == 1 { "" } else { "s" }
+                            "Fetched {downloaded_size} for {fetch_kind} from cache in {elapsed_duration}",
                         );
                     }
                 }
