@@ -1,4 +1,4 @@
-use brioche_core::script::evaluate::evaluate;
+use brioche_core::script::{evaluate::evaluate, initialize_js_platform};
 
 #[tokio::test]
 async fn test_script_ops_version() -> anyhow::Result<()> {
@@ -33,9 +33,15 @@ async fn test_script_ops_version() -> anyhow::Result<()> {
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
 
-    let recipe = evaluate(&brioche, &projects, project_hash, "default")
-        .await?
-        .value;
+    let recipe = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
     let artifact = brioche_test_support::bake_without_meta(&brioche, recipe).await?;
 
     let version_blob = brioche_test_support::blob(&brioche, brioche_core::VERSION).await;
@@ -127,9 +133,15 @@ async fn test_script_osp_stack_frames_from_exception() -> anyhow::Result<()> {
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
 
-    let recipe = evaluate(&brioche, &projects, project_hash, "default")
-        .await?
-        .value;
+    let recipe = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
     let artifact = brioche_test_support::bake_without_meta(&brioche, recipe).await?;
 
     let brioche_core::recipe::Artifact::File(file) = artifact else {

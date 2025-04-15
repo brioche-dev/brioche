@@ -14,6 +14,7 @@ use super::{BriocheModuleLoader, bridge::RuntimeBridge};
 #[tracing::instrument(skip(brioche, projects, project_hash), fields(%project_hash), err)]
 pub async fn evaluate(
     brioche: &Brioche,
+    js_platform: super::JsPlatform,
     projects: &Projects,
     project_hash: ProjectHash,
     export: &str,
@@ -21,11 +22,19 @@ pub async fn evaluate(
     let bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
     let main_module = projects.project_root_module_specifier(project_hash)?;
 
-    let result = evaluate_with_deno(project_hash, export.to_string(), main_module, bridge).await?;
+    let result = evaluate_with_deno(
+        js_platform,
+        project_hash,
+        export.to_string(),
+        main_module,
+        bridge,
+    )
+    .await?;
     Ok(result)
 }
 
 async fn evaluate_with_deno(
+    _js_platform: super::JsPlatform,
     project_hash: ProjectHash,
     export: String,
     main_module: super::specifier::BriocheModuleSpecifier,

@@ -10,7 +10,10 @@ pub struct LspArgs {
     stdio: bool,
 }
 
-pub async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
+pub async fn lsp(
+    js_platform: brioche_core::script::JsPlatform,
+    _args: LspArgs,
+) -> anyhow::Result<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
@@ -38,6 +41,7 @@ pub async fn lsp(_args: LspArgs) -> anyhow::Result<()> {
 
             let lsp_server = brioche_core::script::lsp::BriocheLspServer::new(
                 brioche,
+                js_platform,
                 projects,
                 client,
                 Arc::new(remote_brioche_builder),

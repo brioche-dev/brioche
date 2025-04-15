@@ -49,7 +49,10 @@ pub struct BuildArgs {
 }
 
 #[expect(clippy::print_stdout)]
-pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
+pub async fn build(
+    js_platform: brioche_core::script::JsPlatform,
+    args: BuildArgs,
+) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
         args.display.to_console_reporter_kind(),
     )?;
@@ -85,7 +88,8 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 
         if args.check {
             let checked =
-                brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+                brioche_core::script::check::check(&brioche, js_platform, &projects, project_hash)
+                    .await?;
 
             let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
 
@@ -108,6 +112,7 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
 
         let recipe = brioche_core::script::evaluate::evaluate(
             &brioche,
+            js_platform,
             &projects,
             project_hash,
             &args.export,

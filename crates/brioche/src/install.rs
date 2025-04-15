@@ -36,7 +36,10 @@ pub struct InstallArgs {
     display: super::DisplayMode,
 }
 
-pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
+pub async fn install(
+    js_platform: brioche_core::script::JsPlatform,
+    args: InstallArgs,
+) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
         args.display.to_console_reporter_kind(),
     )?;
@@ -84,6 +87,7 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                 let result = run_install(
                     &reporter,
                     &brioche,
+                    js_platform,
                     &projects,
                     project_hash,
                     &project_name,
@@ -116,6 +120,7 @@ pub async fn install(args: InstallArgs) -> anyhow::Result<ExitCode> {
                 let result = run_install(
                     &reporter,
                     &brioche,
+                    js_platform,
                     &projects,
                     project_hash,
                     &project_name,
@@ -149,9 +154,11 @@ struct InstallOptions {
     locked: bool,
 }
 
+#[expect(clippy::too_many_arguments)]
 async fn run_install(
     reporter: &Reporter,
     brioche: &Brioche,
+    js_platform: brioche_core::script::JsPlatform,
     projects: &Projects,
     project_hash: ProjectHash,
     project_name: &String,
@@ -172,7 +179,8 @@ async fn run_install(
 
         if options.check {
             let checked =
-                brioche_core::script::check::check(brioche, projects, project_hash).await?;
+                brioche_core::script::check::check(brioche, js_platform, projects, project_hash)
+                    .await?;
 
             let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
 
@@ -195,9 +203,14 @@ async fn run_install(
             }
         }
 
-        let recipe =
-            brioche_core::script::evaluate::evaluate(brioche, projects, project_hash, export)
-                .await?;
+        let recipe = brioche_core::script::evaluate::evaluate(
+            brioche,
+            js_platform,
+            projects,
+            project_hash,
+            export,
+        )
+        .await?;
 
         let artifact = brioche_core::bake::bake(
             brioche,

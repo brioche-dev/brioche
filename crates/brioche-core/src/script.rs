@@ -29,6 +29,37 @@ mod js;
 pub mod lsp;
 pub mod specifier;
 
+/// A type representing a global JavaScript runtime platform, which is required
+/// to create a JavaScript runtime.
+///
+/// Internally, this is an empty marker type, which indicates that the function
+/// [`initialize_js_platform`] has been called appropriately (the actual
+/// `v8::Platform` type is referenced globally).
+#[derive(Debug, Clone, Copy)]
+pub struct JsPlatform(());
+
+/// Initialize the global JavaScript runtime platform. In most cases, this
+/// function should be called from the program's main thread.
+///
+/// By default, the V8 JavaScript runtime will use the CPU's PKU feature if
+/// available for additional memory protection. When enabled, the V8 platform
+/// must be initialized on the main thread (or on an ancestor thread where V8
+/// will run); otherwise, V8 operations may segfault.
+///
+/// This function should therefore be called on the main thread to set up
+/// the V8 platform. The exception is if the `unsafe_use_unprotected_platform`
+/// feature from `deno_core` is enabled, which makes this function safe to call
+/// from arbitrary threads. This feature is enabled for `deno_core` during
+/// tests, benchmarks, and examples.
+///
+/// The returned [`JsPlatform`] is a "marker" value, which is taken by various
+/// functions before creating a `deno_core::JsRuntime` to ensure that
+/// the V8 platform is initialized appropriately.
+pub fn initialize_js_platform() -> JsPlatform {
+    deno_core::JsRuntime::init_platform(None, false);
+    JsPlatform(())
+}
+
 #[derive(Clone)]
 struct BriocheModuleLoader {
     pub bridge: RuntimeBridge,

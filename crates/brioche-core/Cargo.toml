@@ -135,6 +135,12 @@ zstd-framed = { version = "0.1.1", features = ["tokio"] }
 [dev-dependencies]
 aws-runtime = "1.5.6"
 brioche-test-support = { path = "../brioche-test-support" }
+deno_core = { version = "0.343.0", features = [
+    # For tests, this feature should be enabled to resolve a segfault that
+    # can occur if V8 detects the `pki` CPU flag. See this issue:
+    # https://github.com/denoland/deno_core/issues/1091
+    "unsafe_use_unprotected_platform"
+] }
 divan = "0.1.21"
 indoc = "2.0.6"
 mockito = "1.7.0"

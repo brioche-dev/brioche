@@ -20,7 +20,10 @@ pub struct PublishArgs {
     display: super::DisplayMode,
 }
 
-pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
+pub async fn publish(
+    js_platform: brioche_core::script::JsPlatform,
+    args: PublishArgs,
+) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
         args.display.to_console_reporter_kind(),
     )?;
@@ -48,8 +51,15 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
             .await
         {
             Ok(project_hash) => {
-                let result =
-                    run_publish(&reporter, &brioche, &projects, project_hash, &project_name).await;
+                let result = run_publish(
+                    &reporter,
+                    &brioche,
+                    js_platform,
+                    &projects,
+                    project_hash,
+                    &project_name,
+                )
+                .await;
                 consolidate_result(&reporter, &project_name, result, &mut error_result);
             }
             Err(e) => {
@@ -73,6 +83,7 @@ pub async fn publish(args: PublishArgs) -> anyhow::Result<ExitCode> {
 async fn run_publish(
     reporter: &Reporter,
     brioche: &Brioche,
+    js_platform: brioche_core::script::JsPlatform,
     projects: &Projects,
     project_hash: ProjectHash,
     project_name: &String,
@@ -87,7 +98,7 @@ async fn run_publish(
 
     projects.validate_no_dirty_lockfiles()?;
 
-    let result = brioche_core::script::check::check(brioche, projects, project_hash)
+    let result = brioche_core::script::check::check(brioche, js_platform, projects, project_hash)
         .await?
         .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
 
