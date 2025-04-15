@@ -22,7 +22,7 @@ export default () => {
 
 ## Features
 
-- **Caching** - All build artifacts are saved and re-used between builds, saving you time when only a part of your project changes. You can even share the cache between machines using a self-hosted registry
+- **Caching** - All build artifacts are saved and re-used between builds, saving you time when only a part of your project changes. You can even share the cache between machines using an S3-compatible storage provider
 - **Lockfiles** - All of your dependencies are automatically saved in a lockfile, making your builds super reliable for everyone on your team
 - **TypeScript** - Build scripts are written in TypeScript, giving you the flexibility of a familiar full programming language (with great type checking and editor completions!)
 - **Cross-ecosystem** - Build your project regardless of language, and easily mix different languages and ecosystems in one project
@@ -37,9 +37,9 @@ Run this in your terminal for quick installation:
 curl --proto '=https' --tlsv1.2 -sSfL 'https://brioche.dev/install.sh' | sh
 ```
 
-...or check out the official docs on [Installation](https://brioche.dev/docs/installation) more installation options.
+...or check out the official docs on [Installation](https://brioche.dev/docs/installation) for more installation options.
 
-To install from source, simply check out this repo and run `cargo install --locked --path .`. This will install Brioche into `~/.cargo/bin`. You can also run it as a normal Rust project using `cargo run`.
+To install from source, simply check out this repo and run `cargo install --locked --path crates/brioche`. This will install Brioche into `~/.cargo/bin`. You can also run it as a normal Rust project using `cargo run`.
 
 ## Packages
 
