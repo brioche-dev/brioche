@@ -918,6 +918,7 @@ pub async fn brioche_lsp_test_with(
             futures::executor::block_on(async move {
                 let lsp_server = brioche_core::script::lsp::BriocheLspServer::new(
                     brioche,
+                    brioche_core::script::initialize_js_platform(),
                     projects,
                     client,
                     Arc::new(remote_brioche_builder),

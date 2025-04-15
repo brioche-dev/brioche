@@ -26,7 +26,10 @@ pub struct CheckArgs {
     display: super::DisplayMode,
 }
 
-pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
+pub async fn check(
+    js_platform: brioche_core::script::JsPlatform,
+    args: CheckArgs,
+) -> anyhow::Result<ExitCode> {
     let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
         args.display.to_console_reporter_kind(),
     )?;
@@ -73,6 +76,7 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
                 let result = run_check(
                     &reporter,
                     &brioche,
+                    js_platform,
                     &projects,
                     project_hash,
                     &project_name,
@@ -103,6 +107,7 @@ pub async fn check(args: CheckArgs) -> anyhow::Result<ExitCode> {
                 let result = run_check(
                     &reporter,
                     &brioche,
+                    js_platform,
                     &projects,
                     project_hash,
                     &project_name,
@@ -136,6 +141,7 @@ struct CheckOptions {
 async fn run_check(
     reporter: &Reporter,
     brioche: &Brioche,
+    js_platform: brioche_core::script::JsPlatform,
     projects: &Projects,
     project_hash: ProjectHash,
     project_name: &String,
@@ -153,7 +159,7 @@ async fn run_check(
             }
         }
 
-        brioche_core::script::check::check(brioche, projects, project_hash).await
+        brioche_core::script::check::check(brioche, js_platform, projects, project_hash).await
     }
     .instrument(tracing::info_span!("check"))
     .await?

@@ -36,6 +36,7 @@ pub struct BriocheLspServer {
 impl BriocheLspServer {
     pub fn new(
         brioche: Brioche,
+        js_platform: super::JsPlatform,
         projects: Projects,
         client: Client,
         remote_brioche_builder: Arc<BuildBriocheFn>,
@@ -43,7 +44,7 @@ impl BriocheLspServer {
         let bridge = RuntimeBridge::new(brioche, projects);
 
         let compiler_host = BriocheCompilerHost::new(bridge.clone());
-        let js_lsp = js_lsp_task(compiler_host.clone(), bridge.clone());
+        let js_lsp = js_lsp_task(js_platform, compiler_host.clone(), bridge.clone());
 
         Ok(Self {
             bridge,
@@ -657,7 +658,11 @@ impl JsLspTask {
     }
 }
 
-fn js_lsp_task(compiler_host: BriocheCompilerHost, bridge: RuntimeBridge) -> JsLspTask {
+fn js_lsp_task(
+    _js_platform: super::JsPlatform,
+    compiler_host: BriocheCompilerHost,
+    bridge: RuntimeBridge,
+) -> JsLspTask {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(
         JsLspMessage,
         tokio::sync::oneshot::Sender<serde_json::Value>,

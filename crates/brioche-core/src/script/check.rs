@@ -13,6 +13,7 @@ use super::{bridge::RuntimeBridge, specifier::BriocheModuleSpecifier};
 #[tracing::instrument(skip(brioche, projects), err)]
 pub async fn check(
     brioche: &Brioche,
+    js_platform: super::JsPlatform,
     projects: &Projects,
     project_hash: ProjectHash,
 ) -> anyhow::Result<CheckResult> {
@@ -20,11 +21,12 @@ pub async fn check(
 
     let runtime_bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
 
-    let result = check_with_deno(project_specifiers, runtime_bridge).await?;
+    let result = check_with_deno(js_platform, project_specifiers, runtime_bridge).await?;
     Ok(result)
 }
 
 async fn check_with_deno(
+    _js_platform: super::JsPlatform,
     project_specifiers: Vec<super::specifier::BriocheModuleSpecifier>,
     bridge: RuntimeBridge,
 ) -> anyhow::Result<CheckResult> {

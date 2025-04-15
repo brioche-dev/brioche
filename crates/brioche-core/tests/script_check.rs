@@ -49,7 +49,13 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
 
-    let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+    let result = brioche_core::script::check::check(
+        &brioche,
+        brioche_core::script::initialize_js_platform(),
+        &projects,
+        project_hash,
+    )
+    .await?;
 
     assert_matches!(worst_level(&result), None);
 
@@ -82,7 +88,13 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
 
-    let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+    let result = brioche_core::script::check::check(
+        &brioche,
+        brioche_core::script::initialize_js_platform(),
+        &projects,
+        project_hash,
+    )
+    .await?;
 
     assert_matches!(worst_level(&result), Some(DiagnosticLevel::Error));
 
@@ -140,7 +152,13 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
 
-    let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+    let result = brioche_core::script::check::check(
+        &brioche,
+        brioche_core::script::initialize_js_platform(),
+        &projects,
+        project_hash,
+    )
+    .await?;
 
     assert_matches!(worst_level(&result), None);
 
@@ -174,7 +192,13 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
     let (projects, project_hash) =
         brioche_test_support::load_project_no_validate(&brioche, &project_dir).await?;
 
-    let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+    let result = brioche_core::script::check::check(
+        &brioche,
+        brioche_core::script::initialize_js_platform(),
+        &projects,
+        project_hash,
+    )
+    .await?;
 
     assert_matches!(worst_level(&result), Some(DiagnosticLevel::Error));
 
@@ -207,7 +231,13 @@ async fn test_check_invalid_unused_var() -> anyhow::Result<()> {
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
 
-    let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+    let result = brioche_core::script::check::check(
+        &brioche,
+        brioche_core::script::initialize_js_platform(),
+        &projects,
+        project_hash,
+    )
+    .await?;
 
     assert_matches!(worst_level(&result), Some(DiagnosticLevel::Warning));
 
@@ -247,7 +277,13 @@ async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
 
-    let result = brioche_core::script::check::check(&brioche, &projects, project_hash).await?;
+    let result = brioche_core::script::check::check(
+        &brioche,
+        brioche_core::script::initialize_js_platform(),
+        &projects,
+        project_hash,
+    )
+    .await?;
 
     assert_matches!(worst_level(&result), Some(DiagnosticLevel::Warning));
 

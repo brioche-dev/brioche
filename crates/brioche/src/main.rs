@@ -72,38 +72,42 @@ fn main() -> anyhow::Result<ExitCode> {
 
     match args {
         Args::Build(args) => {
+            let js_platform = brioche_core::script::initialize_js_platform();
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
 
-            let exit_code = rt.block_on(build::build(args))?;
+            let exit_code = rt.block_on(build::build(js_platform, args))?;
 
             Ok(exit_code)
         }
         Args::Run(args) => {
+            let js_platform = brioche_core::script::initialize_js_platform();
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
 
-            let exit_code = rt.block_on(run::run(args))?;
+            let exit_code = rt.block_on(run::run(js_platform, args))?;
 
             Ok(exit_code)
         }
         Args::Install(args) => {
+            let js_platform = brioche_core::script::initialize_js_platform();
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
 
-            let exit_code = rt.block_on(install::install(args))?;
+            let exit_code = rt.block_on(install::install(js_platform, args))?;
 
             Ok(exit_code)
         }
         Args::Check(args) => {
+            let js_platform = brioche_core::script::initialize_js_platform();
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
 
-            let exit_code = rt.block_on(check::check(args))?;
+            let exit_code = rt.block_on(check::check(js_platform, args))?;
 
             Ok(exit_code)
         }
@@ -117,20 +121,22 @@ fn main() -> anyhow::Result<ExitCode> {
             Ok(exit_code)
         }
         Args::Publish(args) => {
+            let js_platform = brioche_core::script::initialize_js_platform();
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
 
-            let exit_code = rt.block_on(publish::publish(args))?;
+            let exit_code = rt.block_on(publish::publish(js_platform, args))?;
 
             Ok(exit_code)
         }
         Args::Lsp(args) => {
+            let js_platform = brioche_core::script::initialize_js_platform();
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
 
-            rt.block_on(lsp::lsp(args))?;
+            rt.block_on(lsp::lsp(js_platform, args))?;
 
             Ok(ExitCode::SUCCESS)
         }
