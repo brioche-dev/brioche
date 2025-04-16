@@ -2,6 +2,122 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use aws_credential_types::provider::ProvideCredentials as _;
+use futures::StreamExt as _;
+
+/// An implementation of [`object_store::ObjectStore`] that supports reading
+/// from multiple stores and writing to a single store. Only `get` and `put`
+/// operations are supported.
+///
+/// `get` operations will try each store from `read_layers` in order. A
+/// result of `Err(NotFound)` will try the next layer, and `Ok(_)` or
+/// any other error will return.
+///
+/// `put` operations will write to `write_layer` if set, otherwise the
+/// operation will return an error.
+#[derive(Debug, Clone)]
+pub struct LayeredObjectStore {
+    pub read_layers: Vec<Arc<dyn object_store::ObjectStore>>,
+    pub write_layer: Option<Arc<dyn object_store::ObjectStore>>,
+}
+
+impl std::fmt::Display for LayeredObjectStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
+#[async_trait::async_trait]
+impl object_store::ObjectStore for LayeredObjectStore {
+    async fn get_opts(
+        &self,
+        location: &object_store::path::Path,
+        options: object_store::GetOptions,
+    ) -> object_store::Result<object_store::GetResult> {
+        for layer in &self.read_layers {
+            let result = layer.get_opts(location, options.clone()).await;
+
+            match result {
+                Ok(result) => {
+                    return Ok(result);
+                }
+                Err(object_store::Error::NotFound { .. }) => {
+                    // Continue to next layer
+                }
+                Err(error) => {
+                    return Err(error);
+                }
+            }
+        }
+
+        Err(object_store::Error::NotFound {
+            path: location.to_string(),
+            source: Box::new(NoLayerContainedObjectError),
+        })
+    }
+
+    async fn put_opts(
+        &self,
+        location: &object_store::path::Path,
+        payload: object_store::PutPayload,
+        opts: object_store::PutOptions,
+    ) -> object_store::Result<object_store::PutResult> {
+        let Some(layer) = &self.write_layer else {
+            return Err(object_store::Error::NotSupported {
+                source: Box::new(NoWritableLayerError),
+            });
+        };
+
+        layer.put_opts(location, payload, opts).await
+    }
+
+    async fn put_multipart_opts(
+        &self,
+        location: &object_store::path::Path,
+        opts: object_store::PutMultipartOpts,
+    ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
+        let Some(layer) = &self.write_layer else {
+            return Err(object_store::Error::NotSupported {
+                source: Box::new(NoWritableLayerError),
+            });
+        };
+
+        layer.put_multipart_opts(location, opts).await
+    }
+
+    async fn delete(&self, _location: &object_store::path::Path) -> object_store::Result<()> {
+        Err(object_store::Error::NotImplemented)
+    }
+
+    fn list(
+        &self,
+        _prefix: Option<&object_store::path::Path>,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
+        futures::stream::once(async { Err(object_store::Error::NotImplemented) }).boxed()
+    }
+
+    async fn list_with_delimiter(
+        &self,
+        _prefix: Option<&object_store::path::Path>,
+    ) -> object_store::Result<object_store::ListResult> {
+        Err(object_store::Error::NotImplemented)
+    }
+
+    async fn copy(
+        &self,
+        _from: &object_store::path::Path,
+        _to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        Err(object_store::Error::NotImplemented)
+    }
+
+    async fn copy_if_not_exists(
+        &self,
+        _from: &object_store::path::Path,
+        _to: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        Err(object_store::Error::NotImplemented)
+    }
+}
 
 #[derive(Debug)]
 pub struct AwsS3CredentialProvider {
@@ -213,3 +329,11 @@ pub fn apply_s3_config(
 
     builder
 }
+
+#[derive(Debug, thiserror::Error)]
+#[error("object not found in LayeredObjectStore")]
+struct NoLayerContainedObjectError;
+
+#[derive(Debug, thiserror::Error)]
+#[error("no writable layer configured for LayeredObjectStore")]
+struct NoWritableLayerError;
