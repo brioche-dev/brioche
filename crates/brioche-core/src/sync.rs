@@ -68,7 +68,7 @@ pub struct SyncBakesResults {
 }
 
 impl SyncBakesResults {
-    pub fn merge(&mut self, other: Self) {
+    pub const fn merge(&mut self, other: Self) {
         self.num_new_blobs += other.num_new_blobs;
         self.num_new_recipes += other.num_new_recipes;
         self.num_new_bakes += other.num_new_bakes;

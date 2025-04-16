@@ -215,9 +215,8 @@ pub async fn get_recipes(
                     .map_err(|error| anyhow::anyhow!(error))?;
             }
 
-            let placeholders = std::iter::repeat("?")
-                .take(uncached_recipe_batch.len())
-                .join_with(", ");
+            let placeholders =
+                std::iter::repeat_n("?", uncached_recipe_batch.len()).join_with(", ");
 
             let batch_records = sqlx::query_as_with::<_, (String, String), _>(
                 &format!(
@@ -318,9 +317,7 @@ where
                 .map_err(|error| anyhow::anyhow!(error))?;
         }
 
-        let placeholders = std::iter::repeat("(?, ?)")
-            .take(recipe_batch.len())
-            .join_with(", ");
+        let placeholders = std::iter::repeat_n("(?, ?)", recipe_batch.len()).join_with(", ");
 
         let result = sqlx::query_with(
             &format!(

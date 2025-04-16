@@ -1,4 +1,4 @@
 [toolchain]
-channel = "1.85"
+channel = "1.86"
 profile = "default"
 targets = ["x86_64-unknown-linux-musl"]

@@ -420,9 +420,7 @@ pub async fn local_recipes(
                 .map_err(|error| anyhow::anyhow!(error))?;
         }
 
-        let placeholders = std::iter::repeat("?")
-            .take(recipe_batch.len())
-            .join_with(", ");
+        let placeholders = std::iter::repeat_n("?", recipe_batch.len()).join_with(", ");
 
         let batch_known_recipes = sqlx::query_as_with::<_, (String,), _>(
             &format!(

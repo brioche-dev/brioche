@@ -481,9 +481,7 @@ async fn save_project(
     let mut git_refs = BTreeMap::new();
     for (static_, output) in project.statics.values().flatten() {
         match static_ {
-            StaticQuery::Include(_) | StaticQuery::Glob { .. } => {
-                continue;
-            }
+            StaticQuery::Include(_) | StaticQuery::Glob { .. } => {}
             StaticQuery::Download { url } => {
                 let Some(StaticOutput::Kind(StaticOutputKind::Download { hash })) = output else {
                     continue;

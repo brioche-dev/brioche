@@ -162,7 +162,7 @@ where
         Ok(bytes.len())
     }
 
-    pub fn inner_mut(&mut self) -> &mut W {
+    pub const fn inner_mut(&mut self) -> &mut W {
         &mut self.writer
     }
 
