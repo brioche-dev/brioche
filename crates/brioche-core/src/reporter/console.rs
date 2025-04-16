@@ -766,17 +766,27 @@ impl superconsole::Component for JobComponent<'_> {
                     indicator_span(indicator),
                     superconsole::Span::new_unstyled_lossy(" Unarchive "),
                     percentage_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
-                if !job.is_complete() {
-                    let remaining_width = dimensions
-                        .width
-                        .saturating_sub(1)
-                        .saturating_sub(line.len());
+                let remaining_width = dimensions
+                    .width
+                    .saturating_sub(1)
+                    .saturating_sub(line.len());
 
-                    line.push(superconsole::Span::new_unstyled_lossy(" "));
-                    line.extend(progress_bar_spans("", remaining_width, progress_fraction));
-                }
+                let read_size = bytesize::ByteSize(*read_bytes);
+                let total_size = bytesize::ByteSize(*total_bytes);
+                let unarchive_message = if job.is_complete() {
+                    format!("Unarchive: {read_size}")
+                } else {
+                    format!("Unarchive: {read_size} / {total_size}")
+                };
+
+                line.extend(progress_bar_spans(
+                    &unarchive_message,
+                    remaining_width,
+                    progress_fraction,
+                ));
 
                 superconsole::Lines::from_iter([line])
             }
