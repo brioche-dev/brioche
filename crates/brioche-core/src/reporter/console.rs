@@ -317,16 +317,40 @@ impl ConsoleReporter {
                 };
 
                 match &update {
-                    UpdateJob::Download { finished_at, .. } => {
+                    UpdateJob::Download {
+                        finished_at,
+                        downloaded_bytes,
+                        ..
+                    } => {
+                        let Job::Download { url, .. } = job else {
+                            panic!(
+                                "tried to update non-download job {id:?} with a download update"
+                            );
+                        };
+
                         if let Some(finished_at) = finished_at {
                             let elapsed = finished_at.saturating_duration_since(job.created_at());
-                            eprintln!("Finished download in {}", DisplayDuration(elapsed));
+
+                            let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                            let elapsed_duration = DisplayDuration(elapsed);
+
+                            eprintln!(
+                                "Finished downloading {url} ({downloaded_size}) in {elapsed_duration}"
+                            );
                         }
                     }
-                    UpdateJob::Unarchive { finished_at, .. } => {
+                    UpdateJob::Unarchive {
+                        finished_at,
+                        read_bytes,
+                        ..
+                    } => {
                         if let Some(finished_at) = finished_at {
                             let elapsed = finished_at.saturating_duration_since(job.created_at());
-                            eprintln!("Finished unarchiving in {}", DisplayDuration(elapsed));
+
+                            let read_size = bytesize::ByteSize(*read_bytes);
+                            let elapsed_duration = DisplayDuration(elapsed);
+
+                            eprintln!("Finished unarchiving {read_size} in {elapsed_duration}");
                         }
                     }
                     UpdateJob::ProcessUpdateStatus { status } => {
