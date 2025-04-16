@@ -732,10 +732,25 @@ impl superconsole::Component for JobComponent<'_> {
                     .saturating_sub(1)
                     .saturating_sub(line.len());
 
-                let truncated_url = string_with_width(url.as_str(), remaining_width, "…");
+                let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                let total_size = total_bytes.map(bytesize::ByteSize);
+                let mut download_message = total_size.map_or_else(
+                    || downloaded_size.to_string(),
+                    |total_size| format!("{downloaded_size} / {total_size}"),
+                );
+                let truncated_url = string_with_width(
+                    url.as_str(),
+                    remaining_width
+                        .saturating_sub(download_message.len())
+                        .saturating_sub(2),
+                    "…",
+                );
+
+                download_message += "  ";
+                download_message += &truncated_url;
 
                 line.extend(progress_bar_spans(
-                    &truncated_url,
+                    &download_message,
                     remaining_width,
                     progress_fraction.unwrap_or(0.0),
                 ));
