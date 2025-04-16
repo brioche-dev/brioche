@@ -44,18 +44,51 @@ impl CacheClient {
     }
 }
 
-pub async fn cache_client_from_config_or_default(
+pub async fn cache_client_with_config(
     config: Option<&crate::config::CacheConfig>,
 ) -> anyhow::Result<CacheClient> {
+    let use_default_cache = config.is_none_or(|config| config.use_default_cache);
+    let default_cache_store = if use_default_cache {
+        let store = build_object_store(&DEFAULT_CACHE_URL.parse()?, None).await?;
+        Some(store)
+    } else {
+        None
+    };
+
+    let configured_cache_store = if let Some(config) = config {
+        let store = build_object_store(&config.url, config.allow_http).await?;
+        Some(store)
+    } else {
+        None
+    };
+
     let max_concurrent_operations = config
         .map_or(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS, |config| {
             config.max_concurrent_operations
         });
-    let (url, writable) = match config {
-        Some(config) => (config.url.clone(), !config.read_only),
-        None => (DEFAULT_CACHE_URL.parse()?, false),
-    };
+    let writable = config.is_some_and(|config| !config.read_only);
 
+    let store = crate::object_store_utils::LayeredObjectStore {
+        read_layers: [configured_cache_store.clone(), default_cache_store]
+            .into_iter()
+            .flatten()
+            .collect(),
+        write_layer: configured_cache_store.filter(|_| writable),
+    };
+    let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
+    let store = Arc::new(store);
+
+    Ok(CacheClient {
+        store: Some(store),
+        writable,
+        max_concurrent_chunk_fetches: Some(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS),
+    })
+}
+
+async fn build_object_store(
+    url: &url::Url,
+    allow_http: Option<bool>,
+) -> anyhow::Result<Arc<dyn object_store::ObjectStore>> {
     let retry_config = object_store::RetryConfig {
         backoff: object_store::BackoffConfig {
             init_backoff: std::time::Duration::from_secs(1),
@@ -68,18 +101,17 @@ pub async fn cache_client_from_config_or_default(
 
     let mut client_options = object_store::ClientOptions::new()
         .with_user_agent(http::HeaderValue::from_static(crate::USER_AGENT));
-    if let Some(allow_http) = config.and_then(|config| config.allow_http) {
+    if let Some(allow_http) = allow_http {
         client_options = client_options.with_allow_http(allow_http);
     }
 
     let store: Arc<dyn object_store::ObjectStore> = match url.scheme() {
         "http" | "https" => {
             let store = object_store::http::HttpBuilder::new()
-                .with_url(url)
+                .with_url(url.as_str())
                 .with_retry(retry_config)
                 .with_client_options(client_options)
                 .build()?;
-            let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
             Arc::new(store)
         }
         "s3" => {
@@ -105,7 +137,6 @@ pub async fn cache_client_from_config_or_default(
             .build()?;
             let store = object_store::prefix::PrefixStore::new(store, prefix);
 
-            let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
             Arc::new(store)
         }
         "file" => {
@@ -116,12 +147,10 @@ pub async fn cache_client_from_config_or_default(
             let store = object_store::local::LocalFileSystem::new_with_prefix(&path)
                 .with_context(|| format!("failed to use path {path:?} as cache"))?;
             let store = store.with_automatic_cleanup(true);
-            let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
             Arc::new(store)
         }
         "memory" => {
             let store = object_store::memory::InMemory::new();
-            let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
             Arc::new(store)
         }
         scheme => {
@@ -129,11 +158,7 @@ pub async fn cache_client_from_config_or_default(
         }
     };
 
-    Ok(CacheClient {
-        store: Some(store),
-        writable,
-        max_concurrent_chunk_fetches: Some(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS),
-    })
+    Ok(store)
 }
 
 #[tracing::instrument(skip(brioche))]

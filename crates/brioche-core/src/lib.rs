@@ -255,6 +255,18 @@ impl BriocheBuilder {
                         let url = url.parse().with_context(|| {
                             format!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
                         })?;
+                        let use_default_cache = match std::env::var_os(
+                            "BRIOCHE_CACHE_USE_DEFAULT_CACHE",
+                        ) {
+                            Some(value) if value.to_str() == Some("true") => true,
+                            Some(value) if value.to_str() == Some("false") => false,
+                            Some(value) => {
+                                anyhow::bail!(
+                                    "invalid value for $BRIOCHE_CACHE_USE_DEFAULT_CACHE: {value:?}"
+                                );
+                            }
+                            None => true,
+                        };
                         let read_only = match std::env::var_os("BRIOCHE_CACHE_READ_ONLY") {
                             Some(value) if value.to_str() == Some("true") => true,
                             Some(value) if value.to_str() == Some("false") => false,
@@ -288,13 +300,14 @@ impl BriocheBuilder {
                         Some(config::CacheConfig {
                             url,
                             max_concurrent_operations,
+                            use_default_cache,
                             read_only,
                             allow_http,
                         })
                     }
                     None => config.cache.clone(),
                 };
-                cache::cache_client_from_config_or_default(cache_config.as_ref()).await?
+                cache::cache_client_with_config(cache_config.as_ref()).await?
             }
         };
 

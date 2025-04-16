@@ -77,10 +77,17 @@ pub struct CacheConfig {
     #[serde(default = "default_cache_max_concurrent_operations")]
     pub max_concurrent_operations: usize,
 
+    #[serde(default = "default_use_default_cache")]
+    pub use_default_cache: bool,
+
     #[serde(default)]
     pub read_only: bool,
 
     pub allow_http: Option<bool>,
+}
+
+const fn default_use_default_cache() -> bool {
+    true
 }
 
 const fn default_cache_max_concurrent_operations() -> usize {
