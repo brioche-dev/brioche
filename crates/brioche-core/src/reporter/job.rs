@@ -10,16 +10,15 @@ pub enum NewJob {
     },
     Unarchive {
         started_at: std::time::Instant,
+        total_bytes: u64,
     },
     Process {
         status: ProcessStatus,
     },
     CacheFetch {
         kind: CacheFetchKind,
-        downloaded_data: Option<u64>,
-        total_data: Option<u64>,
-        downloaded_blobs: Option<u64>,
-        total_blobs: Option<u64>,
+        downloaded_bytes: Option<u64>,
+        total_bytes: Option<u64>,
         started_at: std::time::Instant,
     },
 }
@@ -27,11 +26,13 @@ pub enum NewJob {
 #[derive(Debug)]
 pub enum UpdateJob {
     Download {
-        progress_percent: Option<u8>,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
         finished_at: Option<std::time::Instant>,
     },
     Unarchive {
-        progress_percent: u8,
+        read_bytes: u64,
+        total_bytes: Option<u64>,
         finished_at: Option<std::time::Instant>,
     },
     ProcessPushPacket {
@@ -42,14 +43,11 @@ pub enum UpdateJob {
         status: ProcessStatus,
     },
     CacheFetchAdd {
-        downloaded_data: Option<u64>,
-        downloaded_blobs: Option<u64>,
+        downloaded_bytes: Option<u64>,
     },
     CacheFetchUpdate {
-        downloaded_data: Option<u64>,
-        total_data: Option<u64>,
-        downloaded_blobs: Option<u64>,
-        total_blobs: Option<u64>,
+        downloaded_bytes: Option<u64>,
+        total_bytes: Option<u64>,
     },
     CacheFetchFinish {
         finished_at: std::time::Instant,
@@ -60,12 +58,14 @@ pub enum UpdateJob {
 pub enum Job {
     Download {
         url: url::Url,
-        progress_percent: Option<u8>,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
         started_at: std::time::Instant,
         finished_at: Option<std::time::Instant>,
     },
     Unarchive {
-        progress_percent: u8,
+        read_bytes: u64,
+        total_bytes: u64,
         started_at: std::time::Instant,
         finished_at: Option<std::time::Instant>,
     },
@@ -75,10 +75,8 @@ pub enum Job {
     },
     CacheFetch {
         kind: CacheFetchKind,
-        downloaded_data: u64,
-        total_data: Option<u64>,
-        downloaded_blobs: u64,
-        total_blobs: Option<u64>,
+        downloaded_bytes: u64,
+        total_bytes: Option<u64>,
         started_at: std::time::Instant,
         finished_at: Option<std::time::Instant>,
     },
@@ -89,12 +87,17 @@ impl Job {
         match new {
             NewJob::Download { url, started_at } => Self::Download {
                 url,
-                progress_percent: Some(0),
+                downloaded_bytes: 0,
+                total_bytes: None,
                 started_at,
                 finished_at: None,
             },
-            NewJob::Unarchive { started_at } => Self::Unarchive {
-                progress_percent: 0,
+            NewJob::Unarchive {
+                started_at,
+                total_bytes,
+            } => Self::Unarchive {
+                read_bytes: 0,
+                total_bytes,
                 started_at,
                 finished_at: None,
             },
@@ -104,17 +107,13 @@ impl Job {
             },
             NewJob::CacheFetch {
                 kind,
-                downloaded_data,
-                total_data,
-                downloaded_blobs,
-                total_blobs,
+                downloaded_bytes,
+                total_bytes,
                 started_at,
             } => Self::CacheFetch {
                 kind,
-                downloaded_data: downloaded_data.unwrap_or(0),
-                total_data,
-                downloaded_blobs: downloaded_blobs.unwrap_or(0),
-                total_blobs,
+                downloaded_bytes: downloaded_bytes.unwrap_or(0),
+                total_bytes,
                 started_at,
                 finished_at: None,
             },
@@ -124,33 +123,39 @@ impl Job {
     pub fn update(&mut self, update: UpdateJob) -> anyhow::Result<()> {
         match update {
             UpdateJob::Download {
-                progress_percent: new_progress_percent,
+                downloaded_bytes: new_downloaded_bytes,
+                total_bytes: new_total_bytes,
                 finished_at: new_finished_at,
             } => {
                 let Self::Download {
-                    progress_percent,
+                    downloaded_bytes,
+                    total_bytes,
                     finished_at,
                     ..
                 } = self
                 else {
                     anyhow::bail!("tried to update a non-download job with a download update");
                 };
-                *progress_percent = new_progress_percent;
+                *downloaded_bytes = new_downloaded_bytes;
+                *total_bytes = new_total_bytes.or(*total_bytes);
                 *finished_at = new_finished_at;
             }
             UpdateJob::Unarchive {
-                progress_percent: new_progress_percent,
+                read_bytes: new_read_bytes,
+                total_bytes: new_total_bytes,
                 finished_at: new_finished_at,
             } => {
                 let Self::Unarchive {
-                    progress_percent,
+                    read_bytes,
+                    total_bytes,
                     finished_at,
                     ..
                 } = self
                 else {
                     anyhow::bail!("tried to update a non-unarchive job with an unarchive update");
                 };
-                *progress_percent = new_progress_percent;
+                *read_bytes = new_read_bytes;
+                *total_bytes = new_total_bytes.unwrap_or(*total_bytes);
                 *finished_at = new_finished_at;
             }
             UpdateJob::ProcessPushPacket { packet } => {
@@ -180,13 +185,10 @@ impl Job {
                 *status = new_status;
             }
             UpdateJob::CacheFetchAdd {
-                downloaded_data: add_downloaded_data,
-                downloaded_blobs: add_downloaded_blobs,
+                downloaded_bytes: add_downloaded_bytes,
             } => {
                 let Self::CacheFetch {
-                    downloaded_data,
-                    downloaded_blobs,
-                    ..
+                    downloaded_bytes, ..
                 } = self
                 else {
                     anyhow::bail!(
@@ -194,26 +196,18 @@ impl Job {
                     );
                 };
 
-                if let Some(add_downloaded_data) = add_downloaded_data {
-                    *downloaded_data += add_downloaded_data;
-                }
-
-                if let Some(add_downloaded_blobs) = add_downloaded_blobs {
-                    *downloaded_blobs += add_downloaded_blobs;
+                if let Some(add_downloaded_bytes) = add_downloaded_bytes {
+                    *downloaded_bytes += add_downloaded_bytes;
                 }
             }
             UpdateJob::CacheFetchUpdate {
-                downloaded_data: new_downloaded_data,
-                total_data: new_total_data,
-                downloaded_blobs: new_downloaded_blobs,
-                total_blobs: new_total_blobs,
+                downloaded_bytes: new_downloaded_bytes,
+                total_bytes: new_total_bytes,
             } => {
                 let Self::CacheFetch {
                     kind: _,
-                    downloaded_data,
-                    total_data,
-                    downloaded_blobs,
-                    total_blobs,
+                    downloaded_bytes,
+                    total_bytes,
                     started_at: _,
                     finished_at: _,
                 } = self
@@ -223,17 +217,11 @@ impl Job {
                     );
                 };
 
-                if let Some(new_downloaded_data) = new_downloaded_data {
-                    *downloaded_data = new_downloaded_data;
+                if let Some(new_downloaded_bytes) = new_downloaded_bytes {
+                    *downloaded_bytes = new_downloaded_bytes;
                 }
-                if let Some(new_total_data) = new_total_data {
-                    *total_data = Some(new_total_data);
-                }
-                if let Some(new_downloaded_blobs) = new_downloaded_blobs {
-                    *downloaded_blobs = new_downloaded_blobs;
-                }
-                if let Some(new_total_blobs) = new_total_blobs {
-                    *total_blobs = Some(new_total_blobs);
+                if let Some(new_total_bytes) = new_total_bytes {
+                    *total_bytes = Some(new_total_bytes);
                 }
             }
             UpdateJob::CacheFetchFinish {
@@ -241,10 +229,8 @@ impl Job {
             } => {
                 let Self::CacheFetch {
                     kind: _,
-                    downloaded_data,
-                    total_data,
-                    downloaded_blobs,
-                    total_blobs,
+                    downloaded_bytes,
+                    total_bytes,
                     started_at: _,
                     finished_at,
                 } = self
@@ -254,12 +240,8 @@ impl Job {
                     );
                 };
 
-                if let Some(total_data) = total_data {
-                    *downloaded_data = *total_data;
-                }
-
-                if let Some(total_blobs) = total_blobs {
-                    *downloaded_blobs = *total_blobs;
+                if let Some(total_bytes) = total_bytes {
+                    *downloaded_bytes = *total_bytes;
                 }
 
                 *finished_at = Some(new_finished_at);

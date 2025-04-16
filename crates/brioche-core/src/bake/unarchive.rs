@@ -12,7 +12,6 @@ use crate::{
     reporter::job::{NewJob, UpdateJob},
 };
 
-#[expect(clippy::cast_possible_truncation)]
 #[tracing::instrument(skip(brioche, unarchive), fields(file_recipe = %unarchive.file.hash(), archive = ?unarchive.archive, compression = ?unarchive.compression))]
 pub async fn bake_unarchive(
     brioche: &Brioche,
@@ -31,10 +30,6 @@ pub async fn bake_unarchive(
 
     tracing::debug!(%blob_hash, archive = ?unarchive.archive, compression = ?unarchive.compression, "starting unarchive");
 
-    let job_id = brioche.reporter.add_job(NewJob::Unarchive {
-        started_at: std::time::Instant::now(),
-    });
-
     let archive_path = {
         let mut permit = crate::blob::get_save_blob_permit().await?;
         crate::blob::blob_path(brioche, &mut permit, blob_hash).await?
@@ -42,12 +37,19 @@ pub async fn bake_unarchive(
     let archive_file = tokio::fs::File::open(&archive_path).await?;
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);
+    let archive_file = crate::utils::io::ReadTracker::new(archive_file);
+
+    let job_id = brioche.reporter.add_job(NewJob::Unarchive {
+        started_at: std::time::Instant::now(),
+        total_bytes: uncompressed_archive_size,
+    });
 
     let (entry_tx, mut entry_rx) = tokio::sync::mpsc::channel(16);
 
     let mut permit = crate::blob::get_save_blob_permit().await?;
     let process_archive_task = tokio::task::spawn_blocking({
         let brioche = brioche.clone();
+        let archive_file_cursor = archive_file.cursor.clone();
         move || {
             match unarchive.archive {
                 ArchiveFormat::Tar => {
@@ -65,14 +67,13 @@ pub async fn bake_unarchive(
                             bstr::BString::new(archive_entry.path_bytes().into_owned());
                         let entry_mode = archive_entry.header().mode()?;
 
-                        let position = archive_entry.raw_file_position();
-                        let estimated_progress =
-                            position as f64 / (uncompressed_archive_size as f64).max(1.0);
-                        let progress_percent = (estimated_progress * 100.0).min(99.0) as u8;
+                        let read_bytes =
+                            archive_file_cursor.load(std::sync::atomic::Ordering::Relaxed);
                         brioche.reporter.update_job(
                             job_id,
                             UpdateJob::Unarchive {
-                                progress_percent,
+                                read_bytes,
+                                total_bytes: Some(uncompressed_archive_size),
                                 finished_at: None,
                             },
                         );
@@ -235,7 +236,8 @@ pub async fn bake_unarchive(
         brioche.reporter.update_job(
             job_id,
             UpdateJob::Unarchive {
-                progress_percent: 100,
+                read_bytes: uncompressed_archive_size,
+                total_bytes: Some(uncompressed_archive_size),
                 finished_at: Some(std::time::Instant::now()),
             },
         );

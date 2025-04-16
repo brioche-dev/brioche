@@ -352,10 +352,8 @@ pub async fn read_artifact_archive(
 ) -> anyhow::Result<Artifact> {
     let job_id = brioche.reporter.add_job(NewJob::CacheFetch {
         kind: fetch_kind,
-        downloaded_data: None,
-        total_data: None,
-        downloaded_blobs: None,
-        total_blobs: None,
+        downloaded_bytes: None,
+        total_bytes: None,
         started_at: std::time::Instant::now(),
     });
 
@@ -573,14 +571,11 @@ pub async fn read_artifact_archive(
         .iter()
         .map(|(_, range)| range.end.saturating_sub(range.start))
         .sum::<u64>();
-    let total_needed_blobs: u64 = needed_blobs.len().try_into()?;
     brioche.reporter.update_job(
         job_id,
         UpdateJob::CacheFetchUpdate {
-            downloaded_data: None,
-            total_data: Some(total_needed_bytes),
-            downloaded_blobs: None,
-            total_blobs: Some(total_needed_blobs),
+            downloaded_bytes: None,
+            total_bytes: Some(total_needed_bytes),
         },
     );
 
@@ -636,8 +631,7 @@ pub async fn read_artifact_archive(
                 brioche.reporter.update_job(
                     job_id,
                     UpdateJob::CacheFetchAdd {
-                        downloaded_data: Some(length),
-                        downloaded_blobs: Some(1),
+                        downloaded_bytes: Some(length),
                     },
                 );
 
@@ -738,10 +732,8 @@ pub async fn read_artifact_archive(
     brioche.reporter.update_job(
         job_id,
         UpdateJob::CacheFetchUpdate {
-            downloaded_data: Some(total_needed_bytes),
-            total_data: Some(total_needed_bytes),
-            downloaded_blobs: Some(total_needed_blobs),
-            total_blobs: Some(total_needed_blobs),
+            downloaded_bytes: Some(total_needed_bytes),
+            total_bytes: Some(total_needed_bytes),
         },
     );
 
@@ -807,8 +799,7 @@ async fn fetch_blobs_from_chunks(
                 brioche.reporter.update_job(
                     job_id,
                     UpdateJob::CacheFetchAdd {
-                        downloaded_data: Some(length),
-                        downloaded_blobs: Some(1),
+                        downloaded_bytes: Some(length),
                     },
                 );
 
@@ -860,8 +851,7 @@ async fn fetch_blobs_from_chunks(
                         reporter.update_job(
                             job_id,
                             UpdateJob::CacheFetchAdd {
-                                downloaded_data: Some(length),
-                                downloaded_blobs: None,
+                                downloaded_bytes: Some(length),
                             },
                         );
                     }
@@ -889,8 +879,7 @@ async fn fetch_blobs_from_chunks(
             brioche.reporter.update_job(
                 job_id,
                 UpdateJob::CacheFetchAdd {
-                    downloaded_data: None,
-                    downloaded_blobs: Some(1),
+                    downloaded_bytes: None,
                 },
             );
 

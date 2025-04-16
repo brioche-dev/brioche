@@ -256,24 +256,23 @@ impl ConsoleReporter {
                     NewJob::Download { url, started_at: _ } => {
                         eprintln!("Downloading {url}");
                     }
-                    NewJob::Unarchive { started_at: _ } => {}
+                    NewJob::Unarchive {
+                        started_at: _,
+                        total_bytes: _,
+                    } => {}
                     NewJob::Process { status: _ } => {}
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Bake,
-                        downloaded_data: _,
-                        total_data: _,
-                        downloaded_blobs: _,
-                        total_blobs: _,
+                        downloaded_bytes: _,
+                        total_bytes: _,
                         started_at: _,
                     } => {
                         eprintln!("Fetching artifact from cache");
                     }
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Project,
-                        downloaded_data: _,
-                        total_data: _,
-                        downloaded_blobs: _,
-                        total_blobs: _,
+                        downloaded_bytes: _,
+                        total_bytes: _,
                         started_at: _,
                     } => {
                         eprintln!("Fetching project from cache");
@@ -318,16 +317,40 @@ impl ConsoleReporter {
                 };
 
                 match &update {
-                    UpdateJob::Download { finished_at, .. } => {
+                    UpdateJob::Download {
+                        finished_at,
+                        downloaded_bytes,
+                        ..
+                    } => {
+                        let Job::Download { url, .. } = job else {
+                            panic!(
+                                "tried to update non-download job {id:?} with a download update"
+                            );
+                        };
+
                         if let Some(finished_at) = finished_at {
                             let elapsed = finished_at.saturating_duration_since(job.created_at());
-                            eprintln!("Finished download in {}", DisplayDuration(elapsed));
+
+                            let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                            let elapsed_duration = DisplayDuration(elapsed);
+
+                            eprintln!(
+                                "Finished downloading {url} ({downloaded_size}) in {elapsed_duration}"
+                            );
                         }
                     }
-                    UpdateJob::Unarchive { finished_at, .. } => {
+                    UpdateJob::Unarchive {
+                        finished_at,
+                        read_bytes,
+                        ..
+                    } => {
                         if let Some(finished_at) = finished_at {
                             let elapsed = finished_at.saturating_duration_since(job.created_at());
-                            eprintln!("Finished unarchiving in {}", DisplayDuration(elapsed));
+
+                            let read_size = bytesize::ByteSize(*read_bytes);
+                            let elapsed_duration = DisplayDuration(elapsed);
+
+                            eprintln!("Finished unarchiving {read_size} in {elapsed_duration}");
                         }
                     }
                     UpdateJob::ProcessUpdateStatus { status } => {
@@ -428,7 +451,7 @@ impl ConsoleReporter {
 
                         let Job::CacheFetch {
                             kind,
-                            downloaded_blobs,
+                            downloaded_bytes,
                             ..
                         } = job
                         else {
@@ -439,10 +462,11 @@ impl ConsoleReporter {
                             crate::reporter::job::CacheFetchKind::Project => "project",
                         };
 
+                        let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                        let elapsed_duration = DisplayDuration(elapsed);
+
                         eprintln!(
-                            "Finished fetching {fetch_kind} with {downloaded_blobs} new blob{s} from cache in {}",
-                            DisplayDuration(elapsed),
-                            s = if *downloaded_blobs == 1 { "" } else { "s" }
+                            "Fetched {downloaded_size} for {fetch_kind} from cache in {elapsed_duration}",
                         );
                     }
                 }
@@ -694,10 +718,15 @@ impl superconsole::Component for JobComponent<'_> {
         let lines = match job {
             Job::Download {
                 url,
-                progress_percent,
+                downloaded_bytes,
+                total_bytes,
                 started_at: _,
                 finished_at: _,
             } => {
+                let progress_fraction = total_bytes
+                    .map(|total_bytes| fraction_of(*downloaded_bytes as f32, total_bytes as f32));
+                let progress_percent = progress_fraction
+                    .map(|progress_fraction| (progress_fraction * 100.0).floor() as u8);
                 let percentage_span = progress_percent.as_ref().map_or_else(
                     || superconsole::Span::new_unstyled_lossy("???%"),
                     |percent| {
@@ -727,23 +756,39 @@ impl superconsole::Component for JobComponent<'_> {
                     .saturating_sub(1)
                     .saturating_sub(line.len());
 
-                let truncated_url = string_with_width(url.as_str(), remaining_width, "…");
+                let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                let total_size = total_bytes.map(bytesize::ByteSize);
+                let mut download_message = total_size.map_or_else(
+                    || downloaded_size.to_string(),
+                    |total_size| format!("{downloaded_size} / {total_size}"),
+                );
+                let truncated_url = string_with_width(
+                    url.as_str(),
+                    remaining_width
+                        .saturating_sub(download_message.len())
+                        .saturating_sub(2),
+                    "…",
+                );
 
-                let progress_bar_progress = f64::from(progress_percent.unwrap_or(0)) / 100.0;
+                download_message += "  ";
+                download_message += &truncated_url;
 
                 line.extend(progress_bar_spans(
-                    &truncated_url,
+                    &download_message,
                     remaining_width,
-                    progress_bar_progress,
+                    progress_fraction.unwrap_or(0.0),
                 ));
 
                 superconsole::Lines::from_iter([line])
             }
             Job::Unarchive {
-                progress_percent,
+                read_bytes,
+                total_bytes,
                 started_at: _,
                 finished_at: _,
             } => {
+                let progress_fraction = fraction_of(*read_bytes as f32, *total_bytes as f32);
+                let progress_percent = (progress_fraction * 100.0).floor() as u8;
                 let percentage_span = superconsole::Span::new_unstyled_lossy(
                     lazy_format::lazy_format!("{progress_percent:>3}%"),
                 );
@@ -760,23 +805,27 @@ impl superconsole::Component for JobComponent<'_> {
                     indicator_span(indicator),
                     superconsole::Span::new_unstyled_lossy(" Unarchive "),
                     percentage_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
-                if !job.is_complete() {
-                    let remaining_width = dimensions
-                        .width
-                        .saturating_sub(1)
-                        .saturating_sub(line.len());
+                let remaining_width = dimensions
+                    .width
+                    .saturating_sub(1)
+                    .saturating_sub(line.len());
 
-                    let progress_bar_progress = f64::from(*progress_percent) / 100.0;
+                let read_size = bytesize::ByteSize(*read_bytes);
+                let total_size = bytesize::ByteSize(*total_bytes);
+                let unarchive_message = if job.is_complete() {
+                    format!("Unarchive: {read_size}")
+                } else {
+                    format!("Unarchive: {read_size} / {total_size}")
+                };
 
-                    line.push(superconsole::Span::new_unstyled_lossy(" "));
-                    line.extend(progress_bar_spans(
-                        "",
-                        remaining_width,
-                        progress_bar_progress,
-                    ));
-                }
+                line.extend(progress_bar_spans(
+                    &unarchive_message,
+                    remaining_width,
+                    progress_fraction,
+                ));
 
                 superconsole::Lines::from_iter([line])
             }
@@ -849,22 +898,18 @@ impl superconsole::Component for JobComponent<'_> {
             }
             Job::CacheFetch {
                 kind,
-                downloaded_data,
-                total_data,
-                downloaded_blobs,
-                total_blobs,
+                downloaded_bytes,
+                total_bytes,
                 started_at: _,
                 finished_at: _,
             } => {
-                let total_progress = match total_data {
-                    None => 0.0,
-                    Some(0) => 1.0,
-                    Some(total_data) => *downloaded_data as f64 / *total_data as f64,
-                };
-                let total_percent = (total_progress * 100.0) as u64;
+                let progress_fraction = total_bytes.map_or(0.0, |total_bytes| {
+                    fraction_of(*downloaded_bytes as f32, total_bytes as f32)
+                });
+                let progress_percent = (progress_fraction * 100.0).floor() as u8;
 
                 let percentage_span = superconsole::Span::new_unstyled_lossy(
-                    lazy_format::lazy_format!("{total_percent:>3}%"),
+                    lazy_format::lazy_format!("{progress_percent:>3}%"),
                 );
 
                 let indicator = if job.is_complete() {
@@ -882,20 +927,17 @@ impl superconsole::Component for JobComponent<'_> {
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
+                let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                let total_size = total_bytes.map(bytesize::ByteSize);
+
                 let fetch_kind = match kind {
                     super::job::CacheFetchKind::Bake => "artifact",
                     super::job::CacheFetchKind::Project => "project",
                 };
                 let fetching_message = if job.is_complete() {
-                    format!(
-                        "Fetch {fetch_kind}: {downloaded_blobs} blob{s}",
-                        s = if *downloaded_blobs == 1 { "" } else { "s" }
-                    )
-                } else if let Some(total_blobs) = total_blobs {
-                    format!(
-                        "Fetch {fetch_kind}: {downloaded_blobs} / {total_blobs} blob{s}",
-                        s = if *downloaded_blobs == 1 { "" } else { "s" }
-                    )
+                    format!("Fetch {fetch_kind}: {downloaded_size}")
+                } else if let Some(total_size) = total_size {
+                    format!("Fetch {fetch_kind}: {downloaded_size} / {total_size}")
                 } else {
                     format!("Fetch {fetch_kind}")
                 };
@@ -907,7 +949,7 @@ impl superconsole::Component for JobComponent<'_> {
                 line.extend(progress_bar_spans(
                     &fetching_message,
                     remaining_width,
-                    total_progress,
+                    progress_fraction,
                 ));
 
                 superconsole::Lines::from_iter([line])
@@ -1015,13 +1057,17 @@ fn indicator_span(kind: IndicatorKind) -> superconsole::Span {
 }
 
 #[expect(clippy::cast_possible_truncation)]
-fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [superconsole::Span; 2] {
-    let filled = ((width as f64) * progress) as usize;
+fn progress_bar_spans(
+    interior: &str,
+    width: usize,
+    progress_fraction: f32,
+) -> [superconsole::Span; 2] {
+    let filled = ((width as f32) * progress_fraction) as usize;
 
     let padded = format!("{interior:width$.width$}");
-    let (filled_part, unfilled_part) = if progress <= 0.0 {
+    let (filled_part, unfilled_part) = if progress_fraction <= 0.0 {
         ("", &*padded)
-    } else if progress >= 1.0 {
+    } else if progress_fraction >= 1.0 {
         (&*padded, "")
     } else {
         let split_offset = padded
@@ -1044,6 +1090,14 @@ fn progress_bar_spans(interior: &str, width: usize, progress: f64) -> [supercons
 const fn spinner(duration: std::time::Duration, speed: u128) -> &'static str {
     const SPINNERS: &[&str] = &["◜", "◝", "◞", "◟"];
     SPINNERS[(duration.as_millis() / speed) as usize % SPINNERS.len()]
+}
+
+const fn fraction_of(value: f32, total: f32) -> f32 {
+    if total > 0.0 {
+        (value / total).clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
 }
 
 #[cfg(test)]

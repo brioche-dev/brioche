@@ -39,8 +39,10 @@ where
         Ok(Self { reader })
     }
 
-    pub const fn pos(&self) -> u64 {
-        self.reader.cursor
+    pub fn pos(&self) -> u64 {
+        self.reader
+            .cursor
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn seek_to_pos(&mut self, pos: u64) -> Result<(), ProcessEventReadError>
