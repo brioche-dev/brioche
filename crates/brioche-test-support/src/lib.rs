@@ -474,6 +474,7 @@ pub fn default_process_x86_64_linux() -> ProcessRecipe {
         command: ProcessTemplate { components: vec![] },
         args: vec![],
         env: BTreeMap::new(),
+        current_dir: ProcessTemplate::default_current_dir(),
         dependencies: vec![],
         work_dir: Box::new(WithMeta::without_meta(Recipe::Directory(
             Directory::default(),
@@ -490,6 +491,7 @@ pub fn default_process() -> ProcessRecipe {
         command: ProcessTemplate { components: vec![] },
         args: vec![],
         env: BTreeMap::new(),
+        current_dir: ProcessTemplate::default_current_dir(),
         dependencies: vec![],
         work_dir: Box::new(WithMeta::without_meta(Recipe::Directory(
             Directory::default(),
