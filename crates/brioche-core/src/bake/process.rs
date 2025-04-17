@@ -66,6 +66,8 @@ pub async fn bake_lazy_process_to_process(
         })
         .try_collect()
         .await?;
+    let current_dir =
+        bake_lazy_process_template_to_process_template(brioche, scope, process.current_dir).await?;
 
     let dependencies: Vec<_> = futures::stream::iter(process.dependencies)
         .then(|dependency| async move {
@@ -96,6 +98,7 @@ pub async fn bake_lazy_process_to_process(
         command,
         args,
         env,
+        current_dir,
         work_dir,
         output_scaffold,
         platform: process.platform,
@@ -472,6 +475,8 @@ pub async fn bake_process(
         .try_collect::<HashMap<_, _>>()
         .await?;
 
+    let current_dir = build_process_template(brioche, process.current_dir.clone(), dirs).await?;
+
     let sandbox_config = SandboxExecutionConfig {
         sandbox_root: root_dir.clone(),
         include_host_paths: HashMap::from_iter([
@@ -507,13 +512,7 @@ pub async fn bake_process(
         command,
         args,
         env,
-        current_dir: SandboxPath {
-            host_path: host_work_dir,
-            options: SandboxPathOptions {
-                mode: HostPathMode::ReadWriteCreate,
-                guest_path_hint: guest_work_dir.into(),
-            },
-        },
+        current_dir,
         networking: process.networking,
         uid_hint: GUEST_UID_HINT,
         gid_hint: GUEST_GID_HINT,
@@ -1555,12 +1554,14 @@ impl SandboxBackendSelector {
                 },
             ],
             env: sandbox_config_env,
-            current_dir: SandboxPath {
-                host_path: work_dir,
-                options: SandboxPathOptions {
-                    guest_path_hint: "/work".into(),
-                    mode: HostPathMode::ReadWriteCreate,
-                },
+            current_dir: SandboxTemplate {
+                components: vec![SandboxTemplateComponent::Path(SandboxPath {
+                    host_path: work_dir,
+                    options: SandboxPathOptions {
+                        guest_path_hint: "/work".into(),
+                        mode: HostPathMode::ReadWriteCreate,
+                    },
+                })],
             },
             networking: false,
             uid_hint: GUEST_UID_HINT,

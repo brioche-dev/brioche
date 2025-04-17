@@ -286,6 +286,7 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
             command: ProcessTemplate { components: vec![] },
             args: vec![],
             env: BTreeMap::default(),
+            current_dir: ProcessTemplate::default_current_dir(),
             dependencies: vec![],
             work_dir: Box::new(brioche_test_support::without_meta(
                 brioche_test_support::lazy_dir_empty(),
@@ -309,6 +310,7 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
             },
             args: vec![],
             env: BTreeMap::default(),
+            current_dir: ProcessTemplate::default_current_dir(),
             dependencies: vec![],
             work_dir: Box::new(brioche_test_support::without_meta(
                 brioche_test_support::lazy_dir_empty(),
@@ -334,6 +336,7 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                 components: vec![ProcessTemplateComponent::Literal { value: "sh".into() }],
             }],
             env: BTreeMap::default(),
+            current_dir: ProcessTemplate::default_current_dir(),
             dependencies: vec![],
             work_dir: Box::new(brioche_test_support::without_meta(
                 brioche_test_support::lazy_dir_empty(),
@@ -366,6 +369,7 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                     }],
                 },
             )]),
+            current_dir: ProcessTemplate::default_current_dir(),
             dependencies: vec![],
             work_dir: Box::new(brioche_test_support::without_meta(
                 brioche_test_support::lazy_dir_empty(),
@@ -405,6 +409,7 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                     ],
                 },
             )]),
+            current_dir: ProcessTemplate::default_current_dir(),
             dependencies: vec![],
             work_dir: Box::new(brioche_test_support::without_meta(
                 brioche_test_support::lazy_dir_empty(),
@@ -444,6 +449,7 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                     ],
                 },
             )]),
+            current_dir: ProcessTemplate::default_current_dir(),
             dependencies: vec![],
             work_dir: Box::new(brioche_test_support::without_meta(
                 brioche_test_support::lazy_dir_empty(),
@@ -483,6 +489,7 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
                     ],
                 },
             )]),
+            current_dir: ProcessTemplate::default_current_dir(),
             dependencies: vec![],
             work_dir: Box::new(brioche_test_support::without_meta(
                 brioche_test_support::lazy_dir_empty(),
@@ -495,6 +502,90 @@ async fn test_recipe_hash_stable_process() -> anyhow::Result<()> {
         .hash()
         .to_string(),
         "5d14c32fce7134257ede8918680a83d9b33a292879192ac99461202851ab82e5",
+    ));
+
+    asserts.push((
+        Recipe::Process(ProcessRecipe {
+            command: ProcessTemplate {
+                components: vec![ProcessTemplateComponent::Literal {
+                    value: "/usr/bin/env".into(),
+                }],
+            },
+            args: vec![ProcessTemplate {
+                components: vec![ProcessTemplateComponent::Literal { value: "sh".into() }],
+            }],
+            env: BTreeMap::from_iter([(
+                "PATH".into(),
+                ProcessTemplate {
+                    components: vec![
+                        ProcessTemplateComponent::Input {
+                            recipe: brioche_test_support::without_meta(
+                                brioche_test_support::lazy_dir_empty(),
+                            ),
+                        },
+                        ProcessTemplateComponent::Literal {
+                            value: "/bin".into(),
+                        },
+                    ],
+                },
+            )]),
+            current_dir: ProcessTemplate {
+                components: vec![ProcessTemplateComponent::WorkDir],
+            },
+            dependencies: vec![],
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
+            output_scaffold: None,
+            platform: Platform::X86_64Linux,
+            is_unsafe: true,
+            networking: true,
+        })
+        .hash()
+        .to_string(),
+        "5d14c32fce7134257ede8918680a83d9b33a292879192ac99461202851ab82e5",
+    ));
+
+    asserts.push((
+        Recipe::Process(ProcessRecipe {
+            command: ProcessTemplate {
+                components: vec![ProcessTemplateComponent::Literal {
+                    value: "/usr/bin/env".into(),
+                }],
+            },
+            args: vec![ProcessTemplate {
+                components: vec![ProcessTemplateComponent::Literal { value: "sh".into() }],
+            }],
+            env: BTreeMap::from_iter([(
+                "PATH".into(),
+                ProcessTemplate {
+                    components: vec![
+                        ProcessTemplateComponent::Input {
+                            recipe: brioche_test_support::without_meta(
+                                brioche_test_support::lazy_dir_empty(),
+                            ),
+                        },
+                        ProcessTemplateComponent::Literal {
+                            value: "/bin".into(),
+                        },
+                    ],
+                },
+            )]),
+            current_dir: ProcessTemplate {
+                components: vec![ProcessTemplateComponent::OutputPath],
+            },
+            dependencies: vec![],
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            )),
+            output_scaffold: None,
+            platform: Platform::X86_64Linux,
+            is_unsafe: true,
+            networking: true,
+        })
+        .hash()
+        .to_string(),
+        "7f78c082d7b4ef77863fe2aa32c90c5a5c764610fba91e5419d0cd406d351cd2",
     ));
 
     let left: Vec<_> = asserts.iter().map(|(left, _)| left).collect();

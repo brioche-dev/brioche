@@ -24,7 +24,7 @@ pub struct SandboxExecutionConfig {
     pub args: Vec<SandboxTemplate>,
     #[serde_as(as = "HashMap<TickEncoded, _>")]
     pub env: HashMap<bstr::BString, SandboxTemplate>,
-    pub current_dir: SandboxPath,
+    pub current_dir: SandboxTemplate,
     pub networking: bool,
     pub uid_hint: u32,
     pub gid_hint: u32,

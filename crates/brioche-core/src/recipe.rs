@@ -507,6 +507,12 @@ pub struct ProcessRecipe {
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, ProcessTemplate>,
 
+    #[serde(
+        default = "ProcessTemplate::default_current_dir",
+        skip_serializing_if = "ProcessTemplate::is_default_current_dir"
+    )]
+    pub current_dir: ProcessTemplate,
+
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dependencies: Vec<WithMeta<Recipe>>,
 
@@ -539,6 +545,12 @@ pub struct CompleteProcessRecipe {
     #[serde_as(as = "BTreeMap<TickEncoded, _>")]
     pub env: BTreeMap<BString, CompleteProcessTemplate>,
 
+    #[serde(
+        default = "CompleteProcessTemplate::default_current_dir",
+        skip_serializing_if = "CompleteProcessTemplate::is_default_current_dir"
+    )]
+    pub current_dir: CompleteProcessTemplate,
+
     #[serde_as(as = "serde_with::TryFromInto<Recipe>")]
     pub work_dir: Directory,
 
@@ -566,6 +578,7 @@ impl TryFrom<ProcessRecipe> for CompleteProcessRecipe {
             command,
             args,
             env,
+            current_dir,
             dependencies,
             work_dir,
             output_scaffold,
@@ -597,6 +610,7 @@ impl TryFrom<ProcessRecipe> for CompleteProcessRecipe {
                 .into_iter()
                 .map(|(key, value)| Ok((key, value.try_into()?)))
                 .collect::<anyhow::Result<_>>()?,
+            current_dir: current_dir.try_into()?,
             work_dir,
             output_scaffold,
             platform,
@@ -1191,6 +1205,19 @@ pub struct ProcessTemplate {
     pub components: Vec<ProcessTemplateComponent>,
 }
 
+impl ProcessTemplate {
+    pub fn default_current_dir() -> Self {
+        Self {
+            components: vec![ProcessTemplateComponent::WorkDir],
+        }
+    }
+
+    fn is_default_current_dir(&self) -> bool {
+        let Self { components } = self;
+        components == &[ProcessTemplateComponent::WorkDir]
+    }
+}
+
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
@@ -1299,6 +1326,17 @@ impl CompleteProcessTemplate {
                     value: literal.as_ref().into(),
                 });
         }
+    }
+
+    pub fn default_current_dir() -> Self {
+        Self {
+            components: vec![CompleteProcessTemplateComponent::WorkDir],
+        }
+    }
+
+    fn is_default_current_dir(&self) -> bool {
+        let Self { components } = self;
+        components == &[CompleteProcessTemplateComponent::WorkDir]
     }
 }
 

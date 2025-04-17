@@ -42,12 +42,7 @@ pub fn run_sandbox(
         })
         .collect::<anyhow::Result<HashMap<_, _>>>()?;
 
-    let current_dir = build_template(
-        &SandboxTemplate {
-            components: vec![SandboxTemplateComponent::Path(exec.current_dir.clone())],
-        },
-        &mut host_paths,
-    )?;
+    let current_dir = build_template(&exec.current_dir, &mut host_paths)?;
 
     let mut unshare_namespaces = vec![unshare::Namespace::User];
 

@@ -28,10 +28,7 @@ pub fn run_sandbox(exec: &super::SandboxExecutionConfig) -> anyhow::Result<super
             anyhow::Ok((key, value))
         })
         .collect::<anyhow::Result<HashMap<_, _>>>()?;
-
-    let current_dir = build_template(&SandboxTemplate {
-        components: vec![SandboxTemplateComponent::Path(exec.current_dir.clone())],
-    })?;
+    let current_dir = build_template(&exec.current_dir)?;
 
     let program_path = std::path::Path::new(&program);
     anyhow::ensure!(

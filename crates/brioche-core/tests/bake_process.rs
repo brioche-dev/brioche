@@ -285,11 +285,11 @@ fn test_bake_process_with_readonly_contents() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                mkdir -p output/foo/bar &&
-                echo 'hello' > output/foo/bar/baz.txt &&
-                cp -r output "$BRIOCHE_OUTPUT" &&
-                chmod -R a-w output "$BRIOCHE_OUTPUT"
-            "#),
+                    mkdir -p output/foo/bar &&
+                    echo 'hello' > output/foo/bar/baz.txt &&
+                    cp -r output "$BRIOCHE_OUTPUT" &&
+                    chmod -R a-w output "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -568,21 +568,21 @@ fn test_bake_process_custom_env_vars() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                test -n "$custom_output"
-                test -d "$custom_home"
-                test -d "$custom_resources"
-                test -d "$custom_work_dir"
-                test -d "$custom_temp_dir"
+                    set -euo pipefail
+                    test -n "$custom_output"
+                    test -d "$custom_home"
+                    test -d "$custom_resources"
+                    test -d "$custom_work_dir"
+                    test -d "$custom_temp_dir"
 
-                test "$(pwd)" == "$custom_work_dir"
+                    test "$(pwd)" == "$custom_work_dir"
 
-                touch "$custom_home/file.txt"
-                touch "$custom_resources/file2.txt"
-                touch "$custom_work_dir/file3.txt"
-                touch "$custom_temp_dir/file3.txt"
-                touch "$custom_output"
-            "#),
+                    touch "$custom_home/file.txt"
+                    touch "$custom_resources/file2.txt"
+                    touch "$custom_work_dir/file3.txt"
+                    touch "$custom_temp_dir/file3.txt"
+                    touch "$custom_output"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("custom_output".into(), output_path()),
@@ -613,15 +613,15 @@ fn test_bake_process_no_default_env_vars() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -eo pipefail
+                    set -eo pipefail
 
-                test -z "$BRIOCHE_OUTPUT"
-                test -z "$HOME"
-                test -z "$BRIOCHE_RESOURCE_DIR"
-                test -z "$TMPDIR"
+                    test -z "$BRIOCHE_OUTPUT"
+                    test -z "$HOME"
+                    test -z "$BRIOCHE_RESOURCE_DIR"
+                    test -z "$TMPDIR"
 
-                touch "$custom_output"
-            "#),
+                    touch "$custom_output"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("custom_output".into(), output_path()),
@@ -647,9 +647,9 @@ fn test_bake_process_no_default_path() -> anyhow::Result<()> {
             args: vec![
                 tpl("-c"),
                 tpl(r#"
-                set -eo pipefail
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    set -eo pipefail
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -677,9 +677,9 @@ fn test_bake_process_command_ambiguous_error() -> anyhow::Result<()> {
             args: vec![
                 tpl("-c"),
                 tpl(r#"
-                set -eo pipefail
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    set -eo pipefail
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -708,9 +708,9 @@ fn test_bake_process_command_uses_path() -> anyhow::Result<()> {
             args: vec![
                 tpl("-c"),
                 tpl(r#"
-                set -eo pipefail
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    set -eo pipefail
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 (
@@ -736,9 +736,9 @@ fn test_bake_process_command_uses_dependencies() -> anyhow::Result<()> {
             args: vec![
                 tpl("-c"),
                 tpl(r#"
-                set -eo pipefail
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    set -eo pipefail
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([("BRIOCHE_OUTPUT".into(), output_path())]),
             dependencies: vec![WithMeta::without_meta(utils())],
@@ -762,10 +762,10 @@ fn test_bake_process_starts_with_work_dir_contents() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                test "$(cat file.txt)" == "hello"
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    set -euo pipefail
+                    test "$(cat file.txt)" == "hello"
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -791,6 +791,244 @@ fn test_bake_process_starts_with_work_dir_contents() -> anyhow::Result<()> {
 }
 
 #[test]
+fn test_bake_process_chdir_with_recipe() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
+        let hi_blob = brioche_test_support::blob(&brioche, b"hi").await;
+
+        let recipe = brioche_test_support::lazy_dir([(
+            "hello.txt",
+            brioche_test_support::lazy_file(hello_blob, false),
+        )]);
+
+        let process = ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+                    test "$(pwd)" == "$recipe_path"
+                    test "$(cat hello.txt)" == "hello"
+                    test "$(cat "$work_dir_path"/hi.txt)" == "hi"
+
+                    if echo 'writing this file should fail...' | tee bad.txt; then
+                        exit 1
+                    fi
+
+                    test ! -f bad.txt
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("work_dir_path".into(), work_dir()),
+                ("recipe_path".into(), template_input(recipe.clone())),
+            ]),
+            current_dir: template_input(recipe),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([(
+                    "hi.txt",
+                    brioche_test_support::lazy_file(hi_blob, false),
+                )]),
+            )),
+            ..default_process()
+        };
+
+        bake_without_meta(&brioche, Recipe::Process(process)).await?;
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_chdir_with_output_path_with_empty_scaffold() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
+        let hi_blob = brioche_test_support::blob(&brioche, b"hi").await;
+
+        let process = ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+                    test "$(pwd)" == "$BRIOCHE_OUTPUT"
+                    test "$(cat "$work_dir_path"/hi.txt)" == "hi"
+
+                    echo -n hello > hello.txt
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("work_dir_path".into(), work_dir()),
+            ]),
+            current_dir: output_path(),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([(
+                    "hi.txt",
+                    brioche_test_support::lazy_file(hi_blob, false),
+                )]),
+            )),
+            output_scaffold: Some(Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            ))),
+            ..default_process()
+        };
+
+        assert_eq!(
+            bake_without_meta(&brioche, Recipe::Process(process)).await?,
+            brioche_test_support::dir(
+                &brioche,
+                [("hello.txt", brioche_test_support::file(hello_blob, false))]
+            )
+            .await
+        );
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_chdir_with_output_path_with_nonempty_scaffold() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let foo_blob = brioche_test_support::blob(&brioche, b"foo").await;
+        let bar_blob = brioche_test_support::blob(&brioche, b"bar").await;
+        let baz_blob = brioche_test_support::blob(&brioche, b"baz").await;
+        let qux_blob = brioche_test_support::blob(&brioche, b"qux").await;
+        let foobar_blob = brioche_test_support::blob(&brioche, b"foobar").await;
+
+        let process = ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+                    test "$(pwd)" == "$BRIOCHE_OUTPUT"
+                    test "$(cat "$work_dir_path"/foo.txt)" == "foo"
+                    test "$(cat bar.txt)" == "bar"
+                    test "$(cat qux.txt)" == "qux"
+
+                    cat "$work_dir_path"/foo.txt bar.txt > foobar.txt
+                    echo -n baz > bar.txt
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("work_dir_path".into(), work_dir()),
+            ]),
+            current_dir: output_path(),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([(
+                    "foo.txt",
+                    brioche_test_support::lazy_file(foo_blob, false),
+                )]),
+            )),
+            output_scaffold: Some(Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([
+                    ("bar.txt", brioche_test_support::lazy_file(bar_blob, false)),
+                    ("qux.txt", brioche_test_support::lazy_file(qux_blob, false)),
+                ]),
+            ))),
+            ..default_process()
+        };
+
+        assert_eq!(
+            bake_without_meta(&brioche, Recipe::Process(process)).await?,
+            brioche_test_support::dir(
+                &brioche,
+                [
+                    ("bar.txt", brioche_test_support::file(baz_blob, false)),
+                    ("qux.txt", brioche_test_support::file(qux_blob, false)),
+                    ("foobar.txt", brioche_test_support::file(foobar_blob, false)),
+                ]
+            )
+            .await
+        );
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_chdir_with_output_path_without_scaffold_error() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
+        let hi_blob = brioche_test_support::blob(&brioche, b"hi").await;
+
+        let recipe = brioche_test_support::lazy_dir([(
+            "hello.txt",
+            brioche_test_support::lazy_file(hello_blob, false),
+        )]);
+
+        // Process doesn't specify a scaffold, so changing directory
+        // to the output path should fail
+        let process = ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+                    test "$(pwd)" == "$recipe_path"
+                    test "$(cat hello.txt)" == "hello"
+                    test "$(cat "$work_dir_path"/hi.txt)" == "hi"
+
+                    if echo 'writing this file should fail...' | tee bad.txt; then
+                        exit 1
+                    fi
+
+                    test ! -f bad.txt
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("work_dir_path".into(), work_dir()),
+                ("recipe_path".into(), template_input(recipe.clone())),
+            ]),
+            current_dir: output_path(),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([(
+                    "hi.txt",
+                    brioche_test_support::lazy_file(hi_blob, false),
+                )]),
+            )),
+            ..default_process()
+        };
+
+        let result = bake_without_meta(&brioche, Recipe::Process(process)).await;
+        assert_matches!(result, Err(_));
+
+        Ok(())
+    })
+}
+
+#[test]
 fn test_bake_process_edit_work_dir_contents() -> anyhow::Result<()> {
     brioche_test(|brioche| async move {
         let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
@@ -801,11 +1039,11 @@ fn test_bake_process_edit_work_dir_contents() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                echo -n new > file.txt
-                echo -n new2 > dir/other.txt
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    set -euo pipefail
+                    echo -n new > file.txt
+                    echo -n new2 > dir/other.txt
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -848,10 +1086,10 @@ fn test_bake_process_has_resource_dir() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                test -d "$BRIOCHE_RESOURCE_DIR"
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    set -euo pipefail
+                    test -d "$BRIOCHE_RESOURCE_DIR"
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -918,26 +1156,26 @@ fn test_bake_process_contains_all_resources() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                test "$(cat "$fizz/file.txt")" = "foo"
-                test "$(cat "$buzz")" = "bar"
-                bar=""
-                baz=""
-                oldifs="$IFS"
-                IFS=":"
-                for dir in $BRIOCHE_INPUT_RESOURCE_DIRS; do
-                    if [ -e "$dir/foo/bar.txt" ]; then
-                        bar="$(cat "$dir/foo/bar.txt")"
-                    fi
-                    if [ -e "$dir/foo/baz.txt" ]; then
-                        baz="$(cat "$dir/foo/baz.txt")"
-                    fi
-                done
-                IFS="$oldifs"
-                test "$bar" = "resource a"
-                test "$baz" = "resource b"
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    set -euo pipefail
+                    test "$(cat "$fizz/file.txt")" = "foo"
+                    test "$(cat "$buzz")" = "bar"
+                    bar=""
+                    baz=""
+                    oldifs="$IFS"
+                    IFS=":"
+                    for dir in $BRIOCHE_INPUT_RESOURCE_DIRS; do
+                        if [ -e "$dir/foo/bar.txt" ]; then
+                            bar="$(cat "$dir/foo/bar.txt")"
+                        fi
+                        if [ -e "$dir/foo/baz.txt" ]; then
+                            baz="$(cat "$dir/foo/baz.txt")"
+                        fi
+                    done
+                    IFS="$oldifs"
+                    test "$bar" = "resource a"
+                    test "$baz" = "resource b"
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -985,14 +1223,14 @@ fn test_bake_process_output_with_resources() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                mkdir -p "$BRIOCHE_OUTPUT/bin"
-                echo -n "dummy_packed" > packed
-                echo -n "dummy_program" > "$BRIOCHE_RESOURCE_DIR/program"
-                echo -n "dummy_ld_linux" > "$BRIOCHE_RESOURCE_DIR/ld-linux.so"
+                    set -euo pipefail
+                    mkdir -p "$BRIOCHE_OUTPUT/bin"
+                    echo -n "dummy_packed" > packed
+                    echo -n "dummy_program" > "$BRIOCHE_RESOURCE_DIR/program"
+                    echo -n "dummy_ld_linux" > "$BRIOCHE_RESOURCE_DIR/ld-linux.so"
 
-                cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
-            "#),
+                    cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -1098,25 +1336,25 @@ fn test_bake_process_output_with_shared_resources() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                mkdir -p "$BRIOCHE_OUTPUT/bin"
+                    set -euo pipefail
+                    mkdir -p "$BRIOCHE_OUTPUT/bin"
 
-                echo -n "resource_1_target" > "$BRIOCHE_RESOURCE_DIR/resource_1_target"
-                echo -n "resource_2_target" > "$BRIOCHE_RESOURCE_DIR/resource_2_target"
+                    echo -n "resource_1_target" > "$BRIOCHE_RESOURCE_DIR/resource_1_target"
+                    echo -n "resource_2_target" > "$BRIOCHE_RESOURCE_DIR/resource_2_target"
 
-                echo -n "dummy_foo" > "$BRIOCHE_RESOURCE_DIR/foo"
-                echo -n "dummy_bar_target" > "$BRIOCHE_RESOURCE_DIR/bar_target"
-                echo -n "dummy_baz_target" > "$BRIOCHE_RESOURCE_DIR/baz_target"
+                    echo -n "dummy_foo" > "$BRIOCHE_RESOURCE_DIR/foo"
+                    echo -n "dummy_bar_target" > "$BRIOCHE_RESOURCE_DIR/bar_target"
+                    echo -n "dummy_baz_target" > "$BRIOCHE_RESOURCE_DIR/baz_target"
 
-                ln -s "resource_1_target" "$BRIOCHE_RESOURCE_DIR/resource_1"
-                ln -s "resource_2_target" "$BRIOCHE_RESOURCE_DIR/resource_2"
+                    ln -s "resource_1_target" "$BRIOCHE_RESOURCE_DIR/resource_1"
+                    ln -s "resource_2_target" "$BRIOCHE_RESOURCE_DIR/resource_2"
 
-                ln -s "bar_target" "$BRIOCHE_RESOURCE_DIR/bar"
-                ln -s "baz_target" "$BRIOCHE_RESOURCE_DIR/baz"
+                    ln -s "bar_target" "$BRIOCHE_RESOURCE_DIR/bar"
+                    ln -s "baz_target" "$BRIOCHE_RESOURCE_DIR/baz"
 
-                cp "$dummy_packed_1" "$BRIOCHE_OUTPUT/bin/program_1"
-                cp "$dummy_packed_2" "$BRIOCHE_OUTPUT/bin/program_2"
-            "#),
+                    cp "$dummy_packed_1" "$BRIOCHE_OUTPUT/bin/program_1"
+                    cp "$dummy_packed_2" "$BRIOCHE_OUTPUT/bin/program_2"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -1277,15 +1515,15 @@ fn test_bake_process_output_with_nested_symlink_resource_error() -> anyhow::Resu
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                mkdir -p "$BRIOCHE_OUTPUT/bin"
+                    set -euo pipefail
+                    mkdir -p "$BRIOCHE_OUTPUT/bin"
 
-                echo -n "dummy_foo_target_target" > "$BRIOCHE_RESOURCE_DIR/foo_target_target"
-                ln -s "foo_target_target" "$BRIOCHE_RESOURCE_DIR/foo_target"
-                ln -s "foo_target" "$BRIOCHE_RESOURCE_DIR/foo"
+                    echo -n "dummy_foo_target_target" > "$BRIOCHE_RESOURCE_DIR/foo_target_target"
+                    ln -s "foo_target_target" "$BRIOCHE_RESOURCE_DIR/foo_target"
+                    ln -s "foo_target" "$BRIOCHE_RESOURCE_DIR/foo"
 
-                cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
-            "#),
+                    cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -1333,16 +1571,16 @@ fn test_bake_process_output_with_symlink_traversal_resource_error() -> anyhow::R
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
-                mkdir -p "$BRIOCHE_OUTPUT/bin"
+                    set -euo pipefail
+                    mkdir -p "$BRIOCHE_OUTPUT/bin"
 
-                mkdir -p "$BRIOCHE_RESOURCE_DIR/fizz_target"
-                echo -n "dummy_fizzbuzz" > "$BRIOCHE_RESOURCE_DIR/fizz_target/buzz"
-                ln -s "fizz_target" "$BRIOCHE_RESOURCE_DIR/fizz"
-                ln -s "fizz/buzz" "$BRIOCHE_RESOURCE_DIR/foo"
+                    mkdir -p "$BRIOCHE_RESOURCE_DIR/fizz_target"
+                    echo -n "dummy_fizzbuzz" > "$BRIOCHE_RESOURCE_DIR/fizz_target/buzz"
+                    ln -s "fizz_target" "$BRIOCHE_RESOURCE_DIR/fizz"
+                    ln -s "fizz/buzz" "$BRIOCHE_RESOURCE_DIR/foo"
 
-                cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
-            "#),
+                    cp "$dummy_packed" "$BRIOCHE_OUTPUT/bin/program"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -1434,12 +1672,12 @@ fn test_bake_process_networking_disabled() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                wget \
-                    --timeout=1 \
-                    -O "$BRIOCHE_OUTPUT" \
-                    "$URL/file.txt" \
-                    > /dev/null 2> /dev/null
-            "#),
+                    wget \
+                        --timeout=1 \
+                        -O "$BRIOCHE_OUTPUT" \
+                        "$URL/file.txt" \
+                        > /dev/null 2> /dev/null
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -1478,12 +1716,12 @@ fn test_bake_process_networking_enabled() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                wget \
-                    --timeout=1 \
-                    -O "$BRIOCHE_OUTPUT" \
-                    "$URL/file.txt" \
-                    > /dev/null 2> /dev/null
-            "#),
+                    wget \
+                        --timeout=1 \
+                        -O "$BRIOCHE_OUTPUT" \
+                        "$URL/file.txt" \
+                        > /dev/null 2> /dev/null
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -1518,12 +1756,12 @@ fn test_bake_process_networking_enabled_dns() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                wget \
-                    --timeout=1 \
-                    -O "$BRIOCHE_OUTPUT" \
-                    "https://gist.githubusercontent.com/kylewlacy/c0f1a43e2641686f377178880fcce6ae/raw/f48155695445aa218e558fba824b61cf718d5e55/lorem-ipsum.txt" \
-                    > /dev/null 2> /dev/null
-            "#),
+                    wget \
+                        --timeout=1 \
+                        -O "$BRIOCHE_OUTPUT" \
+                        "https://gist.githubusercontent.com/kylewlacy/c0f1a43e2641686f377178880fcce6ae/raw/f48155695445aa218e558fba824b61cf718d5e55/lorem-ipsum.txt" \
+                        > /dev/null 2> /dev/null
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
@@ -1709,22 +1947,22 @@ fn test_bake_process_dependencies() -> anyhow::Result<()> {
                 tpl("sh"),
                 tpl("-c"),
                 tpl(r#"
-                set -euo pipefail
+                    set -euo pipefail
 
-                test "$PATH" = "$EXPECTED_PATH"
-                test "$DEP1" = "$EXPECTED_DEP1"
-                test "$DEP2" = "$EXPECTED_DEP2"
-                test "$DEP1_SYMLINK" = "$EXPECTED_DEP1_SYMLINK"
-                test "$DEP1_FILE" = "$EXPECTED_DEP1_FILE"
-                test "$DEP2_SYMLINK" = "$EXPECTED_DEP2_SYMLINK"
-                test "$DEP2_FILE" = "$EXPECTED_DEP2_FILE"
-                test "$FALLBACK_1" = "$EXPECTED_FALLBACK_1"
-                test "$FALLBACK_2" = "$EXPECTED_FALLBACK_2"
-                test "$FALLBACK_3" = "$EXPECTED_FALLBACK_3"
-                test "$FALLBACK_4" = "$EXPECTED_FALLBACK_4"
+                    test "$PATH" = "$EXPECTED_PATH"
+                    test "$DEP1" = "$EXPECTED_DEP1"
+                    test "$DEP2" = "$EXPECTED_DEP2"
+                    test "$DEP1_SYMLINK" = "$EXPECTED_DEP1_SYMLINK"
+                    test "$DEP1_FILE" = "$EXPECTED_DEP1_FILE"
+                    test "$DEP2_SYMLINK" = "$EXPECTED_DEP2_SYMLINK"
+                    test "$DEP2_FILE" = "$EXPECTED_DEP2_FILE"
+                    test "$FALLBACK_1" = "$EXPECTED_FALLBACK_1"
+                    test "$FALLBACK_2" = "$EXPECTED_FALLBACK_2"
+                    test "$FALLBACK_3" = "$EXPECTED_FALLBACK_3"
+                    test "$FALLBACK_4" = "$EXPECTED_FALLBACK_4"
 
-                touch "$BRIOCHE_OUTPUT"
-            "#),
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),

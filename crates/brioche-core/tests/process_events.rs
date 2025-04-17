@@ -10,7 +10,7 @@ use brioche_core::{
     },
     recipe::{CompleteProcessRecipe, CompleteProcessTemplate, Meta},
     reporter::job::ProcessStream,
-    sandbox::{ExitStatus, SandboxExecutionConfig, SandboxPath, SandboxPathOptions},
+    sandbox::{ExitStatus, SandboxExecutionConfig},
 };
 
 pub fn example_complete_process() -> CompleteProcessRecipe {
@@ -19,6 +19,7 @@ pub fn example_complete_process() -> CompleteProcessRecipe {
         args: vec![],
         env: Default::default(),
         work_dir: Default::default(),
+        current_dir: CompleteProcessTemplate::default_current_dir(),
         output_scaffold: None,
         platform: brioche_core::platform::Platform::X86_64Linux,
         is_unsafe: false,
@@ -36,13 +37,7 @@ fn example_process_event_description() -> ProcessEventDescription {
             command: Default::default(),
             args: Default::default(),
             env: Default::default(),
-            current_dir: SandboxPath {
-                host_path: Default::default(),
-                options: SandboxPathOptions {
-                    mode: brioche_core::sandbox::HostPathMode::Read,
-                    guest_path_hint: Default::default(),
-                },
-            },
+            current_dir: Default::default(),
             gid_hint: 0,
             uid_hint: 0,
             networking: false,

@@ -160,6 +160,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 command,
                 args,
                 env,
+                current_dir,
                 dependencies,
                 work_dir,
                 output_scaffold,
@@ -168,7 +169,10 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 networking: _,
             } = process;
 
-            let templates = std::iter::once(command).chain(args).chain(env.values());
+            let templates = [command, current_dir]
+                .into_iter()
+                .chain(args)
+                .chain(env.values());
 
             templates
                 .flat_map(|template| &template.components)
@@ -200,6 +204,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 command,
                 args,
                 env,
+                current_dir,
                 work_dir,
                 output_scaffold,
                 platform: _,
@@ -212,7 +217,10 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 .as_ref()
                 .map(|artifact| Recipe::from((**artifact).clone()));
 
-            let templates = std::iter::once(command).chain(args).chain(env.values());
+            let templates = [command, current_dir]
+                .into_iter()
+                .chain(args)
+                .chain(env.values());
 
             templates
                 .flat_map(|template| &template.components)
