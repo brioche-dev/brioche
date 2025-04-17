@@ -791,6 +791,244 @@ fn test_bake_process_starts_with_work_dir_contents() -> anyhow::Result<()> {
 }
 
 #[test]
+fn test_bake_process_chdir_with_recipe() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
+        let hi_blob = brioche_test_support::blob(&brioche, b"hi").await;
+
+        let recipe = brioche_test_support::lazy_dir([(
+            "hello.txt",
+            brioche_test_support::lazy_file(hello_blob, false),
+        )]);
+
+        let process = ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+                    test "$(pwd)" == "$recipe_path"
+                    test "$(cat hello.txt)" == "hello"
+                    test "$(cat "$work_dir_path"/hi.txt)" == "hi"
+
+                    if echo 'writing this file should fail...' | tee bad.txt; then
+                        exit 1
+                    fi
+
+                    test ! -f bad.txt
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("work_dir_path".into(), work_dir()),
+                ("recipe_path".into(), template_input(recipe.clone())),
+            ]),
+            current_dir: template_input(recipe),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([(
+                    "hi.txt",
+                    brioche_test_support::lazy_file(hi_blob, false),
+                )]),
+            )),
+            ..default_process()
+        };
+
+        bake_without_meta(&brioche, Recipe::Process(process)).await?;
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_chdir_with_output_path_with_empty_scaffold() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
+        let hi_blob = brioche_test_support::blob(&brioche, b"hi").await;
+
+        let process = ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+                    test "$(pwd)" == "$BRIOCHE_OUTPUT"
+                    test "$(cat "$work_dir_path"/hi.txt)" == "hi"
+
+                    echo -n hello > hello.txt
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("work_dir_path".into(), work_dir()),
+            ]),
+            current_dir: output_path(),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([(
+                    "hi.txt",
+                    brioche_test_support::lazy_file(hi_blob, false),
+                )]),
+            )),
+            output_scaffold: Some(Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir_empty(),
+            ))),
+            ..default_process()
+        };
+
+        assert_eq!(
+            bake_without_meta(&brioche, Recipe::Process(process)).await?,
+            brioche_test_support::dir(
+                &brioche,
+                [("hello.txt", brioche_test_support::file(hello_blob, false))]
+            )
+            .await
+        );
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_chdir_with_output_path_with_nonempty_scaffold() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let foo_blob = brioche_test_support::blob(&brioche, b"foo").await;
+        let bar_blob = brioche_test_support::blob(&brioche, b"bar").await;
+        let baz_blob = brioche_test_support::blob(&brioche, b"baz").await;
+        let qux_blob = brioche_test_support::blob(&brioche, b"qux").await;
+        let foobar_blob = brioche_test_support::blob(&brioche, b"foobar").await;
+
+        let process = ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+                    test "$(pwd)" == "$BRIOCHE_OUTPUT"
+                    test "$(cat "$work_dir_path"/foo.txt)" == "foo"
+                    test "$(cat bar.txt)" == "bar"
+                    test "$(cat qux.txt)" == "qux"
+
+                    cat "$work_dir_path"/foo.txt bar.txt > foobar.txt
+                    echo -n baz > bar.txt
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("work_dir_path".into(), work_dir()),
+            ]),
+            current_dir: output_path(),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([(
+                    "foo.txt",
+                    brioche_test_support::lazy_file(foo_blob, false),
+                )]),
+            )),
+            output_scaffold: Some(Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([
+                    ("bar.txt", brioche_test_support::lazy_file(bar_blob, false)),
+                    ("qux.txt", brioche_test_support::lazy_file(qux_blob, false)),
+                ]),
+            ))),
+            ..default_process()
+        };
+
+        assert_eq!(
+            bake_without_meta(&brioche, Recipe::Process(process)).await?,
+            brioche_test_support::dir(
+                &brioche,
+                [
+                    ("bar.txt", brioche_test_support::file(baz_blob, false)),
+                    ("qux.txt", brioche_test_support::file(qux_blob, false)),
+                    ("foobar.txt", brioche_test_support::file(foobar_blob, false)),
+                ]
+            )
+            .await
+        );
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_chdir_with_output_path_without_scaffold_error() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
+        let hi_blob = brioche_test_support::blob(&brioche, b"hi").await;
+
+        let recipe = brioche_test_support::lazy_dir([(
+            "hello.txt",
+            brioche_test_support::lazy_file(hello_blob, false),
+        )]);
+
+        // Process doesn't specify a scaffold, so changing directory
+        // to the output path should fail
+        let process = ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+                    test "$(pwd)" == "$recipe_path"
+                    test "$(cat hello.txt)" == "hello"
+                    test "$(cat "$work_dir_path"/hi.txt)" == "hi"
+
+                    if echo 'writing this file should fail...' | tee bad.txt; then
+                        exit 1
+                    fi
+
+                    test ! -f bad.txt
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                ("BRIOCHE_RESOURCE_DIR".into(), resource_dir()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("work_dir_path".into(), work_dir()),
+                ("recipe_path".into(), template_input(recipe.clone())),
+            ]),
+            current_dir: output_path(),
+            work_dir: Box::new(brioche_test_support::without_meta(
+                brioche_test_support::lazy_dir([(
+                    "hi.txt",
+                    brioche_test_support::lazy_file(hi_blob, false),
+                )]),
+            )),
+            ..default_process()
+        };
+
+        let result = bake_without_meta(&brioche, Recipe::Process(process)).await;
+        assert_matches!(result, Err(_));
+
+        Ok(())
+    })
+}
+
+#[test]
 fn test_bake_process_edit_work_dir_contents() -> anyhow::Result<()> {
     brioche_test(|brioche| async move {
         let hello_blob = brioche_test_support::blob(&brioche, b"hello").await;
