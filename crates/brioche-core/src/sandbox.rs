@@ -3,11 +3,13 @@ use std::{collections::HashMap, path::PathBuf};
 use crate::encoding::{AsPath, TickEncoded};
 
 pub mod linux_namespace;
+pub mod unsandboxed;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxBackend {
     LinuxNamespace(linux_namespace::LinuxNamespaceSandbox),
+    Unsandboxed,
 }
 
 #[serde_with::serde_as]
@@ -129,5 +131,6 @@ pub fn run_sandbox(
                 }
             }
         }
+        SandboxBackend::Unsandboxed => unsandboxed::run_sandbox(&exec),
     }
 }

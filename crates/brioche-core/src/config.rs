@@ -42,6 +42,7 @@ pub enum SandboxConfig {
     #[default]
     Auto,
     LinuxNamespace(SandboxLinuxNamespaceConfig),
+    Unsandboxed,
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]

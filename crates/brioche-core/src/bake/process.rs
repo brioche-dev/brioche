@@ -1355,6 +1355,9 @@ async fn select_sandbox_backend(
                 crate::sandbox::linux_namespace::LinuxNamespaceSandbox { mount_style },
             ))
         }
+        crate::config::SandboxConfig::Unsandboxed => {
+            Ok(crate::sandbox::SandboxBackend::Unsandboxed)
+        }
     }
 }
 
