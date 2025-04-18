@@ -111,7 +111,9 @@ pub fn run_sandbox(
                             })?;
                         let dest_path = sandbox_root.join(guest_path_under_root);
 
-                        // Create either an empty file or directory as the mountpoint
+                        // Ensure the mount destination exists by creating
+                        // either an empty file or directory if the path
+                        // doesn't exist
                         if path_metadata.is_dir() {
                             std::fs::create_dir_all(&dest_path)?;
                         } else {
@@ -119,7 +121,24 @@ pub fn run_sandbox(
                                 std::fs::create_dir_all(dest_parent)?;
                             }
 
-                            std::fs::write(&dest_path, "")?;
+                            let result = std::fs::OpenOptions::new()
+                                .write(true)
+                                .create_new(true)
+                                .open(&dest_path);
+                            match result {
+                                Ok(_) => {
+                                    // Empty file created
+                                }
+                                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                                    // Path already exists, so no need to
+                                    // create it. This can happen when using
+                                    // a path that was already created within
+                                    // the sandbox root, such as CA certs
+                                }
+                                Err(error) => {
+                                    return Err(error);
+                                }
+                            }
                         }
 
                         let readonly = match options.mode {
