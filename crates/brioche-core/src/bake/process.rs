@@ -369,8 +369,8 @@ pub async fn bake_process(
     tokio::fs::create_dir_all(&host_resource_dir).await?;
 
     if process.networking {
-        let guest_etc_dir = root_dir.join("etc");
-        tokio::fs::create_dir_all(&guest_etc_dir).await?;
+        let host_etc_dir = root_dir.join("etc");
+        tokio::fs::create_dir_all(&host_etc_dir).await?;
 
         let resolv_conf_contents = tokio::fs::read("/etc/resolv.conf").await;
         let resolv_conf_contents = match resolv_conf_contents {
@@ -382,7 +382,7 @@ pub async fn bake_process(
                 return Err(error).context("failed to read host /etc/resolv.conf");
             }
         };
-        tokio::fs::write(guest_etc_dir.join("resolv.conf"), &resolv_conf_contents)
+        tokio::fs::write(host_etc_dir.join("resolv.conf"), &resolv_conf_contents)
             .await
             .context("failed to write guest /etc/resolv.conf")?;
     }
@@ -604,7 +604,7 @@ pub async fn bake_process(
         Err(error) => {
             return Err(error).with_context(|| {
                 format!(
-                    "process failed, view full output by runinng `brioche jobs logs {}`",
+                    "process failed, view full output by running `brioche jobs logs {}`",
                     events_path.display(),
                 )
             });
