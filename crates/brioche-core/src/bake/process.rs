@@ -448,7 +448,7 @@ pub async fn bake_process(
             .push((host_input_resource_dir.to_owned(), guest_input_resource_dir));
     }
 
-    let dirs = ProcessTemplateDirs {
+    let template_paths = ProcessTemplatePaths {
         output_path: &output_path,
         host_resource_dir: &host_resource_dir,
         guest_resource_dir: &guest_resource_dir,
@@ -461,21 +461,22 @@ pub async fn bake_process(
         guest_temp_dir: &guest_temp_dir,
     };
 
-    let command = build_process_template(brioche, process.command.clone(), dirs).await?;
+    let command = build_process_template(brioche, process.command.clone(), template_paths).await?;
     let args = futures::stream::iter(process.args.clone())
-        .then(|arg| build_process_template(brioche, arg, dirs))
+        .then(|arg| build_process_template(brioche, arg, template_paths))
         .try_collect::<Vec<_>>()
         .await?;
 
     let env = futures::stream::iter(process.env.clone())
         .then(|(key, artifact)| async move {
-            let template = build_process_template(brioche, artifact, dirs).await?;
+            let template = build_process_template(brioche, artifact, template_paths).await?;
             anyhow::Ok((key, template))
         })
         .try_collect::<HashMap<_, _>>()
         .await?;
 
-    let current_dir = build_process_template(brioche, process.current_dir.clone(), dirs).await?;
+    let current_dir =
+        build_process_template(brioche, process.current_dir.clone(), template_paths).await?;
 
     let sandbox_config = SandboxExecutionConfig {
         sandbox_root: root_dir.clone(),
@@ -855,7 +856,7 @@ async fn run_sandboxed_self_exec(
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ProcessTemplateDirs<'a> {
+struct ProcessTemplatePaths<'a> {
     output_path: &'a Path,
     host_resource_dir: &'a Path,
     guest_resource_dir: &'a [u8],
@@ -898,7 +899,7 @@ async fn get_process_template_input_resource_dirs(
 async fn build_process_template(
     brioche: &Brioche,
     template: CompleteProcessTemplate,
-    dirs: ProcessTemplateDirs<'_>,
+    dirs: ProcessTemplatePaths<'_>,
 ) -> anyhow::Result<SandboxTemplate> {
     let output_parent = dirs.output_path.parent().context("invalid output path")?;
     let output_name = dirs
