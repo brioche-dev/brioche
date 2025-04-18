@@ -547,6 +547,12 @@ pub fn temp_dir() -> ProcessTemplate {
     }
 }
 
+pub fn ca_certificate_bundle_path() -> ProcessTemplate {
+    ProcessTemplate {
+        components: vec![ProcessTemplateComponent::CaCertificateBundlePath],
+    }
+}
+
 pub fn template_input(input: brioche_core::recipe::Recipe) -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::Input {
