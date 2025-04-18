@@ -1236,6 +1236,7 @@ pub enum ProcessTemplateComponent {
     HomeDir,
     WorkDir,
     TempDir,
+    CaCertificateBundlePath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -1371,6 +1372,7 @@ pub enum CompleteProcessTemplateComponent {
     HomeDir,
     WorkDir,
     TempDir,
+    CaCertificateBundlePath,
 }
 
 impl CompleteProcessTemplateComponent {
@@ -1399,6 +1401,7 @@ impl TryFrom<ProcessTemplateComponent> for CompleteProcessTemplateComponent {
             ProcessTemplateComponent::HomeDir => Ok(Self::HomeDir),
             ProcessTemplateComponent::WorkDir => Ok(Self::WorkDir),
             ProcessTemplateComponent::TempDir => Ok(Self::TempDir),
+            ProcessTemplateComponent::CaCertificateBundlePath => Ok(Self::CaCertificateBundlePath),
         }
     }
 }

@@ -7,6 +7,7 @@ use std::{
 use anyhow::Context as _;
 use bstr::ByteVec as _;
 use futures::{StreamExt as _, TryStreamExt as _};
+use joinery::JoinableIterator as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tracing::Instrument as _;
 
@@ -147,6 +148,9 @@ async fn bake_lazy_process_template_to_process_template(
             ProcessTemplateComponent::TempDir => result
                 .components
                 .push(CompleteProcessTemplateComponent::TempDir),
+            ProcessTemplateComponent::CaCertificateBundlePath => result
+                .components
+                .push(CompleteProcessTemplateComponent::CaCertificateBundlePath),
         }
     }
 
@@ -368,10 +372,14 @@ pub async fn bake_process(
         Vec::<u8>::from_path_buf(guest_resource_dir).expect("failed to build resource dir path");
     tokio::fs::create_dir_all(&host_resource_dir).await?;
 
-    if process.networking {
-        let guest_etc_dir = root_dir.join("etc");
-        tokio::fs::create_dir_all(&guest_etc_dir).await?;
+    let host_ca_certificate_bundle_path = if process.networking {
+        let host_etc_dir = root_dir.join("etc");
+        let host_etc_ssl_dir = host_etc_dir.join("ssl");
+        tokio::fs::create_dir_all(&host_etc_ssl_dir).await?;
 
+        // Try to include /etc/resolv.conf in the guest based on the
+        // contents of the host's version. This is used for DNS resolution
+        // on Linux
         let resolv_conf_contents = tokio::fs::read("/etc/resolv.conf").await;
         let resolv_conf_contents = match resolv_conf_contents {
             Ok(contents) => contents,
@@ -382,10 +390,36 @@ pub async fn bake_process(
                 return Err(error).context("failed to read host /etc/resolv.conf");
             }
         };
-        tokio::fs::write(guest_etc_dir.join("resolv.conf"), &resolv_conf_contents)
+        tokio::fs::write(host_etc_dir.join("resolv.conf"), &resolv_conf_contents)
             .await
             .context("failed to write guest /etc/resolv.conf")?;
-    }
+
+        // Write a `.pem` file containing CA certificate for HTTPS/TLS. This
+        // file is populated with all of the CA certificates based on the
+        // host's config
+        let host_ca_certificate_pem_path =
+            host_etc_ssl_dir.join(format!("ca-certificates-{hash}.crt"));
+        let ca_certificate_pem_contents = get_ca_certificate_bundle_pem()
+            .await
+            .context("failed to get CA certificate bundle")?;
+        tokio::fs::write(&host_ca_certificate_pem_path, ca_certificate_pem_contents)
+            .await
+            .context("failed to write guest CA certificate bundle")?;
+
+        Some(host_ca_certificate_pem_path)
+    } else {
+        None
+    };
+
+    let guest_ca_certificate_bundle_path =
+        host_ca_certificate_bundle_path.as_ref().map(|host_path| {
+            let relative_path = host_path
+                .strip_prefix(&root_dir)
+                .expect("invalid path for host_ca_certificate_bundle_path");
+            let guest_path = PathBuf::from("/").join(relative_path);
+            Vec::<u8>::from_path_buf(guest_path)
+                .expect("failed to build CA certificate bundle path")
+        });
 
     let create_work_dir_fut = async {
         crate::output::create_output(
@@ -448,7 +482,7 @@ pub async fn bake_process(
             .push((host_input_resource_dir.to_owned(), guest_input_resource_dir));
     }
 
-    let dirs = ProcessTemplateDirs {
+    let template_paths = ProcessTemplatePaths {
         output_path: &output_path,
         host_resource_dir: &host_resource_dir,
         guest_resource_dir: &guest_resource_dir,
@@ -459,23 +493,26 @@ pub async fn bake_process(
         guest_work_dir: &guest_work_dir,
         host_temp_dir: &host_temp_dir,
         guest_temp_dir: &guest_temp_dir,
+        host_ca_certificate_bundle_path: host_ca_certificate_bundle_path.as_deref(),
+        guest_ca_certificate_bundle_path: guest_ca_certificate_bundle_path.as_deref(),
     };
 
-    let command = build_process_template(brioche, process.command.clone(), dirs).await?;
+    let command = build_process_template(brioche, process.command.clone(), template_paths).await?;
     let args = futures::stream::iter(process.args.clone())
-        .then(|arg| build_process_template(brioche, arg, dirs))
+        .then(|arg| build_process_template(brioche, arg, template_paths))
         .try_collect::<Vec<_>>()
         .await?;
 
     let env = futures::stream::iter(process.env.clone())
         .then(|(key, artifact)| async move {
-            let template = build_process_template(brioche, artifact, dirs).await?;
+            let template = build_process_template(brioche, artifact, template_paths).await?;
             anyhow::Ok((key, template))
         })
         .try_collect::<HashMap<_, _>>()
         .await?;
 
-    let current_dir = build_process_template(brioche, process.current_dir.clone(), dirs).await?;
+    let current_dir =
+        build_process_template(brioche, process.current_dir.clone(), template_paths).await?;
 
     let sandbox_config = SandboxExecutionConfig {
         sandbox_root: root_dir.clone(),
@@ -604,7 +641,7 @@ pub async fn bake_process(
         Err(error) => {
             return Err(error).with_context(|| {
                 format!(
-                    "process failed, view full output by runinng `brioche jobs logs {}`",
+                    "process failed, view full output by running `brioche jobs logs {}`",
                     events_path.display(),
                 )
             });
@@ -855,7 +892,7 @@ async fn run_sandboxed_self_exec(
 }
 
 #[derive(Debug, Clone, Copy)]
-struct ProcessTemplateDirs<'a> {
+struct ProcessTemplatePaths<'a> {
     output_path: &'a Path,
     host_resource_dir: &'a Path,
     guest_resource_dir: &'a [u8],
@@ -866,6 +903,8 @@ struct ProcessTemplateDirs<'a> {
     guest_work_dir: &'a [u8],
     host_temp_dir: &'a Path,
     guest_temp_dir: &'a [u8],
+    host_ca_certificate_bundle_path: Option<&'a Path>,
+    guest_ca_certificate_bundle_path: Option<&'a [u8]>,
 }
 
 async fn get_process_template_input_resource_dirs(
@@ -888,7 +927,8 @@ async fn get_process_template_input_resource_dirs(
             | CompleteProcessTemplateComponent::InputResourceDirs
             | CompleteProcessTemplateComponent::HomeDir
             | CompleteProcessTemplateComponent::WorkDir
-            | CompleteProcessTemplateComponent::TempDir => {}
+            | CompleteProcessTemplateComponent::TempDir
+            | CompleteProcessTemplateComponent::CaCertificateBundlePath => {}
         }
     }
 
@@ -898,7 +938,7 @@ async fn get_process_template_input_resource_dirs(
 async fn build_process_template(
     brioche: &Brioche,
     template: CompleteProcessTemplate,
-    dirs: ProcessTemplateDirs<'_>,
+    dirs: ProcessTemplatePaths<'_>,
 ) -> anyhow::Result<SandboxTemplate> {
     let output_parent = dirs.output_path.parent().context("invalid output path")?;
     let output_name = dirs
@@ -1022,6 +1062,21 @@ async fn build_process_template(
                         options: SandboxPathOptions {
                             mode: HostPathMode::ReadWriteCreate,
                             guest_path_hint: dirs.guest_temp_dir.into(),
+                        },
+                    }));
+            }
+            CompleteProcessTemplateComponent::CaCertificateBundlePath => {
+                let (host_path, guest_path) = dirs
+                    .host_ca_certificate_bundle_path
+                    .and_then(|host_path| Some((host_path, dirs.guest_ca_certificate_bundle_path?)))
+                    .context("tried to reference CA certificate bundle but path is not set")?;
+                result
+                    .components
+                    .push(SandboxTemplateComponent::Path(SandboxPath {
+                        host_path: host_path.to_owned(),
+                        options: SandboxPathOptions {
+                            mode: HostPathMode::Read,
+                            guest_path_hint: guest_path.into(),
                         },
                     }));
             }
@@ -1237,6 +1292,62 @@ async fn append_dependency_envs(
     }
 
     Ok(())
+}
+
+async fn get_ca_certificate_bundle_pem() -> anyhow::Result<&'static str> {
+    static CA_CERT_BUNDLE_PEM: tokio::sync::OnceCell<String> = tokio::sync::OnceCell::const_new();
+    const PEM_CERTIFICATE_TAG: &str = "CERTIFICATE";
+    const PEM_LINE_ENDING: pem_rfc7468::LineEnding = pem_rfc7468::LineEnding::LF;
+
+    let pem = CA_CERT_BUNDLE_PEM
+        .get_or_try_init(async || {
+            let pem = tokio::task::spawn_blocking(|| {
+                // Get the system's native certificates
+                let result = rustls_native_certs::load_native_certs();
+                if !result.errors.is_empty() {
+                    let errors = result.errors.iter().join_with(", ");
+                    anyhow::bail!("error(s) while loading CA certificates: {errors}");
+                }
+                if result.certs.is_empty() {
+                    anyhow::bail!("no CA certificates found");
+                }
+
+                // Create a buffer to hold the PEM-encoded version of all
+                // certificates together
+                let pem_length = result
+                    .certs
+                    .iter()
+                    .map(|cert| {
+                        pem_rfc7468::encoded_len(PEM_CERTIFICATE_TAG, PEM_LINE_ENDING, cert)
+                            .unwrap()
+                    })
+                    .sum();
+                let mut pem = vec![0u8; pem_length];
+
+                // Encode each certificate, writing each result to
+                // the end of the buffer
+                let mut pem_buffer = &mut pem[..];
+                for cert in &result.certs {
+                    let cert_pem =
+                        pem_rfc7468::encode(PEM_CERTIFICATE_TAG, PEM_LINE_ENDING, cert, pem_buffer)
+                            .unwrap();
+                    let cert_pem_len = cert_pem.len();
+                    pem_buffer = &mut pem_buffer[cert_pem_len..];
+                }
+
+                // Ensure the final result is UTF-8 encoded
+                assert!(
+                    pem_buffer.is_empty(),
+                    "PEM buffer did not match final length"
+                );
+                let pem = String::from_utf8(pem).expect("PEM-encoded buffer is not valid UTF-8");
+                anyhow::Ok(pem)
+            })
+            .await??;
+            anyhow::Ok(pem)
+        })
+        .await?;
+    Ok(&**pem)
 }
 
 pub async fn sandbox_backend(

@@ -15,8 +15,8 @@ use brioche_core::{
     },
 };
 use brioche_test_support::{
-    bake_without_meta, default_process, home_dir, input_resource_dirs, output_path, resource_dir,
-    temp_dir, template_input, tpl, tpl_join, work_dir,
+    bake_without_meta, ca_certificate_bundle_path, default_process, home_dir, input_resource_dirs,
+    output_path, resource_dir, temp_dir, template_input, tpl, tpl_join, work_dir,
 };
 
 fn sha256_hash(hash: &str) -> Hash {
@@ -812,7 +812,7 @@ fn test_bake_process_chdir_with_recipe() -> anyhow::Result<()> {
                     test "$(cat hello.txt)" == "hello"
                     test "$(cat "$work_dir_path"/hi.txt)" == "hi"
 
-                    if echo 'writing this file should fail...' | tee bad.txt; then
+                    if echo 'writing this file should fail...' | tee bad.txt &>/dev/null; then
                         exit 1
                     fi
 
@@ -1701,6 +1701,41 @@ fn test_bake_process_networking_disabled() -> anyhow::Result<()> {
 }
 
 #[test]
+fn test_bake_process_ca_certs_without_networking_error() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let mut server = mockito::Server::new_async().await;
+        let hello_endpoint = server
+            .mock("GET", "/file.txt")
+            .with_body("hello")
+            .expect(0)
+            .create();
+
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![tpl("sh"), tpl("-c"), tpl(r#"touch "$BRIOCHE_OUTPUT""#)],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("URL".into(), tpl(server.url())),
+                ("SSL_CERT_FILE".into(), ca_certificate_bundle_path()),
+            ]),
+            is_unsafe: false,
+            networking: false,
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Err(_));
+
+        hello_endpoint.assert();
+
+        Ok(())
+    })
+}
+
+#[test]
 fn test_bake_process_networking_enabled() -> anyhow::Result<()> {
     brioche_test(|brioche| async move {
         let mut server = mockito::Server::new_async().await;
@@ -1769,6 +1804,46 @@ fn test_bake_process_networking_enabled_dns() -> anyhow::Result<()> {
                     "PATH".into(),
                     tpl_join([template_input(utils()), tpl("/bin")]),
                 ),
+            ]),
+            is_unsafe: true,
+            networking: true,
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_networking_enabled_with_ca_certs() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -euo pipefail
+
+                    test -n "$ca_certs"
+
+                    # Ensure the cert file contains at least one cert (two
+                    # PEM tag lines and one or more lines for PEM-encoded
+                    # data)
+                    test "$(cat "$ca_certs" | wc -l)" -ge 3
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+                ("ca_certs".into(), ca_certificate_bundle_path()),
             ]),
             is_unsafe: true,
             networking: true,

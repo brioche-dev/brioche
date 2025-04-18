@@ -184,7 +184,8 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                     | ProcessTemplateComponent::InputResourceDirs
                     | ProcessTemplateComponent::HomeDir
                     | ProcessTemplateComponent::WorkDir
-                    | ProcessTemplateComponent::TempDir => vec![],
+                    | ProcessTemplateComponent::TempDir
+                    | ProcessTemplateComponent::CaCertificateBundlePath => vec![],
                 })
                 .chain(
                     dependencies
@@ -235,6 +236,7 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                     | CompleteProcessTemplateComponent::InputResourceDirs
                     | CompleteProcessTemplateComponent::HomeDir
                     | CompleteProcessTemplateComponent::WorkDir
+                    | CompleteProcessTemplateComponent::CaCertificateBundlePath
                     | CompleteProcessTemplateComponent::TempDir => vec![],
                 })
                 .chain(referenced_recipes(&work_dir))
