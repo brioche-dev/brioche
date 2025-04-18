@@ -812,7 +812,7 @@ fn test_bake_process_chdir_with_recipe() -> anyhow::Result<()> {
                     test "$(cat hello.txt)" == "hello"
                     test "$(cat "$work_dir_path"/hi.txt)" == "hi"
 
-                    if echo 'writing this file should fail...' | tee bad.txt; then
+                    if echo 'writing this file should fail...' | tee bad.txt &>/dev/null; then
                         exit 1
                     fi
 
