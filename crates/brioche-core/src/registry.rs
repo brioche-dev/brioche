@@ -25,12 +25,13 @@ pub enum RegistryClient {
         client: reqwest_middleware::ClientWithMiddleware,
         url: url::Url,
         auth: RegistryAuthentication,
+        legacy_registry_sync: bool,
     },
     Disabled,
 }
 
 impl RegistryClient {
-    pub fn new(url: url::Url, auth: RegistryAuthentication) -> Self {
+    pub fn new(url: url::Url, auth: RegistryAuthentication, legacy_registry_sync: bool) -> Self {
         let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
             .retry_bounds(
                 std::time::Duration::from_millis(500),
@@ -50,15 +51,21 @@ impl RegistryClient {
             .with(retry_middleware)
             .build();
 
-        Self::new_with_client(client, url, auth)
+        Self::new_with_client(client, url, auth, legacy_registry_sync)
     }
 
     pub const fn new_with_client(
         client: reqwest_middleware::ClientWithMiddleware,
         url: url::Url,
         auth: RegistryAuthentication,
+        legacy_registry_sync: bool,
     ) -> Self {
-        Self::Enabled { client, url, auth }
+        Self::Enabled {
+            client,
+            url,
+            auth,
+            legacy_registry_sync,
+        }
     }
 
     pub const fn disabled() -> Self {
@@ -70,6 +77,7 @@ impl RegistryClient {
             self,
             Self::Enabled {
                 auth: RegistryAuthentication::Admin { .. },
+                legacy_registry_sync: true,
                 ..
             },
         )
@@ -80,7 +88,13 @@ impl RegistryClient {
         method: reqwest::Method,
         path: &str,
     ) -> anyhow::Result<reqwest_middleware::RequestBuilder> {
-        let Self::Enabled { client, url, auth } = self else {
+        let Self::Enabled {
+            client,
+            url,
+            auth,
+            legacy_registry_sync: _,
+        } = self
+        else {
             return Err(anyhow::anyhow!("registry client is disabled"));
         };
         let endpoint_url = url.join(path).context("failed to construct registry URL")?;
