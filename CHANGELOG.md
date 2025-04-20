@@ -6,6 +6,45 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+## [v0.1.5]
+
+**Check the blog post ["Announcing Brioche v0.1.5"](http://brioche.dev/blog/announcing-brioche-v0-1-5) for an overview of the new features in this release**
+
+### Breaking
+
+> **Note**: This is a minor release, but Brioche is still pre-1.0 and not widely adopted, so we may ship minor breaking changes from time to time if we think the breakage will not affect many people
+
+- (**Minor breaking**) The new caching system is replacing (most) uses of the Brioche registry. If you were syncing build artifacts to a custom registry before, you will need to migrate to a custom cache instead.
+    - The registry is still used for resolving projects. For larger teams, it might still make sense to host a custom registry.
+    - This release includes some minimal tooling to help migrate existing cached data from the old registry to a new cache, but it will be removed before the next release.
+    - If you are self-hosting your own infrastructure for Brioche today (or are interested in doing so), please reach out for more information
+
+### Added
+
+- Implement new caching system ([#179](https://github.com/brioche-dev/brioche/pull/179))
+    - Fetching from the official Brioche cache should be much faster in most cases
+    - Using a private / self-hosted cache is much easier now. The `cache.url` config key or the `$BRIOCHE_CACHE_URL` env var can be used to cache with several different object storage backends. Check the [documentation](https://brioche.dev/docs/configuration/) for more details
+- Add support for unarchiving `.zip` archives ([#176](https://github.com/brioche-dev/brioche/pull/176) by [**@paricbat**](https://github.com/paricbat))
+- Add support for projects with cyclic imports ([#211](https://github.com/brioche-dev/brioche/pull/211))
+- Add command to start a debug shell within a failed build ([#215](https://github.com/brioche-dev/brioche/pull/215))
+- Add support for `Brioche.gitCheckout()` as a static ([#218](https://github.com/brioche-dev/brioche/pull/218))
+- Add `unsandboxed` sandbox backend ([#230](https://github.com/brioche-dev/brioche/pull/230))
+- Add `process.currentDir` option to change which directory a process starts in ([#231](https://github.com/brioche-dev/brioche/pull/231))
+
+### Changed
+
+- Use `$BRIOCHE_DATA_DIR` env var to control where Brioche's data is stored-- in most cases, the default path is `~/.local/share/brioche` on Linux ([#171](https://github.com/brioche-dev/brioche/pull/171))
+- Allow processes to inherit CA certificates from the host when the unsafe `networking` option is enabled ([#232](https://github.com/brioche-dev/brioche/pull/232))
+    - In practice, this means that builds that access the network will no longer need to pull in the `ca_certificates` package
+
+### Fixed
+
+- Fix various issues with the LSP ([#188](https://github.com/brioche-dev/brioche/pull/188))
+- Tweak LSP to keep unused dependencies when saving ([#192](https://github.com/brioche-dev/brioche/pull/192))
+- Fix `brioche fmt` when called without any args: it now defaults to formatting the project in the current directory ([#190](https://github.com/brioche-dev/brioche/pull/190) by [**@asheliahut**](https://github.com/asheliahut))
+- Add missing implementations for several expressions when evaluating statics ([#195](https://github.com/brioche-dev/brioche/pull/195))
+- Fix potential segfault from V8 depending on CPU flags ([#225](https://github.com/brioche-dev/brioche/pull/225))
+
 ## [v0.1.4] - 2025-01-18
 
 **Check the blog post ["Announcing Brioche v0.1.4"](http://brioche.dev/blog/announcing-brioche-v0-1-4) for an overview of all the new features in this release**
@@ -93,7 +132,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 - **Initial release!**
 
-[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.5...HEAD
+[v0.1.5]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.4
 [v0.1.3]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.3
 [v0.1.2]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.2
