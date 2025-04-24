@@ -635,7 +635,7 @@ where
         .filter_map(|result| result.transpose())
 }
 
-fn expression_to_json(
+pub fn expression_to_json(
     expr: &biome_js_syntax::AnyJsExpression,
     env: &HashMap<String, serde_json::Value>,
 ) -> anyhow::Result<serde_json::Value> {

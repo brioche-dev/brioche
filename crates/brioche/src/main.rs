@@ -11,6 +11,7 @@ mod check;
 mod format;
 mod install;
 mod jobs;
+mod live_update;
 mod lsp;
 mod migrate_registry_to_cache;
 mod publish;
@@ -43,6 +44,10 @@ enum Args {
 
     /// Publish a project to a registry
     Publish(publish::PublishArgs),
+
+    /// Update a Brioche project based on the current version of
+    /// the upstream project
+    LiveUpdate(live_update::LiveUpdateArgs),
 
     /// Start the Language Server Protocol server
     Lsp(lsp::LspArgs),
@@ -129,6 +134,16 @@ fn main() -> anyhow::Result<ExitCode> {
             let exit_code = rt.block_on(publish::publish(js_platform, args))?;
 
             Ok(exit_code)
+        }
+        Args::LiveUpdate(args) => {
+            let js_platform = brioche_core::script::initialize_js_platform();
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            rt.block_on(live_update::live_update(js_platform, args))?;
+
+            Ok(ExitCode::SUCCESS)
         }
         Args::Lsp(args) => {
             let js_platform = brioche_core::script::initialize_js_platform();

@@ -12,6 +12,7 @@ use super::{Brioche, vfs::FileId};
 
 pub mod analyze;
 pub mod artifact;
+pub mod edit;
 mod load;
 
 #[derive(Debug, Clone, Copy)]
