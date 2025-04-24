@@ -65,6 +65,26 @@ impl Vfs {
         Ok((file_id, contents))
     }
 
+    pub fn unload(&self, path: &Path) -> anyhow::Result<Option<FileId>> {
+        let mut vfs = self
+            .inner
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire VFS lock"))?;
+        let file_id = vfs.locations_to_ids.remove(path);
+        if let Some(file_id) = file_id {
+            let ids_to_locations = vfs.ids_to_locations.entry(file_id).or_default();
+            ids_to_locations.retain(|location| location != path);
+            let is_unreferenced = ids_to_locations.is_empty();
+
+            if is_unreferenced {
+                vfs.ids_to_locations.remove(&file_id);
+                vfs.contents.remove(&file_id);
+            }
+        }
+
+        Ok(file_id)
+    }
+
     pub fn update(&self, file_id: FileId, contents: Arc<Vec<u8>>) -> anyhow::Result<()> {
         anyhow::ensure!(
             matches!(file_id, FileId::Mutable(_)),

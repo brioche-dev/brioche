@@ -1216,6 +1216,7 @@ version = "0.1.5"
 dependencies = [
  "anyhow",
  "brioche-core",
+ "bstr",
  "cfg-if 1.0.0",
  "clap",
  "csv",
