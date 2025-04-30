@@ -62,23 +62,4 @@ used_underscore_binding = "warn"
 used_underscore_items = "warn"
 
 [profile.dev]
-# Enable optimizations for debug builds because the JS runs slow without it.
-# Also, we end up overflowing the stack without optimizations when parsing JS
-opt-level = 2
-
-[profile.profiling]
-inherits = "release"
-debug = true
-
-[profile.release-tiny]
-inherits = "release"
-opt-level = "z"
-lto = true
-codegen-units = 1
-strip = "symbols"
-panic = "abort"
-
-# Like `release-tiny`, but with debug info needed for `cargo bloat`
-[profile.release-tiny-bloat]
-inherits = "release-tiny"
-strip = "debuginfo"
+debug = "limited"
