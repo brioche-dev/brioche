@@ -96,7 +96,7 @@ pub async fn live_update(
             js_platform,
             &projects,
             project_hash,
-            "autoUpdate",
+            "liveUpdate",
         )
         .await?;
 
@@ -105,7 +105,7 @@ pub async fn live_update(
             recipe,
             &brioche_core::bake::BakeScope::Project {
                 project_hash,
-                export: "autoUpdate".to_string(),
+                export: "liveUpdate".to_string(),
             },
         )
         .instrument(tracing::info_span!("bake"))
