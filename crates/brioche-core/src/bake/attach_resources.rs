@@ -235,12 +235,7 @@ async fn resolve_internal_file_resources(
     let subpath = bstr::BStr::new(subpath);
 
     // Get the file's blob
-    let blob_path = crate::blob::blob_path(
-        brioche,
-        &mut crate::blob::get_save_blob_permit().await?,
-        file.content_blob,
-    )
-    .await?;
+    let blob_path = crate::blob::blob_path(brioche, file.content_blob).await?;
 
     // Try to extract a pack from the file's blob, and get its resource paths
     // if it has any

@@ -469,50 +469,14 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
     }
 }
 
-pub async fn blob_path(
-    brioche: &Brioche,
-    _permit: &mut SaveBlobPermit<'_>,
-    blob_hash: BlobHash,
-) -> anyhow::Result<PathBuf> {
+pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result<PathBuf> {
     let local_path = local_blob_path(brioche, blob_hash);
 
     if tokio::fs::try_exists(&local_path).await? {
         return Ok(local_path);
     };
 
-    if let Some(local_path_dir) = local_path.parent() {
-        tokio::fs::create_dir_all(&local_path_dir).await?;
-    }
-
-    let blob = brioche.registry_client.get_blob(blob_hash).await?;
-
-    let temp_dir = brioche.data_dir.join("blobs-temp");
-    tokio::fs::create_dir_all(&temp_dir).await?;
-    let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
-
-    let mut temp_file = tokio::fs::File::create(&temp_path)
-        .await
-        .context("failed to open temp file")?;
-    temp_file
-        .write_all(&blob)
-        .await
-        .context("failed to write blob to temp file")?;
-    temp_file
-        .set_permissions(blob_permissions())
-        .await
-        .context("failed to set blob permissions")?;
-    let temp_file = temp_file.into_std().await;
-    tokio::task::spawn_blocking(move || {
-        temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
-        anyhow::Ok(())
-    })
-    .await??;
-
-    tokio::fs::rename(&temp_path, &local_path)
-        .await
-        .context("failed to rename blob from temp file")?;
-
-    Ok(local_path)
+    anyhow::bail!("blob {blob_hash} does not exist locally");
 }
 
 pub fn local_blob_path(brioche: &Brioche, blob_hash: BlobHash) -> PathBuf {

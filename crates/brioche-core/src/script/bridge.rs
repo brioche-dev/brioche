@@ -202,17 +202,8 @@ impl RuntimeBridge {
                             blob_hash,
                             result_tx,
                         } => {
-                            let permit = crate::blob::get_save_blob_permit().await;
-                            let mut permit = match permit {
-                                Ok(permit) => permit,
-                                Err(error) => {
-                                    let _ = result_tx.send(Err(error));
-                                    return;
-                                }
-                            };
-
                             let path =
-                                crate::blob::blob_path(&brioche, &mut permit, blob_hash).await;
+                                crate::blob::blob_path(&brioche, blob_hash).await;
                             let path = match path {
                                 Ok(path) => path,
                                 Err(error) => {
@@ -220,8 +211,6 @@ impl RuntimeBridge {
                                     return;
                                 }
                             };
-
-                            drop(permit);
 
                             let result = tokio::fs::read(path)
                                 .await
