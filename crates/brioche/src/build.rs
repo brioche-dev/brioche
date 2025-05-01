@@ -172,14 +172,12 @@ pub async fn build(
             let wait_start = std::time::Instant::now();
 
             let brioche_core::sync::SyncBakesResults {
-                num_new_blobs,
                 num_new_recipes,
                 num_new_bakes,
             } = brioche_core::sync::wait_for_in_progress_syncs(&brioche).await?;
 
             let wait_duration = DisplayDuration(wait_start.elapsed());
             println!("In-progress sync waited for {wait_duration} and synced:");
-            println!("  {num_new_blobs} blobs");
             println!("  {num_new_recipes} recipes");
             println!("  {num_new_bakes} bakes");
 

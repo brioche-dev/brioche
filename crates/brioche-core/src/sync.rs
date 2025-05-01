@@ -97,7 +97,6 @@ pub async fn sync_bakes(
     }
 
     Ok(SyncBakesResults {
-        num_new_blobs: 0,
         num_new_bakes,
         num_new_recipes: num_new_artifacts,
     })
@@ -105,14 +104,12 @@ pub async fn sync_bakes(
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SyncBakesResults {
-    pub num_new_blobs: usize,
     pub num_new_recipes: usize,
     pub num_new_bakes: usize,
 }
 
 impl SyncBakesResults {
     pub const fn merge(&mut self, other: Self) {
-        self.num_new_blobs += other.num_new_blobs;
         self.num_new_recipes += other.num_new_recipes;
         self.num_new_bakes += other.num_new_bakes;
     }
