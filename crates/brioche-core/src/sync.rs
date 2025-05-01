@@ -1,8 +1,7 @@
 use anyhow::Context as _;
 
-use crate::{Brioche, project::ProjectHash, references::ProjectReferences};
+use crate::{Brioche, project::ProjectHash};
 
-mod legacy_sync;
 mod new_sync;
 
 pub async fn wait_for_in_progress_syncs(brioche: &Brioche) -> anyhow::Result<SyncBakesResults> {
@@ -46,11 +45,6 @@ pub async fn sync_bakes(
 ) -> anyhow::Result<SyncBakesResults> {
     let mut results: Option<SyncBakesResults> = None;
 
-    if brioche.registry_client.can_sync() {
-        let legacy_results = legacy_sync::sync_bakes(brioche, bakes.clone(), verbose).await?;
-        results.get_or_insert_default().merge(legacy_results);
-    }
-
     if brioche.cache_client.writable {
         let new_results = new_sync::sync_bakes(brioche, bakes, verbose).await?;
         results.get_or_insert_default().merge(new_results);
@@ -73,16 +67,4 @@ impl SyncBakesResults {
         self.num_new_recipes += other.num_new_recipes;
         self.num_new_bakes += other.num_new_bakes;
     }
-}
-
-pub async fn legacy_sync_project_references(
-    brioche: &Brioche,
-    references: &ProjectReferences,
-    verbose: bool,
-) -> anyhow::Result<()> {
-    if brioche.registry_client.can_sync() {
-        legacy_sync::sync_project_references(brioche, references, verbose).await?;
-    }
-
-    Ok(())
 }
