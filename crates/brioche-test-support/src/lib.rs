@@ -52,7 +52,6 @@ pub async fn brioche_test_with(
             brioche_core::registry::RegistryAuthentication::Admin {
                 password: "admin".to_string(),
             },
-            true,
         ))
         .cache_client(brioche_core::cache::CacheClient::default())
         .self_exec_processes(false);
@@ -911,7 +910,6 @@ pub async fn brioche_lsp_test_with(
                     brioche_core::registry::RegistryAuthentication::Admin {
                         password: "admin".to_string(),
                     },
-                    true,
                 ))
                 .cache_client(brioche_core::cache::CacheClient::default())
                 .self_exec_processes(false);
