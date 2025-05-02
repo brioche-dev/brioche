@@ -110,8 +110,7 @@ async fn run_publish(
             ));
 
             let response =
-                brioche_core::publish::publish_project(brioche, projects, project_hash, true)
-                    .await?;
+                brioche_core::publish::publish_project(brioche, projects, project_hash).await?;
 
             if response.tags.is_empty() {
                 reporter.emit(superconsole::Lines::from_multiline_string(

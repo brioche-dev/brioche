@@ -231,14 +231,6 @@ impl BriocheBuilder {
             .with(download_retry_middleware)
             .build();
 
-        let legacy_registry_sync = std::env::var("BRIOCHE_LEGACY_REGISTRY_SYNC");
-        let legacy_registry_sync = match legacy_registry_sync.ok().as_deref() {
-            Some("true") => true,
-            Some("false") | None => false,
-            Some(other) => {
-                anyhow::bail!("unknown value for $BRIOCHE_LEGACY_REGISTRY_SYNC: {other:?}");
-            }
-        };
         let registry_client = self.registry_client.unwrap_or_else(|| {
             let registry_password = std::env::var("BRIOCHE_REGISTRY_PASSWORD").ok();
             let registry_auth = registry_password
@@ -250,7 +242,7 @@ impl BriocheBuilder {
                     .parse()
                     .expect("failed to parse default registry URL")
             });
-            registry::RegistryClient::new(registry_url, registry_auth, legacy_registry_sync)
+            registry::RegistryClient::new(registry_url, registry_auth)
         });
         let cache_client = match self.cache_client {
             Some(cache_client) => cache_client,

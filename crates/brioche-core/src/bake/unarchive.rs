@@ -30,10 +30,7 @@ pub async fn bake_unarchive(
 
     tracing::debug!(%blob_hash, archive = ?unarchive.archive, compression = ?unarchive.compression, "starting unarchive");
 
-    let archive_path = {
-        let mut permit = crate::blob::get_save_blob_permit().await?;
-        crate::blob::blob_path(brioche, &mut permit, blob_hash).await?
-    };
+    let archive_path = crate::blob::blob_path(brioche, blob_hash).await?;
     let archive_file = tokio::fs::File::open(&archive_path).await?;
     let uncompressed_archive_size = archive_file.metadata().await?.len();
     let archive_file = tokio::io::BufReader::new(archive_file);
