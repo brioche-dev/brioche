@@ -62,8 +62,8 @@ async fn check_with_deno(
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
                 module_loader: Some(Rc::new(module_loader)),
                 extensions: vec![
-                    super::compiler_host::brioche_compiler_host::init_ops(compiler_host),
-                    super::js::brioche_js::init_ops(),
+                    super::compiler_host::brioche_compiler_host::init(compiler_host),
+                    super::js::brioche_js::init(),
                 ],
                 ..Default::default()
             });

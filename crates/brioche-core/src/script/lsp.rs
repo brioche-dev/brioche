@@ -688,8 +688,8 @@ fn js_lsp_task(
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
                 module_loader: Some(Rc::new(module_loader)),
                 extensions: vec![
-                    brioche_compiler_host::init_ops(compiler_host),
-                    super::js::brioche_js::init_ops(),
+                    brioche_compiler_host::init(compiler_host),
+                    super::js::brioche_js::init(),
                 ],
                 ..Default::default()
             });
