@@ -72,8 +72,8 @@ async fn evaluate_with_deno(
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
                 module_loader: Some(Rc::new(module_loader)),
                 extensions: vec![
-                    super::brioche_rt::init_ops(bridge, bake_scope),
-                    super::js::brioche_js::init_ops(),
+                    super::brioche_rt::init(bridge, bake_scope),
+                    super::js::brioche_js::init(),
                 ],
                 ..Default::default()
             });
