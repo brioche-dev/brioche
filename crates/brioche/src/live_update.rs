@@ -1,8 +1,7 @@
 use anyhow::Context as _;
 use brioche_core::{project::ProjectLocking, utils::DisplayDuration};
-use bstr::ByteSlice;
+use bstr::ByteSlice as _;
 use clap::Parser;
-use tokio::io::AsyncWriteExt;
 use tracing::Instrument as _;
 
 #[derive(Debug, Parser)]
