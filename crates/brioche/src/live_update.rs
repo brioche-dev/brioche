@@ -1,5 +1,6 @@
 use anyhow::Context as _;
 use brioche_core::{project::ProjectLocking, utils::DisplayDuration};
+use bstr::ByteSlice as _;
 use clap::Parser;
 use tracing::Instrument as _;
 
@@ -162,11 +163,15 @@ pub async fn live_update(
         command.env("BRIOCHE_RESOURCE_DIR", resource_dir);
     }
 
-    command.stderr(std::process::Stdio::inherit());
-
     let output = command.output().await.context("failed to run process")?;
 
+    let stderr = bstr::BStr::new(&output.stderr).trim_end();
+    eprintln!("{}", bstr::BStr::new(stderr));
+
     if !output.status.success() {
+        let stdout = bstr::BStr::new(&output.stdout).trim_end();
+        eprintln!("{}", bstr::BStr::new(stdout));
+
         anyhow::bail!("process failed: {}", output.status);
     }
 
