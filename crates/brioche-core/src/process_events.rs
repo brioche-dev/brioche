@@ -89,6 +89,7 @@ impl ProcessEventMarker {
 
 const PROCESS_EVENT_MARKER_LENGTH: usize = 5;
 
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProcessEvent {
     Description(ProcessEventDescription),

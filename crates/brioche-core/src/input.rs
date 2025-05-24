@@ -393,9 +393,7 @@ fn add_input_plan_nodes(
             let subpath = resolved_path.strip_prefix(ancestor).ok()?;
             let canonical_ancestor = std::fs::canonicalize(ancestor).ok()?;
 
-            let ancestor_is_resource_dir = canonical_resource_dirs
-                .iter()
-                .any(|canonical_resource_dir| canonical_ancestor == *canonical_resource_dir);
+            let ancestor_is_resource_dir = canonical_resource_dirs.contains(&canonical_ancestor);
 
             if ancestor_is_resource_dir {
                 Some((canonical_ancestor, subpath))

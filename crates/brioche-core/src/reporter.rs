@@ -249,7 +249,7 @@ impl std::io::Write for LspClientWriter {
                 tower_lsp::lsp_types::MessageType::INFO,
                 String::from_utf8_lossy(buf).to_string(),
             ))
-            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            .map_err(std::io::Error::other)?;
         Ok(buf.len())
     }
 

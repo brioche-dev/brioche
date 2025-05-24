@@ -481,8 +481,7 @@ pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result
 
 pub fn local_blob_path(brioche: &Brioche, blob_hash: BlobHash) -> PathBuf {
     let blobs_dir = brioche.data_dir.join("blobs");
-    let blob_path = blobs_dir.join(hex::encode(blob_hash.0.as_bytes()));
-    blob_path
+    blobs_dir.join(hex::encode(blob_hash.0.as_bytes()))
 }
 
 fn blob_permissions() -> std::fs::Permissions {

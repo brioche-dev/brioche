@@ -99,15 +99,13 @@ pub fn run_sandbox(
                             )
                         })?;
 
-                        let guest_path = options.guest_path_hint.to_path().map_err(|_| {
-                            std::io::Error::new(std::io::ErrorKind::Other, "invalid guest path")
-                        })?;
+                        let guest_path = options
+                            .guest_path_hint
+                            .to_path()
+                            .map_err(|_| std::io::Error::other("invalid guest path"))?;
                         let guest_path_under_root =
                             guest_path.strip_prefix("/").map_err(|error| {
-                                std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    format!("invalid guest path: {error}"),
-                                )
+                                std::io::Error::other(format!("invalid guest path: {error}"))
                             })?;
                         let dest_path = sandbox_root.join(guest_path_under_root);
 
@@ -151,14 +149,11 @@ pub fn run_sandbox(
                             .recursive(true)
                             .mount()
                             .map_err(|error| {
-                                std::io::Error::new(
-                                    std::io::ErrorKind::Other,
-                                    format!(
-                                        "failed to mount {} -> {}: {error}",
-                                        path.display(),
-                                        dest_path.display()
-                                    ),
-                                )
+                                std::io::Error::other(format!(
+                                    "failed to mount {} -> {}: {error}",
+                                    path.display(),
+                                    dest_path.display()
+                                ))
                             })?;
                     }
 
@@ -167,10 +162,7 @@ pub fn run_sandbox(
                         .readonly(true)
                         .mount()
                         .map_err(|error| {
-                            std::io::Error::new(
-                                std::io::ErrorKind::Other,
-                                format!("failed to remount rootfs: {error}"),
-                            )
+                            std::io::Error::other(format!("failed to remount rootfs: {error}"))
                         })?;
 
                     Ok(())
