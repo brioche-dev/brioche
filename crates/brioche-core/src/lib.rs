@@ -378,6 +378,7 @@ impl BriocheBuilder {
     }
 }
 
+#[expect(clippy::large_enum_variant)]
 pub enum SyncMessage {
     StartSync {
         brioche: Brioche,

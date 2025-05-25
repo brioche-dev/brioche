@@ -677,6 +677,7 @@ pub async fn bake_process(
     Ok(result.value)
 }
 
+#[expect(clippy::large_enum_variant)]
 enum ProcessEventWriterAction {
     ProcessEvent(ProcessEvent),
     FinishFrameAndFlush,

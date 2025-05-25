@@ -66,7 +66,7 @@ impl Pack {
         paths
     }
 
-    pub fn should_add_to_executable(&self) -> bool {
+    pub const fn should_add_to_executable(&self) -> bool {
         match self {
             Self::LdLinux { .. } => true,
             Self::Static { library_dirs } => {
