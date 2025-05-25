@@ -52,7 +52,10 @@ jobs:
       - name: Install Brioche
         uses: brioche-dev/setup-brioche@v1
       - name: Check Brioche project
+        # HACK: Added a workaround for bug fixed by https://github.com/brioche-dev/brioche/pull/216
+        # TODO: Update when Brioche >0.1.5 is released
         run: |
+          brioche check || true
           brioche check
           brioche fmt --check
 
@@ -179,7 +182,11 @@ jobs:
       - name: Install Brioche
         uses: brioche-dev/setup-brioche@v1
       - name: Build Brioche
-        run: brioche build --check -o "brioche-packed-$PLATFORM"
+        # HACK: Added a workaround for bug fixed by https://github.com/brioche-dev/brioche/pull/216
+        # TODO: Update when Brioche >0.1.5 is released
+        run: |
+          brioche check || true
+          brioche build --check -o "brioche-packed-$PLATFORM"
         env:
           PLATFORM: x86_64-linux
       - name: Prepare artifact
