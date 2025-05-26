@@ -99,7 +99,7 @@ jobs:
   # Extra job that succeeds when all test jobs succeed (useful for PR requirements)
   all-tests-passed:
     name: All tests passed
-    needs: [test]
+    needs: [check, test]
     runs-on: ubuntu-24.04
     steps:
       - run: ':'
