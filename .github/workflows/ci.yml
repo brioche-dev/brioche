@@ -82,8 +82,8 @@ jobs:
               echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf
               sudo sysctl --system
 
-          - name: aarch64 macOS 14
-            runs_on: macos-14
+          - name: aarch64 macOS 15
+            runs_on: macos-15
     runs-on: ${{ matrix.test.runs_on }}
     steps:
       - name: Checkout code
@@ -117,10 +117,10 @@ jobs:
             runs_on: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
           - name: x86_64-macos
-            runs_on: macos-14
+            runs_on: macos-15
             target: x86_64-apple-darwin
           - name: aarch64-macos
-            runs_on: macos-14
+            runs_on: macos-15
             target: aarch64-apple-darwin
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
@@ -267,4 +267,3 @@ jobs:
           AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
           AWS_RESPONSE_CHECKSUM_CALCULATION: WHEN_REQUIRED
           S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
-
