@@ -34,8 +34,9 @@ export default function (): std.Recipe<std.Directory> {
     // Makefiles for miscellaneous tasks
     "**/Makefile",
   );
-  source = validateRuntime(source);
-  source = validateSqlxMetadata(source);
+
+  // Run validations
+  source = std.merge(validateRuntime(source), validateSqlxMetadata(source));
 
   return cargoBuild({
     source,
@@ -51,7 +52,11 @@ export default function (): std.Recipe<std.Directory> {
       networking: true,
     },
     dependencies: [curl(), caCertificates()],
-  });
+  }).pipe((recipe) =>
+    // Insert an empty marker file at the root of the recipe so we can find
+    // where Brioche is installed
+    recipe.insert(".brioche-install", std.file("")),
+  );
 }
 
 /**
