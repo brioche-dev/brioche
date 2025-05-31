@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{collections::HashSet, rc::Rc};
 
 use anyhow::Context as _;
 
@@ -15,9 +15,9 @@ pub async fn check(
     brioche: &Brioche,
     js_platform: super::JsPlatform,
     projects: &Projects,
-    project_hash: ProjectHash,
+    project_hashes: &HashSet<ProjectHash>,
 ) -> anyhow::Result<CheckResult> {
-    let project_specifiers = projects.project_module_specifiers(project_hash)?;
+    let project_specifiers = projects.project_module_specifiers_for_projects(project_hashes)?;
 
     let runtime_bridge = RuntimeBridge::new(brioche.clone(), projects.clone());
 
@@ -27,7 +27,7 @@ pub async fn check(
 
 async fn check_with_deno(
     _js_platform: super::JsPlatform,
-    project_specifiers: Vec<super::specifier::BriocheModuleSpecifier>,
+    project_specifiers: HashSet<super::specifier::BriocheModuleSpecifier>,
     bridge: RuntimeBridge,
 ) -> anyhow::Result<CheckResult> {
     // Create a channel to get the result from the other Tokio runtime
@@ -56,7 +56,7 @@ async fn check_with_deno(
 
             // Load all of the provided specifiers
             compiler_host
-                .load_documents(project_specifiers.clone())
+                .load_documents(project_specifiers.iter().cloned().collect())
                 .await?;
 
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {

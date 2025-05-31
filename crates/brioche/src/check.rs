@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -159,7 +160,13 @@ async fn run_check(
             }
         }
 
-        brioche_core::script::check::check(brioche, js_platform, projects, project_hash).await
+        brioche_core::script::check::check(
+            brioche,
+            js_platform,
+            projects,
+            &HashSet::from_iter([project_hash]),
+        )
+        .await
     }
     .instrument(tracing::info_span!("check"))
     .await?

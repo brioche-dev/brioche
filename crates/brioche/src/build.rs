@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{collections::HashSet, path::PathBuf, process::ExitCode};
 
 use anyhow::Context as _;
 use brioche_core::{fs_utils, project::ProjectLocking, utils::DisplayDuration};
@@ -87,9 +87,13 @@ pub async fn build(
         }
 
         if args.check {
-            let checked =
-                brioche_core::script::check::check(&brioche, js_platform, &projects, project_hash)
-                    .await?;
+            let checked = brioche_core::script::check::check(
+                &brioche,
+                js_platform,
+                &projects,
+                &HashSet::from_iter([project_hash]),
+            )
+            .await?;
 
             let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
 

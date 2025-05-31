@@ -224,6 +224,18 @@ impl Projects {
         Ok(module_specifiers.collect())
     }
 
+    pub fn project_module_specifiers_for_projects(
+        &self,
+        project_hashes: &HashSet<ProjectHash>,
+    ) -> anyhow::Result<HashSet<super::script::specifier::BriocheModuleSpecifier>> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        let module_specifiers = projects.project_module_specifiers_for_projects(project_hashes)?;
+        Ok(module_specifiers)
+    }
+
     pub fn find_containing_project(&self, path: &Path) -> anyhow::Result<Option<ProjectHash>> {
         let projects = self
             .inner
@@ -557,6 +569,19 @@ impl ProjectsInner {
             path
         });
         Ok(paths)
+    }
+
+    pub fn project_module_specifiers_for_projects(
+        &self,
+        project_hashes: &HashSet<ProjectHash>,
+    ) -> anyhow::Result<HashSet<super::script::specifier::BriocheModuleSpecifier>> {
+        let mut module_specifiers = HashSet::new();
+        for project_hash in project_hashes {
+            let module_paths = self.project_module_specifiers(*project_hash)?;
+            module_specifiers.extend(module_paths);
+        }
+
+        Ok(module_specifiers)
     }
 
     pub fn project_module_specifiers(
