@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashSet, path::PathBuf};
 
 use assert_matches::assert_matches;
 use brioche_core::script::check::{CheckResult, DiagnosticLevel};
@@ -53,7 +53,7 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        project_hash,
+        &HashSet::from_iter([project_hash]),
     )
     .await?;
 
@@ -92,7 +92,7 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        project_hash,
+        &HashSet::from_iter([project_hash]),
     )
     .await?;
 
@@ -156,7 +156,7 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        project_hash,
+        &HashSet::from_iter([project_hash]),
     )
     .await?;
 
@@ -196,7 +196,7 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        project_hash,
+        &HashSet::from_iter([project_hash]),
     )
     .await?;
 
@@ -235,7 +235,7 @@ async fn test_check_invalid_unused_var() -> anyhow::Result<()> {
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        project_hash,
+        &HashSet::from_iter([project_hash]),
     )
     .await?;
 
@@ -281,7 +281,7 @@ async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        project_hash,
+        &HashSet::from_iter([project_hash]),
     )
     .await?;
 

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -96,10 +97,10 @@ pub async fn install(
                 )
                 .await;
 
-                consolidate_result(&reporter, &project_name, result, &mut error_result);
+                consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
             }
             Err(e) => {
-                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
+                consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
             }
         }
     }
@@ -129,10 +130,10 @@ pub async fn install(
                 )
                 .await;
 
-                consolidate_result(&reporter, &project_name, result, &mut error_result);
+                consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
             }
             Err(e) => {
-                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
+                consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
             }
         }
     }
@@ -178,9 +179,13 @@ async fn run_install(
         }
 
         if options.check {
-            let checked =
-                brioche_core::script::check::check(brioche, js_platform, projects, project_hash)
-                    .await?;
+            let checked = brioche_core::script::check::check(
+                brioche,
+                js_platform,
+                projects,
+                &HashSet::from_iter([project_hash]),
+            )
+            .await?;
 
             let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
 

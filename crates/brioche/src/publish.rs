@@ -1,4 +1,4 @@
-use std::{path::PathBuf, process::ExitCode};
+use std::{collections::HashSet, path::PathBuf, process::ExitCode};
 
 use brioche_core::{
     Brioche,
@@ -60,10 +60,10 @@ pub async fn publish(
                     &project_name,
                 )
                 .await;
-                consolidate_result(&reporter, &project_name, result, &mut error_result);
+                consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
             }
             Err(e) => {
-                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
+                consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
             }
         }
     }
@@ -98,9 +98,14 @@ async fn run_publish(
 
     projects.validate_no_dirty_lockfiles()?;
 
-    let result = brioche_core::script::check::check(brioche, js_platform, projects, project_hash)
-        .await?
-        .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
+    let result = brioche_core::script::check::check(
+        brioche,
+        js_platform,
+        projects,
+        &HashSet::from_iter([project_hash]),
+    )
+    .await?
+    .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
 
     match result {
         Ok(()) => {

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -52,75 +54,91 @@ pub async fn check(
     let mut error_result = Option::None;
 
     // Handle the case where no projects and no registries are specified
-    let projects_path =
+    let project_paths =
         if args.project.project.is_empty() && args.project.registry_project.is_empty() {
             vec![PathBuf::from(".")]
         } else {
             args.project.project
         };
 
-    // Loop over the projects
-    for project_path in projects_path {
-        let project_name = format!("project '{name}'", name = project_path.display());
+    let mut project_names = HashMap::new();
+    let mut projects_to_check = HashSet::new();
 
-        match projects
+    // Load each path project
+    for project_path in project_paths {
+        let project_name = format!("project '{name}'", name = project_path.display());
+        let project_hash = projects
             .load(
                 &brioche,
                 &project_path,
                 ProjectValidation::Standard,
                 locking,
             )
-            .await
-        {
-            Ok(project_hash) => {
-                let result = run_check(
+            .await;
+
+        let project_hash = match project_hash {
+            Ok(project_hash) => project_hash,
+            Err(error) => {
+                consolidate_result(
                     &reporter,
-                    &brioche,
-                    js_platform,
-                    &projects,
-                    project_hash,
-                    &project_name,
-                    &check_options,
-                )
-                .await;
-                consolidate_result(&reporter, &project_name, result, &mut error_result);
+                    Some(&project_name),
+                    Err(error),
+                    &mut error_result,
+                );
+                continue;
             }
-            Err(e) => {
-                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
-            }
-        }
+        };
+
+        project_names.entry(project_hash).or_insert(project_name);
+        projects_to_check.insert(project_hash);
     }
 
-    // Loop over the registry projects
+    // Load each registry project
     for registry_project in args.project.registry_project {
         let project_name = format!("registry project '{registry_project}'");
-
-        match projects
+        let project_hash = projects
             .load_from_registry(
                 &brioche,
                 &registry_project,
                 &brioche_core::project::Version::Any,
             )
-            .await
-        {
-            Ok(project_hash) => {
-                let result = run_check(
+            .await;
+
+        let project_hash = match project_hash {
+            Ok(project_hash) => project_hash,
+            Err(error) => {
+                consolidate_result(
                     &reporter,
-                    &brioche,
-                    js_platform,
-                    &projects,
-                    project_hash,
-                    &project_name,
-                    &check_options,
-                )
-                .await;
-                consolidate_result(&reporter, &project_name, result, &mut error_result);
+                    Some(&project_name),
+                    Err(error),
+                    &mut error_result,
+                );
+                continue;
             }
-            Err(e) => {
-                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
-            }
-        }
+        };
+
+        project_names.entry(project_hash).or_insert(project_name);
+        projects_to_check.insert(project_hash);
     }
+
+    let project_name = if project_names.len() == 1 {
+        Some(project_names.values().next().unwrap())
+    } else {
+        None
+    };
+    let project_name = project_name.as_ref().map(|name| name.as_str());
+
+    let result = run_check(
+        &reporter,
+        &brioche,
+        js_platform,
+        &projects,
+        &projects_to_check,
+        project_name,
+        &check_options,
+    )
+    .await;
+    consolidate_result(&reporter, project_name, result, &mut error_result);
 
     guard.shutdown_console().await;
     brioche.wait_for_tasks().await;
@@ -143,8 +161,8 @@ async fn run_check(
     brioche: &Brioche,
     js_platform: brioche_core::script::JsPlatform,
     projects: &Projects,
-    project_hash: ProjectHash,
-    project_name: &String,
+    project_hashes: &HashSet<ProjectHash>,
+    project_name: Option<&str>,
     options: &CheckOptions,
 ) -> Result<bool, anyhow::Error> {
     let result = async {
@@ -159,7 +177,7 @@ async fn run_check(
             }
         }
 
-        brioche_core::script::check::check(brioche, js_platform, projects, project_hash).await
+        brioche_core::script::check::check(brioche, js_platform, projects, project_hashes).await
     }
     .instrument(tracing::info_span!("check"))
     .await?
@@ -167,10 +185,17 @@ async fn run_check(
 
     match result {
         Ok(()) => {
-            reporter.emit(superconsole::Lines::from_multiline_string(
-                &format!("No errors found in {project_name} 🎉",),
-                superconsole::style::ContentStyle::default(),
-            ));
+            if let Some(project_name) = project_name {
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &format!("No errors found in {project_name} 🎉",),
+                    superconsole::style::ContentStyle::default(),
+                ));
+            } else {
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    "No errors found in projects 🎉",
+                    superconsole::style::ContentStyle::default(),
+                ));
+            }
 
             Ok(true)
         }

@@ -333,19 +333,29 @@ async fn load_project(
 
 fn consolidate_result(
     reporter: &brioche_core::reporter::Reporter,
-    project_name: &String,
+    project_name: Option<&str>,
     result: Result<bool, anyhow::Error>,
     error_result: &mut Option<()>,
 ) {
     match result {
         Err(err) => {
-            reporter.emit(superconsole::Lines::from_multiline_string(
-                &format!("Error occurred with {project_name}: {err}"),
-                superconsole::style::ContentStyle {
-                    foreground_color: Some(superconsole::style::Color::Red),
-                    ..superconsole::style::ContentStyle::default()
-                },
-            ));
+            if let Some(project_name) = project_name {
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &format!("Error occurred with {project_name}: {err}"),
+                    superconsole::style::ContentStyle {
+                        foreground_color: Some(superconsole::style::Color::Red),
+                        ..superconsole::style::ContentStyle::default()
+                    },
+                ));
+            } else {
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &format!("Error occurred in project: {err}"),
+                    superconsole::style::ContentStyle {
+                        foreground_color: Some(superconsole::style::Color::Red),
+                        ..superconsole::style::ContentStyle::default()
+                    },
+                ));
+            }
 
             *error_result = Some(());
         }

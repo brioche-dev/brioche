@@ -60,10 +60,10 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
                     args.check,
                 )
                 .await;
-                consolidate_result(&reporter, &project_name, result, &mut error_result);
+                consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
             }
             Err(e) => {
-                consolidate_result(&reporter, &project_name, Err(e), &mut error_result);
+                consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
             }
         }
     }
