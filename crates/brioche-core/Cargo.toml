@@ -46,9 +46,9 @@ bytesize = "2.0.1"
 cfg-if = "1.0.0"
 console-subscriber = "0.4.1"
 debug-ignore = "1.0.5"
-deno_ast = { version = "0.47.0", features = ["transpiling"] }
-deno_core = "0.348.0"
-deno_error = "0.5.7"
+deno_ast = { version = "0.48.0", features = ["transpiling"] }
+deno_core = "0.350.0"
+deno_error = "0.6.1"
 directories = "6.0.0"
 fastcdc = { version = "3.2.1", features = ["tokio"] }
 futures = "0.3.31"
@@ -79,7 +79,7 @@ petgraph = "0.8.1"
 pin-project-lite = "0.2.16"
 regex = "1.11.1"
 relative-path = { version = "2.0.1", features = ["serde"] }
-reqwest = { version = "0.12.15", default-features = false, features = [
+reqwest = { version = "0.12.18", default-features = false, features = [
     "rustls-tls",
     "zstd",
     "json",
@@ -95,7 +95,7 @@ rust-embed = { version = "8.7.2", features = [
 rustls-native-certs = "0.8.1"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-serde_v8 = "0.257.0"
+serde_v8 = "0.259.0"
 serde_with = { version = "3.12.0", features = ["hex"] }
 sha2 = "0.10.9"
 sqlx = { version = "0.8.6", features = [
@@ -139,7 +139,7 @@ zstd-framed = { version = "0.1.1", features = ["tokio"] }
 [dev-dependencies]
 aws-runtime = "1.5.6"
 brioche-test-support = { path = "../brioche-test-support" }
-deno_core = { version = "0.348.0", features = [
+deno_core = { version = "0.350.0", features = [
     # For tests, this feature should be enabled to resolve a segfault that
     # can occur if V8 detects the `pki` CPU flag. See this issue:
     # https://github.com/denoland/deno_core/issues/1091
