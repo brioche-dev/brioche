@@ -357,8 +357,8 @@ impl deno_error::JsErrorClass for AnyError {
         Cow::Owned(self.to_string())
     }
 
-    fn get_additional_properties(&self) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
-        vec![]
+    fn get_additional_properties(&self) -> deno_error::AdditionalProperties {
+        Box::new(std::iter::empty())
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
