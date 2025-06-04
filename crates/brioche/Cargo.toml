@@ -21,7 +21,7 @@ hex = "0.4.3"
 notify = "8.0.0"
 object_store = "0.12.1"
 openssl = { version = "0.10.73", optional = true }
-reqwest = { version = "0.12.18", default-features = false, features = [
+reqwest = { version = "0.12.19", default-features = false, features = [
     "rustls-tls",
     "zstd",
     "json",
