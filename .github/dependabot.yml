@@ -25,4 +25,3 @@ updates:
           - "*"
     ignore:
       - dependency-name: "biome_*"
-      - dependency-name: "opentelemetry*"
