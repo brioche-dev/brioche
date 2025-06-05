@@ -539,7 +539,7 @@ async fn write_artifact_atomic(
             // Rename the file to its final path
             tokio::fs::rename(&temp_path, output_path).await?;
         }
-        Artifact::Symlink { .. } => {
+        Artifact::Symlink { target } => {
             if let Some(metadata) = metadata {
                 // Path already exists, so validate that it's a symlink
                 // and return early
@@ -553,18 +553,26 @@ async fn write_artifact_atomic(
             }
 
             // Create the symlink
-            crate::output::create_output(
-                brioche,
-                artifact,
-                crate::output::OutputOptions {
-                    link_locals: false,
-                    merge: false,
-                    output_path,
-                    resource_dir: None,
-                    mtime: None,
-                },
-            )
-            .await?;
+            let target = target.to_path()?;
+            let result = tokio::fs::symlink(&target, output_path).await;
+
+            match result {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // Symlink was created since we got the path
+                    // metadata, so treat this as a success
+                    return Ok(());
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!(
+                            "failed to create symlink {} -> {}",
+                            output_path.display(),
+                            target.display(),
+                        )
+                    })?;
+                }
+            }
         }
         Artifact::Directory(directory) => {
             if let Some(metadata) = metadata {
