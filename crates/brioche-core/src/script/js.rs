@@ -7,6 +7,7 @@ deno_core::extension!(
     brioche_js,
     ops = [
         op_brioche_version,
+        op_brioche_current_platform,
         op_brioche_console,
         op_brioche_stack_frames_from_exception,
         op_brioche_utf8_encode,
@@ -30,6 +31,12 @@ pub enum ConsoleLevel {
 #[string]
 fn op_brioche_version() -> String {
     crate::VERSION.to_string()
+}
+
+#[deno_core::op2]
+#[string]
+fn op_brioche_current_platform() -> String {
+    crate::platform::current_platform().to_string()
 }
 
 #[deno_core::op2]
