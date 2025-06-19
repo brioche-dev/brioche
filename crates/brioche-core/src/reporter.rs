@@ -28,6 +28,7 @@ fn tracing_root_filter() -> tracing_subscriber::EnvFilter {
         .add_directive("runtime=trace".parse().expect("invalid filter"))
 }
 
+#[must_use]
 pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard) {
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
 
@@ -78,6 +79,7 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     (reporter, guard)
 }
 
+#[must_use]
 pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
 
@@ -178,6 +180,7 @@ impl Reporter {
         let _ = self.tx.send(ReportEvent::Emit { lines });
     }
 
+    #[must_use]
     pub fn add_job(&self, job: job::NewJob) -> JobId {
         let id = self
             .num_jobs
@@ -193,10 +196,12 @@ impl Reporter {
         let _ = self.tx.send(ReportEvent::UpdateJobState { id, update });
     }
 
+    #[must_use]
     pub fn elapsed(&self) -> std::time::Duration {
         self.start.elapsed()
     }
 
+    #[must_use]
     pub fn num_jobs(&self) -> usize {
         self.num_jobs.load(std::sync::atomic::Ordering::SeqCst)
     }

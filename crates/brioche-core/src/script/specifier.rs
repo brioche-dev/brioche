@@ -95,6 +95,7 @@ pub enum BriocheModuleSpecifier {
 }
 
 impl BriocheModuleSpecifier {
+    #[must_use]
     pub fn from_path(path: &Path) -> Self {
         Self::File {
             path: path.to_owned(),

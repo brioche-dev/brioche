@@ -26,6 +26,7 @@ impl<K> OutputBuffer<K>
 where
     K: Clone + Ord,
 {
+    #[must_use]
     pub const fn with_max_capacity(max_bytes: usize) -> Self {
         Self {
             total_bytes: 0,
@@ -36,6 +37,7 @@ where
         }
     }
 
+    #[must_use]
     pub const fn with_unlimited_capacity() -> Self {
         Self {
             total_bytes: 0,
@@ -328,6 +330,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn contents(&self) -> impl DoubleEndedIterator<Item = (&K, &bstr::BStr)> {
         self.contents
             .iter()

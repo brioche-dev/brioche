@@ -349,6 +349,7 @@ pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]> + std::marker::Un
     .unwrap()
 }
 
+#[must_use]
 pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Recipe {
     brioche_core::recipe::Recipe::File {
         content_blob: blob,
@@ -359,6 +360,7 @@ pub fn lazy_file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Reci
     }
 }
 
+#[must_use]
 pub fn lazy_file_with_resources(
     blob: BlobHash,
     executable: bool,
@@ -371,6 +373,7 @@ pub fn lazy_file_with_resources(
     }
 }
 
+#[must_use]
 pub fn file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Artifact {
     brioche_core::recipe::Artifact::File(File {
         content_blob: blob,
@@ -379,6 +382,7 @@ pub fn file(blob: BlobHash, executable: bool) -> brioche_core::recipe::Artifact 
     })
 }
 
+#[must_use]
 pub const fn file_with_resources(
     blob: BlobHash,
     executable: bool,
@@ -413,6 +417,7 @@ pub fn lazy_dir<K: AsRef<[u8]>>(
     })
 }
 
+#[must_use]
 pub fn empty_dir_value() -> brioche_core::recipe::Directory {
     brioche_core::recipe::Directory::default()
 }
@@ -439,10 +444,12 @@ pub async fn dir<K: AsRef<[u8]>>(
     brioche_core::recipe::Artifact::Directory(dir_value(brioche, entries).await)
 }
 
+#[must_use]
 pub fn lazy_dir_empty() -> brioche_core::recipe::Recipe {
     brioche_core::recipe::Recipe::CreateDirectory(CreateDirectory::default())
 }
 
+#[must_use]
 pub fn dir_empty() -> brioche_core::recipe::Artifact {
     brioche_core::recipe::Artifact::Directory(Directory::default())
 }
@@ -469,6 +476,7 @@ pub fn sha256(value: impl AsRef<[u8]>) -> brioche_core::Hash {
     hasher.finish().unwrap()
 }
 
+#[must_use]
 pub fn default_process_x86_64_linux() -> ProcessRecipe {
     ProcessRecipe {
         command: ProcessTemplate { components: vec![] },
@@ -486,6 +494,7 @@ pub fn default_process_x86_64_linux() -> ProcessRecipe {
     }
 }
 
+#[must_use]
 pub fn default_process() -> ProcessRecipe {
     ProcessRecipe {
         command: ProcessTemplate { components: vec![] },
@@ -511,48 +520,56 @@ pub fn tpl(s: impl AsRef<[u8]>) -> ProcessTemplate {
     }
 }
 
+#[must_use]
 pub fn output_path() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::OutputPath],
     }
 }
 
+#[must_use]
 pub fn home_dir() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::HomeDir],
     }
 }
 
+#[must_use]
 pub fn resource_dir() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::ResourceDir],
     }
 }
 
+#[must_use]
 pub fn input_resource_dirs() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::InputResourceDirs],
     }
 }
 
+#[must_use]
 pub fn work_dir() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::WorkDir],
     }
 }
 
+#[must_use]
 pub fn temp_dir() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::TempDir],
     }
 }
 
+#[must_use]
 pub fn ca_certificate_bundle_path() -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::CaCertificateBundlePath],
     }
 }
 
+#[must_use]
 pub fn template_input(input: brioche_core::recipe::Recipe) -> ProcessTemplate {
     ProcessTemplate {
         components: vec![ProcessTemplateComponent::Input {
@@ -570,6 +587,7 @@ pub fn tpl_join(templates: impl IntoIterator<Item = ProcessTemplate>) -> Process
     }
 }
 
+#[must_use]
 pub fn new_cache() -> Arc<dyn object_store::ObjectStore> {
     Arc::new(object_store::memory::InMemory::new())
 }

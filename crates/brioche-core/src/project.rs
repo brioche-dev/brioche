@@ -740,6 +740,7 @@ impl ProjectHash {
         Ok(())
     }
 
+    #[must_use]
     pub const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(blake3::Hash::from_bytes(bytes))
     }
@@ -749,14 +750,17 @@ impl ProjectHash {
         Ok(Self::from_bytes(bytes))
     }
 
+    #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
     }
 
+    #[must_use]
     pub const fn as_slice(&self) -> &[u8] {
         self.as_bytes().as_slice()
     }
 
+    #[must_use]
     pub const fn blake3(&self) -> &blake3::Hash {
         &self.0
     }
@@ -903,6 +907,7 @@ impl WorkspaceHash {
         Ok(())
     }
 
+    #[must_use]
     pub const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(blake3::Hash::from_bytes(bytes))
     }
@@ -912,14 +917,17 @@ impl WorkspaceHash {
         Ok(Self::from_bytes(bytes))
     }
 
+    #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
     }
 
+    #[must_use]
     pub const fn as_slice(&self) -> &[u8] {
         self.as_bytes().as_slice()
     }
 
+    #[must_use]
     pub const fn blake3(&self) -> &blake3::Hash {
         &self.0
     }

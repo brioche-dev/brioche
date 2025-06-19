@@ -1946,6 +1946,7 @@ pub struct ProcessRootfsRecipes {
     pub proot: Option<Recipe>,
 }
 
+#[must_use]
 pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRootfsRecipes {
     match platform {
         crate::platform::Platform::X86_64Linux => {

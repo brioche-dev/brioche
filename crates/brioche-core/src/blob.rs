@@ -417,15 +417,18 @@ pub struct SaveBlobOptions<'a> {
 }
 
 impl<'a> SaveBlobOptions<'a> {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn expected_hash(mut self, expected_hash: Option<Hash>) -> Self {
         self.expected_hash = expected_hash;
         self
     }
 
+    #[must_use]
     pub const fn expected_blob_hash(mut self, expected_blob_hash: Option<BlobHash>) -> Self {
         self.expected_blob_hash = expected_blob_hash;
         self
@@ -439,6 +442,7 @@ impl<'a> SaveBlobOptions<'a> {
         self
     }
 
+    #[must_use]
     pub const fn remove_input(mut self, remove_input: bool) -> Self {
         self.remove_input = remove_input;
         self
@@ -479,6 +483,7 @@ pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result
     anyhow::bail!("blob {blob_hash} does not exist locally");
 }
 
+#[must_use]
 pub fn local_blob_path(brioche: &Brioche, blob_hash: BlobHash) -> PathBuf {
     let blobs_dir = brioche.data_dir.join("blobs");
     blobs_dir.join(hex::encode(blob_hash.0.as_bytes()))
@@ -507,18 +512,22 @@ fn is_file_exclusive(metadata: &std::fs::Metadata) -> bool {
 pub struct BlobHash(blake3::Hash);
 
 impl BlobHash {
+    #[must_use]
     pub const fn from_blake3(hash: blake3::Hash) -> Self {
         Self(hash)
     }
 
+    #[must_use]
     pub const fn to_blake3(&self) -> blake3::Hash {
         self.0
     }
 
+    #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
     }
 
+    #[must_use]
     pub fn for_content(content: &[u8]) -> Self {
         let hash = blake3::hash(content);
         Self(hash)
