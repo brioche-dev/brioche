@@ -47,7 +47,7 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     tokio::spawn(
         async move {
             while let Some((message_type, message)) = lsp_rx.recv().await {
-                let _ = client.log_message(message_type, message).await;
+                let () = client.log_message(message_type, message).await;
             }
         }
         .instrument(tracing::Span::current()),
@@ -152,7 +152,7 @@ impl Drop for ReporterGuard {
                 // Wait for stop_rx or wait 500ms
                 tokio::select! {
                     _ = stop_rx => {}
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+                    () = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
                 }
             });
         }

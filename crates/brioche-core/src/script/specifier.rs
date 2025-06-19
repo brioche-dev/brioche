@@ -110,7 +110,7 @@ impl TryFrom<&'_ url::Url> for BriocheModuleSpecifier {
             "file" => {
                 let path = value
                     .to_file_path()
-                    .map_err(|_| anyhow::anyhow!("failed to convert specifier {value} to path"))?;
+                    .map_err(|()| anyhow::anyhow!("failed to convert specifier {value} to path"))?;
                 Ok(Self::File { path })
             }
             "briocheruntime" => {

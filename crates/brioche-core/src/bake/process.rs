@@ -590,7 +590,7 @@ pub async fn bake_process(
                             }
                         }
                     }
-                    _ = cancellation_token.cancelled() => {
+                    () = cancellation_token.cancelled() => {
                         break;
                     }
                 }
