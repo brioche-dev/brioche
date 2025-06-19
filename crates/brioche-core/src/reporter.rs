@@ -113,7 +113,7 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
                 .with_env_filter(tracing_debug_filter())
                 .init();
         });
-    };
+    }
 
     let reporter = Reporter {
         start: std::time::Instant::now(),

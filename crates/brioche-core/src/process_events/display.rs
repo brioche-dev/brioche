@@ -220,7 +220,7 @@ where
                     *limit = limit.saturating_sub(1);
                 }
             }
-        };
+        }
     }
 
     Ok(())

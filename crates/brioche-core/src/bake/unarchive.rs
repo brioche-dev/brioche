@@ -180,7 +180,7 @@ pub async fn bake_unarchive(
                         entry_tx.blocking_send((entry_path, entry))?;
                     }
                 }
-            };
+            }
 
             anyhow::Ok(())
         }

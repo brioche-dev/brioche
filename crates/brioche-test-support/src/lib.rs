@@ -1010,7 +1010,7 @@ pub async fn brioche_lsp_test_with(
                     let read_bytes = client_in.read_line(&mut line).await?;
                     if read_bytes == 0 {
                         anyhow::bail!("unexpected end of stream")
-                    };
+                    }
                 }
 
                 // Get Content-Length header
@@ -1224,11 +1224,11 @@ impl JsonRpcMessage {
     fn into_response_result(self) -> Result<serde_json::Value, JsonRpcError> {
         if let Some(error) = self.error {
             return Err(error);
-        };
+        }
 
         if let Some(result) = self.result {
             return Ok(result);
-        };
+        }
 
         eprintln!(
             "warning: tried to parse JSON RPC message as a response, but both result and error were None"

@@ -474,7 +474,7 @@ pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result
 
     if tokio::fs::try_exists(&local_path).await? {
         return Ok(local_path);
-    };
+    }
 
     anyhow::bail!("blob {blob_hash} does not exist locally");
 }

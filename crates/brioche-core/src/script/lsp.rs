@@ -778,7 +778,7 @@ fn js_lsp_task(
                         tracing::error!("failed to call method: {error:#}");
                         return Err(error);
                     }
-                };
+                }
             }
 
             anyhow::Ok(())
