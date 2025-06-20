@@ -121,6 +121,7 @@ pub struct BriocheBuilder {
 }
 
 impl BriocheBuilder {
+    #[must_use]
     pub fn new(reporter: Reporter) -> Self {
         Self {
             reporter,
@@ -136,46 +137,55 @@ impl BriocheBuilder {
         }
     }
 
+    #[must_use]
     pub fn config(mut self, config: BriocheConfig) -> Self {
         self.config = Some(config);
         self
     }
 
+    #[must_use]
     pub fn data_dir(mut self, data_dir: PathBuf) -> Self {
         self.data_dir = Some(data_dir);
         self
     }
 
+    #[must_use]
     pub fn registry_client(mut self, registry_client: RegistryClient) -> Self {
         self.registry_client = Some(registry_client);
         self
     }
 
+    #[must_use]
     pub fn cache_client(mut self, cache_client: cache::CacheClient) -> Self {
         self.cache_client = Some(cache_client);
         self
     }
 
+    #[must_use]
     pub fn sandbox_backend(mut self, sandbox_backend: SandboxBackend) -> Self {
         self.sandbox_backend = Some(sandbox_backend);
         self
     }
 
+    #[must_use]
     pub const fn self_exec_processes(mut self, self_exec_processes: bool) -> Self {
         self.self_exec_processes = self_exec_processes;
         self
     }
 
+    #[must_use]
     pub const fn keep_temps(mut self, keep_temps: bool) -> Self {
         self.keep_temps = keep_temps;
         self
     }
 
+    #[must_use]
     pub fn vfs(mut self, vfs: vfs::Vfs) -> Self {
         self.vfs = vfs;
         self
     }
 
+    #[must_use]
     pub const fn sync(mut self, sync: bool) -> Self {
         self.sync = sync;
         self
@@ -420,10 +430,12 @@ pub enum Hasher {
 }
 
 impl Hasher {
+    #[must_use]
     pub fn new_sha256() -> Self {
         Self::Sha256(sha2::Sha256::new())
     }
 
+    #[must_use]
     pub fn for_hash(hash: &Hash) -> Self {
         match hash {
             Hash::Sha256 { .. } => Self::Sha256(sha2::Sha256::new()),

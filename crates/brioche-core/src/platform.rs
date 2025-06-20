@@ -17,6 +17,7 @@ pub enum Platform {
     Aarch64Linux,
 }
 
+#[must_use]
 pub fn current_platform() -> Platform {
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         Platform::X86_64Linux

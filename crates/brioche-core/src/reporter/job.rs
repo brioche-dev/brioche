@@ -83,6 +83,7 @@ pub enum Job {
 }
 
 impl Job {
+    #[must_use]
     pub fn new(new: NewJob) -> Self {
         match new {
             NewJob::Download { url, started_at } => Self::Download {
@@ -251,6 +252,7 @@ impl Job {
         Ok(())
     }
 
+    #[must_use]
     pub const fn created_at(&self) -> std::time::Instant {
         match self {
             Self::Download { started_at, .. }
@@ -260,6 +262,7 @@ impl Job {
         }
     }
 
+    #[must_use]
     pub const fn started_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Download { started_at, .. }
@@ -269,6 +272,7 @@ impl Job {
         }
     }
 
+    #[must_use]
     pub const fn finished_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Download { finished_at, .. }
@@ -278,6 +282,7 @@ impl Job {
         }
     }
 
+    #[must_use]
     pub const fn finalized_at(&self) -> Option<std::time::Instant> {
         match self {
             Self::Download { finished_at, .. }
@@ -287,6 +292,7 @@ impl Job {
         }
     }
 
+    #[must_use]
     pub fn elapsed(&self) -> Option<std::time::Duration> {
         let started_at = self.started_at()?;
         let elapsed = self.finished_at().map_or_else(
@@ -296,12 +302,14 @@ impl Job {
         Some(elapsed)
     }
 
+    #[must_use]
     pub const fn is_complete(&self) -> bool {
         self.finished_at().is_some()
     }
 
     // Returns a priority for the job type. 0 is the lowest priority. Higher
     // priority jobs are displayed first.
+    #[must_use]
     pub const fn job_type_priority(&self) -> u8 {
         match self {
             Self::Unarchive { .. } => 0,
@@ -322,6 +330,7 @@ pub enum ProcessPacket {
 }
 
 impl ProcessPacket {
+    #[must_use]
     pub fn bytes(&self) -> &[u8] {
         match self {
             Self::Stdout(bytes) => bytes,
@@ -396,6 +405,7 @@ impl ProcessStatus {
         }
     }
 
+    #[must_use]
     pub const fn child_id(&self) -> Option<u32> {
         match self {
             Self::Preparing { .. } => None,

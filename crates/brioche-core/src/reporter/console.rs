@@ -100,7 +100,7 @@ pub fn start_console_reporter(
                     wait_until_next_render.clamp(MIN_RENDER_WAIT, RENDER_RATE);
 
                 std::thread::sleep(wait_until_next_render);
-            };
+            }
 
             let _ = console.render();
 
@@ -169,8 +169,8 @@ pub fn start_console_reporter(
             tx,
             shutdown_rx: Some(shutdown_rx),
             opentelemetry_tracer_provider: None,
-        };
-    };
+        }
+    }
 
     let log_file_layer = std::env::var_os("BRIOCHE_LOG_OUTPUT").map_or_else(
         || None,
@@ -304,7 +304,7 @@ impl ConsoleReporter {
                         job_id: id,
                         stream: ProcessStream::Stderr,
                     });
-                };
+                }
 
                 let Some(job) = root.jobs.get_mut(&id) else {
                     return;

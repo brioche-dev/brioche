@@ -88,7 +88,7 @@ pub async fn edit_project(
                 .expect("failed to update JS AST node");
             did_update = true;
         }
-    };
+    }
 
     if did_update {
         let new_contents = crate::script::format::format_code(&module.text())?;

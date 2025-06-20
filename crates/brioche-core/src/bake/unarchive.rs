@@ -180,7 +180,7 @@ pub async fn bake_unarchive(
                         entry_tx.blocking_send((entry_path, entry))?;
                     }
                 }
-            };
+            }
 
             anyhow::Ok(())
         }
@@ -244,7 +244,7 @@ pub async fn bake_unarchive(
         anyhow::Ok(directory)
     };
 
-    let (_, directory) = tokio::try_join!(process_archive_task, build_directory_fut)?;
+    let ((), directory) = tokio::try_join!(process_archive_task, build_directory_fut)?;
 
     Ok(directory)
 }

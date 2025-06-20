@@ -214,7 +214,7 @@ pub fn run_sandbox(
             command.deny_setgroups(true);
             command.unshare(&unshare_namespaces);
         }
-    };
+    }
 
     let mut child = command
         .spawn()

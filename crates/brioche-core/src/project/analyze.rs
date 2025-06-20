@@ -22,6 +22,7 @@ pub struct ProjectAnalysis {
 }
 
 impl ProjectAnalysis {
+    #[must_use]
     pub fn dependencies(&self) -> HashMap<String, DependencyDefinition> {
         // Include all dependencies included explicitly in the project definition
         let mut dependencies = self.definition.dependencies.clone();
@@ -133,6 +134,7 @@ pub enum StaticInclude {
 }
 
 impl StaticInclude {
+    #[must_use]
     pub fn path(&self) -> &str {
         match self {
             Self::File { path } => path,

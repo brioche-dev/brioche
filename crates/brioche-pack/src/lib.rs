@@ -66,6 +66,7 @@ impl Pack {
         paths
     }
 
+    #[must_use]
     pub const fn should_add_to_executable(&self) -> bool {
         match self {
             Self::LdLinux { .. } => true,

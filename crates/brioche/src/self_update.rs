@@ -197,7 +197,7 @@ async fn confirm_update() -> anyhow::Result<bool> {
     std::thread::spawn(move || {
         print!("Install update? [y/N] ");
         match std::io::stdout().flush() {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(error) => {
                 let _ = tx.send(Err(error));
                 return;

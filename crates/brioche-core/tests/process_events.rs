@@ -13,6 +13,7 @@ use brioche_core::{
     sandbox::{ExitStatus, SandboxExecutionConfig},
 };
 
+#[must_use]
 pub fn example_complete_process() -> CompleteProcessRecipe {
     CompleteProcessRecipe {
         command: CompleteProcessTemplate { components: vec![] },

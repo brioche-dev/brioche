@@ -15,6 +15,7 @@ pub struct Vfs {
 }
 
 impl Vfs {
+    #[must_use]
     pub fn immutable() -> Self {
         Self {
             mutable: false,
@@ -22,6 +23,7 @@ impl Vfs {
         }
     }
 
+    #[must_use]
     pub fn mutable() -> Self {
         Self {
             mutable: true,

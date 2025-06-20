@@ -125,6 +125,7 @@ pub struct AwsS3CredentialProvider {
 }
 
 impl AwsS3CredentialProvider {
+    #[must_use]
     pub const fn new(config: aws_config::SdkConfig) -> Self {
         Self { config }
     }
@@ -187,6 +188,7 @@ pub struct AwsS3Config {
     pub request_payer: Option<bool>,
 }
 
+#[must_use]
 pub fn load_s3_config(config: &aws_config::SdkConfig) -> AwsS3Config {
     let region = config.region().map(|region| region.to_string());
 

@@ -19,6 +19,7 @@ pub enum RegistryClient {
 }
 
 impl RegistryClient {
+    #[must_use]
     pub fn new(url: url::Url, auth: RegistryAuthentication) -> Self {
         let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
             .retry_bounds(
@@ -42,6 +43,7 @@ impl RegistryClient {
         Self::new_with_client(client, url, auth)
     }
 
+    #[must_use]
     pub const fn new_with_client(
         client: reqwest_middleware::ClientWithMiddleware,
         url: url::Url,
@@ -50,6 +52,7 @@ impl RegistryClient {
         Self::Enabled { client, url, auth }
     }
 
+    #[must_use]
     pub const fn disabled() -> Self {
         Self::Disabled
     }

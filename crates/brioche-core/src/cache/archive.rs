@@ -218,7 +218,7 @@ pub async fn write_artifact_archive(
                 Err(error) => {
                     return Err(error.into());
                 }
-            };
+            }
 
             // Write an entry for this chunk: tag, chunk hash, chunk length
             writer.write_all(b"c").await?;

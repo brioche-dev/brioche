@@ -4,6 +4,7 @@ use bstr::{BString, ByteSlice as _};
 
 /// A type that buffers streams of data similar to a terminal. Each stream's
 /// output is buffered separately, keyed with an arbitrary stream type (`K`).
+///
 /// When adding data to the buffer, complete lines are written to the output
 /// and the remainder is stored in a partial buffer, until it's either flushed
 /// explicitly or until more data is added to form a complete line.
@@ -25,6 +26,7 @@ impl<K> OutputBuffer<K>
 where
     K: Clone + Ord,
 {
+    #[must_use]
     pub const fn with_max_capacity(max_bytes: usize) -> Self {
         Self {
             total_bytes: 0,
@@ -35,6 +37,7 @@ where
         }
     }
 
+    #[must_use]
     pub const fn with_unlimited_capacity() -> Self {
         Self {
             total_bytes: 0,
@@ -327,6 +330,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn contents(&self) -> impl DoubleEndedIterator<Item = (&K, &bstr::BStr)> {
         self.contents
             .iter()

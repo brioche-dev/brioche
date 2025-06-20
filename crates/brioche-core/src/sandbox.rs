@@ -82,10 +82,12 @@ pub enum ExitStatus {
 }
 
 impl ExitStatus {
+    #[must_use]
     pub const fn success(&self) -> bool {
         matches!(self, Self::Code(0))
     }
 
+    #[must_use]
     pub const fn code(&self) -> Option<i32> {
         match self {
             Self::Code(code) => Some(*code),

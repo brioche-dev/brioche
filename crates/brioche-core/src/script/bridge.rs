@@ -93,7 +93,7 @@ impl RuntimeBridge {
                                 }
                             };
 
-                            let result = brioche.vfs.update(file_id, contents).map(|_| true);
+                            let result = brioche.vfs.update(file_id, contents).map(|()| true);
                             let _ = result_tx.send(result);
                         }
                         RuntimeBridgeMessage::ReloadProjectFromSpecifier {

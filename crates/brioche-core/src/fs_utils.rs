@@ -4,6 +4,7 @@ use anyhow::Context as _;
 use bstr::ByteSlice as _;
 use relative_path::RelativePath;
 
+#[must_use]
 pub fn logical_path(path: &Path) -> PathBuf {
     let mut root_components = vec![];
     let mut components = vec![];
@@ -45,6 +46,7 @@ pub fn logical_path_bytes(path: &[u8]) -> anyhow::Result<Vec<u8>> {
     Ok(bstr::join("/", components))
 }
 
+#[must_use]
 pub fn is_subpath(path: &RelativePath) -> bool {
     let mut depth: i32 = 0;
     for component in path.components() {
@@ -236,6 +238,7 @@ pub fn set_directory_rwx_recursive_sync(path: &Path) -> anyhow::Result<()> {
 /// The main motivation for not using the Unix epoch is that ZIP files don't
 /// support dates eariler than 1980, which is inconvenient. The chosen timestamp
 /// beyond that is arbitrary.
+#[must_use]
 pub fn brioche_epoch() -> std::time::SystemTime {
     std::time::UNIX_EPOCH + std::time::Duration::from_secs(946_684_800)
 }
@@ -247,7 +250,7 @@ pub async fn set_mtime_to_brioche_epoch(path: &Path) -> anyhow::Result<()> {
 
 cfg_if::cfg_if! {
     if #[cfg(unix)] {
-        pub fn is_executable(permissions: &std::fs::Permissions) -> bool {
+        #[must_use] pub fn is_executable(permissions: &std::fs::Permissions) -> bool {
             use std::os::unix::fs::PermissionsExt as _;
 
             permissions.mode() & 0o100 != 0

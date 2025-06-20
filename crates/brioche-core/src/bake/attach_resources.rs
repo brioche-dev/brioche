@@ -42,7 +42,7 @@ pub async fn attach_resources(brioche: &Brioche, directory: &mut Directory) -> a
         // If there are no resources to attach, no need to update this node
         if resources_to_attach.is_empty() {
             continue;
-        };
+        }
 
         // Get the artifact for this node. By this point, we know it should
         // be a file artifact.

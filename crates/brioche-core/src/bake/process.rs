@@ -590,7 +590,7 @@ pub async fn bake_process(
                             }
                         }
                     }
-                    _ = cancellation_token.cancelled() => {
+                    () = cancellation_token.cancelled() => {
                         break;
                     }
                 }
@@ -1278,7 +1278,7 @@ async fn append_dependency_envs(
                 } else {
                     current_value.append_literal(":");
                     current_value.components.extend(components);
-                };
+                }
             }
             DependencyEnvVarChange::FallbackPath { .. }
             | DependencyEnvVarChange::FallbackValue { .. } => {
@@ -1785,14 +1785,14 @@ fn sanity_check_sandbox_output(output_path: &Path) -> anyhow::Result<()> {
         Err(error) => {
             return Err(error).context("failed to read existing/remove.txt");
         }
-    };
+    }
     match std::fs::metadata(remove_dir_path) {
         Ok(_) => anyhow::bail!("remove_dir exists"),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
             return Err(error).context("failed to read remove_dir");
         }
-    };
+    }
 
     Ok(())
 }
@@ -1946,6 +1946,7 @@ pub struct ProcessRootfsRecipes {
     pub proot: Option<Recipe>,
 }
 
+#[must_use]
 pub fn process_rootfs_recipes(platform: crate::platform::Platform) -> ProcessRootfsRecipes {
     match platform {
         crate::platform::Platform::X86_64Linux => {
