@@ -136,14 +136,17 @@ impl Recipe {
         Ok(hash)
     }
 
+    #[must_use]
     pub fn hash(&self) -> RecipeHash {
         self.try_hash().expect("failed to hash recipe")
     }
 
+    #[must_use]
     pub fn kind(&self) -> RecipeDiscriminants {
         self.into()
     }
 
+    #[must_use]
     pub const fn is_expensive_to_bake(&self) -> bool {
         match self {
             Self::Download(_) | Self::Process(_) | Self::CompleteProcess(_) | Self::Sync { .. } => {
@@ -475,6 +478,7 @@ pub struct CreateDirectory {
 }
 
 impl CreateDirectory {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -654,6 +658,7 @@ impl Artifact {
         Ok(hash)
     }
 
+    #[must_use]
     pub fn hash(&self) -> RecipeHash {
         self.try_hash().expect("failed to hash artifact")
     }
@@ -680,6 +685,7 @@ pub struct Directory {
 }
 
 impl Directory {
+    #[must_use]
     pub const fn from_entries(entries: BTreeMap<BString, RecipeHash>) -> Self {
         Self { entries }
     }
@@ -739,10 +745,12 @@ impl Directory {
         Ok(Self { entries })
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    #[must_use]
     pub const fn entry_hashes(&self) -> &BTreeMap<BString, RecipeHash> {
         &self.entries
     }
@@ -1167,6 +1175,7 @@ impl RecipeHash {
         Ok(Self(hash))
     }
 
+    #[must_use]
     pub const fn as_bytes(&self) -> &[u8; blake3::OUT_LEN] {
         self.0.as_bytes()
     }
@@ -1206,6 +1215,7 @@ pub struct ProcessTemplate {
 }
 
 impl ProcessTemplate {
+    #[must_use]
     pub fn default_current_dir() -> Self {
         Self {
             components: vec![ProcessTemplateComponent::WorkDir],
@@ -1246,10 +1256,12 @@ pub struct CompleteProcessTemplate {
 }
 
 impl CompleteProcessTemplate {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.components.iter().all(|component| component.is_empty())
     }
 
+    #[must_use]
     pub fn as_literal(&self) -> Option<Cow<BStr>> {
         match &*self.components {
             [CompleteProcessTemplateComponent::Literal { value }] => {
@@ -1329,6 +1341,7 @@ impl CompleteProcessTemplate {
         }
     }
 
+    #[must_use]
     pub fn default_current_dir() -> Self {
         Self {
             components: vec![CompleteProcessTemplateComponent::WorkDir],

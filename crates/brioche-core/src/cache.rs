@@ -142,7 +142,7 @@ async fn build_object_store(
         "file" => {
             let path = url
                 .to_file_path()
-                .map_err(|_| anyhow::anyhow!("invalid file:// URL for cache"))?;
+                .map_err(|()| anyhow::anyhow!("invalid file:// URL for cache"))?;
 
             let store = object_store::local::LocalFileSystem::new_with_prefix(&path)
                 .with_context(|| format!("failed to use path {path:?} as cache"))?;

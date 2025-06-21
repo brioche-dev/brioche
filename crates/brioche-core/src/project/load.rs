@@ -253,7 +253,7 @@ async fn build_project_graph(
 
         if let Some((parent_node, dep_name)) = referrer {
             graph.update_edge(parent_node, node, dep_name);
-        };
+        }
     }
 
     Ok(ProjectGraph {

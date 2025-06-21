@@ -28,6 +28,7 @@ fn tracing_root_filter() -> tracing_subscriber::EnvFilter {
         .add_directive("runtime=trace".parse().expect("invalid filter"))
 }
 
+#[must_use]
 pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard) {
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
 
@@ -47,7 +48,7 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     tokio::spawn(
         async move {
             while let Some((message_type, message)) = lsp_rx.recv().await {
-                let _ = client.log_message(message_type, message).await;
+                let () = client.log_message(message_type, message).await;
             }
         }
         .instrument(tracing::Span::current()),
@@ -78,6 +79,7 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     (reporter, guard)
 }
 
+#[must_use]
 pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
 
@@ -113,7 +115,7 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
                 .with_env_filter(tracing_debug_filter())
                 .init();
         });
-    };
+    }
 
     let reporter = Reporter {
         start: std::time::Instant::now(),
@@ -152,7 +154,7 @@ impl Drop for ReporterGuard {
                 // Wait for stop_rx or wait 500ms
                 tokio::select! {
                     _ = stop_rx => {}
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+                    () = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
                 }
             });
         }
@@ -178,6 +180,7 @@ impl Reporter {
         let _ = self.tx.send(ReportEvent::Emit { lines });
     }
 
+    #[must_use]
     pub fn add_job(&self, job: job::NewJob) -> JobId {
         let id = self
             .num_jobs
@@ -193,10 +196,12 @@ impl Reporter {
         let _ = self.tx.send(ReportEvent::UpdateJobState { id, update });
     }
 
+    #[must_use]
     pub fn elapsed(&self) -> std::time::Duration {
         self.start.elapsed()
     }
 
+    #[must_use]
     pub fn num_jobs(&self) -> usize {
         self.num_jobs.load(std::sync::atomic::Ordering::SeqCst)
     }

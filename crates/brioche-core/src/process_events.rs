@@ -152,6 +152,7 @@ impl ProcessOutputEvent {
         })
     }
 
+    #[must_use]
     pub fn content(&self) -> &bstr::BStr {
         bstr::BStr::new(&**self.content)
     }
@@ -220,6 +221,7 @@ pub enum ProcessEventReadError {
 }
 
 impl ProcessEventReadError {
+    #[must_use]
     pub fn is_unexpected_eof(&self) -> bool {
         match self {
             Self::IoError(error) => error.kind() == std::io::ErrorKind::UnexpectedEof,

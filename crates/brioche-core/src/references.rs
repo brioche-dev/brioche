@@ -119,6 +119,7 @@ pub async fn project_references(
     Ok(())
 }
 
+#[must_use]
 pub fn referenced_blobs(recipe: &Recipe) -> Vec<BlobHash> {
     match recipe {
         Recipe::File { content_blob, .. } => vec![*content_blob],
