@@ -551,14 +551,14 @@ async fn load_project_inner(
 
         // Validate expected project hashes in the group
         for &(node, _, project_hash) in &group_project_entries {
-            if let Some(expected_hash) = project_graph.expected_hashes.remove(&node) {
-                if expected_hash != project_hash {
-                    errors.push(LoadProjectError::InvalidProjectHash {
-                        path: project_graph.graph[node].clone(),
-                        expected_hash: expected_hash.to_string(),
-                        actual_hash: project_hash.to_string(),
-                    });
-                }
+            if let Some(expected_hash) = project_graph.expected_hashes.remove(&node)
+                && expected_hash != project_hash
+            {
+                errors.push(LoadProjectError::InvalidProjectHash {
+                    path: project_graph.graph[node].clone(),
+                    expected_hash: expected_hash.to_string(),
+                    actual_hash: project_hash.to_string(),
+                });
             }
         }
 
@@ -587,14 +587,14 @@ async fn load_project_inner(
     for (node, (project_hash, project_entry, mut errors)) in nodes_to_projects {
         let path = &project_graph.graph[node];
 
-        if let Some(expected_hash) = project_graph.expected_hashes.remove(&node) {
-            if expected_hash != project_hash {
-                errors.push(LoadProjectError::InvalidProjectHash {
-                    path: project_graph.graph[node].clone(),
-                    expected_hash: expected_hash.to_string(),
-                    actual_hash: project_hash.to_string(),
-                });
-            }
+        if let Some(expected_hash) = project_graph.expected_hashes.remove(&node)
+            && expected_hash != project_hash
+        {
+            errors.push(LoadProjectError::InvalidProjectHash {
+                path: project_graph.graph[node].clone(),
+                expected_hash: expected_hash.to_string(),
+                actual_hash: project_hash.to_string(),
+            });
         }
 
         projects.projects.insert(project_hash, project_entry);
@@ -674,23 +674,22 @@ async fn resolve_dependency_version_to_local_path(
     dependency_version: &Version,
     current_lockfile: Option<&Lockfile>,
 ) -> anyhow::Result<ResolvedDependency> {
-    if let Some(workspace) = workspace {
-        if let Some(workspace_path) =
+    if let Some(workspace) = workspace
+        && let Some(workspace_path) =
             resolve_workspace_project_path(workspace, dependency_name).await?
-        {
-            // Eventually, we'll validate that the version of the project
-            // from the workspace matches the requested dependency version
-            match dependency_version {
-                Version::Any => {}
-            }
-
-            return Ok(ResolvedDependency {
-                local_path: workspace_path,
-                expected_hash: None,
-                locking: config.locking,
-                should_lock: None,
-            });
+    {
+        // Eventually, we'll validate that the version of the project
+        // from the workspace matches the requested dependency version
+        match dependency_version {
+            Version::Any => {}
         }
+
+        return Ok(ResolvedDependency {
+            local_path: workspace_path,
+            expected_hash: None,
+            locking: config.locking,
+            should_lock: None,
+        });
     }
 
     // TODO: Validate that the requested dependency version matches the
