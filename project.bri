@@ -3,8 +3,7 @@ import rust, { cargoBuild, vendorCrate } from "rust";
 import curl from "curl";
 import caCertificates from "ca_certificates";
 import nodejs, { npmInstall } from "nodejs";
-import { gitCheckout } from "git";
-import openssl from "openssl";
+import sqlxCli from "sqlx_cli";
 
 /**
  * Returns a recipe to build Brioche itself. This results in a packed build,
@@ -131,22 +130,6 @@ export function runtime(): std.Recipe<std.Directory> {
     .dependencies(nodejs())
     .workDir(npmPackage)
     .toDirectory();
-}
-
-export function sqlxCli() {
-  const source = gitCheckout(
-    Brioche.gitRef({
-      repository: "https://github.com/launchbadge/sqlx.git",
-      ref: "v0.7.4",
-    }),
-  );
-
-  return cargoBuild({
-    source,
-    path: "sqlx-cli",
-    dependencies: [openssl()],
-    runnable: "bin/sqlx",
-  });
 }
 
 interface ValidateOptions {
