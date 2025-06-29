@@ -1,16 +1,10 @@
 {
   "dependencies": {
-    "ca_certificates": "948f481d85b46452696b4787edbb2f076ae2274239b4e1cf109a582b33dc61ea",
-    "curl": "a39cc98eb5b152d6211a96d8eef2d197f6f89ab878f3238ce1eb07250ca42ca3",
-    "git": "d63a69a593a7012b7c1bd34847ca6414f1d7872f3e08e8b374c821e728af5020",
-    "nodejs": "8ea8d2dfb9601e0b6dc62aa9db3c2afadc31dd0802feb9bfdbb675558d8ff86c",
-    "openssl": "6077e914f17db2f1a6292dfc0f37715adb34ce11f46ab1ceda38622b303c1a0b",
-    "rust": "d8edbc1ab8011944c9f3ff47a0e351c8a0b4df903a27633e5421176fcc0b6512",
-    "std": "c1c3718fc8098d7083f01d193876757803a35cf09dfe73e3c03e4103c1b8862c"
-  },
-  "git_refs": {
-    "https://github.com/launchbadge/sqlx.git": {
-      "v0.7.4": "635dba5b2682033101a1271e9fb4bf2516c0b840"
-    }
+    "ca_certificates": "f17d6ab733ede66647958856e6b0267bbcec03a466eddd845b7da66f4d5d3b51",
+    "curl": "f4c8ab8f0975708c205b4b16beff45a1036ed50dc6355649f0b28c84c795f187",
+    "nodejs": "152eb0cfe5b74ee0ac45eeb630480f866316781542901e497febe222849610a6",
+    "rust": "c2ac9fb4e37fd0e79d910a2b3b830ee5e2deee527211cbe264e7002600b9bff4",
+    "sqlx_cli": "6571f73a190520f71f6df966f5849336f6e9bc288890ebe8e74af95a9e25c902",
+    "std": "53610fd1f61ed4d70e167eaf9033f25fa9c3d5ff77caeefe85bd64f6d98a1628"
   }
 }
