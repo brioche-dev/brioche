@@ -41,7 +41,7 @@ pub async fn download(
         }
     });
 
-    let mut download_stream = response
+    let download_stream = response
         .bytes_stream()
         .map_err(futures::io::Error::other)
         .into_async_read()
