@@ -33,8 +33,7 @@ export default function (): std.Recipe<std.Directory> {
     // Makefiles for miscellaneous tasks
     "**/Makefile",
   );
-  source = validateRuntime(source);
-  source = validateSqlxMetadata(source);
+  source = std.merge(validateRuntime(source), validateSqlxMetadata(source));
 
   return cargoBuild({
     source,
