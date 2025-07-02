@@ -7,10 +7,6 @@ updates:
       day: "friday"
       time: "17:00"
       timezone: "America/Los_Angeles"
-    groups:
-      github-actions:
-        patterns:
-          - "*"
 
   - package-ecosystem: "cargo"
     directory: "/"
