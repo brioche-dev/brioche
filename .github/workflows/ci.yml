@@ -175,6 +175,15 @@ jobs:
   build-packed:
     name: Build packed artifacts
     if: github.event_name == 'push'
+    strategy:
+      matrix:
+        platform:
+          - name: x86_64-linux
+            runs_on: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: aarch64-linux
+            runs_on: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -188,7 +197,7 @@ jobs:
           brioche check || true
           brioche build --check -o "brioche-packed-$PLATFORM"
         env:
-          PLATFORM: x86_64-linux
+          PLATFORM: ${{ matrix.platform.name }}
       - name: Prepare artifact
         run: |
           mkdir -p "artifacts/brioche-packed/$PLATFORM"
@@ -202,11 +211,11 @@ jobs:
             tree --du -h artifacts/brioche-packed
           fi
         env:
-          PLATFORM: x86_64-linux
+          PLATFORM: ${{ matrix.platform.name }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: brioche-packed-x86_64-linux
+          name: brioche-packed-${{ matrix.platform.name }}
           if-no-files-found: error
           path: artifacts/brioche-packed
 
@@ -242,6 +251,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: brioche-packed-x86_64-linux
+          path: artifacts/brioche-packed
+      - name: Download artifacts (aarch64-linux packed)
+        uses: actions/download-artifact@v4
+        with:
+          name: brioche-packed-aarch64-linux
           path: artifacts/brioche-packed
       # Upload the Brioche build for the current branch
       - name: Prepare upload
