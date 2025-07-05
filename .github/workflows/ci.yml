@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - 'build/**'
+      - "build/**"
   pull_request:
 
 concurrency:
@@ -102,7 +102,7 @@ jobs:
     needs: [check, test]
     runs-on: ubuntu-24.04
     steps:
-      - run: ':'
+      - run: ":"
 
   build:
     name: Build artifacts [${{ matrix.platform.name }}]
