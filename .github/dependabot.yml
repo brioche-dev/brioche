@@ -21,9 +21,11 @@ updates:
     allow:
       - dependency-type: direct
       - dependency-type: indirect
+    # As for now, disable the update of biome dependencies
+    # See: https://github.com/biomejs/biome/issues/5151
+    ignore:
+      - dependency-name: "biome_*"
     groups:
       cargo:
         patterns:
           - "*"
-    ignore:
-      - dependency-name: "biome_*"
