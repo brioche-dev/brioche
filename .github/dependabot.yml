@@ -15,6 +15,12 @@ updates:
       day: "friday"
       time: "17:00"
       timezone: "America/Los_Angeles"
+    # Update all the dependencies:
+    # - direct: explicitly defined dependencies in the Cargo.toml file
+    # - indirect: transient dependencies in the Cargo.lock file
+    allow:
+      - dependency-type: direct
+      - dependency-type: indirect
     groups:
       cargo:
         patterns:
