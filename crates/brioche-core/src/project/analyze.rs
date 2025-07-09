@@ -585,13 +585,10 @@ where
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
                     // Ensure there's exactly one argument
-                    let url = match &args[..] {
-                        [url] => url,
-                        _ => {
-                            anyhow::bail!(
-                                "{location}: Brioche.download() must take exactly one argument",
-                            );
-                        }
+                    let [url] = &args[..] else {
+                        anyhow::bail!(
+                            "{location}: Brioche.download() must take exactly one argument",
+                        );
                     };
 
                     // Parse the URL
