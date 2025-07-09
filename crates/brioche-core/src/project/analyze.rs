@@ -586,7 +586,7 @@ where
 
                     // Ensure there's exactly one argument
                     let url = match &args[..] {
-                        [url] => url.clone(),
+                        [url] => url,
                         _ => {
                             anyhow::bail!(
                                 "{location}: Brioche.download() must take exactly one argument",
