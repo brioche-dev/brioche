@@ -516,7 +516,7 @@ where
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
                     // Ensure there's exactly one argument
-                    let path = match &*args {
+                    let path = match &args[..] {
                         [path] => path.clone(),
                         _ => {
                             anyhow::bail!(
@@ -543,7 +543,7 @@ where
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
                     // Ensure there's exactly one argument
-                    let path = match &*args {
+                    let path = match &args[..] {
                         [path] => path.clone(),
                         _ => {
                             anyhow::bail!(
@@ -585,7 +585,7 @@ where
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
                     // Ensure there's exactly one argument
-                    let url = match &*args {
+                    let url = match &args[..] {
                         [url] => url.clone(),
                         _ => {
                             anyhow::bail!(
@@ -615,7 +615,7 @@ where
                         .collect::<anyhow::Result<Vec<_>>>()?;
 
                     // Ensure there's exactly one argument
-                    let options = match &*args {
+                    let options = match &args[..] {
                         [options] => options.clone(),
                         _ => {
                             anyhow::bail!(
