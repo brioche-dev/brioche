@@ -21,7 +21,7 @@ tempfile = "3.20.0"
 tokio = { version = "1.46.1", features = ["full", "tracing"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
 tokio-util = { version = "0.7.15", features = ["full"] }
-toml = "0.8.23"
+toml = "0.9.2"
 tower-lsp = "0.20.0"
 tracing = "0.1.41"
 ulid = "1.2.1"
