@@ -12,11 +12,11 @@ directories = "6.0.0"
 futures = "0.3.31"
 hex = "0.4.3"
 mockito = "1.7.0"
-object_store = "0.12.2"
+object_store = "0.12.3"
 reqwest = "0.12.22"
 reqwest-middleware = "0.4.2"
 serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
+serde_json = "1.0.141"
 tempfile = "3.20.0"
 tokio = { version = "1.46.1", features = ["full", "tracing"] }
 tokio-stream = { version = "0.1.17", features = ["sync"] }
