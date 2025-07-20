@@ -73,7 +73,7 @@ impl object_store::ObjectStore for LayeredObjectStore {
     async fn put_multipart_opts(
         &self,
         location: &object_store::path::Path,
-        opts: object_store::PutMultipartOpts,
+        opts: object_store::PutMultipartOptions,
     ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
         let Some(layer) = &self.write_layer else {
             return Err(object_store::Error::NotSupported {
