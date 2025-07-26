@@ -337,15 +337,9 @@ impl AnyError {
     }
 }
 
-impl From<AnyError> for deno_core::error::CoreError {
+impl From<AnyError> for deno_error::JsErrorBox {
     fn from(value: AnyError) -> Self {
-        Self::JsBox(deno_error::JsErrorBox::from_err(value))
-    }
-}
-
-impl From<AnyError> for deno_core::error::ModuleLoaderError {
-    fn from(value: AnyError) -> Self {
-        Self::Core(value.into())
+        Self::from_err(value)
     }
 }
 
