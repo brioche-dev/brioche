@@ -12,7 +12,7 @@ directories = "6.0.0"
 futures = "0.3.31"
 hex = "0.4.3"
 mockito = "1.7.0"
-object_store = "0.12.3"
+object_store = { git = "https://github.com/apache/arrow-rs-object-store.git", rev = "8a7bc6e9ef94f889841620db597805728dfb37ad" }
 reqwest = "0.12.22"
 reqwest-middleware = "0.4.2"
 serde = { version = "1.0.219", features = ["derive"] }

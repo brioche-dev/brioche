@@ -65,7 +65,10 @@ json-canon = "0.1.3"
 lazy_format = "2.0.3"
 nix = { version = "0.30.1", features = ["user"] }
 num_enum = "0.7.3"
-object_store = { version = "0.12.3", features = ["aws", "http"] }
+object_store = { git = "https://github.com/apache/arrow-rs-object-store.git", rev = "8a7bc6e9ef94f889841620db597805728dfb37ad", features = [
+    "aws",
+    "http",
+] }
 opentelemetry = "0.30.0"
 opentelemetry-otlp = { version = "0.30.0", default-features = false, features = [
     "http-proto",
