@@ -228,32 +228,32 @@ jobs:
       - name: Install AWS CLI
         uses: unfor19/install-aws-cli-action@v1
       - name: Download artifacts (x86_64-linux)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: brioche-x86_64-linux
           path: artifacts/brioche
       - name: Download artifacts (aarch64-linux)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: brioche-aarch64-linux
           path: artifacts/brioche
       - name: Download artifacts (x86_64-macos)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: brioche-x86_64-macos
           path: artifacts/brioche
       - name: Download artifacts (aarch64-macos)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: brioche-aarch64-macos
           path: artifacts/brioche
       - name: Download artifacts (x86_64-linux packed)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: brioche-packed-x86_64-linux
           path: artifacts/brioche-packed
       - name: Download artifacts (aarch64-linux packed)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: brioche-packed-aarch64-linux
           path: artifacts/brioche-packed
