@@ -184,7 +184,7 @@ jobs:
           - name: aarch64-linux
             runs_on: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.platform.runs_on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
