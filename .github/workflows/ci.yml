@@ -184,12 +184,23 @@ jobs:
           - name: aarch64-linux
             runs_on: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
+            nightly: "true"
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Install Brioche
+        if: matrix.platform.nightly != 'true'
         uses: brioche-dev/setup-brioche@v1
+      - name: Install Brioche (nightly)
+        if: matrix.platform.nightly == 'true'
+        run: |
+          mkdir -p ~/.local/bin
+          curl -L https://development-content.brioche.dev/github.com/brioche-dev/brioche/branches/main/$PLATFORM/brioche -o ~/.local/bin/brioche
+          chmod +x ~/.local/bin/brioche
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        env:
+          PLATFORM: ${{ matrix.platform.name }}
       - name: Build Brioche
         # HACK: Added a workaround for bug fixed by https://github.com/brioche-dev/brioche/pull/216
         # TODO: Update when Brioche >0.1.5 is released
