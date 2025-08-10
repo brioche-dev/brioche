@@ -43,6 +43,11 @@ pub struct BuildArgs {
     #[arg(long)]
     sync: bool,
 
+    /// (Experimental!) If the build result is found in the remote cache, exit
+    /// early without fetching the build result. Conflicts with `--output`
+    #[arg(long)]
+    experimental_lazy: bool,
+
     /// The output display format.
     #[arg(long, value_enum, default_value_t)]
     display: super::DisplayMode,
@@ -63,6 +68,11 @@ pub async fn build(
         .build()
         .await?;
     crate::start_shutdown_handler(brioche.clone());
+
+    anyhow::ensure!(
+        !args.experimental_lazy || args.output.is_none(),
+        "cannot use both `--experimental-lazy` and `--output` options at the same time"
+    );
 
     let projects = brioche_core::project::Projects::default();
 
@@ -122,6 +132,32 @@ pub async fn build(
             &args.export,
         )
         .await?;
+
+        if args.experimental_lazy {
+            let lazy_bake_start = std::time::Instant::now();
+
+            let is_cheap_or_cached = brioche_core::lazy_bake::is_cheap_to_bake_or_in_remote_cache(
+                &brioche,
+                recipe.value.clone(),
+            )
+            .await
+            .inspect_err(|error| {
+                tracing::warn!("encountered error while checking remote cache for bake: {error:#}");
+            })
+            .unwrap_or(false);
+
+            let lazy_bake_elapsed = DisplayDuration(lazy_bake_start.elapsed());
+            tracing::debug!("checked cache for lazy bake result in {lazy_bake_elapsed}");
+
+            if is_cheap_or_cached {
+                guard.shutdown_console().await;
+
+                let elapsed = DisplayDuration(reporter.elapsed());
+
+                println!("Lazy: found all recipe inputs in cache in {elapsed}");
+                return Ok(ExitCode::SUCCESS);
+            }
+        }
 
         let artifact = brioche_core::bake::bake(
             &brioche,
