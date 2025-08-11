@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2024"
-rust-version = "1.88" # To align with the rust-toolchain.toml
+rust-version = "1.89" # To align with the rust-toolchain.toml
 
 [workspace]
 members = [

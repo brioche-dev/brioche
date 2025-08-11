@@ -1262,7 +1262,7 @@ impl CompleteProcessTemplate {
     }
 
     #[must_use]
-    pub fn as_literal(&self) -> Option<Cow<BStr>> {
+    pub fn as_literal(&self) -> Option<Cow<'_, BStr>> {
         match &*self.components {
             [CompleteProcessTemplateComponent::Literal { value }] => {
                 Some(Cow::Borrowed(BStr::new(value)))

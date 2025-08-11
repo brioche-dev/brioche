@@ -179,7 +179,7 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         )
     }
 
-    fn get_source_map(&self, file_name: &str) -> Option<Cow<[u8]>> {
+    fn get_source_map(&self, file_name: &str) -> Option<Cow<'_, [u8]>> {
         let sources = self.sources.borrow();
         let specifier: BriocheModuleSpecifier = file_name.parse().ok()?;
         let code = sources.get(&specifier)?;
