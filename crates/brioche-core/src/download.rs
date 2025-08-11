@@ -198,10 +198,10 @@ pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyh
                 if tag_name == ref_.as_bytes() {
                     return Some(object);
                 }
-            } else if let Some(head_name) = name.strip_prefix(b"refs/heads/") {
-                if head_name == ref_.as_bytes() {
-                    return Some(object);
-                }
+            } else if let Some(head_name) = name.strip_prefix(b"refs/heads/")
+                && head_name == ref_.as_bytes()
+            {
+                return Some(object);
             }
 
             None
