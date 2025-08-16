@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install SQLx CLI
         run: |
           mkdir -p ~/.local/bin
@@ -87,7 +87,7 @@ jobs:
     runs-on: ${{ matrix.test.runs_on }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up runner
         if: matrix.test.setup
         run: ${{ matrix.test.setup }}
@@ -125,7 +125,7 @@ jobs:
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install dependencies
         if: matrix.platform.install_deps
         run: ${{ matrix.platform.install_deps }}
@@ -188,7 +188,7 @@ jobs:
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Install Brioche
         if: matrix.platform.nightly != 'true'
         uses: brioche-dev/setup-brioche@v1
