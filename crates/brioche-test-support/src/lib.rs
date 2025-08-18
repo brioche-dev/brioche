@@ -175,7 +175,7 @@ async fn cached_download(
     let filename_safe_hash = match &download.hash {
         brioche_core::Hash::Sha256 { value } => format!("sha256-{}", hex::encode(value)),
     };
-    let mut cached_path = cached_downloads_dir.join(format!("download-{filename_safe_hash}"));
+    let cached_path = cached_downloads_dir.join(format!("download-{filename_safe_hash}"));
 
     let cached_file = tokio::fs::File::open(&cached_path).await;
     match cached_file {
@@ -245,7 +245,7 @@ async fn cached_download(
             tokio::fs::create_dir_all(&cached_downloads_dir)
                 .await
                 .expect("failed to create cache download dir");
-            tokio::fs::copy(&blob_path, &cached_path)
+            let _ = tokio::fs::copy(&blob_path, &cached_path)
                 .await
                 .context("failed to save cached file");
 
@@ -1061,7 +1061,7 @@ pub async fn brioche_lsp_test_with(
                 if let Some(id) = &message.id {
                     // Received a response message, find the handler
                     // to send it to
-                    let mut response_handler = response_handlers.lock().await.remove(id).with_context(|| format!("received LSP message, but no associated handler is listening for it: {content:?}"))?;
+                    let response_handler = response_handlers.lock().await.remove(id).with_context(|| format!("received LSP message, but no associated handler is listening for it: {content:?}"))?;
 
                     response_handler.send(message).map_err(|_| anyhow::anyhow!("failed to send message to channel: {content:?}"))?;
                 } else if message.error.is_some() {
