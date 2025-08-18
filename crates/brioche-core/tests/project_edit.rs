@@ -173,3 +173,123 @@ async fn test_project_edit_preserves_order_and_extra_values() -> anyhow::Result<
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_project_edit_preserves_explicit_type() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let foo_dir = context.mkdir("foo").await;
+    let foo_module = indoc::indoc! {r#"
+        interface ProjectDefinition {
+          name: "foo";
+          version: string;
+          somethingElse: number;
+        }
+
+        export const project: ProjectDefinition = {
+          name: "foo",
+          version: "0.1.0",
+          somethingElse: 123,
+        };
+    "#};
+    let foo_module_path = context.write_file("foo/project.bri", foo_module).await;
+
+    let (_, foo_hash_initial) = brioche_test_support::load_project(&brioche, &foo_dir).await?;
+
+    let did_change = edit_project(
+        &brioche.vfs,
+        &foo_dir,
+        brioche_core::project::edit::ProjectChanges {
+            project_definition: Some(serde_json::json!({
+                "name": "foo",
+                "version": "0.2.0",
+                "somethingElse": 456,
+            })),
+        },
+    )
+    .await?;
+
+    let (_, foo_hash_final) = brioche_test_support::load_project(&brioche, &foo_dir).await?;
+
+    let foo_module_updated = indoc::indoc! {r#"
+        interface ProjectDefinition {
+          name: "foo";
+          version: string;
+          somethingElse: number;
+        }
+
+        export const project: ProjectDefinition = {
+          name: "foo",
+          version: "0.2.0",
+          somethingElse: 456,
+        };
+    "#};
+    assert!(did_change);
+    assert_eq!(
+        tokio::fs::read_to_string(&foo_module_path).await?,
+        foo_module_updated
+    );
+    assert_ne!(foo_hash_initial, foo_hash_final);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_project_edit_preserves_as_and_satisfies() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let foo_dir = context.mkdir("foo").await;
+    let foo_module = indoc::indoc! {r#"
+        interface ProjectDefinition {
+          name: "foo";
+          version: string;
+          somethingElse: number;
+        }
+
+        export const project = {
+          name: "foo",
+          version: "0.1.0",
+          somethingElse: 123,
+        } as const satisfies ProjectDefinition;
+    "#};
+    let foo_module_path = context.write_file("foo/project.bri", foo_module).await;
+
+    let (_, foo_hash_initial) = brioche_test_support::load_project(&brioche, &foo_dir).await?;
+
+    let did_change = edit_project(
+        &brioche.vfs,
+        &foo_dir,
+        brioche_core::project::edit::ProjectChanges {
+            project_definition: Some(serde_json::json!({
+                "name": "foo",
+                "version": "0.2.0",
+                "somethingElse": 456,
+            })),
+        },
+    )
+    .await?;
+
+    let (_, foo_hash_final) = brioche_test_support::load_project(&brioche, &foo_dir).await?;
+
+    let foo_module_updated = indoc::indoc! {r#"
+        interface ProjectDefinition {
+          name: "foo";
+          version: string;
+          somethingElse: number;
+        }
+
+        export const project = {
+          name: "foo",
+          version: "0.2.0",
+          somethingElse: 456,
+        } as const satisfies ProjectDefinition;
+    "#};
+    assert!(did_change);
+    assert_eq!(
+        tokio::fs::read_to_string(&foo_module_path).await?,
+        foo_module_updated
+    );
+    assert_ne!(foo_hash_initial, foo_hash_final);
+
+    Ok(())
+}

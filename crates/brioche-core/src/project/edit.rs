@@ -73,15 +73,21 @@ pub async fn edit_project(
                 let expr = init.expression().with_context(|| {
                     format!("{file_line}: invalid project export: failed to parse expression")
                 })?;
+                let expr = get_js_object_expression(expr)?;
+
                 anyhow::Ok(expr)
             })
             .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
-        let current_project_export_json =
-            super::analyze::expression_to_json(&project_export_expr, &Default::default())
-                .with_context(|| format!("{file_line}: invalid project export"))?;
+        let current_project_export_json = super::analyze::expression_to_json(
+            &biome_js_syntax::AnyJsExpression::JsObjectExpression(project_export_expr.clone()),
+            &Default::default(),
+        )
+        .with_context(|| format!("{file_line}: invalid project export"))?;
 
         if current_project_export_json != *new_project_definition {
             let new_project_export_expr = json_to_expression(new_project_definition);
+            let new_project_export_expr = get_js_object_expression(new_project_export_expr)
+                .with_context(|| format!("{file_line}: unexpected project export expression"))?;
 
             module = module
                 .replace_node(project_export_expr, new_project_export_expr)
@@ -151,4 +157,30 @@ fn json_to_expression(value: &serde_json::Value) -> biome_js_syntax::AnyJsExpres
     project_export_initializer
         .expression()
         .expect("failed to parse project export expression")
+}
+
+fn get_js_object_expression(
+    expr: biome_js_syntax::AnyJsExpression,
+) -> anyhow::Result<biome_js_syntax::JsObjectExpression> {
+    match expr {
+        biome_js_syntax::AnyJsExpression::JsObjectExpression(expr) => Ok(expr),
+        biome_js_syntax::AnyJsExpression::JsParenthesizedExpression(expr) => {
+            get_js_object_expression(expr.expression()?)
+        }
+        biome_js_syntax::AnyJsExpression::TsAsExpression(expr) => {
+            get_js_object_expression(expr.expression()?)
+        }
+        biome_js_syntax::AnyJsExpression::TsNonNullAssertionExpression(expr) => {
+            get_js_object_expression(expr.expression()?)
+        }
+        biome_js_syntax::AnyJsExpression::TsSatisfiesExpression(expr) => {
+            get_js_object_expression(expr.expression()?)
+        }
+        biome_js_syntax::AnyJsExpression::TsTypeAssertionExpression(expr) => {
+            get_js_object_expression(expr.expression()?)
+        }
+        _ => {
+            anyhow::bail!("not an object expression");
+        }
+    }
 }
