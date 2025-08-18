@@ -160,6 +160,7 @@ async fn bake_lazy_process_template_to_process_template(
 /// Try to resolve a command template using a template `$PATH` env var. Returns
 /// either a template that expands to the absolute path of the command, or
 /// the original template if the command could not be explicitly resolved.
+#[expect(clippy::string_lit_as_bytes)]
 async fn resolve_command(
     brioche: &Brioche,
     command: CompleteProcessTemplate,
@@ -1132,6 +1133,7 @@ impl DependencyEnvVarChange {
     }
 }
 
+#[expect(clippy::string_lit_as_bytes)]
 async fn append_dependency_envs(
     brioche: &Brioche,
     env: &mut BTreeMap<bstr::BString, CompleteProcessTemplate>,
