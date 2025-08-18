@@ -1,27 +1,21 @@
-#![allow(unused)]
-
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
-    process::Output,
-    sync::{Arc, OnceLock, atomic::AtomicU32},
+    sync::{Arc, atomic::AtomicU32},
 };
 
 use anyhow::Context as _;
 use brioche_core::{
     Brioche, BriocheBuilder,
     blob::{BlobHash, SaveBlobOptions},
-    project::{self, ProjectHash, ProjectLocking, ProjectValidation, Projects},
+    project::{ProjectHash, ProjectLocking, ProjectValidation, Projects},
     recipe::{
-        CreateDirectory, Directory, DownloadRecipe, File, ProcessRecipe, ProcessTemplate,
-        ProcessTemplateComponent, Recipe, WithMeta,
+        CreateDirectory, Directory, File, ProcessRecipe, ProcessTemplate, ProcessTemplateComponent,
+        Recipe, WithMeta,
     },
 };
 use futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
-use tokio::{
-    io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
-    sync::Mutex,
-};
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _};
 use tower_lsp::lsp_types::{self, notification, request};
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
