@@ -241,6 +241,20 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Sign artifacts
+        run: |
+          install -m 0600 <(echo "$BRIOCHE_CODESIGN_PRIVATE_KEY") ./brioche-codesign-key
+          ssh-keygen -Y sign -n "$SIGNING_NAMESPACE" -f ./brioche-codesign-key artifacts/brioche-*.tar.gz
+          rm brioche-codesign-key
+
+          for artifact in artifacts/brioche-*.tar.gz; do
+            sha256sum "$artifact"
+            cat "${artifact}.sig"
+            echo
+          done
+        env:
+          BRIOCHE_CODESIGN_PRIVATE_KEY: ${{ secrets.BRIOCHE_CODESIGN_PRIVATE_KEY }}
+          SIGNING_NAMESPACE: wip@brioche.dev
       # Upload the Brioche build for the current branch
       - name: Upload to S3
         run: |
