@@ -135,10 +135,10 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const project = {};
                     export const foo: number = 123;
-                "#,
+                ",
             )
             .await
             .unwrap();

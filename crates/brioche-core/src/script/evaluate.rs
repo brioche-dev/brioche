@@ -119,9 +119,8 @@ async fn evaluate_with_deno(
                             deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
                         ))
                         .with_context(|| format!("error when calling {export}"));
-                    } else {
-                        anyhow::bail!("unknown error when calling {export}");
                     }
+                    anyhow::bail!("unknown error when calling {export}");
                 };
                 deno_core::v8::Global::new(&mut js_scope, result)
             };
@@ -156,9 +155,8 @@ async fn evaluate_with_deno(
                             deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
                         ))
                         .with_context(|| format!("error when serializing result from {export}"));
-                    } else {
-                        anyhow::bail!("unknown error when serializing result from {export}");
                     }
+                    anyhow::bail!("unknown error when serializing result from {export}");
                 };
 
                 deno_core::v8::Global::new(&mut js_scope, serialized_result)

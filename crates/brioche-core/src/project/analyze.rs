@@ -308,23 +308,22 @@ pub async fn analyze_module(
         std::str::from_utf8(&contents).with_context(|| format!("{display_path}: invalid UTF-8"))?;
 
     let parsed_module;
-    let module = match module {
-        Some(module) => module,
-        None => {
-            let parsed = biome_js_parser::parse(
-                contents,
-                biome_js_syntax::JsFileSource::ts()
-                    .with_module_kind(biome_js_syntax::ModuleKind::Module),
-                biome_js_parser::JsParserOptions::default(),
-            )
-            .cast::<biome_js_syntax::JsModule>()
-            .expect("failed to cast module");
+    let module = if let Some(module) = module {
+        module
+    } else {
+        let parsed = biome_js_parser::parse(
+            contents,
+            biome_js_syntax::JsFileSource::ts()
+                .with_module_kind(biome_js_syntax::ModuleKind::Module),
+            biome_js_parser::JsParserOptions::default(),
+        )
+        .cast::<biome_js_syntax::JsModule>()
+        .expect("failed to cast module");
 
-            parsed_module = parsed
-                .try_tree()
-                .with_context(|| format!("{display_path}: failed to parse module"))?;
-            &parsed_module
-        }
+        parsed_module = parsed
+            .try_tree()
+            .with_context(|| format!("{display_path}: failed to parse module"))?;
+        &parsed_module
     };
 
     let display_location = |offset| {
@@ -447,7 +446,7 @@ where
                 .with_context(|| format!("{location}: invalid import specifier"))?;
             Ok(Some(import_specifier))
         })
-        .filter_map(|result| result.transpose())
+        .filter_map(std::result::Result::transpose)
 }
 
 pub fn find_statics<'a, D>(
@@ -631,7 +630,7 @@ where
                 _ => Ok(None),
             }
         })
-        .filter_map(|result| result.transpose())
+        .filter_map(std::result::Result::transpose)
 }
 
 pub fn expression_to_json(

@@ -39,10 +39,10 @@ async fn test_sync_to_cache_process_and_complete_process() -> anyhow::Result<()>
         .temp_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     // dummy project
                     export const project = {};
-                "#,
+                ",
             )
             .await
             .unwrap();

@@ -448,9 +448,9 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
     context
         .write_file(
             "baz/h/project.bri",
-            r#"
+            r"
                 // Empty project
-            "#,
+            ",
         )
         .await;
 

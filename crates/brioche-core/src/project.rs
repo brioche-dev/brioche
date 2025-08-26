@@ -300,7 +300,7 @@ impl Projects {
         let local_paths = projects
             .local_paths(project_hash)
             .with_context(|| format!("project not found for hash {project_hash}"))?;
-        Ok(local_paths.map(|path| path.to_owned()).collect())
+        Ok(local_paths.map(std::borrow::ToOwned::to_owned).collect())
     }
 
     pub fn validate_no_dirty_lockfiles(&self) -> anyhow::Result<()> {

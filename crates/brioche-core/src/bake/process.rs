@@ -1650,7 +1650,7 @@ impl SandboxBackendSelector {
                 },
                 SandboxTemplate {
                     components: vec![SandboxTemplateComponent::Literal {
-                        value: r##"
+                        value: r#"
                         set -eu
                         mkdir "$BRIOCHE_OUTPUT"/new
                         touch "$BRIOCHE_OUTPUT"/new/touch.txt
@@ -1660,7 +1660,7 @@ impl SandboxBackendSelector {
                         rm "$BRIOCHE_OUTPUT"/existing/remove.txt
                         rm "$BRIOCHE_OUTPUT"/remove_dir/remove.txt
                         rmdir "$BRIOCHE_OUTPUT"/remove_dir
-                    "##
+                    "#
                         .into(),
                     }],
                 },

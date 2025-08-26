@@ -82,35 +82,34 @@ impl BriocheCompilerHost {
                 BriocheModuleSpecifier::Runtime { .. } => {}
             }
 
-            let contents = match contents {
-                Some(contents) => contents,
-                None => {
-                    let contents = self
-                        .bridge
-                        .load_specifier_contents(specifier.clone())
-                        .await?;
-                    let contents = std::str::from_utf8(&contents).with_context(|| {
-                        format!("failed to parse module '{specifier}' contents as UTF-8 string")
-                    })?;
+            let contents = if let Some(contents) = contents {
+                contents
+            } else {
+                let contents = self
+                    .bridge
+                    .load_specifier_contents(specifier.clone())
+                    .await?;
+                let contents = std::str::from_utf8(&contents).with_context(|| {
+                    format!("failed to parse module '{specifier}' contents as UTF-8 string")
+                })?;
 
-                    let mut documents = self
-                        .documents
-                        .write()
-                        .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+                let mut documents = self
+                    .documents
+                    .write()
+                    .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
 
-                    match documents.entry(specifier.clone()) {
-                        std::collections::hash_map::Entry::Occupied(entry) => {
-                            entry.get().contents.clone()
-                        }
-                        std::collections::hash_map::Entry::Vacant(entry) => {
-                            tracing::debug!("loaded new document into compiler host: {specifier}");
-                            let contents = Arc::new(contents.to_string());
-                            entry.insert(BriocheDocument {
-                                contents: contents.clone(),
-                                version: 0,
-                            });
-                            contents
-                        }
+                match documents.entry(specifier.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        entry.get().contents.clone()
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        tracing::debug!("loaded new document into compiler host: {specifier}");
+                        let contents = Arc::new(contents.to_string());
+                        entry.insert(BriocheDocument {
+                            contents: contents.clone(),
+                            version: 0,
+                        });
+                        contents
                     }
                 }
             };

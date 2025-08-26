@@ -68,9 +68,9 @@ async fn test_specifier_resolve_relative() -> anyhow::Result<()> {
     context
         .write_file(
             "myproject/project.bri",
-            r#"
+            r"
                 export const project = {};
-            "#,
+            ",
         )
         .await;
     let foo_hello_path = context
@@ -116,9 +116,9 @@ async fn test_specifier_resolve_project_relative() -> anyhow::Result<()> {
     context
         .write_file(
             "myproject/project.bri",
-            r#"
+            r"
                 export const project = {};
-            "#,
+            ",
         )
         .await;
     let foo_hello_path = context
@@ -164,9 +164,9 @@ async fn test_specifier_resolve_relative_dir() -> anyhow::Result<()> {
     let main_path = context
         .write_file(
             "myproject/project.bri",
-            r#"
+            r"
                 export const project = {};
-            "#,
+            ",
         )
         .await;
     let foo_hello_path = context
@@ -221,9 +221,9 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
     let main_path = context
         .write_file(
             "myproject/project.bri",
-            r#"
+            r"
                 export const project = {};
-            "#,
+            ",
         )
         .await;
     let foo_hello_path = context
@@ -287,9 +287,9 @@ async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                         export const project = {};
-                    "#,
+                    ",
             )
             .await
             .unwrap();

@@ -15,9 +15,9 @@ async fn test_project_load_simple() -> anyhow::Result<()> {
     context
         .write_file(
             "myproject/project.bri",
-            r#"
+            r"
                 export const project = {};
-            "#,
+            ",
         )
         .await;
 
@@ -41,7 +41,7 @@ async fn test_project_load_simple_no_definition() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
-    context.write_file("myproject/project.bri", r#""#).await;
+    context.write_file("myproject/project.bri", r"").await;
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
@@ -75,9 +75,9 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
     context
         .write_file(
             "myworkspace/foo/project.bri",
-            r#"
+            r"
                 // Workspace foo
-            "#,
+            ",
         )
         .await;
 
@@ -85,9 +85,9 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     // Registry foo
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -158,9 +158,9 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
     context
         .write_file(
             "myworkspace/foo/project.bri",
-            r#"
+            r"
                 // Workspace foo
-            "#,
+            ",
         )
         .await;
 
@@ -168,9 +168,9 @@ async fn test_project_load_with_workspace_dep_implied() -> anyhow::Result<()> {
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     // Registry foo
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -245,9 +245,9 @@ async fn test_project_load_with_path_dep() -> anyhow::Result<()> {
     context
         .write_file(
             "depproject/project.bri",
-            r#"
+            r"
                 export const project = {};
-            "#,
+            ",
         )
         .await;
 
@@ -281,9 +281,9 @@ async fn test_project_load_with_local_registry_dep() -> anyhow::Result<()> {
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const project = {};
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -340,9 +340,9 @@ async fn test_project_load_with_local_registry_dep_implied() -> anyhow::Result<(
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const project = {};
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -395,9 +395,9 @@ async fn test_project_load_with_local_registry_dep_implied_nested() -> anyhow::R
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     // foo
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -458,9 +458,9 @@ async fn test_project_load_with_local_registry_dep_imported() -> anyhow::Result<
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const project = {};
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -520,9 +520,9 @@ async fn test_project_load_with_remote_registry_dep() -> anyhow::Result<()> {
         .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const project = {};
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -939,10 +939,10 @@ async fn test_project_load_with_remote_registry_deps_with_common_children() -> a
         .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const a = 1;
                     export const b = 2;
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -1179,9 +1179,9 @@ async fn test_project_load_with_locked_registry_dep() -> anyhow::Result<()> {
         .cached_registry_project(&cache, async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const project = {};
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -1300,9 +1300,9 @@ async fn test_project_load_complex() -> anyhow::Result<()> {
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const project = {};
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -1427,9 +1427,9 @@ async fn test_project_load_complex_implied() -> anyhow::Result<()> {
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     // Empty project
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -1764,9 +1764,9 @@ async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() -> any
         context
             .write_file(
                 "foo/project.bri",
-                r#"
+                r"
                     // Foo
-                "#,
+                ",
             )
             .await;
         let (projects, foo_hash) =
