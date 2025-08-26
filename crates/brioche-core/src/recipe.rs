@@ -223,11 +223,11 @@ pub async fn get_recipes(
 
             let batch_records = sqlx::query_as_with::<_, (String, String), _>(
                 &format!(
-                    r#"
+                    r"
                         SELECT recipe_hash, recipe_json
                         FROM recipes
                         WHERE recipe_hash IN ({placeholders})
-                    "#,
+                    ",
                 ),
                 arguments,
             )
@@ -324,11 +324,11 @@ where
 
         let result = sqlx::query_with(
             &format!(
-                r#"
+                r"
                         INSERT INTO recipes (recipe_hash, recipe_json)
                         VALUES {placeholders}
                         ON CONFLICT (recipe_hash) DO NOTHING
-                    "#
+                    "
             ),
             arguments,
         )
@@ -367,7 +367,7 @@ pub struct WithMeta<T> {
 
 impl<T> WithMeta<T> {
     pub const fn new(value: T, meta: Arc<Meta>) -> Self {
-        Self { value, meta }
+        Self { meta, value }
     }
 
     pub fn without_meta(value: T) -> Self {
@@ -1258,7 +1258,9 @@ pub struct CompleteProcessTemplate {
 impl CompleteProcessTemplate {
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.components.iter().all(|component| component.is_empty())
+        self.components
+            .iter()
+            .all(CompleteProcessTemplateComponent::is_empty)
     }
 
     #[must_use]

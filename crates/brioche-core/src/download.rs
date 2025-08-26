@@ -127,30 +127,26 @@ pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyh
                 }
             };
 
-            let refs = match outcome.refs {
-                Some(refs) => {
-                    // The handshake will sometimes return the refs directly,
-                    // depending on protocol version. If that happens, we're
-                    // done
-                    refs
-                }
-                None => {
-                    // Fetch the refs
-                    let refs = gix::protocol::ls_refs(
-                        &mut transport,
-                        &outcome.capabilities,
-                        |_, _, _| Ok(gix::protocol::ls_refs::Action::Continue),
-                        &mut gix::progress::Discard,
-                        false,
-                    );
-                    match refs {
-                        Ok(refs) => refs,
-                        Err(error) => {
-                            let _ =
-                                gix::protocol::indicate_end_of_interaction(&mut transport, false);
-                            let _ = tx.send(Err(error.into()));
-                            return;
-                        }
+            let refs = if let Some(refs) = outcome.refs {
+                // The handshake will sometimes return the refs directly,
+                // depending on protocol version. If that happens, we're
+                // done
+                refs
+            } else {
+                // Fetch the refs
+                let refs = gix::protocol::ls_refs(
+                    &mut transport,
+                    &outcome.capabilities,
+                    |_, _, _| Ok(gix::protocol::ls_refs::Action::Continue),
+                    &mut gix::progress::Discard,
+                    false,
+                );
+                match refs {
+                    Ok(refs) => refs,
+                    Err(error) => {
+                        let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+                        let _ = tx.send(Err(error.into()));
+                        return;
                     }
                 }
             };

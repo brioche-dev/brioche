@@ -97,7 +97,7 @@ pub struct Brioche {
 
 impl Brioche {
     /// Tell all running tasks to cancel early. Returns immediately, use
-    /// [Self::wait_for_tasks] to wait until all tasks have stopped.
+    /// [`Self::wait_for_tasks`] to wait until all tasks have stopped.
     pub fn cancel_tasks(&self) {
         self.cancellation_token.cancel();
     }
@@ -195,13 +195,12 @@ impl BriocheBuilder {
     pub async fn build(self) -> anyhow::Result<Brioche> {
         let dirs = directories::ProjectDirs::from("dev", "brioche", "brioche")
             .context("failed to get Brioche directories (is $HOME set?)")?;
-        let config = match self.config {
-            Some(config) => config,
-            None => {
-                let config_path = dirs.config_dir().join("config.toml");
-                let config = config::load_from_path(&config_path).await?;
-                config.unwrap_or_default()
-            }
+        let config = if let Some(config) = self.config {
+            config
+        } else {
+            let config_path = dirs.config_dir().join("config.toml");
+            let config = config::load_from_path(&config_path).await?;
+            config.unwrap_or_default()
         };
 
         let data_dir = match (self.data_dir, std::env::var_os("BRIOCHE_DATA_DIR")) {
@@ -255,20 +254,19 @@ impl BriocheBuilder {
             });
             registry::RegistryClient::new(registry_url, registry_auth)
         });
-        let cache_client = match self.cache_client {
-            Some(cache_client) => cache_client,
-            None => {
-                let cache_config = match std::env::var_os("BRIOCHE_CACHE_URL") {
-                    Some(url) => {
-                        let url = url.to_str().ok_or_else(|| {
-                            anyhow::anyhow!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
-                        })?;
-                        let url = url.parse().with_context(|| {
-                            format!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
-                        })?;
-                        let use_default_cache = match std::env::var_os(
-                            "BRIOCHE_CACHE_USE_DEFAULT_CACHE",
-                        ) {
+        let cache_client = if let Some(cache_client) = self.cache_client {
+            cache_client
+        } else {
+            let cache_config = match std::env::var_os("BRIOCHE_CACHE_URL") {
+                Some(url) => {
+                    let url = url.to_str().ok_or_else(|| {
+                        anyhow::anyhow!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
+                    })?;
+                    let url = url
+                        .parse()
+                        .with_context(|| format!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}"))?;
+                    let use_default_cache =
+                        match std::env::var_os("BRIOCHE_CACHE_USE_DEFAULT_CACHE") {
                             Some(value) if value.to_str() == Some("true") => true,
                             Some(value) if value.to_str() == Some("false") => false,
                             Some(value) => {
@@ -278,48 +276,43 @@ impl BriocheBuilder {
                             }
                             None => true,
                         };
-                        let read_only = match std::env::var_os("BRIOCHE_CACHE_READ_ONLY") {
-                            Some(value) if value.to_str() == Some("true") => true,
-                            Some(value) if value.to_str() == Some("false") => false,
-                            Some(value) => {
-                                anyhow::bail!(
-                                    "invalid value for $BRIOCHE_CACHE_READ_ONLY: {value:?}"
-                                );
-                            }
-                            None => false,
-                        };
-                        let max_concurrent_operations = match std::env::var_os(
-                            "BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS",
-                        ) {
-                            Some(value) => {
-                                let value = value.to_str().ok_or_else(|| anyhow::anyhow!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
-                                let value: usize = value.parse().with_context(|| format!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
-                                value
-                            }
-                            None => cache::DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
-                        };
-                        let allow_http = match std::env::var_os("BRIOCHE_CACHE_ALLOW_HTTP") {
-                            Some(value) if value.to_str() == Some("true") => Some(true),
-                            Some(value) if value.to_str() == Some("false") => Some(false),
-                            Some(value) => {
-                                anyhow::bail!(
-                                    "invalid value for $BRIOCHE_CACHE_ALLOW_HTTP: {value:?}"
-                                );
-                            }
-                            None => None,
-                        };
-                        Some(config::CacheConfig {
-                            url,
-                            max_concurrent_operations,
-                            use_default_cache,
-                            read_only,
-                            allow_http,
-                        })
-                    }
-                    None => config.cache.clone(),
-                };
-                cache::cache_client_with_config(cache_config.as_ref()).await?
-            }
+                    let read_only = match std::env::var_os("BRIOCHE_CACHE_READ_ONLY") {
+                        Some(value) if value.to_str() == Some("true") => true,
+                        Some(value) if value.to_str() == Some("false") => false,
+                        Some(value) => {
+                            anyhow::bail!("invalid value for $BRIOCHE_CACHE_READ_ONLY: {value:?}");
+                        }
+                        None => false,
+                    };
+                    let max_concurrent_operations = match std::env::var_os(
+                        "BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS",
+                    ) {
+                        Some(value) => {
+                            let value = value.to_str().ok_or_else(|| anyhow::anyhow!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
+                            let value: usize = value.parse().with_context(|| format!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
+                            value
+                        }
+                        None => cache::DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
+                    };
+                    let allow_http = match std::env::var_os("BRIOCHE_CACHE_ALLOW_HTTP") {
+                        Some(value) if value.to_str() == Some("true") => Some(true),
+                        Some(value) if value.to_str() == Some("false") => Some(false),
+                        Some(value) => {
+                            anyhow::bail!("invalid value for $BRIOCHE_CACHE_ALLOW_HTTP: {value:?}");
+                        }
+                        None => None,
+                    };
+                    Some(config::CacheConfig {
+                        url,
+                        max_concurrent_operations,
+                        use_default_cache,
+                        read_only,
+                        allow_http,
+                    })
+                }
+                None => config.cache.clone(),
+            };
+            cache::cache_client_with_config(cache_config.as_ref()).await?
         };
 
         let (sync_tx, mut sync_rx) = tokio::sync::mpsc::channel(1000);

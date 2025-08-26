@@ -409,9 +409,9 @@ async fn test_lsp_completions_in_unsaved_edited_file() -> anyhow::Result<()> {
     let project_root = context
         .write_file(
             "myproject/project.bri",
-            indoc::indoc! {r#"
+            indoc::indoc! {r"
                 // File on disk is effectively empty
-            "#},
+            "},
         )
         .await;
 

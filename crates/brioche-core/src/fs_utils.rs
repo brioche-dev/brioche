@@ -87,39 +87,36 @@ pub async fn is_dir(path: &Path) -> bool {
 pub async fn move_file(source: &Path, dest: &Path) -> anyhow::Result<MoveType> {
     let rename_result = tokio::fs::rename(source, dest).await;
 
-    let move_type = match rename_result {
-        Ok(()) => {
-            // On Linux, the rename(2) syscall (used by tokio::fs::rename at
-            // the time of writing) is not guaranteed to be atomic, meaning
-            // that `source` can still appear to exist after the rename
-            // finishes (this isn't theoretical either, this is something
-            // that we have seen in practice). To account for this, we
-            // explicitly remove the source file after renaming to ensure the
-            // file no longer exists at the source path.
-            let remove_result = tokio::fs::remove_file(source).await;
-            match remove_result {
-                Ok(()) => {
-                    tracing::debug!(source = %source.display(), dest = %dest.display(), "removed file after renaming");
-                }
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                Err(err) => {
-                    return Err(err).context("failed to ensure file was removed after renaming");
-                }
+    let move_type = if matches!(rename_result, Ok(())) {
+        // On Linux, the rename(2) syscall (used by tokio::fs::rename at
+        // the time of writing) is not guaranteed to be atomic, meaning
+        // that `source` can still appear to exist after the rename
+        // finishes (this isn't theoretical either, this is something
+        // that we have seen in practice). To account for this, we
+        // explicitly remove the source file after renaming to ensure the
+        // file no longer exists at the source path.
+        let remove_result = tokio::fs::remove_file(source).await;
+        match remove_result {
+            Ok(()) => {
+                tracing::debug!(source = %source.display(), dest = %dest.display(), "removed file after renaming");
             }
-
-            MoveType::Rename
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                return Err(err).context("failed to ensure file was removed after renaming");
+            }
         }
-        Err(_) => {
-            let metadata = tokio::fs::symlink_metadata(source).await?;
-            if metadata.is_dir() {
-                anyhow::bail!("cannot move directory across filesystems");
-            } else if metadata.is_file() || metadata.is_symlink() {
-                atomic_copy(source, dest).await?;
-                tokio::fs::remove_file(source).await?;
-                MoveType::Copy
-            } else {
-                anyhow::bail!("cannot move unsupported file type across filesystems");
-            }
+
+        MoveType::Rename
+    } else {
+        let metadata = tokio::fs::symlink_metadata(source).await?;
+        if metadata.is_dir() {
+            anyhow::bail!("cannot move directory across filesystems");
+        } else if metadata.is_file() || metadata.is_symlink() {
+            atomic_copy(source, dest).await?;
+            tokio::fs::remove_file(source).await?;
+            MoveType::Copy
+        } else {
+            anyhow::bail!("cannot move unsupported file type across filesystems");
         }
     };
 

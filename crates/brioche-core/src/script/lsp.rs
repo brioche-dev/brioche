@@ -5,7 +5,19 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::request::GotoTypeDefinitionResponse;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    DiagnosticOptions, DiagnosticServerCapabilities, DidChangeTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFormattingParams,
+    DocumentHighlight, DocumentHighlightParams, FullDocumentDiagnosticReport, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, InitializedParams, Location, MessageType, OneOf, Position,
+    PrepareRenameResponse, Range, ReferenceParams, RelatedFullDocumentDiagnosticReport,
+    RenameOptions, RenameParams, ServerCapabilities, TextDocumentIdentifier,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
+    WorkspaceEdit,
+};
 use tower_lsp::{Client, LanguageServer};
 
 use crate::project::{ProjectLocking, ProjectValidation, Projects};
@@ -823,9 +835,8 @@ fn call_method(
                 exception,
             ))
             .with_context(|| format!("error when calling {method_name:?}"));
-        } else {
-            anyhow::bail!("unknown error when calling {method_name:?}");
         }
+        anyhow::bail!("unknown error when calling {method_name:?}");
     };
 
     let result = serde_v8::from_v8(&mut js_scope, result)?;

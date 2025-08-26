@@ -39,8 +39,8 @@ pub async fn load_project(
                 &LoadProjectConfig {
                     projects,
                     brioche,
-                    locking,
                     validation,
+                    locking,
                 },
                 &path,
             ))
@@ -244,8 +244,8 @@ async fn build_project_graph(
 
             entry.insert(ProjectNodeDetails {
                 project_analysis,
-                lockfile_path,
                 lockfile,
+                lockfile_path,
                 workspace,
                 dependency_errors,
             });
@@ -258,8 +258,8 @@ async fn build_project_graph(
 
     Ok(ProjectGraph {
         graph,
-        expected_hashes,
         nodes_by_path,
+        expected_hashes,
         project_details,
     })
 }

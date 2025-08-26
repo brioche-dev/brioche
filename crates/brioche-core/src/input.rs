@@ -45,7 +45,7 @@ pub async fn create_input(
     let (plan, root_node) = tokio::task::spawn_blocking({
         let input_path = options.input_path.to_owned();
         let remove_input = options.remove_input;
-        let resource_dir = options.resource_dir.map(|path| path.to_owned());
+        let resource_dir = options.resource_dir.map(std::borrow::ToOwned::to_owned);
         let input_resource_dirs = options.input_resource_dirs.to_owned();
         let meta = options.meta.clone();
         move || {

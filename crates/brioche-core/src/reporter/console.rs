@@ -521,7 +521,7 @@ fn print_job_content(jobs: &HashMap<JobId, Job>, stream: &JobOutputStream, conte
 
     let content = content
         .strip_suffix(b"\n")
-        .map_or_else(|| content, |content| content.into());
+        .map_or_else(|| content, std::convert::Into::into);
 
     for line in content.lines() {
         let line = bstr::BStr::new(line);
@@ -594,7 +594,7 @@ impl superconsole::Component for JobsComponent {
             .flat_map(|(stream, content)| {
                 let content = content
                     .strip_suffix(b"\n")
-                    .map_or_else(|| content, |content| content.into());
+                    .map_or_else(|| content, std::convert::Into::into);
                 let lines_rev = content
                     .lines()
                     .rev()

@@ -32,7 +32,7 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
                     &mut file,
                     &brioche_pack::Pack::Metadata {
                         resource_paths: vec![format!("{i}_resources").into()],
-                        format: "".to_string(),
+                        format: String::new(),
                         metadata: vec![],
                     },
                 )
@@ -104,7 +104,7 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
                     &mut file,
                     &brioche_pack::Pack::Metadata {
                         resource_paths: vec!["common_resources".into()],
-                        format: "".to_string(),
+                        format: String::new(),
                         metadata: vec![],
                     },
                 )
@@ -181,7 +181,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                         &mut inner_resource_file,
                         &brioche_pack::Pack::Metadata {
                             resource_paths: vec!["common_resources".into()],
-                            format: "".to_string(),
+                            format: String::new(),
                             metadata: vec![],
                         },
                     )
@@ -197,7 +197,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                     &mut file,
                     &brioche_pack::Pack::Metadata {
                         resource_paths: vec![format!("resources{i}").into()],
-                        format: "".to_string(),
+                        format: String::new(),
                         metadata: vec![],
                     },
                 )
@@ -220,7 +220,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                     &mut file,
                     &brioche_pack::Pack::Metadata {
                         resource_paths: vec!["shared.txt".into()],
-                        format: "".to_string(),
+                        format: String::new(),
                         metadata: vec![],
                     },
                 )

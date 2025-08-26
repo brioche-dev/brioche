@@ -233,7 +233,7 @@ pub fn resolve(
 
             let new_subpath = subpath
                 .parent()
-                .map_or_else(|| RelativePathBuf::from(""), |parent| parent.to_owned())
+                .map_or_else(|| RelativePathBuf::from(""), std::borrow::ToOwned::to_owned)
                 .join(specifier_path);
 
             let candidates = [
@@ -268,7 +268,7 @@ pub fn resolve(
                 )) => {
                     let new_subpath = subpath
                         .parent()
-                        .map_or_else(|| RelativePathBuf::from(""), |parent| parent.to_owned())
+                        .map_or_else(|| RelativePathBuf::from(""), std::borrow::ToOwned::to_owned)
                         .join_normalized(specifier_path);
 
                     let candidate_module_path = new_subpath.to_logical_path(&project_root);

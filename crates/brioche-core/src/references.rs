@@ -435,11 +435,11 @@ pub async fn local_recipes(
 
         let batch_known_recipes = sqlx::query_as_with::<_, (String,), _>(
             &format!(
-                r#"
+                r"
                     SELECT recipe_hash
                     FROM recipes
                     WHERE recipe_hash IN ({placeholders})
-                "#,
+                ",
             ),
             arguments,
         )
