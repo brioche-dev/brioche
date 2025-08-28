@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
-    sync::{Arc, OnceLock, RwLock},
+    sync::{Arc, LazyLock, RwLock},
 };
 
 use anyhow::Context as _;
@@ -114,24 +114,22 @@ pub enum Recipe {
 
 impl Recipe {
     pub fn try_hash(&self) -> anyhow::Result<RecipeHash> {
-        static HASHES: OnceLock<RwLock<HashMap<Recipe, RecipeHash>>> = OnceLock::new();
-        let hashes = HASHES.get_or_init(|| RwLock::new(HashMap::new()));
+        static HASHES: LazyLock<RwLock<HashMap<Recipe, RecipeHash>>> =
+            LazyLock::new(|| RwLock::new(HashMap::new()));
+
+        if let Some(hash) = HASHES
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire read lock on hashes"))?
+            .get(self)
         {
-            let hashes_reader = hashes
-                .read()
-                .map_err(|_| anyhow::anyhow!("failed to acquire read lock on hashes"))?;
-            if let Some(hash) = hashes_reader.get(self) {
-                return Ok(*hash);
-            }
+            return Ok(*hash);
         }
 
         let hash = RecipeHash::from_serializable(self)?;
-        {
-            let mut hashes_writer = hashes
-                .write()
-                .map_err(|_| anyhow::anyhow!("failed to acquire write lock on hashes"))?;
-            hashes_writer.insert(self.clone(), hash);
-        }
+        HASHES
+            .write()
+            .map_err(|_| anyhow::anyhow!("failed to acquire write lock on hashes"))?
+            .insert(self.clone(), hash);
 
         Ok(hash)
     }
