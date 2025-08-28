@@ -97,6 +97,7 @@ pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     (reporter, guard)
 }
 
+#[must_use]
 pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
     let (tx, _) = tokio::sync::mpsc::unbounded_channel();
 
