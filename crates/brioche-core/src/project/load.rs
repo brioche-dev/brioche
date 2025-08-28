@@ -82,9 +82,10 @@ async fn build_project_graph(
     let mut workspaces = HashMap::new();
 
     // Use a regex to validate dependency names
-    static DEPENDENCY_NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let dependency_name_regex = DEPENDENCY_NAME_REGEX
-        .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
+    static DEPENDENCY_NAME_REGEX: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| {
+            regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex")
+        });
 
     let mut nodes_by_path = HashMap::new();
     let mut nodes_by_workspace = HashMap::<PathBuf, HashSet<_>>::new();
@@ -199,7 +200,7 @@ async fn build_project_graph(
                     .map(async |(name, dependency_def)| {
                         // Validate the dependency name
                         anyhow::ensure!(
-                            dependency_name_regex.is_match(&name),
+                            DEPENDENCY_NAME_REGEX.is_match(&name),
                             "invalid dependency name"
                         );
 
