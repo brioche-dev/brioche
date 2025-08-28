@@ -103,7 +103,8 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
 
     static TEST_TRACING_SUBSCRIBER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if let Some(debug_output_path) = std::env::var_os("BRIOCHE_LOG_OUTPUT") {
-        TEST_TRACING_SUBSCRIBER.get_or_init(|| {
+        // Ensure the tracing subscriber is initialized once
+        let () = TEST_TRACING_SUBSCRIBER.get_or_init(|| {
             let debug_output = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
