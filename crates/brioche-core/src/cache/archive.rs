@@ -36,6 +36,7 @@ const CDC_MIN_CHUNK_SIZE: u32 = 524_288;
 const CDC_AVG_CHUNK_SIZE: u32 = 1_048_576;
 const CDC_MAX_CHUNK_SIZE: u32 = 8_388_608;
 
+#[expect(clippy::similar_names)]
 pub async fn write_artifact_archive(
     brioche: &Brioche,
     artifact: Artifact,

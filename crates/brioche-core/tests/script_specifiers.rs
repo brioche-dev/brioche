@@ -264,6 +264,7 @@ async fn test_specifier_resolve_project_relative_dir() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_specifier_resolve_subproject() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;

@@ -148,9 +148,9 @@ async fn test_script_osp_stack_frames_from_exception() -> anyhow::Result<()> {
         panic!("expected file artifact");
     };
     let blob_path = brioche_core::blob::local_blob_path(&brioche, file.content_blob);
-    let content = tokio::fs::read_to_string(&blob_path).await?;
+    let blob_content = tokio::fs::read_to_string(&blob_path).await?;
 
-    let stack_frames = serde_json::from_str::<Vec<TestStackFrame>>(&content)?;
+    let stack_frames = serde_json::from_str::<Vec<TestStackFrame>>(&blob_content)?;
 
     assert_eq!(
         stack_frames,

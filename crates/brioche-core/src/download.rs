@@ -89,7 +89,10 @@ pub async fn download(
     Ok(blob_hash)
 }
 
-pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyhow::Result<String> {
+pub async fn fetch_git_commit_for_ref(
+    repository: &url::Url,
+    reference: &str,
+) -> anyhow::Result<String> {
     let (tx, rx) = tokio::sync::oneshot::channel::<anyhow::Result<_>>();
 
     // gix uses a blocking client, so spawn a separate thread to fetch
@@ -191,18 +194,18 @@ pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyh
             };
 
             if let Some(tag_name) = name.strip_prefix(b"refs/tags/") {
-                if tag_name == ref_.as_bytes() {
+                if tag_name == reference.as_bytes() {
                     return Some(object);
                 }
             } else if let Some(head_name) = name.strip_prefix(b"refs/heads/")
-                && head_name == ref_.as_bytes()
+                && head_name == reference.as_bytes()
             {
                 return Some(object);
             }
 
             None
         })
-        .with_context(|| format!("git ref '{ref_}' not found in repo {repository}"))?;
+        .with_context(|| format!("git ref '{reference}' not found in repo {repository}"))?;
 
     let commit = object_id.to_string();
     Ok(commit)

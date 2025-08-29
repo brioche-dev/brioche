@@ -424,6 +424,7 @@ async fn build_artifact_with_some_small_files(
     Artifact::Directory(directory)
 }
 
+#[expect(clippy::similar_names)]
 async fn build_directory(
     brioche: &Brioche,
     blob_size: usize,
