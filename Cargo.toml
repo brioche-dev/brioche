@@ -61,6 +61,7 @@ unused_self = "warn"
 unused_trait_names = "warn"
 used_underscore_binding = "warn"
 used_underscore_items = "warn"
+unnecessary_debug_formatting = "warn"
 unnecessary_semicolon = "warn"
 
 [profile.dev]

@@ -145,7 +145,7 @@ async fn build_object_store(
                 .map_err(|()| anyhow::anyhow!("invalid file:// URL for cache"))?;
 
             let store = object_store::local::LocalFileSystem::new_with_prefix(&path)
-                .with_context(|| format!("failed to use path {path:?} as cache"))?;
+                .with_context(|| format!("failed to use path {} as cache", path.display()))?;
             let store = store.with_automatic_cleanup(true);
             Arc::new(store)
         }

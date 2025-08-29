@@ -315,7 +315,7 @@ fn add_input_plan_nodes(
         }
 
         let mut file = std::fs::File::open(options.input_path)
-            .with_context(|| format!("failed to open file {:?}", options.input_path))?;
+            .with_context(|| format!("failed to open file {}", options.input_path.display()))?;
         let extracted = brioche_pack::extract_pack(&mut file).ok();
         let pack = extracted.map(|extracted| extracted.pack);
         let resource_paths = pack.into_iter().flat_map(|pack| pack.paths());
