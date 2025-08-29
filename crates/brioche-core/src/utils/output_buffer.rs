@@ -91,16 +91,16 @@ where
                 // we're done
                 oldest_content.drain(0..drop_bytes);
                 break;
-            } else {
-                // Otherwise, remove the content and continue
-                let (_, removed_content) = self
-                    .partial_prepend
-                    .pop_first()
-                    .or_else(|| self.contents.pop_front())
-                    .or_else(|| self.partial_append.pop_first())
-                    .unwrap();
-                drop_bytes -= removed_content.len();
             }
+
+            // Otherwise, remove the content and continue
+            let (_, removed_content) = self
+                .partial_prepend
+                .pop_first()
+                .or_else(|| self.contents.pop_front())
+                .or_else(|| self.partial_append.pop_first())
+                .unwrap();
+            drop_bytes -= removed_content.len();
         }
 
         if let Some(complete_content) = complete_content {
