@@ -84,16 +84,16 @@ async fn build_project_graph(
     config: &LoadProjectConfig,
     project_path: &Path,
 ) -> anyhow::Result<ProjectGraph> {
-    let mut graph: petgraph::graph::DiGraph<PathBuf, String> = petgraph::Graph::new();
-    let mut expected_hashes = HashMap::new();
-    let mut project_details = HashMap::new();
-    let mut workspaces = HashMap::new();
-
     // Use a regex to validate dependency names
     static DEPENDENCY_NAME_REGEX: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| {
             regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex")
         });
+
+    let mut graph: petgraph::graph::DiGraph<PathBuf, String> = petgraph::Graph::new();
+    let mut expected_hashes = HashMap::new();
+    let mut project_details = HashMap::new();
+    let mut workspaces = HashMap::new();
 
     let mut nodes_by_path = HashMap::new();
     let mut nodes_by_workspace = HashMap::<PathBuf, HashSet<_>>::new();
