@@ -148,10 +148,14 @@ pub async fn create_input(
                     .graph
                     .edges_directed(node_index, petgraph::Direction::Outgoing);
                 for edge in edges_out {
-                    let resource_path = match &edge.weight() {
-                        CreateInputPlanEdge::Resource { path } => path,
-                        CreateInputPlanEdge::IndirectResource { path } => path,
-                        _ => anyhow::bail!("unexpected edge for file node: {:?}", edge.weight()),
+                    let (CreateInputPlanEdge::Resource {
+                        path: resource_path,
+                    }
+                    | CreateInputPlanEdge::IndirectResource {
+                        path: resource_path,
+                    }) = &edge.weight()
+                    else {
+                        anyhow::bail!("unexpected edge for file node: {:?}", edge.weight())
                     };
 
                     let resource_node_index = edge.target();

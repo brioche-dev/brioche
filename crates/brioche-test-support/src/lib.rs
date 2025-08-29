@@ -103,7 +103,10 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
             Recipe::CreateDirectory(directory) => {
                 recipes.extend(directory.entries.into_values().map(|recipe| recipe.value));
             }
-            Recipe::Cast { recipe, to: _ } => {
+            Recipe::Cast { recipe, to: _ }
+            | Recipe::CollectReferences { recipe }
+            | Recipe::AttachResources { recipe }
+            | Recipe::Sync { recipe } => {
                 recipes.push_back(recipe.value);
             }
             Recipe::Merge { directories } => {
@@ -113,7 +116,11 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
                 directory,
                 depth: _,
             } => recipes.push_back(directory.value),
-            Recipe::Get { directory, path: _ } => {
+            Recipe::Get { directory, path: _ }
+            | Recipe::Glob {
+                directory,
+                patterns: _,
+            } => {
                 recipes.push_back(directory.value);
             }
             Recipe::Insert {
@@ -126,28 +133,13 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
                     recipes.push_back(recipe.value);
                 }
             }
-            Recipe::Glob {
-                directory,
-                patterns: _,
-            } => {
-                recipes.push_back(directory.value);
-            }
             Recipe::SetPermissions {
                 file,
                 executable: _,
             } => {
                 recipes.push_back(file.value);
             }
-            Recipe::CollectReferences { recipe } => {
-                recipes.push_back(recipe.value);
-            }
-            Recipe::AttachResources { recipe } => {
-                recipes.push_back(recipe.value);
-            }
             Recipe::Proxy(_) => unimplemented!(),
-            Recipe::Sync { recipe } => {
-                recipes.push_back(recipe.value);
-            }
             Recipe::File {
                 content_blob: _,
                 executable: _,

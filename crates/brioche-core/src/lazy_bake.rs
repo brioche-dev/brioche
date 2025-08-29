@@ -45,6 +45,11 @@ pub async fn is_cheap_to_bake_or_in_remote_cache(
                 content_blob: _,
                 executable: _,
                 resources,
+            }
+            | Recipe::CreateFile {
+                content: _,
+                executable: _,
+                resources,
             } => {
                 needed_recipes.push_back(resources.value);
             }
@@ -55,7 +60,11 @@ pub async fn is_cheap_to_bake_or_in_remote_cache(
                 file,
                 compression: _,
                 archive: _,
-            }) => {
+            })
+            | Recipe::SetPermissions {
+                file,
+                executable: _,
+            } => {
                 needed_recipes.push_back(file.value);
             }
             Recipe::Download(_)
@@ -66,17 +75,12 @@ pub async fn is_cheap_to_bake_or_in_remote_cache(
                 // `.is_expensive_to_bake()` check above!
                 panic!("reached recipe that should've been expensive to bake");
             }
-            Recipe::CreateFile {
-                content: _,
-                executable: _,
-                resources,
-            } => {
-                needed_recipes.push_back(resources.value);
-            }
             Recipe::CreateDirectory(directory) => {
                 needed_recipes.extend(directory.entries.into_values().map(|recipe| recipe.value));
             }
-            Recipe::Cast { recipe, to: _ } => {
+            Recipe::Cast { recipe, to: _ }
+            | Recipe::AttachResources { recipe }
+            | Recipe::CollectReferences { recipe } => {
                 needed_recipes.push_back(recipe.value);
             }
             Recipe::Merge { directories } => {
@@ -85,10 +89,12 @@ pub async fn is_cheap_to_bake_or_in_remote_cache(
             Recipe::Peel {
                 directory,
                 depth: _,
-            } => {
-                needed_recipes.push_back(directory.value);
             }
-            Recipe::Get { directory, path: _ } => {
+            | Recipe::Get { directory, path: _ }
+            | Recipe::Glob {
+                directory,
+                patterns: _,
+            } => {
                 needed_recipes.push_back(directory.value);
             }
             Recipe::Insert {
@@ -100,24 +106,6 @@ pub async fn is_cheap_to_bake_or_in_remote_cache(
                 if let Some(recipe) = recipe {
                     needed_recipes.push_back(recipe.value);
                 }
-            }
-            Recipe::Glob {
-                directory,
-                patterns: _,
-            } => {
-                needed_recipes.push_back(directory.value);
-            }
-            Recipe::SetPermissions {
-                file,
-                executable: _,
-            } => {
-                needed_recipes.push_back(file.value);
-            }
-            Recipe::CollectReferences { recipe } => {
-                needed_recipes.push_back(recipe.value);
-            }
-            Recipe::AttachResources { recipe } => {
-                needed_recipes.push_back(recipe.value);
             }
             Recipe::Proxy(proxy) => {
                 let inner = proxy.inner(brioche).await?;

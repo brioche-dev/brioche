@@ -175,12 +175,12 @@ pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyh
                     full_ref_name,
                     object,
                     ..
-                } => (full_ref_name, object),
-                gix::protocol::handshake::Ref::Direct {
+                }
+                | gix::protocol::handshake::Ref::Direct {
                     full_ref_name,
                     object,
-                } => (full_ref_name, object),
-                gix::protocol::handshake::Ref::Symbolic {
+                }
+                | gix::protocol::handshake::Ref::Symbolic {
                     full_ref_name,
                     object,
                     ..

@@ -227,8 +227,8 @@ impl ConsoleReporter {
                     NewJob::Unarchive {
                         started_at: _,
                         total_bytes: _,
-                    } => {}
-                    NewJob::Process { status: _ } => {}
+                    }
+                    | NewJob::Process { status: _ } => {}
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Bake,
                         downloaded_bytes: _,
@@ -412,8 +412,7 @@ impl ConsoleReporter {
                             }
                         }
                     }
-                    UpdateJob::CacheFetchAdd { .. } => {}
-                    UpdateJob::CacheFetchUpdate { .. } => {}
+                    UpdateJob::CacheFetchAdd { .. } | UpdateJob::CacheFetchUpdate { .. } => {}
                     UpdateJob::CacheFetchFinish { finished_at } => {
                         let elapsed = finished_at.saturating_duration_since(job.created_at());
 
