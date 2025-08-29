@@ -19,6 +19,7 @@ use tower_lsp::lsp_types::{
     WorkspaceEdit,
 };
 use tower_lsp::{Client, LanguageServer};
+use tracing::Instrument as _;
 
 use crate::project::{ProjectLocking, ProjectValidation, Projects};
 use crate::script::compiler_host::{BriocheCompilerHost, brioche_compiler_host};
@@ -183,6 +184,7 @@ impl LanguageServer for BriocheLspServer {
         {
             let rt = tokio::runtime::Handle::current();
             let (lockfile_tx, lockfile_rx) = tokio::sync::oneshot::channel();
+            let span = tracing::Span::current();
 
             std::thread::spawn({
                 let remote_brioche_builder = self.remote_brioche_builder.clone();
@@ -198,8 +200,10 @@ impl LanguageServer for BriocheLspServer {
                             module_path,
                             LOCKFILE_LOAD_TIMEOUT,
                         )
+                        .instrument(span.clone())
                         .await;
                         let _ = lockfile_tx.send(result).inspect_err(|err| {
+                            let _span = span.entered();
                             tracing::warn!("failed to send lockfile update result: {err:?}");
                         });
                     });

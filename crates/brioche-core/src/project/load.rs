@@ -9,6 +9,7 @@ use futures::{StreamExt as _, TryStreamExt as _};
 use petgraph::visit::EdgeRef as _;
 use relative_path::{PathExt as _, RelativePathBuf};
 use tokio::io::AsyncReadExt as _;
+use tracing::Instrument as _;
 
 use crate::{
     Brioche,
@@ -31,21 +32,27 @@ pub async fn load_project(
 ) -> anyhow::Result<ProjectHash> {
     let rt = tokio::runtime::Handle::current();
     let (tx, rx) = tokio::sync::oneshot::channel();
+    let span = tracing::Span::current();
+
     std::thread::spawn(move || {
         let local_set = tokio::task::LocalSet::new();
 
         local_set.spawn_local(async move {
-            let result = Box::pin(load_project_inner(
-                &LoadProjectConfig {
-                    projects,
-                    brioche,
-                    validation,
-                    locking,
-                },
-                &path,
-            ))
+            let result = Box::pin(
+                load_project_inner(
+                    &LoadProjectConfig {
+                        projects,
+                        brioche,
+                        validation,
+                        locking,
+                    },
+                    &path,
+                )
+                .instrument(span.clone()),
+            )
             .await;
             let _ = tx.send(result).inspect_err(|err| {
+                let _span = span.entered();
                 tracing::warn!("failed to send project load result: {err:?}");
             });
         });
