@@ -852,17 +852,16 @@ impl superconsole::Component for JobComponent<'_> {
                 let child_id_span =
                     superconsole::Span::new_colored_lossy(&child_id, job_color(job_id));
 
-                superconsole::Lines::from_iter([superconsole::Line::from_iter(
-                    [
-                        elapsed_span,
-                        superconsole::Span::new_unstyled_lossy(" "),
-                        indicator_span(indicator),
-                        superconsole::Span::new_unstyled_lossy(" Process "),
-                        child_id_span,
-                    ]
-                    .into_iter()
-                    .chain(note_span),
-                )])
+                superconsole::Lines::from_iter([[
+                    elapsed_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                    indicator_span(indicator),
+                    superconsole::Span::new_unstyled_lossy(" Process "),
+                    child_id_span,
+                ]
+                .into_iter()
+                .chain(note_span)
+                .collect::<superconsole::Line>()])
             }
             Job::CacheFetch {
                 kind,
