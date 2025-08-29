@@ -161,7 +161,7 @@ async fn build_object_store(
     Ok(store)
 }
 
-#[tracing::instrument(skip(brioche))]
+#[tracing::instrument(skip(brioche), ret(level = tracing::Level::DEBUG))]
 pub async fn load_bake(
     brioche: &Brioche,
     input_hash: RecipeHash,

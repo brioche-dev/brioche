@@ -23,6 +23,7 @@ use super::{
     analyze::{GitRefOptions, ProjectAnalysis, StaticOutput, StaticOutputKind, StaticQuery},
 };
 
+#[tracing::instrument(skip_all, fields(?path), ret(level = tracing::Level::DEBUG))]
 pub async fn load_project(
     projects: Projects,
     brioche: Brioche,

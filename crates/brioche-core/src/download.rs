@@ -7,7 +7,7 @@ use crate::{
     reporter::job::{NewJob, UpdateJob},
 };
 
-#[tracing::instrument(skip(brioche, expected_hash))]
+#[tracing::instrument(skip_all, fields(%url))]
 pub async fn download(
     brioche: &Brioche,
     url: &url::Url,

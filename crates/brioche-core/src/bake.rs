@@ -114,7 +114,6 @@ pub async fn bake(
 
         anyhow::Ok(())
     }
-    .instrument(tracing::info_span!("bake_save_scope"))
     .await?;
 
     Ok(result)
