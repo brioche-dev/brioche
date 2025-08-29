@@ -6,7 +6,6 @@ use std::{
 
 use bstr::ByteSlice as _;
 use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_otlp::WithHttpConfig as _;
 use superconsole::style::Stylize as _;
 use tracing_subscriber::{Layer as _, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -138,7 +137,6 @@ pub fn start_console_reporter(
     if brioche_otel_enabled {
         let exporter = opentelemetry_otlp::SpanExporter::builder()
             .with_http()
-            .with_http_client(reqwest::Client::new())
             .build()?;
         let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
             .with_batch_exporter(exporter)
