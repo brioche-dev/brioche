@@ -25,7 +25,6 @@ pub struct InputOptions<'a> {
     pub meta: &'a Arc<Meta>,
 }
 
-#[tracing::instrument(skip_all, err, fields(input_path = %options.input_path.display()))]
 pub async fn create_input(
     brioche: &Brioche,
     options: InputOptions<'_>,

@@ -22,7 +22,6 @@ pub struct OutputOptions<'a> {
     pub link_locals: bool,
 }
 
-#[tracing::instrument(skip(brioche, artifact), fields(artifact_hash = %artifact.hash()), err)]
 pub async fn create_output(
     brioche: &Brioche,
     artifact: &Artifact,

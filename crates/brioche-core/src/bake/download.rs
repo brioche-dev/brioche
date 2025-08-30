@@ -3,7 +3,6 @@ use crate::{
     recipe::{Directory, DownloadRecipe, File},
 };
 
-#[tracing::instrument(skip(brioche, download), fields(url = %download.url))]
 pub async fn bake_download(brioche: &Brioche, download: DownloadRecipe) -> anyhow::Result<File> {
     let blob_hash = crate::download::download(brioche, &download.url, Some(download.hash)).await?;
 

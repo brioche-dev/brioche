@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Context as _;
 use bstr::BString;
+use tracing::Instrument as _;
 
 use crate::{
     Brioche,
@@ -12,7 +13,6 @@ use crate::{
     reporter::job::{NewJob, UpdateJob},
 };
 
-#[tracing::instrument(skip(brioche, unarchive), fields(file_recipe = %unarchive.file.hash(), archive = ?unarchive.archive, compression = ?unarchive.compression))]
 pub async fn bake_unarchive(
     brioche: &Brioche,
     scope: &super::BakeScope,
@@ -242,7 +242,7 @@ pub async fn bake_unarchive(
         let directory = Directory::create(brioche, &directory_entries).await?;
 
         anyhow::Ok(directory)
-    };
+    }.instrument(tracing::info_span!("bake_unarchive"));
 
     let ((), directory) = tokio::try_join!(process_archive_task, build_directory_fut)?;
 
