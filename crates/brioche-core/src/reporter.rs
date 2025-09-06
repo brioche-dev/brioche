@@ -1,3 +1,4 @@
+use crate::reporter::otel::OtelProvider;
 use std::sync::{Arc, atomic::AtomicUsize};
 
 use tracing::Instrument as _;
@@ -5,6 +6,7 @@ use tracing_subscriber::{Layer as _, layer::SubscriberExt as _, util::Subscriber
 
 pub mod console;
 pub mod job;
+pub mod otel;
 
 const DEFAULT_TRACING_LEVEL: &str = "brioche=info";
 const DEFAULT_DEBUG_TRACING_LEVEL: &str = "brioche=debug";
@@ -40,7 +42,7 @@ pub fn start_lsp_reporter(client: tower_lsp::Client) -> (Reporter, ReporterGuard
     let guard = ReporterGuard {
         tx,
         shutdown_rx: None,
-        opentelemetry_tracer_provider: None,
+        otel_provider: None,
     };
 
     let (lsp_tx, mut lsp_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -91,7 +93,7 @@ pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     let guard = ReporterGuard {
         tx,
         shutdown_rx: None,
-        opentelemetry_tracer_provider: None,
+        otel_provider: None,
     };
 
     (reporter, guard)
@@ -127,7 +129,7 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
     let guard = ReporterGuard {
         tx,
         shutdown_rx: None,
-        opentelemetry_tracer_provider: None,
+        otel_provider: None,
     };
 
     (reporter, guard)
@@ -136,7 +138,8 @@ pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
 pub struct ReporterGuard {
     tx: tokio::sync::mpsc::UnboundedSender<ReportEvent>,
     shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
-    opentelemetry_tracer_provider: Option<opentelemetry_sdk::trace::SdkTracerProvider>,
+    #[expect(dead_code)]
+    otel_provider: Option<OtelProvider>,
 }
 
 impl ReporterGuard {
@@ -159,10 +162,6 @@ impl Drop for ReporterGuard {
                     () = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
                 }
             });
-        }
-
-        if let Some(provider) = &self.opentelemetry_tracer_provider {
-            let _ = provider.shutdown();
         }
     }
 }

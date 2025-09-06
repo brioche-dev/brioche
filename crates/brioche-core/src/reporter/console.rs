@@ -5,7 +5,7 @@ use std::{
 };
 
 use bstr::ByteSlice as _;
-use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use superconsole::style::Stylize as _;
 use tracing_subscriber::{Layer as _, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -14,6 +14,7 @@ use crate::utils::{DisplayDuration, output_buffer::OutputBuffer};
 use super::{
     JobId, ReportEvent, Reporter, ReporterGuard,
     job::{Job, NewJob, ProcessStatus, ProcessStream, UpdateJob},
+    otel::OtelProvider,
     tracing_debug_filter, tracing_output_filter, tracing_root_filter,
 };
 
@@ -38,11 +39,6 @@ pub fn start_console_reporter(
     let queued_lines = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-
-    let brioche_otel_enabled = matches!(
-        std::env::var("BRIOCHE_ENABLE_OTEL").as_deref(),
-        Ok("1" | "true")
-    );
 
     let start = std::time::Instant::now();
 
@@ -131,44 +127,14 @@ pub fn start_console_reporter(
         let _ = shutdown_tx.send(());
     });
 
-    let guard;
-    let opentelemetry_layer;
+    let otel_provider = OtelProvider::new()?;
 
-    if brioche_otel_enabled {
-        let exporter = opentelemetry_otlp::SpanExporter::builder()
-            .with_http()
-            .build()?;
-        let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-            .with_batch_exporter(exporter)
-            .with_resource(
-                opentelemetry_sdk::Resource::builder()
-                    .with_service_name("brioche")
-                    .with_attribute(opentelemetry::KeyValue::new(
-                        opentelemetry_semantic_conventions::resource::SERVICE_VERSION,
-                        env!("CARGO_PKG_VERSION"),
-                    ))
-                    .build(),
-            )
-            .build();
+    let tracing_logger_layer = OpenTelemetryTracingBridge::new(otel_provider.get_logger_provider())
+        .with_filter(tracing_debug_filter());
 
-        opentelemetry_layer = Some(
-            tracing_opentelemetry::layer()
-                .with_tracer(provider.tracer("brioche"))
-                .with_filter(tracing_debug_filter()),
-        );
-        guard = ReporterGuard {
-            tx,
-            shutdown_rx: Some(shutdown_rx),
-            opentelemetry_tracer_provider: Some(provider),
-        };
-    } else {
-        opentelemetry_layer = None;
-        guard = ReporterGuard {
-            tx,
-            shutdown_rx: Some(shutdown_rx),
-            opentelemetry_tracer_provider: None,
-        }
-    }
+    let tracing_opentelemetry_layer = tracing_opentelemetry::layer()
+        .with_tracer(otel_provider.get_tracer())
+        .with_filter(tracing_debug_filter());
 
     let log_file_layer = std::env::var_os("BRIOCHE_LOG_OUTPUT").map_or_else(
         || None,
@@ -191,14 +157,10 @@ pub fn start_console_reporter(
     // HACK: Add a filter to the subscriber to remove debug logs that we
     // shouldn't see if no other layer needs them. This is a workaround for
     // this issue: https://github.com/tokio-rs/tracing/issues/2448
-    let root_filter = match (
-        &log_file_layer,
-        &opentelemetry_layer,
-        &tracing_console_layer,
-    ) {
-        (None, None, None) => Some(tracing_output_filter()),
-        (_, _, Some(_)) => Some(tracing_root_filter()),
-        _ => None,
+    let root_filter = if tracing_console_layer.is_some() {
+        Some(tracing_root_filter())
+    } else {
+        None
     };
 
     let reporter_layer = tracing_subscriber::fmt::layer()
@@ -206,13 +168,21 @@ pub fn start_console_reporter(
         .with_writer(reporter.clone())
         .without_time()
         .with_filter(tracing_output_filter());
+
     tracing_subscriber::registry()
         .with(root_filter)
         .with(tracing_console_layer)
         .with(reporter_layer)
         .with(log_file_layer)
-        .with(opentelemetry_layer)
+        .with(tracing_logger_layer)
+        .with(tracing_opentelemetry_layer)
         .init();
+
+    let guard = ReporterGuard {
+        tx,
+        shutdown_rx: Some(shutdown_rx),
+        otel_provider: Some(otel_provider),
+    };
 
     Ok((reporter, guard))
 }
