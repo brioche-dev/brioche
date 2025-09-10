@@ -227,8 +227,8 @@ impl ConsoleReporter {
                     NewJob::Unarchive {
                         started_at: _,
                         total_bytes: _,
-                    } => {}
-                    NewJob::Process { status: _ } => {}
+                    }
+                    | NewJob::Process { status: _ } => {}
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Bake,
                         downloaded_bytes: _,
@@ -412,8 +412,7 @@ impl ConsoleReporter {
                             }
                         }
                     }
-                    UpdateJob::CacheFetchAdd { .. } => {}
-                    UpdateJob::CacheFetchUpdate { .. } => {}
+                    UpdateJob::CacheFetchAdd { .. } | UpdateJob::CacheFetchUpdate { .. } => {}
                     UpdateJob::CacheFetchFinish { finished_at } => {
                         let elapsed = finished_at.saturating_duration_since(job.created_at());
 
@@ -852,17 +851,16 @@ impl superconsole::Component for JobComponent<'_> {
                 let child_id_span =
                     superconsole::Span::new_colored_lossy(&child_id, job_color(job_id));
 
-                superconsole::Lines::from_iter([superconsole::Line::from_iter(
-                    [
-                        elapsed_span,
-                        superconsole::Span::new_unstyled_lossy(" "),
-                        indicator_span(indicator),
-                        superconsole::Span::new_unstyled_lossy(" Process "),
-                        child_id_span,
-                    ]
-                    .into_iter()
-                    .chain(note_span),
-                )])
+                superconsole::Lines::from_iter([[
+                    elapsed_span,
+                    superconsole::Span::new_unstyled_lossy(" "),
+                    indicator_span(indicator),
+                    superconsole::Span::new_unstyled_lossy(" Process "),
+                    child_id_span,
+                ]
+                .into_iter()
+                .chain(note_span)
+                .collect::<superconsole::Line>()])
             }
             Job::CacheFetch {
                 kind,

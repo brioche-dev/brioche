@@ -23,7 +23,10 @@ pub fn logical_path(path: &Path) -> PathBuf {
         }
     }
 
-    PathBuf::from_iter(root_components.into_iter().chain(components))
+    root_components
+        .into_iter()
+        .chain(components)
+        .collect::<PathBuf>()
 }
 
 pub fn logical_path_bytes(path: &[u8]) -> anyhow::Result<Vec<u8>> {

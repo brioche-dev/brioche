@@ -20,6 +20,7 @@ pub struct LinuxNamespaceSandbox {
 }
 
 #[cfg(target_os = "linux")]
+#[expect(clippy::similar_names)]
 pub fn run_sandbox(
     sandbox: LinuxNamespaceSandbox,
     exec: super::SandboxExecutionConfig,

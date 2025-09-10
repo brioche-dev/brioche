@@ -16,10 +16,11 @@ pub struct SelfUpdateArgs {
 }
 
 const CUSTOM_UPDATE_MANIFEST_URL: Option<&str> = option_env!("BRIOCHE_CUSTOM_UPDATE_MANIFEST_URL");
-
 const UPDATE_MANIFEST_URL: &str = "https://releases.brioche.dev/updates/update-manifest-v1.json";
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const EXECUTABLE_BIT: u32 = 0o111;
 
 #[expect(clippy::print_stdout)]
 pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
@@ -94,7 +95,6 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
         .await
         .with_context(|| format!("failed to get metadata for {}", brioche_path_temp.display()))?
         .permissions();
-    const EXECUTABLE_BIT: u32 = 0o111;
     if permissions.mode() & EXECUTABLE_BIT != EXECUTABLE_BIT {
         permissions.set_mode(permissions.mode() | EXECUTABLE_BIT);
         tokio::fs::set_permissions(&brioche_path_temp, permissions)

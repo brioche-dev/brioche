@@ -155,6 +155,7 @@ async fn test_analyze_imports() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_analyze_nested_imports() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;

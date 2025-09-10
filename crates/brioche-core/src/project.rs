@@ -598,7 +598,7 @@ impl ProjectsInner {
     pub fn get_static(
         &self,
         specifier: &super::script::specifier::BriocheModuleSpecifier,
-        static_: &StaticQuery,
+        static_query: &StaticQuery,
     ) -> anyhow::Result<Option<StaticOutput>> {
         let super::script::specifier::BriocheModuleSpecifier::File { path } = specifier else {
             anyhow::bail!("could not get static for specifier {specifier}");
@@ -625,7 +625,7 @@ impl ProjectsInner {
         let Some(statics) = project.statics.get(&module_path) else {
             return Ok(None);
         };
-        let Some(Some(output)) = statics.get(static_) else {
+        let Some(Some(output)) = statics.get(static_query) else {
             return Ok(None);
         };
         Ok(Some(output.clone()))

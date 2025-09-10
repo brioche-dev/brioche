@@ -38,13 +38,13 @@ fn bench_blob_save_cached(bencher: divan::Bencher, num_blobs: u32) {
 
 #[divan::bench(args = [1, 10, 100])]
 fn bench_blob_save_uncached(bencher: divan::Bencher, num_blobs: u32) {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let (brioche, _context) = runtime.block_on(brioche_test_support::brioche_test());
-
-    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     bencher.bench_local(|| {
         runtime.block_on(async {
@@ -100,13 +100,13 @@ fn bench_blob_save_reader_cached(bencher: divan::Bencher, num_blobs: u32) {
 
 #[divan::bench(args = [1, 10, 100])]
 fn bench_blob_save_reader_uncached(bencher: divan::Bencher, num_blobs: u32) {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let (brioche, _context) = runtime.block_on(brioche_test_support::brioche_test());
-
-    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     bencher.bench_local(|| {
         runtime.block_on(async {
@@ -168,13 +168,13 @@ fn bench_blob_save_file_cached(bencher: divan::Bencher, num_blobs: u32) {
 
 #[divan::bench(args = [1, 10, 100])]
 fn bench_blob_save_file_uncached(bencher: divan::Bencher, num_blobs: u32) {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
     let (brioche, _context) = runtime.block_on(brioche_test_support::brioche_test());
-
-    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
     bencher.bench_local(|| {
         runtime.block_on(async {

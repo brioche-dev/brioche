@@ -27,7 +27,7 @@ where
         let encoded: Cow<'de, str> = serde::de::Deserialize::deserialize(deserializer)?;
         let decoded =
             tick_encoding::decode(encoded.as_bytes()).map_err(serde::de::Error::custom)?;
-        let deserialized = T::try_from(decoded.into_owned()).map_err(serde::de::Error::custom)?;
-        Ok(deserialized)
+
+        T::try_from(decoded.into_owned()).map_err(serde::de::Error::custom)
     }
 }

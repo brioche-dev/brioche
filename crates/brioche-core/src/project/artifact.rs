@@ -24,7 +24,7 @@ pub async fn create_artifact_with_projects(
 
     let mut written_projects = HashSet::new();
     let mut written_workspaces = HashSet::new();
-    let mut queued_projects = VecDeque::from_iter(project_hashes.iter().copied());
+    let mut queued_projects = project_hashes.iter().copied().collect::<VecDeque<_>>();
     let mut permit = crate::blob::get_save_blob_permit().await?;
 
     while let Some(project_hash) = queued_projects.pop_front() {

@@ -27,6 +27,7 @@ async fn blob_with_resource_paths(
     brioche_test_support::blob(brioche, content).await
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_bake_attach_resources_without_resources() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test().await;
@@ -65,6 +66,7 @@ async fn test_bake_attach_resources_without_resources() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_bake_attach_resources_add_all_resources() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test().await;
@@ -209,6 +211,7 @@ async fn test_bake_attach_resources_add_all_resources() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_bake_attach_resources_keep_existing_resources() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test().await;
@@ -322,6 +325,7 @@ async fn test_bake_attach_resources_keep_existing_resources() -> anyhow::Result<
     Ok(())
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_bake_attach_resources_layers() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test().await;

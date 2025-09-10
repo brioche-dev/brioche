@@ -103,7 +103,10 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
             Recipe::CreateDirectory(directory) => {
                 recipes.extend(directory.entries.into_values().map(|recipe| recipe.value));
             }
-            Recipe::Cast { recipe, to: _ } => {
+            Recipe::Cast { recipe, to: _ }
+            | Recipe::CollectReferences { recipe }
+            | Recipe::AttachResources { recipe }
+            | Recipe::Sync { recipe } => {
                 recipes.push_back(recipe.value);
             }
             Recipe::Merge { directories } => {
@@ -113,7 +116,11 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
                 directory,
                 depth: _,
             } => recipes.push_back(directory.value),
-            Recipe::Get { directory, path: _ } => {
+            Recipe::Get { directory, path: _ }
+            | Recipe::Glob {
+                directory,
+                patterns: _,
+            } => {
                 recipes.push_back(directory.value);
             }
             Recipe::Insert {
@@ -126,28 +133,13 @@ pub async fn load_rootfs_recipes(brioche: &Brioche, platform: brioche_core::plat
                     recipes.push_back(recipe.value);
                 }
             }
-            Recipe::Glob {
-                directory,
-                patterns: _,
-            } => {
-                recipes.push_back(directory.value);
-            }
             Recipe::SetPermissions {
                 file,
                 executable: _,
             } => {
                 recipes.push_back(file.value);
             }
-            Recipe::CollectReferences { recipe } => {
-                recipes.push_back(recipe.value);
-            }
-            Recipe::AttachResources { recipe } => {
-                recipes.push_back(recipe.value);
-            }
             Recipe::Proxy(_) => unimplemented!(),
-            Recipe::Sync { recipe } => {
-                recipes.push_back(recipe.value);
-            }
             Recipe::File {
                 content_blob: _,
                 executable: _,
@@ -950,8 +942,8 @@ pub async fn brioche_lsp_test_with(
     });
 
     let (client_io, server_io) = tokio::io::duplex(4096);
-    let (client_in, mut client_out) = tokio::io::split(client_io);
-    let (server_in, server_out) = tokio::io::split(server_io);
+    let (client_input, mut client_output) = tokio::io::split(client_io);
+    let (server_input, server_output) = tokio::io::split(server_io);
 
     let (request_tx, mut request_rx) = tokio::sync::mpsc::unbounded_channel();
     let response_handlers: Arc<
@@ -968,14 +960,15 @@ pub async fn brioche_lsp_test_with(
     tokio::spawn({
         async move {
             while let Some(message) = request_rx.recv().await {
-                let content =
+                let message_content =
                     serde_json::to_string(&message).context("failed to serialize message")?;
-                let content_length = content.len();
+                let content_length = message_content.len();
                 let content_length =
                     u64::try_from(content_length).context("content length out of range")?;
 
-                let protocol_message = format!("Content-Length: {content_length}\r\n\r\n{content}");
-                client_out
+                let protocol_message =
+                    format!("Content-Length: {content_length}\r\n\r\n{message_content}");
+                client_output
                     .write_all(protocol_message.as_bytes())
                     .await
                     .context("failed to write message")?;
@@ -996,11 +989,11 @@ pub async fn brioche_lsp_test_with(
         let response_handlers = response_handlers.clone();
         let notification_tx = notification_tx.clone();
         async move {
-            let mut client_in = tokio::io::BufReader::new(client_in);
+            let mut client_input = tokio::io::BufReader::new(client_input);
 
             loop {
                 let mut line = String::new();
-                let read_bytes = client_in.read_line(&mut line).await?;
+                let read_bytes = client_input.read_line(&mut line).await?;
                 if read_bytes == 0 {
                     break;
                 }
@@ -1019,7 +1012,7 @@ pub async fn brioche_lsp_test_with(
                     headers.push((header.to_string(), value.to_string()));
 
                     line.clear();
-                    let read_bytes = client_in.read_line(&mut line).await?;
+                    let read_bytes = client_input.read_line(&mut line).await?;
                     if read_bytes == 0 {
                         anyhow::bail!("unexpected end of stream")
                     }
@@ -1045,30 +1038,30 @@ pub async fn brioche_lsp_test_with(
                     .context("Content-Length out of range")?;
 
                 // Read body
-                let mut content = bstr::BString::new(vec![0; content_length_value]);
-                client_in
-                    .read_exact(&mut content)
+                let mut body_content = bstr::BString::new(vec![0; content_length_value]);
+                client_input
+                    .read_exact(&mut body_content)
                     .await
                     .context("failed to read message body")?;
 
                 let message: JsonRpcMessage =
-                    serde_json::from_slice(&content).with_context(|| {
+                    serde_json::from_slice(&body_content).with_context(|| {
                         format!(
-                            "failed to deserialize message body: {content:?}",
+                            "failed to deserialize message body: {body_content:?}",
                         )
                     })?;
 
                 if let Some(id) = &message.id {
                     // Received a response message, find the handler
                     // to send it to
-                    let response_handler = response_handlers.lock().await.remove(id).with_context(|| format!("received LSP message, but no associated handler is listening for it: {content:?}"))?;
+                    let response_handler = response_handlers.lock().await.remove(id).with_context(|| format!("received LSP message, but no associated handler is listening for it: {body_content:?}"))?;
 
-                    response_handler.send(message).map_err(|_| anyhow::anyhow!("failed to send message to channel: {content:?}"))?;
+                    response_handler.send(message).map_err(|_| anyhow::anyhow!("failed to send message to channel: {body_content:?}"))?;
                 } else if message.error.is_some() {
                     // Received an error message, but it has no request
                     // ID meaning it must be a notification from the server
 
-                    anyhow::bail!("received LSP error notification: {content:?}");
+                    anyhow::bail!("received LSP error notification: {body_content:?}");
                 } else {
                     // Try to broadcast notification
                     let _ = notification_tx.send(message);
@@ -1086,7 +1079,7 @@ pub async fn brioche_lsp_test_with(
         })
     });
 
-    tokio::spawn(tower_lsp::Server::new(server_in, server_out, socket).serve(service));
+    tokio::spawn(tower_lsp::Server::new(server_input, server_output, socket).serve(service));
 
     let mut lsp = LspContext {
         request_tx,

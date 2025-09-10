@@ -137,8 +137,7 @@ impl StaticInclude {
     #[must_use]
     pub fn path(&self) -> &str {
         match self {
-            Self::File { path } => path,
-            Self::Directory { path } => path,
+            Self::File { path } | Self::Directory { path } => path,
         }
     }
 }

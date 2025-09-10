@@ -333,8 +333,7 @@ impl ProcessPacket {
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
         match self {
-            Self::Stdout(bytes) => bytes,
-            Self::Stderr(bytes) => bytes,
+            Self::Stdout(bytes) | Self::Stderr(bytes) => bytes,
         }
     }
 }

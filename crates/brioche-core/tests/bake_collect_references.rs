@@ -1,5 +1,6 @@
 use brioche_core::recipe::{Recipe, WithMeta};
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_bake_collect_references() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;

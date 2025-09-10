@@ -148,10 +148,14 @@ pub async fn create_input(
                     .graph
                     .edges_directed(node_index, petgraph::Direction::Outgoing);
                 for edge in edges_out {
-                    let resource_path = match &edge.weight() {
-                        CreateInputPlanEdge::Resource { path } => path,
-                        CreateInputPlanEdge::IndirectResource { path } => path,
-                        _ => anyhow::bail!("unexpected edge for file node: {:?}", edge.weight()),
+                    let (CreateInputPlanEdge::Resource {
+                        path: resource_path,
+                    }
+                    | CreateInputPlanEdge::IndirectResource {
+                        path: resource_path,
+                    }) = &edge.weight()
+                    else {
+                        anyhow::bail!("unexpected edge for file node: {:?}", edge.weight())
                     };
 
                     let resource_node_index = edge.target();
@@ -315,7 +319,7 @@ fn add_input_plan_nodes(
         }
 
         let mut file = std::fs::File::open(options.input_path)
-            .with_context(|| format!("failed to open file {:?}", options.input_path))?;
+            .with_context(|| format!("failed to open file {}", options.input_path.display()))?;
         let extracted = brioche_pack::extract_pack(&mut file).ok();
         let pack = extracted.map(|extracted| extracted.pack);
         let resource_paths = pack.into_iter().flat_map(|pack| pack.paths());
