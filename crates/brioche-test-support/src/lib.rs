@@ -1239,7 +1239,7 @@ impl JsonRpcMessage {
             "warning: tried to parse JSON RPC message as a response, but both result and error were None"
         );
         Err(JsonRpcError {
-            code: 12345678,
+            code: 12_345_678,
             message: "Failed to parse JSON RPC message as a result".to_string(),
             data: None,
         })
