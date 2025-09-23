@@ -940,6 +940,8 @@ async fn resolve_static(
                 include.path(),
                 project_root.display(),
             );
+            let mut saved_paths = HashMap::default();
+            let meta = Default::default();
 
             let artifact = crate::input::create_input(
                 brioche,
@@ -948,8 +950,8 @@ async fn resolve_static(
                     remove_input: false,
                     resource_dir: None,
                     input_resource_dirs: &[],
-                    saved_paths: &mut Default::default(),
-                    meta: &Default::default(),
+                    saved_paths: &mut saved_paths,
+                    meta: &meta,
                 },
             )
             .await?;
@@ -1020,6 +1022,9 @@ async fn resolve_static(
 
             let artifacts = futures::stream::iter(paths)
                 .then(|(full_path, relative_path)| async move {
+                    let mut saved_paths = HashMap::default();
+                    let meta = Default::default();
+
                     let artifact = crate::input::create_input(
                         brioche,
                         crate::input::InputOptions {
@@ -1027,8 +1032,8 @@ async fn resolve_static(
                             remove_input: false,
                             resource_dir: None,
                             input_resource_dirs: &[],
-                            saved_paths: &mut Default::default(),
-                            meta: &Default::default(),
+                            saved_paths: &mut saved_paths,
+                            meta: &meta,
                         },
                     )
                     .await?;

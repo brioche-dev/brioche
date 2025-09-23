@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::hash::RandomState;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -179,11 +180,13 @@ async fn run_install(
         }
 
         if options.check {
-            let checked = brioche_core::script::check::check(
+            let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
+
+            let checked = brioche_core::script::check::check::<RandomState>(
                 brioche,
                 js_platform,
                 projects,
-                &HashSet::from_iter([project_hash]),
+                &project_hashes,
             )
             .await?;
 

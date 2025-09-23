@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::hash::RandomState;
 
 use anyhow::Context as _;
 use brioche_core::{project::ProjectLocking, utils::DisplayDuration};
@@ -71,11 +72,13 @@ pub async fn live_update(
 
     let build_future = async {
         if args.check {
-            let checked = brioche_core::script::check::check(
+            let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
+
+            let checked = brioche_core::script::check::check::<RandomState>(
                 &brioche,
                 js_platform,
                 &projects,
-                &HashSet::from_iter([project_hash]),
+                &project_hashes,
             )
             .await?;
 

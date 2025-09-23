@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf, process::ExitCode};
+use std::{collections::HashSet, hash::RandomState, path::PathBuf, process::ExitCode};
 
 use brioche_core::{
     Brioche,
@@ -98,11 +98,13 @@ async fn run_publish(
 
     projects.validate_no_dirty_lockfiles()?;
 
-    let result = brioche_core::script::check::check(
+    let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
+
+    let result = brioche_core::script::check::check::<RandomState>(
         brioche,
         js_platform,
         projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?
     .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);

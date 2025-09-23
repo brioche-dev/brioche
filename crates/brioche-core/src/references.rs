@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    hash::BuildHasher,
     sync::Arc,
 };
 
@@ -287,10 +288,10 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn descendent_artifact_blobs(
+pub async fn descendent_artifact_blobs<S: BuildHasher>(
     brioche: &Brioche,
     artifacts: impl IntoIterator<Item = Artifact>,
-    blobs: &mut HashSet<BlobHash>,
+    blobs: &mut HashSet<BlobHash, S>,
 ) -> anyhow::Result<()> {
     let mut visited = HashSet::new();
     let mut unvisited = VecDeque::from_iter(artifacts);

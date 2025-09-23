@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashSet, hash::RandomState, path::PathBuf};
 
 use assert_matches::assert_matches;
 use brioche_core::script::check::{CheckResult, DiagnosticLevel};
@@ -48,12 +48,13 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
     .await;
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -87,12 +88,13 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
     .await;
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -151,12 +153,13 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -191,12 +194,13 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project_no_validate(&brioche, &project_dir).await?;
+    let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -230,12 +234,13 @@ async fn test_check_invalid_unused_var() -> anyhow::Result<()> {
     .await;
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -276,12 +281,13 @@ async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
     .await;
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 

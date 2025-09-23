@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeSet, HashMap},
+    hash::{BuildHasher, RandomState},
     path::Path,
 };
 
@@ -199,8 +200,9 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
                 anyhow::Ok(expr)
             })
             .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
+        let env: HashMap<_, _, RandomState> = HashMap::default();
 
-        let json = expression_to_json(&project_export_expr, &Default::default())
+        let json = expression_to_json(&project_export_expr, &env)
             .with_context(|| format!("{file_line}: invalid project export"))?;
         anyhow::Ok((json, file_line))
     }).transpose()?;
@@ -354,6 +356,8 @@ pub async fn analyze_module(
                     "invalid import path: must be within project root",
                 );
 
+                let env = HashMap::default();
+
                 // Analyze the imported module, but start with a separate
                 // environment
                 let import_module_specifier = analyze_module(
@@ -361,7 +365,7 @@ pub async fn analyze_module(
                     &import_module_path,
                     project_path,
                     None,
-                    &Default::default(),
+                    &env,
                     local_modules,
                 )
                 .await?;
@@ -448,9 +452,9 @@ where
         .filter_map(std::result::Result::transpose)
 }
 
-pub fn find_statics<'a, D>(
+pub fn find_statics<'a, D, S: BuildHasher>(
     module: &'a biome_js_syntax::JsModule,
-    env: &'a HashMap<String, serde_json::Value>,
+    env: &'a HashMap<String, serde_json::Value, S>,
     mut display_location: impl FnMut(usize) -> D + 'a,
 ) -> impl Iterator<Item = anyhow::Result<StaticQuery>> + 'a
 where
@@ -632,9 +636,9 @@ where
         .filter_map(std::result::Result::transpose)
 }
 
-pub fn expression_to_json(
+pub fn expression_to_json<S: BuildHasher>(
     expr: &biome_js_syntax::AnyJsExpression,
-    env: &HashMap<String, serde_json::Value>,
+    env: &HashMap<String, serde_json::Value, S>,
 ) -> anyhow::Result<serde_json::Value> {
     use biome_js_syntax::{AnyJsExpression as Expr, AnyJsLiteralExpression as Literal};
     match expr {
@@ -844,9 +848,9 @@ pub fn expression_to_json(
     }
 }
 
-fn arg_to_json(
+fn arg_to_json<S: BuildHasher>(
     arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
-    env: &HashMap<String, serde_json::Value>,
+    env: &HashMap<String, serde_json::Value, S>,
 ) -> anyhow::Result<serde_json::Value> {
     let arg = arg?;
     let arg = arg
@@ -857,9 +861,9 @@ fn arg_to_json(
     anyhow::Ok(arg)
 }
 
-fn arg_to_string_literal(
+fn arg_to_string_literal<S: BuildHasher>(
     arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
-    env: &HashMap<String, serde_json::Value>,
+    env: &HashMap<String, serde_json::Value, S>,
 ) -> anyhow::Result<String> {
     let arg = arg_to_json(arg, env)?;
     let arg = arg.as_str().context("expected string argument")?;

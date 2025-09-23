@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::Write as _;
 
 use brioche_core::Brioche;
@@ -60,7 +61,9 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
         })
         .bench_values(|ctx| {
             ctx.runtime.block_on(async {
+                let mut saved_paths = HashMap::default();
                 let meta = Default::default();
+
                 brioche_core::input::create_input(
                     &ctx.brioche,
                     brioche_core::input::InputOptions {
@@ -68,7 +71,7 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
                         remove_input: removal.should_remove(),
                         resource_dir: Some(&ctx.input_resources),
                         input_resource_dirs: &[],
-                        saved_paths: &mut Default::default(),
+                        saved_paths: &mut saved_paths,
                         meta: &meta,
                     },
                 )
@@ -129,7 +132,9 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
         })
         .bench_values(|ctx| {
             ctx.runtime.block_on(async {
+                let mut saved_paths = HashMap::default();
                 let meta = Default::default();
+
                 brioche_core::input::create_input(
                     &ctx.brioche,
                     brioche_core::input::InputOptions {
@@ -137,7 +142,7 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
                         remove_input: removal.should_remove(),
                         resource_dir: Some(&ctx.input_resources),
                         input_resource_dirs: &[],
-                        saved_paths: &mut Default::default(),
+                        saved_paths: &mut saved_paths,
                         meta: &meta,
                     },
                 )
@@ -245,7 +250,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                         remove_input: removal.should_remove(),
                         resource_dir: Some(&ctx.input_resources),
                         input_resource_dirs: &[],
-                        saved_paths: &mut Default::default(),
+                        saved_paths: &mut HashMap::default(),
                         meta: &meta,
                     },
                 )
