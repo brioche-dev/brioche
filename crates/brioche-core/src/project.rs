@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
-    hash::BuildHasher,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -225,9 +224,9 @@ impl Projects {
         Ok(module_specifiers.collect())
     }
 
-    pub fn project_module_specifiers_for_projects<S: BuildHasher>(
+    pub fn project_module_specifiers_for_projects(
         &self,
-        project_hashes: &HashSet<ProjectHash, S>,
+        project_hashes: &HashSet<ProjectHash>,
     ) -> anyhow::Result<HashSet<super::script::specifier::BriocheModuleSpecifier>> {
         let projects = self
             .inner
@@ -572,9 +571,9 @@ impl ProjectsInner {
         Ok(paths)
     }
 
-    pub fn project_module_specifiers_for_projects<S: BuildHasher>(
+    pub fn project_module_specifiers_for_projects(
         &self,
-        project_hashes: &HashSet<ProjectHash, S>,
+        project_hashes: &HashSet<ProjectHash>,
     ) -> anyhow::Result<HashSet<super::script::specifier::BriocheModuleSpecifier>> {
         let mut module_specifiers = HashSet::new();
         for project_hash in project_hashes {

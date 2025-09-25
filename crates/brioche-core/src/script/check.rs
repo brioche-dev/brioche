@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::BuildHasher, rc::Rc};
+use std::{collections::HashSet, rc::Rc};
 
 use anyhow::Context as _;
 
@@ -11,11 +11,11 @@ use crate::{
 use super::{bridge::RuntimeBridge, specifier::BriocheModuleSpecifier};
 
 #[tracing::instrument(skip(brioche, projects), err)]
-pub async fn check<S: BuildHasher>(
+pub async fn check(
     brioche: &Brioche,
     js_platform: super::JsPlatform,
     projects: &Projects,
-    project_hashes: &HashSet<ProjectHash, S>,
+    project_hashes: &HashSet<ProjectHash>,
 ) -> anyhow::Result<CheckResult> {
     let project_specifiers = projects.project_module_specifiers_for_projects(project_hashes)?;
 
@@ -25,9 +25,9 @@ pub async fn check<S: BuildHasher>(
     Ok(result)
 }
 
-async fn check_with_deno<S: BuildHasher + Send + 'static>(
+async fn check_with_deno(
     _js_platform: super::JsPlatform,
-    project_specifiers: HashSet<super::specifier::BriocheModuleSpecifier, S>,
+    project_specifiers: HashSet<super::specifier::BriocheModuleSpecifier>,
     bridge: RuntimeBridge,
 ) -> anyhow::Result<CheckResult> {
     // Create a channel to get the result from the other Tokio runtime

@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::RandomState, path::PathBuf, process::ExitCode};
+use std::{collections::HashSet, path::PathBuf, process::ExitCode};
 
 use anyhow::Context as _;
 use brioche_core::{fs_utils, project::ProjectLocking, utils::DisplayDuration};
@@ -97,7 +97,7 @@ pub async fn build(
         }
 
         if args.check {
-            let project_hashes: HashSet<_, RandomState> = HashSet::from_iter([project_hash]);
+            let project_hashes = HashSet::from_iter([project_hash]);
 
             let checked = brioche_core::script::check::check(
                 &brioche,
