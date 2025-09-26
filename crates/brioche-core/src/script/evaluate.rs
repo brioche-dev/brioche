@@ -127,7 +127,7 @@ async fn evaluate_with_deno(
 
             // Resolve the export if it's a promise
             let resolved_result_fut = js_runtime.resolve(result);
-            let resolved_result = js_runtime.with_event_loop_promise(resolved_result_fut, Default::default()).await?;
+            let resolved_result = js_runtime.with_event_loop_promise(resolved_result_fut, deno_core::PollEventLoopOptions::default()).await?;
 
             // Call the `briocheSerialize` function on the result
             let serialized_result = {
@@ -164,7 +164,7 @@ async fn evaluate_with_deno(
 
             // Resolve the result of `briocheSerialize` if it's a promise
             let serialized_resolved_result_fut = js_runtime.resolve(serialized_result);
-            let serialized_resolved_result = js_runtime.with_event_loop_promise(serialized_resolved_result_fut, Default::default()).await?;
+            let serialized_resolved_result = js_runtime.with_event_loop_promise(serialized_resolved_result_fut, deno_core::PollEventLoopOptions::default()).await?;
 
             let mut js_scope = js_runtime.handle_scope();
 

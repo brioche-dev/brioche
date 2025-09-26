@@ -12,11 +12,11 @@ use tower_lsp::lsp_types::{
     DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFormattingParams,
     DocumentHighlight, DocumentHighlightParams, FullDocumentDiagnosticReport, GotoDefinitionParams,
     GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, InitializedParams, Location, MessageType, OneOf, Position,
-    PrepareRenameResponse, Range, ReferenceParams, RelatedFullDocumentDiagnosticReport,
+    InitializeResult, InitializedParams, Location, MessageType, OneOf, PartialResultParams,
+    Position, PrepareRenameResponse, Range, ReferenceParams, RelatedFullDocumentDiagnosticReport,
     RenameOptions, RenameParams, ServerCapabilities, TextDocumentIdentifier,
     TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
-    WorkspaceEdit,
+    WorkDoneProgressOptions, WorkDoneProgressParams, WorkspaceEdit,
 };
 use tower_lsp::{Client, LanguageServer};
 use tracing::Instrument as _;
@@ -97,9 +97,9 @@ impl BriocheLspServer {
             .send(JsLspMessage::Diagnostic(DocumentDiagnosticParams {
                 identifier: None,
                 previous_result_id: None,
-                partial_result_params: Default::default(),
+                partial_result_params: PartialResultParams::default(),
                 text_document,
-                work_done_progress_params: Default::default(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
             }))
             .await?;
         Ok(diagnostics)
@@ -126,7 +126,7 @@ impl LanguageServer for BriocheLspServer {
                 document_highlight_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
                     prepare_provider: Some(true),
-                    work_done_progress_options: Default::default(),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
                 })),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 ..Default::default()

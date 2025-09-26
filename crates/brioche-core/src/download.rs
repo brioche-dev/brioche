@@ -103,7 +103,10 @@ pub async fn fetch_git_commit_for_ref(
             .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
         move || {
             // Connect to the repository by URL
-            let transport = gix::protocol::transport::connect(repository, Default::default());
+            let transport = gix::protocol::transport::connect(
+                repository,
+                gix::protocol::transport::client::connect::Options::default(),
+            );
             let mut transport = match transport {
                 Ok(transport) => transport,
                 Err(error) => {

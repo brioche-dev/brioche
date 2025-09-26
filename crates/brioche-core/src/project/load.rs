@@ -14,7 +14,7 @@ use tracing::Instrument as _;
 use crate::{
     Brioche,
     project::{DependencyRef, ProjectEntry, Workspace, WorkspaceHash},
-    recipe::Artifact,
+    recipe::{Artifact, Directory},
 };
 
 use super::{
@@ -941,7 +941,7 @@ async fn resolve_static(
                 project_root.display(),
             );
             let mut saved_paths = HashMap::default();
-            let meta = Default::default();
+            let meta = Arc::default();
 
             let artifact = crate::input::create_input(
                 brioche,
@@ -1023,7 +1023,7 @@ async fn resolve_static(
             let artifacts = futures::stream::iter(paths)
                 .then(|(full_path, relative_path)| async move {
                     let mut saved_paths = HashMap::default();
-                    let meta = Default::default();
+                    let meta = Arc::default();
 
                     let artifact = crate::input::create_input(
                         brioche,
@@ -1125,7 +1125,7 @@ async fn resolve_static(
                 let download_artifact = crate::recipe::Artifact::File(crate::recipe::File {
                     content_blob: blob_hash,
                     executable: false,
-                    resources: Default::default(),
+                    resources: Directory::default(),
                 });
 
                 let download_recipe_json = serde_json::to_string(&download_recipe)

@@ -97,7 +97,7 @@ pub async fn create_input(
                         &mut blob_permit,
                         &path,
                         super::blob::SaveBlobOptions::default().remove_input(remove_blob),
-                        &mut Default::default(),
+                        &mut Vec::default(),
                     )
                     .await?;
 
