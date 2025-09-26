@@ -48,12 +48,13 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
     .await;
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -87,12 +88,13 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
     .await;
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -135,10 +137,10 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
         .local_registry_project(async |path| {
             tokio::fs::write(
                 path.join("project.bri"),
-                r#"
+                r"
                     export const project = {};
                     export const foo: number = 123;
-                "#,
+                ",
             )
             .await
             .unwrap();
@@ -151,12 +153,13 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -191,12 +194,13 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
 
     let (projects, project_hash) =
         brioche_test_support::load_project_no_validate(&brioche, &project_dir).await?;
+    let project_hashes = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -230,12 +234,13 @@ async fn test_check_invalid_unused_var() -> anyhow::Result<()> {
     .await;
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 
@@ -276,12 +281,13 @@ async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
     .await;
     let (projects, project_hash) =
         brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes = HashSet::from_iter([project_hash]);
 
     let result = brioche_core::script::check::check(
         &brioche,
         brioche_core::script::initialize_js_platform(),
         &projects,
-        &HashSet::from_iter([project_hash]),
+        &project_hashes,
     )
     .await?;
 

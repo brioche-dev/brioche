@@ -158,7 +158,9 @@ impl object_store::CredentialProvider for AwsS3CredentialProvider {
         Ok(Arc::new(object_store::aws::AwsCredential {
             key_id: credentials.access_key_id().to_string(),
             secret_key: credentials.secret_access_key().to_string(),
-            token: credentials.session_token().map(|token| token.to_string()),
+            token: credentials
+                .session_token()
+                .map(std::string::ToString::to_string),
         }))
     }
 }
@@ -190,10 +192,10 @@ pub struct AwsS3Config {
 
 #[must_use]
 pub fn load_s3_config(config: &aws_config::SdkConfig) -> AwsS3Config {
-    let region = config.region().map(|region| region.to_string());
+    let region = config.region().map(std::string::ToString::to_string);
 
     let endpoint = if config.get_origin("endpoint_url").is_client_config() {
-        config.endpoint_url().map(|endpoint| endpoint.to_string())
+        config.endpoint_url().map(std::string::ToString::to_string)
     } else {
         config
             .service_config()
@@ -207,7 +209,7 @@ pub fn load_s3_config(config: &aws_config::SdkConfig) -> AwsS3Config {
                         .unwrap(),
                 )
             })
-            .or_else(|| config.endpoint_url().map(|endpoint| endpoint.to_string()))
+            .or_else(|| config.endpoint_url().map(std::string::ToString::to_string))
     };
 
     AwsS3Config {

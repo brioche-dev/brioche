@@ -119,16 +119,15 @@ async fn evaluate_with_deno(
                             deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
                         ))
                         .with_context(|| format!("error when calling {export}"));
-                    } else {
-                        anyhow::bail!("unknown error when calling {export}");
                     }
+                    anyhow::bail!("unknown error when calling {export}");
                 };
                 deno_core::v8::Global::new(&mut js_scope, result)
             };
 
             // Resolve the export if it's a promise
             let resolved_result_fut = js_runtime.resolve(result);
-            let resolved_result = js_runtime.with_event_loop_promise(resolved_result_fut, Default::default()).await?;
+            let resolved_result = js_runtime.with_event_loop_promise(resolved_result_fut, deno_core::PollEventLoopOptions::default()).await?;
 
             // Call the `briocheSerialize` function on the result
             let serialized_result = {
@@ -156,9 +155,8 @@ async fn evaluate_with_deno(
                             deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
                         ))
                         .with_context(|| format!("error when serializing result from {export}"));
-                    } else {
-                        anyhow::bail!("unknown error when serializing result from {export}");
                     }
+                    anyhow::bail!("unknown error when serializing result from {export}");
                 };
 
                 deno_core::v8::Global::new(&mut js_scope, serialized_result)
@@ -166,7 +164,7 @@ async fn evaluate_with_deno(
 
             // Resolve the result of `briocheSerialize` if it's a promise
             let serialized_resolved_result_fut = js_runtime.resolve(serialized_result);
-            let serialized_resolved_result = js_runtime.with_event_loop_promise(serialized_resolved_result_fut, Default::default()).await?;
+            let serialized_resolved_result = js_runtime.with_event_loop_promise(serialized_resolved_result_fut, deno_core::PollEventLoopOptions::default()).await?;
 
             let mut js_scope = js_runtime.handle_scope();
 

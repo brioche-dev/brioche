@@ -60,37 +60,37 @@ jobs:
           brioche fmt --check
 
   test:
-    name: Run tests [${{ matrix.test.name }}]
+    name: Run tests [${{ matrix.name }}]
     strategy:
       matrix:
-        test:
+        include:
           - name: x86-64 Ubuntu 22.04
-            runs_on: ubuntu-22.04
+            runs-on: ubuntu-22.04
 
           - name: x86-64 Ubuntu 22.04 + PRoot
-            runs_on: ubuntu-22.04
+            runs-on: ubuntu-22.04
             setup: |
               echo 'BRIOCHE_TEST_SANDBOX=linux_namespace' >> "$GITHUB_ENV"
               echo 'BRIOCHE_TEST_SANDBOX_PROOT=true' >> "$GITHUB_ENV"
 
           - name: x86-64 Ubuntu 24.04
-            runs_on: ubuntu-24.04
+            runs-on: ubuntu-24.04
 
           - name: x86-64 Ubuntu 24.04 + Namespaces
-            runs_on: ubuntu-24.04
+            runs-on: ubuntu-24.04
             setup: |
               echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf
               sudo sysctl --system
 
           - name: aarch64 macOS 15
-            runs_on: macos-15
-    runs-on: ${{ matrix.test.runs_on }}
+            runs-on: macos-15
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
       - name: Set up runner
-        if: matrix.test.setup
-        run: ${{ matrix.test.setup }}
+        if: matrix.setup
+        run: ${{ matrix.setup }}
       # Run tests in release mode. Running tests in debug mode uses a lot
       # more disk space, so much so that it can cause the run to fail
       - name: Run tests
@@ -105,39 +105,40 @@ jobs:
       - run: ":"
 
   build:
-    name: Build artifacts [${{ matrix.platform.name }}]
+    name: Build artifacts [${{ matrix.name }}]
     if: github.event_name == 'push'
     strategy:
       matrix:
-        platform:
-          - name: x86_64-linux-gnu
-            runs_on: ubuntu-22.04
+        include:
+          - name: x86_64-linux
+            runs-on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - name: aarch64-linux-gnu
-            runs_on: ubuntu-22.04-arm
+          - name: aarch64-linux
+            runs-on: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
           - name: x86_64-macos
-            runs_on: macos-15
+            runs-on: macos-15
             target: x86_64-apple-darwin
           - name: aarch64-macos
-            runs_on: macos-15
+            runs-on: macos-15
             target: aarch64-apple-darwin
-    runs-on: ${{ matrix.platform.runs_on }}
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-      - name: Install dependencies
-        if: matrix.platform.install_deps
-        run: ${{ matrix.platform.install_deps }}
       - name: Install Rust targets
         run: rustup target add "$TARGET"
         env:
-          TARGET: ${{ matrix.platform.target }}
+          TARGET: ${{ matrix.target }}
       - name: Build Brioche
         run: |
-          cargo build --bin brioche --release --target="$TARGET"
+          cargo build \
+            --all \
+            --bin brioche \
+            --release \
+            --target="$TARGET"
         env:
-          TARGET: ${{ matrix.platform.target }}
+          TARGET: ${{ matrix.target }}
       - name: Prepare artifact
         id: prepare-artifact
         run: |
@@ -159,8 +160,8 @@ jobs:
             find artifacts/ -type f | xargs sha256sum
           fi
         env:
-          PLATFORM: ${{ matrix.platform.name }}
-          TARGET: ${{ matrix.platform.target }}
+          PLATFORM: ${{ matrix.name }}
+          TARGET: ${{ matrix.target }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -170,34 +171,32 @@ jobs:
           if-no-files-found: error
 
   build-packed:
-    name: Build packed artifacts [${{ matrix.platform.name }}]
+    name: Build packed artifacts [${{ matrix.name }}]
     if: github.event_name == 'push'
     strategy:
       matrix:
-        platform:
+        include:
           - name: x86_64-linux
-            runs_on: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
+            runs-on: ubuntu-22.04
           - name: aarch64-linux
-            runs_on: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
+            runs-on: ubuntu-22.04-arm
             nightly: "true"
-    runs-on: ${{ matrix.platform.runs_on }}
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
       - name: Install Brioche
-        if: matrix.platform.nightly != 'true'
+        if: matrix.nightly != 'true'
         uses: brioche-dev/setup-brioche@v1
       - name: Install Brioche (nightly)
-        if: matrix.platform.nightly == 'true'
+        if: matrix.nightly == 'true'
         run: |
           mkdir -p ~/.local/bin
           curl -L https://development-content.brioche.dev/github.com/brioche-dev/brioche/branches/main/$PLATFORM/brioche -o ~/.local/bin/brioche
           chmod +x ~/.local/bin/brioche
           echo "$HOME/.local/bin" >> $GITHUB_PATH
         env:
-          PLATFORM: ${{ matrix.platform.name }}
+          PLATFORM: ${{ matrix.name }}
       - name: Build Brioche
         id: build
         # HACK: Added a workaround for bug fixed by https://github.com/brioche-dev/brioche/pull/216
@@ -221,7 +220,7 @@ jobs:
             find artifacts/ -type f | xargs sha256sum
           fi
         env:
-          PLATFORM: ${{ matrix.platform.name }}
+          PLATFORM: ${{ matrix.name }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

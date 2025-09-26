@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::io::Write as _;
+use std::sync::Arc;
 
 use brioche_core::Brioche;
 
@@ -32,7 +34,7 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
                     &mut file,
                     &brioche_pack::Pack::Metadata {
                         resource_paths: vec![format!("{i}_resources").into()],
-                        format: "".to_string(),
+                        format: String::new(),
                         metadata: vec![],
                     },
                 )
@@ -60,7 +62,9 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
         })
         .bench_values(|ctx| {
             ctx.runtime.block_on(async {
-                let meta = Default::default();
+                let mut saved_paths = HashMap::default();
+                let meta = Arc::default();
+
                 brioche_core::input::create_input(
                     &ctx.brioche,
                     brioche_core::input::InputOptions {
@@ -68,7 +72,7 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
                         remove_input: removal.should_remove(),
                         resource_dir: Some(&ctx.input_resources),
                         input_resource_dirs: &[],
-                        saved_paths: &mut Default::default(),
+                        saved_paths: &mut saved_paths,
                         meta: &meta,
                     },
                 )
@@ -104,7 +108,7 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
                     &mut file,
                     &brioche_pack::Pack::Metadata {
                         resource_paths: vec!["common_resources".into()],
-                        format: "".to_string(),
+                        format: String::new(),
                         metadata: vec![],
                     },
                 )
@@ -129,7 +133,9 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
         })
         .bench_values(|ctx| {
             ctx.runtime.block_on(async {
-                let meta = Default::default();
+                let mut saved_paths = HashMap::default();
+                let meta = Arc::default();
+
                 brioche_core::input::create_input(
                     &ctx.brioche,
                     brioche_core::input::InputOptions {
@@ -137,7 +143,7 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
                         remove_input: removal.should_remove(),
                         resource_dir: Some(&ctx.input_resources),
                         input_resource_dirs: &[],
-                        saved_paths: &mut Default::default(),
+                        saved_paths: &mut saved_paths,
                         meta: &meta,
                     },
                 )
@@ -181,7 +187,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                         &mut inner_resource_file,
                         &brioche_pack::Pack::Metadata {
                             resource_paths: vec!["common_resources".into()],
-                            format: "".to_string(),
+                            format: String::new(),
                             metadata: vec![],
                         },
                     )
@@ -197,7 +203,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                     &mut file,
                     &brioche_pack::Pack::Metadata {
                         resource_paths: vec![format!("resources{i}").into()],
-                        format: "".to_string(),
+                        format: String::new(),
                         metadata: vec![],
                     },
                 )
@@ -220,7 +226,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                     &mut file,
                     &brioche_pack::Pack::Metadata {
                         resource_paths: vec!["shared.txt".into()],
-                        format: "".to_string(),
+                        format: String::new(),
                         metadata: vec![],
                     },
                 )
@@ -237,7 +243,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
         })
         .bench_values(|ctx| {
             ctx.runtime.block_on(async {
-                let meta = Default::default();
+                let meta = Arc::default();
                 brioche_core::input::create_input(
                     &ctx.brioche,
                     brioche_core::input::InputOptions {
@@ -245,7 +251,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                         remove_input: removal.should_remove(),
                         resource_dir: Some(&ctx.input_resources),
                         input_resource_dirs: &[],
-                        saved_paths: &mut Default::default(),
+                        saved_paths: &mut HashMap::default(),
                         meta: &meta,
                     },
                 )

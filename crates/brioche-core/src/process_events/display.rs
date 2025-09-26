@@ -79,10 +79,9 @@ where
                     // then retry
                     follow_events.recv()??;
                     continue;
-                } else {
-                    // We're at end of file, so we're done
-                    break;
                 }
+                // We're at end of file, so we're done
+                break;
             }
             Err(error) if error.is_unexpected_eof() => {
                 // We got an "unexpected EOF" error
@@ -97,10 +96,9 @@ where
 
                     // Retry the read
                     continue;
-                } else {
-                    // Otherwise, just bubble up the error
-                    return Err(error.into());
                 }
+                // Otherwise, just bubble up the error
+                return Err(error.into());
             }
             Err(error) => {
                 // For other kinds of errors, bubble it up

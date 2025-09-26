@@ -1,8 +1,8 @@
 use brioche_core::cache::CacheClient;
 use futures::TryStreamExt as _;
 use tower_lsp::lsp_types::{
-    self, Position, TextDocumentIdentifier, TextDocumentItem, TextDocumentPositionParams,
-    notification, request,
+    self, PartialResultParams, Position, TextDocumentIdentifier, TextDocumentItem,
+    TextDocumentPositionParams, WorkDoneProgressParams, notification, request,
 };
 use url::Url;
 
@@ -64,8 +64,8 @@ async fn test_lsp_on_save_respects_existing_lock() -> anyhow::Result<()> {
                 Position::new(2, 14),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -170,8 +170,8 @@ async fn test_lsp_on_save_fetches_locked_dependency() -> anyhow::Result<()> {
                 Position::new(2, 14),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -230,8 +230,8 @@ async fn test_lsp_on_save_fetches_locked_dependency() -> anyhow::Result<()> {
                 Position::new(2, 14),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -332,8 +332,8 @@ async fn test_lsp_on_save_fetches_dependency_and_updates_lockfile() -> anyhow::R
                 Position::new(2, 14),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -406,8 +406,8 @@ async fn test_lsp_on_save_fetches_dependency_and_updates_lockfile() -> anyhow::R
                 Position::new(2, 14),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");

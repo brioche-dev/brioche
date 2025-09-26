@@ -97,11 +97,13 @@ pub async fn build(
         }
 
         if args.check {
+            let project_hashes = HashSet::from_iter([project_hash]);
+
             let checked = brioche_core::script::check::check(
                 &brioche,
                 js_platform,
                 &projects,
-                &HashSet::from_iter([project_hash]),
+                &project_hashes,
             )
             .await?;
 

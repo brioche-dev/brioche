@@ -6,6 +6,9 @@ use tower_lsp::lsp_types::{
 };
 use url::Url;
 
+use crate::lsp_types::PartialResultParams;
+use crate::lsp_types::WorkDoneProgressParams;
+
 // Timeout used to wait for messages back from the LSP. This is mainly used
 // as a sanity check to prevent a test from hanging forever
 const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
@@ -41,8 +44,8 @@ async fn test_lsp_completions_simple() -> anyhow::Result<()> {
                 Position::new(4, 11),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -110,8 +113,8 @@ async fn test_lsp_completions_from_import() -> anyhow::Result<()> {
                 Position::new(2, 26),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -196,8 +199,8 @@ async fn test_lsp_completions_from_local_registry_import() -> anyhow::Result<()>
                 Position::new(2, 14),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -301,8 +304,8 @@ async fn test_lsp_completions_from_remote_registry_import() -> anyhow::Result<()
                 Position::new(2, 14),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -373,8 +376,8 @@ async fn test_lsp_completions_from_workspace_import() -> anyhow::Result<()> {
                 Position::new(2, 20),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");
@@ -409,9 +412,9 @@ async fn test_lsp_completions_in_unsaved_edited_file() -> anyhow::Result<()> {
     let project_root = context
         .write_file(
             "myproject/project.bri",
-            indoc::indoc! {r#"
+            indoc::indoc! {r"
                 // File on disk is effectively empty
-            "#},
+            "},
         )
         .await;
 
@@ -442,8 +445,8 @@ async fn test_lsp_completions_in_unsaved_edited_file() -> anyhow::Result<()> {
                 Position::new(4, 11),
             ),
             context: None,
-            partial_result_params: Default::default(),
-            work_done_progress_params: Default::default(),
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
         })
         .await
         .expect("no completion response returned");

@@ -151,10 +151,14 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
             resources,
             content_blob: _,
             executable: _,
+        }
+        | Recipe::CreateFile {
+            content: _,
+            executable: _,
+            resources,
         } => referenced_recipes(resources),
         Recipe::Directory(directory) => directory.entry_hashes().values().copied().collect(),
-        Recipe::Symlink { .. } => vec![],
-        Recipe::Download(_) => vec![],
+        Recipe::Symlink { .. } | Recipe::Download(_) => vec![],
         Recipe::Unarchive(unarchive) => referenced_recipes(&unarchive.file),
         Recipe::Process(process) => {
             let ProcessRecipe {
@@ -244,17 +248,15 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
                 .chain(output_scaffold.iter().flat_map(referenced_recipes))
                 .collect()
         }
-        Recipe::CreateFile {
-            content: _,
-            executable: _,
-            resources,
-        } => referenced_recipes(resources),
+        Recipe::CollectReferences { recipe }
+        | Recipe::AttachResources { recipe }
+        | Recipe::Sync { recipe }
+        | Recipe::Cast { recipe, to: _ } => referenced_recipes(recipe),
         Recipe::CreateDirectory(directory) => directory
             .entries
             .values()
             .flat_map(|entry| referenced_recipes(entry))
             .collect(),
-        Recipe::Cast { recipe, to: _ } => referenced_recipes(recipe),
         Recipe::Merge { directories } => directories
             .iter()
             .flat_map(|dir| referenced_recipes(dir))
@@ -262,8 +264,12 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
         Recipe::Peel {
             directory,
             depth: _,
+        }
+        | Recipe::Get { directory, path: _ }
+        | Recipe::Glob {
+            directory,
+            patterns: _,
         } => referenced_recipes(directory),
-        Recipe::Get { directory, path: _ } => referenced_recipes(directory),
         Recipe::Insert {
             directory,
             path: _,
@@ -272,18 +278,11 @@ pub fn referenced_recipes(recipe: &Recipe) -> Vec<RecipeHash> {
             .into_iter()
             .chain(recipe.iter().flat_map(|recipe| referenced_recipes(recipe)))
             .collect(),
-        Recipe::Glob {
-            directory,
-            patterns: _,
-        } => referenced_recipes(directory),
         Recipe::SetPermissions {
             file,
             executable: _,
         } => referenced_recipes(file),
         Recipe::Proxy(proxy) => vec![proxy.recipe],
-        Recipe::CollectReferences { recipe } => referenced_recipes(recipe),
-        Recipe::AttachResources { recipe } => referenced_recipes(recipe),
-        Recipe::Sync { recipe } => referenced_recipes(recipe),
     }
 }
 
@@ -435,11 +434,11 @@ pub async fn local_recipes(
 
         let batch_known_recipes = sqlx::query_as_with::<_, (String,), _>(
             &format!(
-                r#"
+                r"
                     SELECT recipe_hash
                     FROM recipes
                     WHERE recipe_hash IN ({placeholders})
-                "#,
+                ",
             ),
             arguments,
         )

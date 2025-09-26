@@ -114,7 +114,6 @@ pub async fn bake(
 
         anyhow::Ok(())
     }
-    .instrument(tracing::info_span!("bake_save_scope"))
     .await?;
 
     Ok(result)
@@ -249,49 +248,46 @@ async fn bake_inner(
         None => None,
     };
 
-    let result_artifact = match artifact_from_cache {
-        Some(artifact) => {
-            // Retrieved the artifact from the cache
-            Ok(artifact)
-        }
-        None => {
-            // Bake the recipe for real if we didn't get it from the registry
-            let bake_fut = {
-                let brioche = brioche.clone();
-                let meta = meta.clone();
-                async move {
-                    // Clone the recipe (but only if we are going to sync it)
-                    let input_recipe = if recipe.is_expensive_to_bake() {
-                        Some(recipe.value.clone())
-                    } else {
-                        None
-                    };
+    let result_artifact = if let Some(artifact) = artifact_from_cache {
+        // Retrieved the artifact from the cache
+        Ok(artifact)
+    } else {
+        // Bake the recipe for real if we didn't get it from the registry
+        let bake_fut = {
+            let brioche = brioche.clone();
+            let meta = meta.clone();
+            async move {
+                // Clone the recipe (but only if we are going to sync it)
+                let input_recipe = if recipe.is_expensive_to_bake() {
+                    Some(recipe.value.clone())
+                } else {
+                    None
+                };
 
-                    // Bake the recipe
-                    let baked = run_bake(&brioche, recipe.value, &meta).await?;
+                // Bake the recipe
+                let baked = run_bake(&brioche, recipe.value, &meta).await?;
 
-                    // Send expensive recipes to optionally be synced to
-                    // the registry right after we baked it
-                    if let Some(input_recipe) = input_recipe {
-                        brioche
-                            .sync_tx
-                            .send(crate::SyncMessage::StartSync {
-                                brioche: brioche.clone(),
-                                recipe: input_recipe,
-                                artifact: baked.clone(),
-                            })
-                            .await?;
-                    }
-
-                    anyhow::Ok(baked)
+                // Send expensive recipes to optionally be synced to
+                // the registry right after we baked it
+                if let Some(input_recipe) = input_recipe {
+                    brioche
+                        .sync_tx
+                        .send(crate::SyncMessage::StartSync {
+                            brioche: brioche.clone(),
+                            recipe: input_recipe,
+                            artifact: baked.clone(),
+                        })
+                        .await?;
                 }
-                .instrument(tracing::Span::current())
-            };
-            tokio::spawn(bake_fut).await?.map_err(|error| BakeFailed {
-                message: format!("{error:#}"),
-                meta: meta.clone(),
-            })
-        }
+
+                anyhow::Ok(baked)
+            }
+            .instrument(tracing::Span::current())
+        };
+        tokio::spawn(bake_fut).await?.map_err(|error| BakeFailed {
+            message: format!("{error:#}"),
+            meta: meta.clone(),
+        })
     };
 
     // Write the baked recipe to the database on success

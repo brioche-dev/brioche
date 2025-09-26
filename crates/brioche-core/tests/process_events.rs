@@ -1,3 +1,5 @@
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use jiff::Zoned;
@@ -8,9 +10,9 @@ use brioche_core::{
         ProcessExitedEvent, ProcessOutputEvent, ProcessSpawnedEvent, create_process_output_events,
         reader::ProcessEventReader, writer::ProcessEventWriter,
     },
-    recipe::{CompleteProcessRecipe, CompleteProcessTemplate, Meta},
+    recipe::{CompleteProcessRecipe, CompleteProcessTemplate, Directory, Meta},
     reporter::job::ProcessStream,
-    sandbox::{ExitStatus, SandboxExecutionConfig},
+    sandbox::{ExitStatus, SandboxExecutionConfig, SandboxTemplate},
 };
 
 #[must_use]
@@ -18,8 +20,8 @@ pub fn example_complete_process() -> CompleteProcessRecipe {
     CompleteProcessRecipe {
         command: CompleteProcessTemplate { components: vec![] },
         args: vec![],
-        env: Default::default(),
-        work_dir: Default::default(),
+        env: BTreeMap::default(),
+        work_dir: Directory::default(),
         current_dir: CompleteProcessTemplate::default_current_dir(),
         output_scaffold: None,
         platform: brioche_core::platform::Platform::X86_64Linux,
@@ -33,19 +35,19 @@ fn example_process_event_description() -> ProcessEventDescription {
         recipe: example_complete_process(),
         meta: Meta::default(),
         sandbox_config: SandboxExecutionConfig {
-            sandbox_root: Default::default(),
-            include_host_paths: Default::default(),
-            command: Default::default(),
-            args: Default::default(),
-            env: Default::default(),
-            current_dir: Default::default(),
+            sandbox_root: PathBuf::default(),
+            include_host_paths: HashMap::default(),
+            command: SandboxTemplate::default(),
+            args: Vec::default(),
+            env: HashMap::default(),
+            current_dir: SandboxTemplate::default(),
             gid_hint: 0,
             uid_hint: 0,
             networking: false,
         },
         created_at: Zoned::now(),
-        root_dir: Default::default(),
-        output_dir: Default::default(),
+        root_dir: PathBuf::default(),
+        output_dir: PathBuf::default(),
     }
 }
 

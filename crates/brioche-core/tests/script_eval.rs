@@ -1,4 +1,7 @@
-use brioche_core::script::{evaluate::evaluate, initialize_js_platform};
+use brioche_core::{
+    recipe::Directory,
+    script::{evaluate::evaluate, initialize_js_platform},
+};
 
 #[tokio::test]
 async fn test_eval_basic() -> anyhow::Result<()> {
@@ -698,7 +701,7 @@ async fn test_eval_brioche_download() -> anyhow::Result<()> {
         brioche_core::recipe::Artifact::File(brioche_core::recipe::File {
             content_blob: hello_blob,
             executable: false,
-            resources: Default::default(),
+            resources: Directory::default(),
         })
     );
 

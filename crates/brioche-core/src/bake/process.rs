@@ -289,7 +289,7 @@ async fn resolve_command(
     anyhow::bail!("{command_literal:?} not found in process $PATH");
 }
 
-#[tracing::instrument(skip(brioche, process))]
+#[tracing::instrument(skip_all, fields(recipe_hash, bake_dir))]
 pub async fn bake_process(
     brioche: &Brioche,
     meta: &Arc<Meta>,
@@ -301,260 +301,280 @@ pub async fn bake_process(
         "tried to bake process for platform {}, but only {current_platform} is supported",
         process.platform,
     );
-    let backend = sandbox_backend(brioche, process.platform).await?;
 
     tracing::debug!("acquiring process semaphore permit");
     let _permit = brioche.process_semaphore.acquire().await;
     tracing::debug!("acquired process semaphore permit");
 
+    let hash = Recipe::CompleteProcess(process.clone()).hash();
     let created_at = std::time::Instant::now();
     let mut job_status = ProcessStatus::Preparing { created_at };
     let job_id = brioche.reporter.add_job(NewJob::Process {
         status: job_status.clone(),
     });
 
-    let hash = Recipe::CompleteProcess(process.clone()).hash();
+    tracing::Span::current().record("recipe_hash", tracing::field::display(hash));
 
     let temp_dir = brioche.data_dir.join("process-temp");
     let bake_dir = temp_dir.join(ulid::Ulid::new().to_string());
+    tracing::Span::current().record("bake_dir", tracing::field::display(bake_dir.display()));
     let bake_dir = BakeDir::create(bake_dir).await?;
+
     let root_dir = bake_dir.path().join("root");
     tokio::fs::create_dir(&root_dir).await?;
     let output_dir = bake_dir.path().join("outputs");
     tokio::fs::create_dir(&output_dir).await?;
     let output_path = output_dir.join(format!("output-{hash}"));
 
-    // Generate a username and home directory in the sandbox based on
-    // the process's hash. This is done so processes can't make assumptions
-    // about what folder they run in, while also ensuring the home directory
-    // path is fully deterministic.
-    let guest_username = format!("brioche-runner-{hash}");
-    let guest_home_dir = format!("/home/{guest_username}");
-    set_up_rootfs(
-        brioche,
-        process.platform,
-        &root_dir,
-        &guest_username,
-        &guest_home_dir,
-    )
-    .await?;
+    let (backend, sandbox_config, host_resource_dir, host_input_resource_dirs) = async {
+        let backend = sandbox_backend(brioche, process.platform).await?;
 
-    let guest_home_dir = PathBuf::from(guest_home_dir);
-    let relative_home_dir = guest_home_dir
-        .strip_prefix("/")
-        .expect("invalid guest home dir");
-    let host_home_dir = root_dir.join(relative_home_dir);
-    let guest_home_dir =
-        Vec::<u8>::from_path_buf(guest_home_dir.clone()).expect("failed to build home dir path");
-    tokio::fs::create_dir_all(&host_home_dir).await?;
-
-    let relative_work_dir = relative_home_dir.join("work");
-    let host_work_dir = root_dir.join(&relative_work_dir);
-    let guest_work_dir = PathBuf::from("/").join(&relative_work_dir);
-    let guest_work_dir =
-        Vec::<u8>::from_path_buf(guest_work_dir).expect("failed to build work dir path");
-    tokio::fs::create_dir_all(&host_work_dir).await?;
-
-    let guest_temp_dir = PathBuf::from("/tmp");
-    let relative_temp_dir = guest_temp_dir
-        .strip_prefix("/")
-        .expect("invalid guest tmp dir");
-    let host_temp_dir = root_dir.join(relative_temp_dir);
-    let guest_temp_dir =
-        Vec::<u8>::from_path_buf(guest_temp_dir).expect("failed to build tmp dir path");
-    tokio::fs::create_dir_all(&host_temp_dir).await?;
-
-    let guest_resource_dir = PathBuf::from("/brioche-resources.d");
-    let relative_resource_dir = guest_resource_dir
-        .strip_prefix("/")
-        .expect("invalid guest resource dir");
-    let host_resource_dir = root_dir.join(relative_resource_dir);
-    let guest_resource_dir =
-        Vec::<u8>::from_path_buf(guest_resource_dir).expect("failed to build resource dir path");
-    tokio::fs::create_dir_all(&host_resource_dir).await?;
-
-    let host_ca_certificate_bundle_path = if process.networking {
-        let host_etc_dir = root_dir.join("etc");
-        let host_etc_ssl_dir = host_etc_dir.join("ssl");
-        tokio::fs::create_dir_all(&host_etc_ssl_dir).await?;
-
-        // Try to include /etc/resolv.conf in the guest based on the
-        // contents of the host's version. This is used for DNS resolution
-        // on Linux
-        let resolv_conf_contents = tokio::fs::read("/etc/resolv.conf").await;
-        let resolv_conf_contents = match resolv_conf_contents {
-            Ok(contents) => contents,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                vec![]
-            }
-            Err(error) => {
-                return Err(error).context("failed to read host /etc/resolv.conf");
-            }
-        };
-        tokio::fs::write(host_etc_dir.join("resolv.conf"), &resolv_conf_contents)
-            .await
-            .context("failed to write guest /etc/resolv.conf")?;
-
-        // Write a `.pem` file containing CA certificate for HTTPS/TLS. This
-        // file is populated with all of the CA certificates based on the
-        // host's config
-        let host_ca_certificate_pem_path =
-            host_etc_ssl_dir.join(format!("ca-certificates-{hash}.crt"));
-        let ca_certificate_pem_contents = get_ca_certificate_bundle_pem()
-            .await
-            .context("failed to get CA certificate bundle")?;
-        tokio::fs::write(&host_ca_certificate_pem_path, ca_certificate_pem_contents)
-            .await
-            .context("failed to write guest CA certificate bundle")?;
-
-        Some(host_ca_certificate_pem_path)
-    } else {
-        None
-    };
-
-    let guest_ca_certificate_bundle_path =
-        host_ca_certificate_bundle_path.as_ref().map(|host_path| {
-            let relative_path = host_path
-                .strip_prefix(&root_dir)
-                .expect("invalid path for host_ca_certificate_bundle_path");
-            let guest_path = PathBuf::from("/").join(relative_path);
-            Vec::<u8>::from_path_buf(guest_path)
-                .expect("failed to build CA certificate bundle path")
-        });
-
-    let create_work_dir_fut = async {
-        crate::output::create_output(
+        // Generate a username and home directory in the sandbox based on
+        // the process's hash. This is done so processes can't make assumptions
+        // about what folder they run in, while also ensuring the home directory
+        // path is fully deterministic.
+        let guest_username = format!("brioche-runner-{hash}");
+        let guest_home_dir = format!("/home/{guest_username}");
+        set_up_rootfs(
             brioche,
-            &crate::recipe::Artifact::Directory(process.work_dir.clone()),
-            crate::output::OutputOptions {
-                output_path: &host_work_dir,
-                merge: true,
-                resource_dir: Some(&host_resource_dir),
-                mtime: Some(crate::fs_utils::brioche_epoch()),
-                link_locals: false,
-            },
+            process.platform,
+            &root_dir,
+            &guest_username,
+            &guest_home_dir,
         )
-        .await
-    };
-    let create_output_scaffold_fut = async {
-        if let Some(output_scaffold) = &process.output_scaffold {
+        .await?;
+
+        let guest_home_dir = PathBuf::from(guest_home_dir);
+        let relative_home_dir = guest_home_dir
+            .strip_prefix("/")
+            .expect("invalid guest home dir");
+        let host_home_dir = root_dir.join(relative_home_dir);
+        let guest_home_dir = Vec::<u8>::from_path_buf(guest_home_dir.clone())
+            .expect("failed to build home dir path");
+        tokio::fs::create_dir_all(&host_home_dir).await?;
+
+        let relative_work_dir = relative_home_dir.join("work");
+        let host_work_dir = root_dir.join(&relative_work_dir);
+        let guest_work_dir = PathBuf::from("/").join(&relative_work_dir);
+        let guest_work_dir =
+            Vec::<u8>::from_path_buf(guest_work_dir).expect("failed to build work dir path");
+        tokio::fs::create_dir_all(&host_work_dir).await?;
+
+        let guest_temp_dir = PathBuf::from("/tmp");
+        let relative_temp_dir = guest_temp_dir
+            .strip_prefix("/")
+            .expect("invalid guest tmp dir");
+        let host_temp_dir = root_dir.join(relative_temp_dir);
+        let guest_temp_dir =
+            Vec::<u8>::from_path_buf(guest_temp_dir).expect("failed to build tmp dir path");
+        tokio::fs::create_dir_all(&host_temp_dir).await?;
+
+        let guest_resource_dir = PathBuf::from("/brioche-resources.d");
+        let relative_resource_dir = guest_resource_dir
+            .strip_prefix("/")
+            .expect("invalid guest resource dir");
+        let host_resource_dir = root_dir.join(relative_resource_dir);
+        let guest_resource_dir = Vec::<u8>::from_path_buf(guest_resource_dir)
+            .expect("failed to build resource dir path");
+        tokio::fs::create_dir_all(&host_resource_dir).await?;
+
+        let host_ca_certificate_bundle_path = if process.networking {
+            let host_etc_dir = root_dir.join("etc");
+            let host_etc_ssl_dir = host_etc_dir.join("ssl");
+            tokio::fs::create_dir_all(&host_etc_ssl_dir).await?;
+
+            // Try to include /etc/resolv.conf in the guest based on the
+            // contents of the host's version. This is used for DNS resolution
+            // on Linux
+            let resolv_conf_contents = tokio::fs::read("/etc/resolv.conf").await;
+            let resolv_conf_contents = match resolv_conf_contents {
+                Ok(contents) => contents,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    vec![]
+                }
+                Err(error) => {
+                    return Err(error).context("failed to read host /etc/resolv.conf");
+                }
+            };
+            tokio::fs::write(host_etc_dir.join("resolv.conf"), &resolv_conf_contents)
+                .await
+                .context("failed to write guest /etc/resolv.conf")?;
+
+            // Write a `.pem` file containing CA certificate for HTTPS/TLS. This
+            // file is populated with all of the CA certificates based on the
+            // host's config
+            let host_ca_certificate_pem_path =
+                host_etc_ssl_dir.join(format!("ca-certificates-{hash}.crt"));
+            let ca_certificate_pem_contents = get_ca_certificate_bundle_pem()
+                .await
+                .context("failed to get CA certificate bundle")?;
+            tokio::fs::write(&host_ca_certificate_pem_path, ca_certificate_pem_contents)
+                .await
+                .context("failed to write guest CA certificate bundle")?;
+
+            Some(host_ca_certificate_pem_path)
+        } else {
+            None
+        };
+
+        let guest_ca_certificate_bundle_path =
+            host_ca_certificate_bundle_path.as_ref().map(|host_path| {
+                let relative_path = host_path
+                    .strip_prefix(&root_dir)
+                    .expect("invalid path for host_ca_certificate_bundle_path");
+                let guest_path = PathBuf::from("/").join(relative_path);
+                Vec::<u8>::from_path_buf(guest_path)
+                    .expect("failed to build CA certificate bundle path")
+            });
+
+        let create_work_dir_fut = async {
             crate::output::create_output(
                 brioche,
-                output_scaffold,
+                &crate::recipe::Artifact::Directory(process.work_dir.clone()),
                 crate::output::OutputOptions {
-                    output_path: &output_path,
-                    merge: false,
+                    output_path: &host_work_dir,
+                    merge: true,
                     resource_dir: Some(&host_resource_dir),
                     mtime: Some(crate::fs_utils::brioche_epoch()),
                     link_locals: false,
                 },
             )
             .await
-        } else {
-            Ok(())
-        }
-    };
-    tokio::try_join!(create_work_dir_fut, create_output_scaffold_fut)?;
+        };
+        let create_output_scaffold_fut = async {
+            if let Some(output_scaffold) = &process.output_scaffold {
+                crate::output::create_output(
+                    brioche,
+                    output_scaffold,
+                    crate::output::OutputOptions {
+                        output_path: &output_path,
+                        merge: false,
+                        resource_dir: Some(&host_resource_dir),
+                        mtime: Some(crate::fs_utils::brioche_epoch()),
+                        link_locals: false,
+                    },
+                )
+                .await
+            } else {
+                Ok(())
+            }
+        };
+        tokio::try_join!(create_work_dir_fut, create_output_scaffold_fut)?;
 
-    let templates = std::iter::once(&process.command)
-        .chain(&process.args)
-        .chain(process.env.values());
-    let mut host_input_resource_dirs = vec![];
-    for template in templates {
-        get_process_template_input_resource_dirs(brioche, template, &mut host_input_resource_dirs)
+        let templates = std::iter::once(&process.command)
+            .chain(&process.args)
+            .chain(process.env.values());
+        let mut host_input_resource_dirs = vec![];
+        for template in templates {
+            get_process_template_input_resource_dirs(
+                brioche,
+                template,
+                &mut host_input_resource_dirs,
+            )
             .await?;
+        }
+
+        let mut host_guest_input_resource_dirs = vec![];
+        for host_input_resource_dir in &host_input_resource_dirs {
+            let resource_dir_name = host_input_resource_dir
+                .file_name()
+                .context("unexpected input resource dir path")?;
+            let resource_dir_name = <[u8] as bstr::ByteSlice>::from_os_str(resource_dir_name)
+                .context("invalid input resource dir name")?;
+            let guest_input_resource_dir: bstr::BString = guest_home_dir
+                .iter()
+                .copied()
+                .chain(b"/.local/share/brioche/locals/".iter().copied())
+                .chain(resource_dir_name.iter().copied())
+                .collect();
+
+            host_guest_input_resource_dirs
+                .push((host_input_resource_dir.to_owned(), guest_input_resource_dir));
+        }
+
+        let template_paths = ProcessTemplatePaths {
+            output_path: &output_path,
+            host_resource_dir: &host_resource_dir,
+            guest_resource_dir: &guest_resource_dir,
+            host_guest_input_resource_dirs: &host_guest_input_resource_dirs,
+            host_home_dir: &host_home_dir,
+            guest_home_dir: &guest_home_dir,
+            host_work_dir: &host_work_dir,
+            guest_work_dir: &guest_work_dir,
+            host_temp_dir: &host_temp_dir,
+            guest_temp_dir: &guest_temp_dir,
+            host_ca_certificate_bundle_path: host_ca_certificate_bundle_path.as_deref(),
+            guest_ca_certificate_bundle_path: guest_ca_certificate_bundle_path.as_deref(),
+        };
+
+        let command =
+            build_process_template(brioche, process.command.clone(), template_paths).await?;
+        let args = futures::stream::iter(process.args.clone())
+            .then(|arg| build_process_template(brioche, arg, template_paths))
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        let env = futures::stream::iter(process.env.clone())
+            .then(|(key, artifact)| async move {
+                let template = build_process_template(brioche, artifact, template_paths).await?;
+                anyhow::Ok((key, template))
+            })
+            .try_collect::<HashMap<_, _>>()
+            .await?;
+
+        let current_dir =
+            build_process_template(brioche, process.current_dir.clone(), template_paths).await?;
+
+        let sandbox_config = SandboxExecutionConfig {
+            sandbox_root: root_dir.clone(),
+            include_host_paths: HashMap::from_iter([
+                (
+                    PathBuf::from("/dev"),
+                    SandboxPathOptions {
+                        mode: HostPathMode::ReadWriteCreate,
+                        guest_path_hint: "/dev".into(),
+                    },
+                ),
+                (
+                    PathBuf::from("/proc"),
+                    SandboxPathOptions {
+                        mode: HostPathMode::ReadWriteCreate,
+                        guest_path_hint: "/proc".into(),
+                    },
+                ),
+                (
+                    PathBuf::from("/sys"),
+                    SandboxPathOptions {
+                        mode: HostPathMode::ReadWriteCreate,
+                        guest_path_hint: "/sys".into(),
+                    },
+                ),
+                (
+                    host_temp_dir,
+                    SandboxPathOptions {
+                        mode: HostPathMode::ReadWriteCreate,
+                        guest_path_hint: guest_temp_dir.into(),
+                    },
+                ),
+            ]),
+            command,
+            args,
+            env,
+            current_dir,
+            networking: process.networking,
+            uid_hint: GUEST_UID_HINT,
+            gid_hint: GUEST_GID_HINT,
+        };
+
+        Ok((
+            backend,
+            sandbox_config,
+            host_resource_dir,
+            host_input_resource_dirs,
+        ))
     }
-
-    let mut host_guest_input_resource_dirs = vec![];
-    for host_input_resource_dir in &host_input_resource_dirs {
-        let resource_dir_name = host_input_resource_dir
-            .file_name()
-            .context("unexpected input resource dir path")?;
-        let resource_dir_name = <[u8] as bstr::ByteSlice>::from_os_str(resource_dir_name)
-            .context("invalid input resource dir name")?;
-        let guest_input_resource_dir: bstr::BString = guest_home_dir
-            .iter()
-            .copied()
-            .chain(b"/.local/share/brioche/locals/".iter().copied())
-            .chain(resource_dir_name.iter().copied())
-            .collect();
-
-        host_guest_input_resource_dirs
-            .push((host_input_resource_dir.to_owned(), guest_input_resource_dir));
-    }
-
-    let template_paths = ProcessTemplatePaths {
-        output_path: &output_path,
-        host_resource_dir: &host_resource_dir,
-        guest_resource_dir: &guest_resource_dir,
-        host_guest_input_resource_dirs: &host_guest_input_resource_dirs,
-        host_home_dir: &host_home_dir,
-        guest_home_dir: &guest_home_dir,
-        host_work_dir: &host_work_dir,
-        guest_work_dir: &guest_work_dir,
-        host_temp_dir: &host_temp_dir,
-        guest_temp_dir: &guest_temp_dir,
-        host_ca_certificate_bundle_path: host_ca_certificate_bundle_path.as_deref(),
-        guest_ca_certificate_bundle_path: guest_ca_certificate_bundle_path.as_deref(),
-    };
-
-    let command = build_process_template(brioche, process.command.clone(), template_paths).await?;
-    let args = futures::stream::iter(process.args.clone())
-        .then(|arg| build_process_template(brioche, arg, template_paths))
-        .try_collect::<Vec<_>>()
-        .await?;
-
-    let env = futures::stream::iter(process.env.clone())
-        .then(|(key, artifact)| async move {
-            let template = build_process_template(brioche, artifact, template_paths).await?;
-            anyhow::Ok((key, template))
-        })
-        .try_collect::<HashMap<_, _>>()
-        .await?;
-
-    let current_dir =
-        build_process_template(brioche, process.current_dir.clone(), template_paths).await?;
-
-    let sandbox_config = SandboxExecutionConfig {
-        sandbox_root: root_dir.clone(),
-        include_host_paths: HashMap::from_iter([
-            (
-                PathBuf::from("/dev"),
-                SandboxPathOptions {
-                    mode: HostPathMode::ReadWriteCreate,
-                    guest_path_hint: "/dev".into(),
-                },
-            ),
-            (
-                PathBuf::from("/proc"),
-                SandboxPathOptions {
-                    mode: HostPathMode::ReadWriteCreate,
-                    guest_path_hint: "/proc".into(),
-                },
-            ),
-            (
-                PathBuf::from("/sys"),
-                SandboxPathOptions {
-                    mode: HostPathMode::ReadWriteCreate,
-                    guest_path_hint: "/sys".into(),
-                },
-            ),
-            (
-                host_temp_dir,
-                SandboxPathOptions {
-                    mode: HostPathMode::ReadWriteCreate,
-                    guest_path_hint: guest_temp_dir.into(),
-                },
-            ),
-        ]),
-        command,
-        args,
-        env,
-        current_dir,
-        networking: process.networking,
-        uid_hint: GUEST_UID_HINT,
-        gid_hint: GUEST_GID_HINT,
-    };
+    .instrument(tracing::info_span!("bake_process_preparing"))
+    .await?;
 
     let events_path = bake_dir.path().join("events.bin.zst");
     let (event_writer_tx, mut event_writer_rx) = tokio::sync::mpsc::channel(100);
@@ -619,53 +639,94 @@ pub async fn bake_process(
         .send(ProcessEventWriterAction::FinishFrameAndFlush)
         .await?;
 
-    let result = if brioche.self_exec_processes {
-        run_sandboxed_self_exec(
-            brioche,
-            backend,
-            sandbox_config,
-            job_id,
-            &mut job_status,
-            events_started_at,
-            &event_writer_tx,
-        )
-        .await
-    } else {
-        run_sandboxed_inline(brioche, backend, sandbox_config, job_id, &mut job_status).await
-    };
+    let result = async {
+        tracing::Span::current().record(
+            "command",
+            tracing::field::display(sandbox_config.command.display()),
+        );
+        tracing::Span::current().record(
+            "args",
+            tracing::field::display(
+                sandbox_config
+                    .args
+                    .iter()
+                    .map(SandboxTemplate::display)
+                    .join_with("\n"),
+            ),
+        );
+        tracing::Span::current().record(
+            "env",
+            tracing::field::display(
+                sandbox_config
+                    .env
+                    .iter()
+                    .map(|(key, value)| lazy_format::lazy_format!("{key}={}", value.display()))
+                    .join_with("\n"),
+            ),
+        );
 
-    drop(event_writer_tx);
-    event_writer_task.await??;
-
-    match result {
-        Ok(()) => {}
-        Err(error) => {
-            return Err(error).with_context(|| {
-                format!(
-                    "process failed, view full output by running `brioche jobs logs {}`",
-                    events_path.display(),
-                )
-            });
+        if brioche.self_exec_processes {
+            run_sandboxed_self_exec(
+                brioche,
+                backend,
+                sandbox_config,
+                job_id,
+                &mut job_status,
+                events_started_at,
+                &event_writer_tx,
+            )
+            .await
+        } else {
+            run_sandboxed_inline(brioche, backend, sandbox_config, job_id, &mut job_status).await
         }
     }
+    .instrument(tracing::info_span!(
+        "bake_process_exec",
+        command = tracing::field::Empty,
+        args = tracing::field::Empty,
+        env = tracing::field::Empty,
+        pid = tracing::field::Empty,
+    ))
+    .await;
 
-    let result = crate::input::create_input(
-        brioche,
-        crate::input::InputOptions {
-            input_path: &output_path,
-            remove_input: true,
-            resource_dir: Some(&host_resource_dir),
-            input_resource_dirs: &host_input_resource_dirs,
-            saved_paths: &mut HashMap::new(),
-            meta,
-        },
-    )
-    .await
-    .context("failed to save outputs from process")?;
+    let result = async {
+        drop(event_writer_tx);
+        event_writer_task.await??;
 
-    if !brioche.keep_temps {
-        bake_dir.remove().await?;
+        match result {
+            Ok(()) => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "process failed, view full output by running `brioche jobs logs {}`",
+                        events_path.display(),
+                    )
+                });
+            }
+        }
+
+        let result = crate::input::create_input(
+            brioche,
+            crate::input::InputOptions {
+                input_path: &output_path,
+                remove_input: true,
+                resource_dir: Some(&host_resource_dir),
+                input_resource_dirs: &host_input_resource_dirs,
+                saved_paths: &mut HashMap::new(),
+                meta,
+            },
+        )
+        .await
+        .context("failed to save outputs from process")?;
+
+        if !brioche.keep_temps {
+            bake_dir.remove().await?;
+        }
+
+        Ok(result)
     }
+    .instrument(tracing::info_span!("bake_process_finalize"))
+    .await?;
 
     job_status.to_finalized(std::time::Instant::now())?;
     brioche.reporter.update_job(
@@ -776,6 +837,8 @@ async fn run_sandboxed_self_exec(
             .into(),
         )
         .await?;
+
+    tracing::Span::current().record("pid", child_id.unwrap_or(0));
 
     let mut stdout_buffer = vec![0; 1024 * 1024];
     let mut stderr_buffer = vec![0; 1024 * 1024];
@@ -1650,7 +1713,7 @@ impl SandboxBackendSelector {
                 },
                 SandboxTemplate {
                     components: vec![SandboxTemplateComponent::Literal {
-                        value: r##"
+                        value: r#"
                         set -eu
                         mkdir "$BRIOCHE_OUTPUT"/new
                         touch "$BRIOCHE_OUTPUT"/new/touch.txt
@@ -1660,7 +1723,7 @@ impl SandboxBackendSelector {
                         rm "$BRIOCHE_OUTPUT"/existing/remove.txt
                         rm "$BRIOCHE_OUTPUT"/remove_dir/remove.txt
                         rmdir "$BRIOCHE_OUTPUT"/remove_dir
-                    "##
+                    "#
                         .into(),
                     }],
                 },
@@ -1825,7 +1888,6 @@ async fn default_proot_path(
     Ok(Some(proot_path))
 }
 
-#[tracing::instrument(skip(brioche))]
 async fn set_up_rootfs(
     brioche: &Brioche,
     platform: crate::platform::Platform,
@@ -1854,11 +1916,11 @@ async fn set_up_rootfs(
         }),
         &super::BakeScope::Anonymous,
     )
-    .instrument(tracing::info_span!("bake_sh_and_env"))
+    .instrument(tracing::trace_span!("bake_sh_and_env"))
     .await?;
     crate::output::create_output(brioche, &sh_and_env.value, output_rootfs_options).await?;
 
-    tracing::trace!("building rootfs");
+    tracing::debug!("building rootfs");
 
     let tmp_dir = rootfs_dir.join("tmp");
     tokio::fs::create_dir_all(&tmp_dir)
@@ -1884,7 +1946,7 @@ async fn set_up_rootfs(
     );
     tokio::fs::write(etc_dir.join("passwd"), &etc_passwd_contents).await?;
 
-    tracing::trace!("built rootfs");
+    tracing::debug!("built rootfs");
 
     Ok(())
 }

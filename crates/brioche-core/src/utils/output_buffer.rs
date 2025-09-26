@@ -74,12 +74,12 @@ where
             let oldest_content = self
                 .partial_prepend
                 .first_entry()
-                .map(|entry| entry.into_mut())
+                .map(std::collections::btree_map::OccupiedEntry::into_mut)
                 .or_else(|| self.contents.get_mut(0).map(|(_, content)| content))
                 .or_else(|| {
                     self.partial_append
                         .first_entry()
-                        .map(|entry| entry.into_mut())
+                        .map(std::collections::btree_map::OccupiedEntry::into_mut)
                 });
             let Some(oldest_content) = oldest_content else {
                 break;
@@ -91,16 +91,16 @@ where
                 // we're done
                 oldest_content.drain(0..drop_bytes);
                 break;
-            } else {
-                // Otherwise, remove the content and continue
-                let (_, removed_content) = self
-                    .partial_prepend
-                    .pop_first()
-                    .or_else(|| self.contents.pop_front())
-                    .or_else(|| self.partial_append.pop_first())
-                    .unwrap();
-                drop_bytes -= removed_content.len();
             }
+
+            // Otherwise, remove the content and continue
+            let (_, removed_content) = self
+                .partial_prepend
+                .pop_first()
+                .or_else(|| self.contents.pop_front())
+                .or_else(|| self.partial_append.pop_first())
+                .unwrap();
+            drop_bytes -= removed_content.len();
         }
 
         if let Some(complete_content) = complete_content {
@@ -176,7 +176,7 @@ where
                     let content_start = complete.len().saturating_sub(remaining_bytes);
                     &complete[content_start..]
                 });
-                let complete_content_length = complete_content.map_or(0, |complete| complete.len());
+                let complete_content_length = complete_content.map_or(0, <[u8]>::len);
 
                 // If we have a separator (newline) to add, truncate it
                 // so it fits within the remaining space
@@ -185,7 +185,7 @@ where
                     let separator_start = separator.len().saturating_sub(remaining_bytes);
                     &separator[separator_start..]
                 });
-                let separator_length = separator.map_or(0, |separator| separator.len());
+                let separator_length = separator.map_or(0, <[u8]>::len);
 
                 // Truncate the partial content to fit within whatever
                 // space we have left over
@@ -201,8 +201,8 @@ where
         self.total_bytes = self
             .total_bytes
             .saturating_add(partial_content.len())
-            .saturating_add(complete_content.map_or(0, |content| content.len()))
-            .saturating_add(separator.map_or(0, |separator| separator.len()));
+            .saturating_add(complete_content.map_or(0, <[u8]>::len))
+            .saturating_add(separator.map_or(0, <[u8]>::len));
 
         if let Some(complete_content) = complete_content {
             let prior_partial = self.partial_prepend.remove(&stream);

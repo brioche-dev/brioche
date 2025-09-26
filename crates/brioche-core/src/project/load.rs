@@ -9,11 +9,12 @@ use futures::{StreamExt as _, TryStreamExt as _};
 use petgraph::visit::EdgeRef as _;
 use relative_path::{PathExt as _, RelativePathBuf};
 use tokio::io::AsyncReadExt as _;
+use tracing::Instrument as _;
 
 use crate::{
     Brioche,
     project::{DependencyRef, ProjectEntry, Workspace, WorkspaceHash},
-    recipe::Artifact,
+    recipe::{Artifact, Directory},
 };
 
 use super::{
@@ -22,6 +23,7 @@ use super::{
     analyze::{GitRefOptions, ProjectAnalysis, StaticOutput, StaticOutputKind, StaticQuery},
 };
 
+#[tracing::instrument(skip_all, fields(?path), ret(level = tracing::Level::DEBUG))]
 pub async fn load_project(
     projects: Projects,
     brioche: Brioche,
@@ -31,21 +33,27 @@ pub async fn load_project(
 ) -> anyhow::Result<ProjectHash> {
     let rt = tokio::runtime::Handle::current();
     let (tx, rx) = tokio::sync::oneshot::channel();
+    let span = tracing::Span::current();
+
     std::thread::spawn(move || {
         let local_set = tokio::task::LocalSet::new();
 
         local_set.spawn_local(async move {
-            let result = Box::pin(load_project_inner(
-                &LoadProjectConfig {
-                    projects,
-                    brioche,
-                    locking,
-                    validation,
-                },
-                &path,
-            ))
+            let result = Box::pin(
+                load_project_inner(
+                    &LoadProjectConfig {
+                        projects,
+                        brioche,
+                        validation,
+                        locking,
+                    },
+                    &path,
+                )
+                .instrument(span.clone()),
+            )
             .await;
             let _ = tx.send(result).inspect_err(|err| {
+                let _span = span.entered();
                 tracing::warn!("failed to send project load result: {err:?}");
             });
         });
@@ -76,15 +84,16 @@ async fn build_project_graph(
     config: &LoadProjectConfig,
     project_path: &Path,
 ) -> anyhow::Result<ProjectGraph> {
+    // Use a regex to validate dependency names
+    static DEPENDENCY_NAME_REGEX: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| {
+            regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex")
+        });
+
     let mut graph: petgraph::graph::DiGraph<PathBuf, String> = petgraph::Graph::new();
     let mut expected_hashes = HashMap::new();
     let mut project_details = HashMap::new();
     let mut workspaces = HashMap::new();
-
-    // Use a regex to validate dependency names
-    static DEPENDENCY_NAME_REGEX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    let dependency_name_regex = DEPENDENCY_NAME_REGEX
-        .get_or_init(|| regex::Regex::new("^[a-zA-Z0-9_]+$").expect("failed to compile regex"));
 
     let mut nodes_by_path = HashMap::new();
     let mut nodes_by_workspace = HashMap::<PathBuf, HashSet<_>>::new();
@@ -199,7 +208,7 @@ async fn build_project_graph(
                     .map(async |(name, dependency_def)| {
                         // Validate the dependency name
                         anyhow::ensure!(
-                            dependency_name_regex.is_match(&name),
+                            DEPENDENCY_NAME_REGEX.is_match(&name),
                             "invalid dependency name"
                         );
 
@@ -244,8 +253,8 @@ async fn build_project_graph(
 
             entry.insert(ProjectNodeDetails {
                 project_analysis,
-                lockfile_path,
                 lockfile,
+                lockfile_path,
                 workspace,
                 dependency_errors,
             });
@@ -258,8 +267,8 @@ async fn build_project_graph(
 
     Ok(ProjectGraph {
         graph,
-        expected_hashes,
         nodes_by_path,
+        expected_hashes,
         project_details,
     })
 }
@@ -931,6 +940,8 @@ async fn resolve_static(
                 include.path(),
                 project_root.display(),
             );
+            let mut saved_paths = HashMap::default();
+            let meta = Arc::default();
 
             let artifact = crate::input::create_input(
                 brioche,
@@ -939,8 +950,8 @@ async fn resolve_static(
                     remove_input: false,
                     resource_dir: None,
                     input_resource_dirs: &[],
-                    saved_paths: &mut Default::default(),
-                    meta: &Default::default(),
+                    saved_paths: &mut saved_paths,
+                    meta: &meta,
                 },
             )
             .await?;
@@ -1011,6 +1022,9 @@ async fn resolve_static(
 
             let artifacts = futures::stream::iter(paths)
                 .then(|(full_path, relative_path)| async move {
+                    let mut saved_paths = HashMap::default();
+                    let meta = Arc::default();
+
                     let artifact = crate::input::create_input(
                         brioche,
                         crate::input::InputOptions {
@@ -1018,8 +1032,8 @@ async fn resolve_static(
                             remove_input: false,
                             resource_dir: None,
                             input_resource_dirs: &[],
-                            saved_paths: &mut Default::default(),
-                            meta: &Default::default(),
+                            saved_paths: &mut saved_paths,
+                            meta: &meta,
                         },
                     )
                     .await?;
@@ -1111,7 +1125,7 @@ async fn resolve_static(
                 let download_artifact = crate::recipe::Artifact::File(crate::recipe::File {
                     content_blob: blob_hash,
                     executable: false,
-                    resources: Default::default(),
+                    resources: Directory::default(),
                 });
 
                 let download_recipe_json = serde_json::to_string(&download_recipe)

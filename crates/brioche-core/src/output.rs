@@ -22,7 +22,6 @@ pub struct OutputOptions<'a> {
     pub link_locals: bool,
 }
 
-#[tracing::instrument(skip(brioche, artifact), fields(artifact_hash = %artifact.hash()), err)]
 pub async fn create_output(
     brioche: &Brioche,
     artifact: &Artifact,
@@ -240,7 +239,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                 let entry_path = options.output_path.join(path);
                 let resource_dir = options.resource_dir.map_or_else(
                     || options.output_path.join("brioche-resources.d"),
-                    |resource_dir| resource_dir.to_path_buf(),
+                    std::path::Path::to_path_buf,
                 );
 
                 match (&entry, link_lock) {

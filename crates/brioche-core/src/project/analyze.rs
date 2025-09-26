@@ -137,8 +137,7 @@ impl StaticInclude {
     #[must_use]
     pub fn path(&self) -> &str {
         match self {
-            Self::File { path } => path,
-            Self::Directory { path } => path,
+            Self::File { path } | Self::Directory { path } => path,
         }
     }
 }
@@ -200,8 +199,9 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
                 anyhow::Ok(expr)
             })
             .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
+        let env = HashMap::default();
 
-        let json = expression_to_json(&project_export_expr, &Default::default())
+        let json = expression_to_json(&project_export_expr, &env)
             .with_context(|| format!("{file_line}: invalid project export"))?;
         anyhow::Ok((json, file_line))
     }).transpose()?;
@@ -308,23 +308,22 @@ pub async fn analyze_module(
         std::str::from_utf8(&contents).with_context(|| format!("{display_path}: invalid UTF-8"))?;
 
     let parsed_module;
-    let module = match module {
-        Some(module) => module,
-        None => {
-            let parsed = biome_js_parser::parse(
-                contents,
-                biome_js_syntax::JsFileSource::ts()
-                    .with_module_kind(biome_js_syntax::ModuleKind::Module),
-                biome_js_parser::JsParserOptions::default(),
-            )
-            .cast::<biome_js_syntax::JsModule>()
-            .expect("failed to cast module");
+    let module = if let Some(module) = module {
+        module
+    } else {
+        let parsed = biome_js_parser::parse(
+            contents,
+            biome_js_syntax::JsFileSource::ts()
+                .with_module_kind(biome_js_syntax::ModuleKind::Module),
+            biome_js_parser::JsParserOptions::default(),
+        )
+        .cast::<biome_js_syntax::JsModule>()
+        .expect("failed to cast module");
 
-            parsed_module = parsed
-                .try_tree()
-                .with_context(|| format!("{display_path}: failed to parse module"))?;
-            &parsed_module
-        }
+        parsed_module = parsed
+            .try_tree()
+            .with_context(|| format!("{display_path}: failed to parse module"))?;
+        &parsed_module
     };
 
     let display_location = |offset| {
@@ -356,6 +355,8 @@ pub async fn analyze_module(
                     "invalid import path: must be within project root",
                 );
 
+                let env = HashMap::default();
+
                 // Analyze the imported module, but start with a separate
                 // environment
                 let import_module_specifier = analyze_module(
@@ -363,7 +364,7 @@ pub async fn analyze_module(
                     &import_module_path,
                     project_path,
                     None,
-                    &Default::default(),
+                    &env,
                     local_modules,
                 )
                 .await?;
@@ -447,7 +448,7 @@ where
                 .with_context(|| format!("{location}: invalid import specifier"))?;
             Ok(Some(import_specifier))
         })
-        .filter_map(|result| result.transpose())
+        .filter_map(std::result::Result::transpose)
 }
 
 pub fn find_statics<'a, D>(
@@ -631,7 +632,7 @@ where
                 _ => Ok(None),
             }
         })
-        .filter_map(|result| result.transpose())
+        .filter_map(std::result::Result::transpose)
 }
 
 pub fn expression_to_json(

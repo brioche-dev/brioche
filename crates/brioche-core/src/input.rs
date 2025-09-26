@@ -25,7 +25,6 @@ pub struct InputOptions<'a> {
     pub meta: &'a Arc<Meta>,
 }
 
-#[tracing::instrument(skip_all, err, fields(input_path = %options.input_path.display()))]
 pub async fn create_input(
     brioche: &Brioche,
     options: InputOptions<'_>,
@@ -45,11 +44,12 @@ pub async fn create_input(
     let (plan, root_node) = tokio::task::spawn_blocking({
         let input_path = options.input_path.to_owned();
         let remove_input = options.remove_input;
-        let resource_dir = options.resource_dir.map(|path| path.to_owned());
+        let resource_dir = options.resource_dir.map(std::borrow::ToOwned::to_owned);
         let input_resource_dirs = options.input_resource_dirs.to_owned();
         let meta = options.meta.clone();
         move || {
             let mut plan = CreateInputPlan::default();
+            let mut saved_paths = HashMap::default();
 
             // Add nodes and edges for all files/directories/symlinks
             let root_node = add_input_plan_nodes(
@@ -58,7 +58,7 @@ pub async fn create_input(
                     remove_input,
                     resource_dir: resource_dir.as_deref(),
                     input_resource_dirs: &input_resource_dirs,
-                    saved_paths: &mut Default::default(),
+                    saved_paths: &mut saved_paths,
                     meta: &meta,
                 },
                 &mut plan,
@@ -97,7 +97,7 @@ pub async fn create_input(
                         &mut blob_permit,
                         &path,
                         super::blob::SaveBlobOptions::default().remove_input(remove_blob),
-                        &mut Default::default(),
+                        &mut Vec::default(),
                     )
                     .await?;
 
@@ -149,10 +149,14 @@ pub async fn create_input(
                     .graph
                     .edges_directed(node_index, petgraph::Direction::Outgoing);
                 for edge in edges_out {
-                    let resource_path = match &edge.weight() {
-                        CreateInputPlanEdge::Resource { path } => path,
-                        CreateInputPlanEdge::IndirectResource { path } => path,
-                        _ => anyhow::bail!("unexpected edge for file node: {:?}", edge.weight()),
+                    let (CreateInputPlanEdge::Resource {
+                        path: resource_path,
+                    }
+                    | CreateInputPlanEdge::IndirectResource {
+                        path: resource_path,
+                    }) = &edge.weight()
+                    else {
+                        anyhow::bail!("unexpected edge for file node: {:?}", edge.weight())
                     };
 
                     let resource_node_index = edge.target();
@@ -316,7 +320,7 @@ fn add_input_plan_nodes(
         }
 
         let mut file = std::fs::File::open(options.input_path)
-            .with_context(|| format!("failed to open file {:?}", options.input_path))?;
+            .with_context(|| format!("failed to open file {}", options.input_path.display()))?;
         let extracted = brioche_pack::extract_pack(&mut file).ok();
         let pack = extracted.map(|extracted| extracted.pack);
         let resource_paths = pack.into_iter().flat_map(|pack| pack.paths());

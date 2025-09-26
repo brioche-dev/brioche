@@ -36,9 +36,9 @@ async fn test_analyze_simple_project() -> anyhow::Result<()> {
     context
         .write_file(
             "myproject/project.bri",
-            r#"
+            r"
                 export const project = {};
-            "#,
+            ",
         )
         .await;
 
@@ -155,6 +155,7 @@ async fn test_analyze_imports() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_analyze_nested_imports() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
@@ -414,13 +415,13 @@ async fn test_analyze_static_brioche_include_template_escape_error() -> anyhow::
     context
         .write_file(
             "myproject/project.bri",
-            r#"
+            r"
                 Brioche.includeFile(`foo`);
 
                 export function () {
                     return Brioche.includeDirectory(`\$bar`);
                 }
-            "#,
+            ",
         )
         .await;
 
@@ -440,13 +441,13 @@ async fn test_analyze_static_brioche_include_invalid() -> anyhow::Result<()> {
     context
         .write_file(
             "myproject/project.bri",
-            r#"
+            r"
                 const x = Brioche.includeFile(`${123}`);
 
                 export function () {
                     return x;
                 }
-            "#,
+            ",
         )
         .await;
 

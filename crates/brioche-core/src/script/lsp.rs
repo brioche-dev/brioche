@@ -5,8 +5,21 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::request::GotoTypeDefinitionResponse;
-use tower_lsp::lsp_types::*;
+use tower_lsp::lsp_types::{
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, Diagnostic,
+    DiagnosticOptions, DiagnosticServerCapabilities, DidChangeTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFormattingParams,
+    DocumentHighlight, DocumentHighlightParams, FullDocumentDiagnosticReport, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, InitializedParams, Location, MessageType, OneOf, PartialResultParams,
+    Position, PrepareRenameResponse, Range, ReferenceParams, RelatedFullDocumentDiagnosticReport,
+    RenameOptions, RenameParams, ServerCapabilities, TextDocumentIdentifier,
+    TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
+    WorkDoneProgressOptions, WorkDoneProgressParams, WorkspaceEdit,
+};
 use tower_lsp::{Client, LanguageServer};
+use tracing::Instrument as _;
 
 use crate::project::{ProjectLocking, ProjectValidation, Projects};
 use crate::script::compiler_host::{BriocheCompilerHost, brioche_compiler_host};
@@ -84,9 +97,9 @@ impl BriocheLspServer {
             .send(JsLspMessage::Diagnostic(DocumentDiagnosticParams {
                 identifier: None,
                 previous_result_id: None,
-                partial_result_params: Default::default(),
+                partial_result_params: PartialResultParams::default(),
                 text_document,
-                work_done_progress_params: Default::default(),
+                work_done_progress_params: WorkDoneProgressParams::default(),
             }))
             .await?;
         Ok(diagnostics)
@@ -113,7 +126,7 @@ impl LanguageServer for BriocheLspServer {
                 document_highlight_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
                     prepare_provider: Some(true),
-                    work_done_progress_options: Default::default(),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
                 })),
                 document_formatting_provider: Some(OneOf::Left(true)),
                 ..Default::default()
@@ -171,6 +184,7 @@ impl LanguageServer for BriocheLspServer {
         {
             let rt = tokio::runtime::Handle::current();
             let (lockfile_tx, lockfile_rx) = tokio::sync::oneshot::channel();
+            let span = tracing::Span::current();
 
             std::thread::spawn({
                 let remote_brioche_builder = self.remote_brioche_builder.clone();
@@ -186,8 +200,10 @@ impl LanguageServer for BriocheLspServer {
                             module_path,
                             LOCKFILE_LOAD_TIMEOUT,
                         )
+                        .instrument(span.clone())
                         .await;
                         let _ = lockfile_tx.send(result).inspect_err(|err| {
+                            let _span = span.entered();
                             tracing::warn!("failed to send lockfile update result: {err:?}");
                         });
                     });
@@ -823,9 +839,8 @@ fn call_method(
                 exception,
             ))
             .with_context(|| format!("error when calling {method_name:?}"));
-        } else {
-            anyhow::bail!("unknown error when calling {method_name:?}");
         }
+        anyhow::bail!("unknown error when calling {method_name:?}");
     };
 
     let result = serde_v8::from_v8(&mut js_scope, result)?;

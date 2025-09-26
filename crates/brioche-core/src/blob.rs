@@ -434,6 +434,7 @@ impl<'a> SaveBlobOptions<'a> {
         self
     }
 
+    #[must_use]
     pub fn on_progress(
         mut self,
         on_progress: impl FnMut(usize) -> anyhow::Result<()> + Send + 'a,

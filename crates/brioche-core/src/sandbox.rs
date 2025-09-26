@@ -55,6 +55,36 @@ pub struct SandboxTemplate {
     pub components: Vec<SandboxTemplateComponent>,
 }
 
+impl SandboxTemplate {
+    #[must_use]
+    pub fn display(&self) -> impl std::fmt::Display {
+        SandboxTemplateDisplay(self)
+    }
+}
+
+struct SandboxTemplateDisplay<'a>(&'a SandboxTemplate);
+
+impl std::fmt::Display for SandboxTemplateDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for component in &self.0.components {
+            match component {
+                SandboxTemplateComponent::Literal { value } => write!(f, "{value}")?,
+                SandboxTemplateComponent::Path(sandbox_path) => {
+                    write!(f, "{}", sandbox_path.host_path.display())?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for SandboxTemplateDisplay<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]

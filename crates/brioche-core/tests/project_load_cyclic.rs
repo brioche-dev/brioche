@@ -187,6 +187,7 @@ async fn test_project_load_cyclic_simple_implied() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
@@ -448,9 +449,9 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
     context
         .write_file(
             "baz/h/project.bri",
-            r#"
+            r"
                 // Empty project
-            "#,
+            ",
         )
         .await;
 
@@ -636,6 +637,7 @@ async fn test_project_load_cyclic_complex() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::similar_names)]
 #[tokio::test]
 async fn test_project_load_cyclic_complex_remote() -> anyhow::Result<()> {
     let cache = brioche_test_support::new_cache();

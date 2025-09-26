@@ -7,7 +7,7 @@ use crate::{
     reporter::job::{NewJob, UpdateJob},
 };
 
-#[tracing::instrument(skip(brioche, expected_hash))]
+#[tracing::instrument(skip_all, fields(%url))]
 pub async fn download(
     brioche: &Brioche,
     url: &url::Url,
@@ -89,7 +89,10 @@ pub async fn download(
     Ok(blob_hash)
 }
 
-pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyhow::Result<String> {
+pub async fn fetch_git_commit_for_ref(
+    repository: &url::Url,
+    reference: &str,
+) -> anyhow::Result<String> {
     let (tx, rx) = tokio::sync::oneshot::channel::<anyhow::Result<_>>();
 
     // gix uses a blocking client, so spawn a separate thread to fetch
@@ -100,7 +103,10 @@ pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyh
             .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
         move || {
             // Connect to the repository by URL
-            let transport = gix::protocol::transport::connect(repository, Default::default());
+            let transport = gix::protocol::transport::connect(
+                repository,
+                gix::protocol::transport::client::connect::Options::default(),
+            );
             let mut transport = match transport {
                 Ok(transport) => transport,
                 Err(error) => {
@@ -127,30 +133,26 @@ pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyh
                 }
             };
 
-            let refs = match outcome.refs {
-                Some(refs) => {
-                    // The handshake will sometimes return the refs directly,
-                    // depending on protocol version. If that happens, we're
-                    // done
-                    refs
-                }
-                None => {
-                    // Fetch the refs
-                    let refs = gix::protocol::ls_refs(
-                        &mut transport,
-                        &outcome.capabilities,
-                        |_, _, _| Ok(gix::protocol::ls_refs::Action::Continue),
-                        &mut gix::progress::Discard,
-                        false,
-                    );
-                    match refs {
-                        Ok(refs) => refs,
-                        Err(error) => {
-                            let _ =
-                                gix::protocol::indicate_end_of_interaction(&mut transport, false);
-                            let _ = tx.send(Err(error.into()));
-                            return;
-                        }
+            let refs = if let Some(refs) = outcome.refs {
+                // The handshake will sometimes return the refs directly,
+                // depending on protocol version. If that happens, we're
+                // done
+                refs
+            } else {
+                // Fetch the refs
+                let refs = gix::protocol::ls_refs(
+                    &mut transport,
+                    &outcome.capabilities,
+                    |_, _, _| Ok(gix::protocol::ls_refs::Action::Continue),
+                    &mut gix::progress::Discard,
+                    false,
+                );
+                match refs {
+                    Ok(refs) => refs,
+                    Err(error) => {
+                        let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+                        let _ = tx.send(Err(error.into()));
+                        return;
                     }
                 }
             };
@@ -179,12 +181,12 @@ pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyh
                     full_ref_name,
                     object,
                     ..
-                } => (full_ref_name, object),
-                gix::protocol::handshake::Ref::Direct {
+                }
+                | gix::protocol::handshake::Ref::Direct {
                     full_ref_name,
                     object,
-                } => (full_ref_name, object),
-                gix::protocol::handshake::Ref::Symbolic {
+                }
+                | gix::protocol::handshake::Ref::Symbolic {
                     full_ref_name,
                     object,
                     ..
@@ -195,18 +197,18 @@ pub async fn fetch_git_commit_for_ref(repository: &url::Url, ref_: &str) -> anyh
             };
 
             if let Some(tag_name) = name.strip_prefix(b"refs/tags/") {
-                if tag_name == ref_.as_bytes() {
+                if tag_name == reference.as_bytes() {
                     return Some(object);
                 }
             } else if let Some(head_name) = name.strip_prefix(b"refs/heads/")
-                && head_name == ref_.as_bytes()
+                && head_name == reference.as_bytes()
             {
                 return Some(object);
             }
 
             None
         })
-        .with_context(|| format!("git ref '{ref_}' not found in repo {repository}"))?;
+        .with_context(|| format!("git ref '{reference}' not found in repo {repository}"))?;
 
     let commit = object_id.to_string();
     Ok(commit)

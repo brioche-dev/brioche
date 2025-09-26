@@ -3,6 +3,8 @@ use std::{collections::HashSet, process::ExitCode};
 use anyhow::Context as _;
 use brioche_core::{project::ProjectLocking, utils::DisplayDuration};
 use clap::Parser;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt as _;
 use tracing::Instrument as _;
 
 #[derive(Debug, Parser)]
@@ -85,11 +87,13 @@ pub async fn run(
         }
 
         if args.check {
+            let project_hashes = HashSet::from_iter([project_hash]);
+
             let checked = brioche_core::script::check::check(
                 &brioche,
                 js_platform,
                 &projects,
-                &HashSet::from_iter([project_hash]),
+                &project_hashes,
             )
             .await?;
 
@@ -196,8 +200,6 @@ pub async fn run(
 
     cfg_if::cfg_if! {
         if #[cfg(unix)] {
-            use std::os::unix::process::CommandExt as _;
-
             let error = command.exec();
             Err(error.into())
         } else {
