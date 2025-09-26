@@ -49,6 +49,7 @@ pub async fn create_input(
         let meta = options.meta.clone();
         move || {
             let mut plan = CreateInputPlan::default();
+            let mut saved_paths = HashMap::default();
 
             // Add nodes and edges for all files/directories/symlinks
             let root_node = add_input_plan_nodes(
@@ -57,7 +58,7 @@ pub async fn create_input(
                     remove_input,
                     resource_dir: resource_dir.as_deref(),
                     input_resource_dirs: &input_resource_dirs,
-                    saved_paths: &mut Default::default(),
+                    saved_paths: &mut saved_paths,
                     meta: &meta,
                 },
                 &mut plan,

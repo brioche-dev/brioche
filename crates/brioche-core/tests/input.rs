@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     os::unix::prelude::PermissionsExt as _,
     path::{Path, PathBuf},
     sync::Arc,
@@ -16,6 +17,9 @@ async fn create_input(
     input_path: &Path,
     remove_input: bool,
 ) -> anyhow::Result<Artifact> {
+    let mut saved_paths = HashMap::default();
+    let meta = Arc::new(Meta::default());
+
     let artifact = brioche_core::input::create_input(
         brioche,
         brioche_core::input::InputOptions {
@@ -23,8 +27,8 @@ async fn create_input(
             remove_input,
             resource_dir: None,
             input_resource_dirs: &[],
-            saved_paths: &mut Default::default(),
-            meta: &Arc::new(Meta::default()),
+            saved_paths: &mut saved_paths,
+            meta: &meta,
         },
     )
     .await?;
@@ -39,6 +43,9 @@ async fn create_input_with_resources(
     input_resource_dirs: &[PathBuf],
     remove_input: bool,
 ) -> anyhow::Result<Artifact> {
+    let mut saved_paths = HashMap::default();
+    let meta = Arc::new(Meta::default());
+
     let artifact = brioche_core::input::create_input(
         brioche,
         brioche_core::input::InputOptions {
@@ -46,8 +53,8 @@ async fn create_input_with_resources(
             remove_input,
             resource_dir,
             input_resource_dirs,
-            saved_paths: &mut Default::default(),
-            meta: &Arc::new(Meta::default()),
+            saved_paths: &mut saved_paths,
+            meta: &meta,
         },
     )
     .await?;

@@ -199,8 +199,9 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
                 anyhow::Ok(expr)
             })
             .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
+        let env = HashMap::default();
 
-        let json = expression_to_json(&project_export_expr, &Default::default())
+        let json = expression_to_json(&project_export_expr, &env)
             .with_context(|| format!("{file_line}: invalid project export"))?;
         anyhow::Ok((json, file_line))
     }).transpose()?;
@@ -354,6 +355,8 @@ pub async fn analyze_module(
                     "invalid import path: must be within project root",
                 );
 
+                let env = HashMap::default();
+
                 // Analyze the imported module, but start with a separate
                 // environment
                 let import_module_specifier = analyze_module(
@@ -361,7 +364,7 @@ pub async fn analyze_module(
                     &import_module_path,
                     project_path,
                     None,
-                    &Default::default(),
+                    &env,
                     local_modules,
                 )
                 .await?;

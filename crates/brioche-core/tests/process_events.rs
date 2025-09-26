@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 
 use jiff::Zoned;
@@ -34,10 +35,10 @@ fn example_process_event_description() -> ProcessEventDescription {
         meta: Meta::default(),
         sandbox_config: SandboxExecutionConfig {
             sandbox_root: Default::default(),
-            include_host_paths: Default::default(),
+            include_host_paths: HashMap::default(),
             command: Default::default(),
             args: Default::default(),
-            env: Default::default(),
+            env: HashMap::default(),
             current_dir: Default::default(),
             gid_hint: 0,
             uid_hint: 0,

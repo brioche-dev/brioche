@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::Context as _;
@@ -78,9 +79,11 @@ pub async fn edit_project(
                 anyhow::Ok(expr)
             })
             .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
+        let env = HashMap::default();
+
         let current_project_export_json = super::analyze::expression_to_json(
             &biome_js_syntax::AnyJsExpression::JsObjectExpression(project_export_expr.clone()),
-            &Default::default(),
+            &env,
         )
         .with_context(|| format!("{file_line}: invalid project export"))?;
 
