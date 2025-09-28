@@ -103,7 +103,7 @@ impl Job {
                 finished_at: None,
             },
             NewJob::Process { status } => Self::Process {
-                packet_queue: Default::default(),
+                packet_queue: DebugIgnore::default(),
                 status,
             },
             NewJob::CacheFetch {

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::Write as _;
+use std::sync::Arc;
 
 use brioche_core::Brioche;
 
@@ -62,7 +63,7 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
         .bench_values(|ctx| {
             ctx.runtime.block_on(async {
                 let mut saved_paths = HashMap::default();
-                let meta = Default::default();
+                let meta = Arc::default();
 
                 brioche_core::input::create_input(
                     &ctx.brioche,
@@ -133,7 +134,7 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
         .bench_values(|ctx| {
             ctx.runtime.block_on(async {
                 let mut saved_paths = HashMap::default();
-                let meta = Default::default();
+                let meta = Arc::default();
 
                 brioche_core::input::create_input(
                     &ctx.brioche,
@@ -242,7 +243,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
         })
         .bench_values(|ctx| {
             ctx.runtime.block_on(async {
-                let meta = Default::default();
+                let meta = Arc::default();
                 brioche_core::input::create_input(
                     &ctx.brioche,
                     brioche_core::input::InputOptions {

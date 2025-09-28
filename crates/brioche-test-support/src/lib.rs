@@ -16,7 +16,7 @@ use brioche_core::{
 };
 use futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _};
-use tower_lsp::lsp_types::{self, notification, request};
+use tower_lsp::lsp_types::{self, InitializeResult, notification, request};
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
     brioche_test_with(|builder| builder).await
@@ -195,7 +195,9 @@ async fn cached_download(
                 content_blob: blob_hash,
                 executable: false,
                 resources: Box::new(WithMeta::without_meta(
-                    brioche_core::recipe::Recipe::Directory(Default::default()),
+                    brioche_core::recipe::Recipe::Directory(
+                        brioche_core::recipe::Directory::default(),
+                    ),
                 )),
             };
             let input_hash = input_recipe.hash();
@@ -457,7 +459,7 @@ pub fn without_meta<T>(value: T) -> WithMeta<T> {
 }
 
 pub fn sha256(value: impl AsRef<[u8]>) -> brioche_core::Hash {
-    let mut hasher = brioche_core::Hasher::Sha256(Default::default());
+    let mut hasher = brioche_core::Hasher::new_sha256();
     hasher.update(value.as_ref());
     hasher.finish().unwrap()
 }
@@ -948,7 +950,7 @@ pub async fn brioche_lsp_test_with(
     let (request_tx, mut request_rx) = tokio::sync::mpsc::unbounded_channel();
     let response_handlers: Arc<
         tokio::sync::Mutex<HashMap<JsonRpcId, tokio::sync::oneshot::Sender<JsonRpcMessage>>>,
-    > = Default::default();
+    > = Arc::default();
     let notification_tx = tokio::sync::broadcast::Sender::new(100);
 
     // Used to indicate that one of the LSP client tasks has failed,
@@ -1089,7 +1091,7 @@ pub async fn brioche_lsp_test_with(
         cancellation_token,
 
         // Use a temporary value for the initialization result
-        initialize_result: Default::default(),
+        initialize_result: InitializeResult::default(),
     };
 
     // Send initialize request to the LSP server before returning, and

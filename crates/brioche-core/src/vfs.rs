@@ -19,7 +19,7 @@ impl Vfs {
     pub fn immutable() -> Self {
         Self {
             mutable: false,
-            inner: Default::default(),
+            inner: Arc::default(),
         }
     }
 
@@ -27,7 +27,7 @@ impl Vfs {
     pub fn mutable() -> Self {
         Self {
             mutable: true,
-            inner: Default::default(),
+            inner: Arc::default(),
         }
     }
 

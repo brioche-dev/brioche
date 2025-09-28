@@ -652,7 +652,11 @@ impl superconsole::Component for JobsComponent {
 struct JobComponent<'a>(JobId, &'a Job);
 
 impl superconsole::Component for JobComponent<'_> {
-    #[expect(clippy::cast_possible_truncation)]
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     fn draw_unchecked(
         &self,
         dimensions: superconsole::Dimensions,
@@ -1022,7 +1026,11 @@ fn indicator_span(kind: IndicatorKind) -> superconsole::Span {
     }
 }
 
-#[expect(clippy::cast_possible_truncation)]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
 fn progress_bar_spans(
     interior: &str,
     width: usize,

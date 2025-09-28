@@ -674,6 +674,7 @@ pub struct File {
     pub resources: Directory,
 }
 
+#[expect(clippy::unsafe_derive_deserialize)]
 #[serde_with::serde_as]
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
