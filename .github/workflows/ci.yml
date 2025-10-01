@@ -177,10 +177,8 @@ jobs:
         platform:
           - name: x86_64-linux
             runs_on: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
           - name: aarch64-linux
             runs_on: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
             nightly: "true"
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
