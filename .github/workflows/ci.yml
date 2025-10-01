@@ -132,19 +132,13 @@ jobs:
           TARGET: ${{ matrix.platform.target }}
       - name: Build Brioche
         run: |
-          extra_args=()
-          if [ -n "$FEATURES" ]; then
-            extra_args+=(--features "$FEATURES")
-          fi
           cargo build \
             --all \
             --bin brioche \
             --release \
-            --target="$TARGET" \
-            "${extra_args[@]}"
+            --target="$TARGET"
         env:
           TARGET: ${{ matrix.platform.target }}
-          FEATURES: ${{ matrix.platform.features }}
       - name: Prepare artifact
         run: |
           mkdir -p "artifacts/brioche/$PLATFORM/"
