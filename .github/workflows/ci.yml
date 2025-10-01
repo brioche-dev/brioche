@@ -126,9 +126,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-      - name: Install dependencies
-        if: matrix.platform.install_deps
-        run: ${{ matrix.platform.install_deps }}
       - name: Install Rust targets
         run: rustup target add "$TARGET"
         env:
