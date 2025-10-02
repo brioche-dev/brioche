@@ -126,28 +126,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-      - name: Install dependencies
-        if: matrix.platform.install_deps
-        run: ${{ matrix.platform.install_deps }}
       - name: Install Rust targets
         run: rustup target add "$TARGET"
         env:
           TARGET: ${{ matrix.platform.target }}
       - name: Build Brioche
         run: |
-          extra_args=()
-          if [ -n "$FEATURES" ]; then
-            extra_args+=(--features "$FEATURES")
-          fi
           cargo build \
             --all \
             --bin brioche \
             --release \
-            --target="$TARGET" \
-            "${extra_args[@]}"
+            --target="$TARGET"
         env:
           TARGET: ${{ matrix.platform.target }}
-          FEATURES: ${{ matrix.platform.features }}
       - name: Prepare artifact
         run: |
           mkdir -p "artifacts/brioche/$PLATFORM/"
@@ -180,10 +171,8 @@ jobs:
         platform:
           - name: x86_64-linux
             runs_on: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
           - name: aarch64-linux
             runs_on: ubuntu-22.04-arm
-            target: aarch64-unknown-linux-gnu
             nightly: "true"
     runs-on: ${{ matrix.platform.runs_on }}
     steps:
