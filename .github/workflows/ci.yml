@@ -65,26 +65,26 @@ jobs:
       matrix:
         test:
           - name: x86-64 Ubuntu 22.04
-            runs_on: ubuntu-22.04
+            runs-on: ubuntu-22.04
 
           - name: x86-64 Ubuntu 22.04 + PRoot
-            runs_on: ubuntu-22.04
+            runs-on: ubuntu-22.04
             setup: |
               echo 'BRIOCHE_TEST_SANDBOX=linux_namespace' >> "$GITHUB_ENV"
               echo 'BRIOCHE_TEST_SANDBOX_PROOT=true' >> "$GITHUB_ENV"
 
           - name: x86-64 Ubuntu 24.04
-            runs_on: ubuntu-24.04
+            runs-on: ubuntu-24.04
 
           - name: x86-64 Ubuntu 24.04 + Namespaces
-            runs_on: ubuntu-24.04
+            runs-on: ubuntu-24.04
             setup: |
               echo 'kernel.apparmor_restrict_unprivileged_userns = 0' | sudo tee /etc/sysctl.d/99-userns.conf
               sudo sysctl --system
 
           - name: aarch64 macOS 15
-            runs_on: macos-15
-    runs-on: ${{ matrix.test.runs_on }}
+            runs-on: macos-15
+    runs-on: ${{ matrix.test.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -111,18 +111,18 @@ jobs:
       matrix:
         platform:
           - name: x86_64-linux
-            runs_on: ubuntu-22.04
+            runs-on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
           - name: aarch64-linux
-            runs_on: ubuntu-22.04-arm
+            runs-on: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
           - name: x86_64-macos
-            runs_on: macos-15
+            runs-on: macos-15
             target: x86_64-apple-darwin
           - name: aarch64-macos
-            runs_on: macos-15
+            runs-on: macos-15
             target: aarch64-apple-darwin
-    runs-on: ${{ matrix.platform.runs_on }}
+    runs-on: ${{ matrix.platform.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -170,11 +170,11 @@ jobs:
       matrix:
         platform:
           - name: x86_64-linux
-            runs_on: ubuntu-22.04
+            runs-on: ubuntu-22.04
           - name: aarch64-linux
-            runs_on: ubuntu-22.04-arm
+            runs-on: ubuntu-22.04-arm
             nightly: "true"
-    runs-on: ${{ matrix.platform.runs_on }}
+    runs-on: ${{ matrix.platform.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
