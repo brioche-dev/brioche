@@ -42,7 +42,7 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     let current_version: semver::Version = CURRENT_VERSION
         .parse()
         .context("failed to parse current Brioche version as semver")?;
-    let platform = brioche_core::platform::current_platform();
+    let platform = self_update_platform();
     let client = reqwest::Client::builder()
         .user_agent(brioche_core::USER_AGENT)
         .build()?;
@@ -307,6 +307,34 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     let _ = tokio::fs::remove_dir_all(&new_version_temp_path).await;
 
     Ok(true)
+}
+
+/// Get the platform name used for self-updating. This will either be the
+/// current platform (e.g. `x86_64-linux`) or a variant controlled by
+/// the `$BRIOCHE_SELF_UPDATE_PLATFROM` env var (e.g. `x86_64-linux-gnu`).
+const fn self_update_platform() -> SelfUpdatePlatform {
+    let platform_name = option_env!("BRIOCHE_SELF_UPDATE_PLATFORM");
+    if let Some(platform_name) = platform_name {
+        SelfUpdatePlatform::PlatformName(platform_name)
+    } else {
+        let current_platform = brioche_core::platform::current_platform();
+        SelfUpdatePlatform::Platform(current_platform)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SelfUpdatePlatform {
+    Platform(brioche_core::platform::Platform),
+    PlatformName(&'static str),
+}
+
+impl std::fmt::Display for SelfUpdatePlatform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Platform(platform) => write!(f, "{platform}"),
+            Self::PlatformName(name) => write!(f, "{name}"),
+        }
+    }
 }
 
 /// Get details about the current Brioche installation on the filesystem for
