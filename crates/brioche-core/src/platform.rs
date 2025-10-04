@@ -18,12 +18,12 @@ pub enum Platform {
 }
 
 #[must_use]
-pub fn current_platform() -> Platform {
+pub const fn current_platform() -> Platform {
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         Platform::X86_64Linux
     } else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
         Platform::Aarch64Linux
     } else {
-        unimplemented!("unsupported platform");
+        panic!("unsupported platform");
     }
 }
