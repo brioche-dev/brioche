@@ -110,8 +110,8 @@ jobs:
     steps:
       - run: ":"
 
-  build:
-    name: Build artifacts [${{ matrix.name }}]
+  build-unpacked:
+    name: Build [${{ matrix.name }}] (Unpacked)
     if: github.event_name == 'push'
     strategy:
       matrix:
@@ -178,7 +178,7 @@ jobs:
           if-no-files-found: error
 
   build-packed:
-    name: Build packed artifacts [${{ matrix.name }}]
+    name: Build [${{ matrix.name }}] (Packed)
     if: github.event_name == 'push'
     strategy:
       matrix:
@@ -239,7 +239,7 @@ jobs:
   push:
     name: Push artifacts
     if: github.event_name == 'push' && github.repository == 'brioche-dev/brioche'
-    needs: [check, all-tests-passed, build, build-packed]
+    needs: [check, all-tests-passed, build-unpacked, build-packed]
     runs-on: ubuntu-24.04
     steps:
       - name: Download artifacts
