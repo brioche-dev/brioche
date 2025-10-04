@@ -267,7 +267,7 @@ jobs:
         run: |
           ls -lhR artifacts/
 
-          echo aws s3 sync \
+          aws s3 sync \
             --endpoint "$S3_ENDPOINT" \
             --delete \
             artifacts/ \
