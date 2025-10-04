@@ -116,10 +116,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - name: x86_64-linux
+          - name: x86_64-linux-gnu
             runs-on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - name: aarch64-linux
+          - name: aarch64-linux-gnu
             runs-on: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
           - name: x86_64-macos
