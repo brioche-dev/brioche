@@ -28,7 +28,7 @@ static RELEASE_PUBLIC_KEY: LazyLock<ssh_key::PublicKey> = LazyLock::new(|| {
         .expect("failed to parse RELEASE_PUBLIC_KEY")
 });
 
-const RELEASE_SIGNATURE_NAMESPACE: &str = "wip@brioche.dev";
+const RELEASE_SIGNATURE_NAMESPACE: &str = "release@brioche.dev";
 
 #[derive(Debug, Parser)]
 pub struct SelfUpdateArgs {
