@@ -60,10 +60,10 @@ jobs:
           brioche fmt --check
 
   test:
-    name: Run tests [${{ matrix.test.name }}]
+    name: Run tests [${{ matrix.name }}]
     strategy:
       matrix:
-        test:
+        include:
           - name: x86-64 Ubuntu 22.04
             runs-on: ubuntu-22.04
 
@@ -84,13 +84,13 @@ jobs:
 
           - name: aarch64 macOS 15
             runs-on: macos-15
-    runs-on: ${{ matrix.test.runs-on }}
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
       - name: Set up runner
-        if: matrix.test.setup
-        run: ${{ matrix.test.setup }}
+        if: matrix.setup
+        run: ${{ matrix.setup }}
       # Run tests in release mode. Running tests in debug mode uses a lot
       # more disk space, so much so that it can cause the run to fail
       - name: Run tests
@@ -105,11 +105,11 @@ jobs:
       - run: ":"
 
   build:
-    name: Build artifacts [${{ matrix.platform.name }}]
+    name: Build artifacts [${{ matrix.name }}]
     if: github.event_name == 'push'
     strategy:
       matrix:
-        platform:
+        include:
           - name: x86_64-linux
             runs-on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
@@ -122,14 +122,14 @@ jobs:
           - name: aarch64-macos
             runs-on: macos-15
             target: aarch64-apple-darwin
-    runs-on: ${{ matrix.platform.runs-on }}
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
       - name: Install Rust targets
         run: rustup target add "$TARGET"
         env:
-          TARGET: ${{ matrix.platform.target }}
+          TARGET: ${{ matrix.target }}
       - name: Build Brioche
         run: |
           cargo build \
@@ -138,7 +138,7 @@ jobs:
             --release \
             --target="$TARGET"
         env:
-          TARGET: ${{ matrix.platform.target }}
+          TARGET: ${{ matrix.target }}
       - name: Prepare artifact
         run: |
           mkdir -p "artifacts/brioche/$PLATFORM/"
@@ -154,12 +154,12 @@ jobs:
             tree --du -h artifacts/brioche
           fi
         env:
-          PLATFORM: ${{ matrix.platform.name }}
-          TARGET: ${{ matrix.platform.target }}
+          PLATFORM: ${{ matrix.name }}
+          TARGET: ${{ matrix.target }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: brioche-${{ matrix.platform.name }}
+          name: brioche-${{ matrix.name }}
           if-no-files-found: error
           path: artifacts/brioche
 
@@ -168,28 +168,28 @@ jobs:
     if: github.event_name == 'push'
     strategy:
       matrix:
-        platform:
+        include:
           - name: x86_64-linux
             runs-on: ubuntu-22.04
           - name: aarch64-linux
             runs-on: ubuntu-22.04-arm
             nightly: "true"
-    runs-on: ${{ matrix.platform.runs-on }}
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
       - name: Install Brioche
-        if: matrix.platform.nightly != 'true'
+        if: matrix.nightly != 'true'
         uses: brioche-dev/setup-brioche@v1
       - name: Install Brioche (nightly)
-        if: matrix.platform.nightly == 'true'
+        if: matrix.nightly == 'true'
         run: |
           mkdir -p ~/.local/bin
           curl -L https://development-content.brioche.dev/github.com/brioche-dev/brioche/branches/main/$PLATFORM/brioche -o ~/.local/bin/brioche
           chmod +x ~/.local/bin/brioche
           echo "$HOME/.local/bin" >> $GITHUB_PATH
         env:
-          PLATFORM: ${{ matrix.platform.name }}
+          PLATFORM: ${{ matrix.name }}
       - name: Build Brioche
         # HACK: Added a workaround for bug fixed by https://github.com/brioche-dev/brioche/pull/216
         # TODO: Update when Brioche >0.1.5 is released
@@ -197,7 +197,7 @@ jobs:
           brioche check || true
           brioche build --check -o "brioche-packed-$PLATFORM"
         env:
-          PLATFORM: ${{ matrix.platform.name }}
+          PLATFORM: ${{ matrix.name }}
       - name: Prepare artifact
         run: |
           mkdir -p "artifacts/brioche-packed/$PLATFORM"
@@ -211,11 +211,11 @@ jobs:
             tree --du -h artifacts/brioche-packed
           fi
         env:
-          PLATFORM: ${{ matrix.platform.name }}
+          PLATFORM: ${{ matrix.name }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: brioche-packed-${{ matrix.platform.name }}
+          name: brioche-packed-${{ matrix.name }}
           if-no-files-found: error
           path: artifacts/brioche-packed
 
