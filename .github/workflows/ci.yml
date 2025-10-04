@@ -10,6 +10,12 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
+env:
+  # Determine the name of the release channel:
+  # - `nightly`: Pushes to `main`
+  # - Otherwise, `wip`
+  BRIOCHE_RELEASE_CHANNEL: ${{ (github.event_name == 'push' && github.repository == 'brioche-dev/brioche' && github.ref == 'refs/heads/main' && 'nightly') || 'wip' }}
+
 jobs:
   check:
     name: Run checks
@@ -241,8 +247,10 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Sign artifacts
+      - name: Sign artifacts (channel=${{ env.BRIOCHE_RELEASE_CHANNEL }})
         run: |
+          SIGNING_NAMESPACE="${BRIOCHE_RELEASE_CHANNEL}@brioche.dev"
+
           install -m 0600 <(echo "$BRIOCHE_CODESIGN_PRIVATE_KEY") ./brioche-codesign-key
           ssh-keygen -Y sign -n "$SIGNING_NAMESPACE" -f ./brioche-codesign-key artifacts/brioche-*.tar.gz
           rm brioche-codesign-key
@@ -254,7 +262,6 @@ jobs:
           done
         env:
           BRIOCHE_CODESIGN_PRIVATE_KEY: ${{ secrets.BRIOCHE_CODESIGN_PRIVATE_KEY }}
-          SIGNING_NAMESPACE: wip@brioche.dev
       # Upload the Brioche build for the current branch
       - name: Upload to S3
         run: |
