@@ -153,7 +153,6 @@ jobs:
           artifact_path="artifacts/${artifact_name}.tar.gz"
 
           mkdir -p "artifacts/$artifact_name/bin"
-          touch "artifacts/$artifact_name/.brioche-install"
           cp "target/$TARGET/release/brioche" "artifacts/$artifact_name/bin"
 
           tar -czvf "$artifact_path" -C artifacts "$artifact_name"
