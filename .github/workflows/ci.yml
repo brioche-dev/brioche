@@ -139,6 +139,7 @@ jobs:
             --target="$TARGET"
         env:
           TARGET: ${{ matrix.target }}
+          BRIOCHE_SELF_UPDATE_PLATFORM: ${{ matrix.name }}
       - name: Prepare artifact
         id: prepare-artifact
         run: |
