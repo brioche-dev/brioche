@@ -12,7 +12,7 @@ self-update = []
 [dependencies]
 anyhow = { version = "1.0.98", features = ["backtrace"] }
 async-compression = { version = "0.4.27", features = [
-    "gzip",
+    "xz",
 ] }
 brioche-core = { path = "../brioche-core" }
 bstr = "1.12.0"
