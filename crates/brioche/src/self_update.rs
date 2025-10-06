@@ -311,7 +311,7 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
 
 /// Get the platform name used for self-updating. This will either be the
 /// current platform (e.g. `x86_64-linux`) or a variant controlled by
-/// the `$BRIOCHE_SELF_UPDATE_PLATFROM` env var (e.g. `x86_64-linux-gnu`).
+/// the `$BRIOCHE_SELF_UPDATE_PLATFORM` env var (e.g. `x86_64-linux-gnu`).
 const fn self_update_platform() -> SelfUpdatePlatform {
     let platform_name = option_env!("BRIOCHE_SELF_UPDATE_PLATFORM");
     if let Some(platform_name) = platform_name {
