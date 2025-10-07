@@ -10,6 +10,12 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
+env:
+  # Determine the name of the release channel:
+  # - `nightly`: Pushes to `main`
+  # - Otherwise, `wip`
+  BRIOCHE_RELEASE_CHANNEL: ${{ (github.event_name == 'push' && github.repository == 'brioche-dev/brioche' && github.ref == 'refs/heads/main' && 'nightly') || 'wip' }}
+
 jobs:
   check:
     name: Run checks
@@ -104,16 +110,16 @@ jobs:
     steps:
       - run: ":"
 
-  build:
-    name: Build artifacts [${{ matrix.name }}]
+  build-unpacked:
+    name: Build [${{ matrix.name }}] (Unpacked)
     if: github.event_name == 'push'
     strategy:
       matrix:
         include:
-          - name: x86_64-linux
+          - name: x86_64-linux-gnu
             runs-on: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - name: aarch64-linux
+          - name: aarch64-linux-gnu
             runs-on: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
           - name: x86_64-macos
@@ -139,19 +145,25 @@ jobs:
             --target="$TARGET"
         env:
           TARGET: ${{ matrix.target }}
+          BRIOCHE_SELF_UPDATE_PLATFORM: ${{ matrix.name }}
       - name: Prepare artifact
+        id: prepare-artifact
         run: |
-          mkdir -p "artifacts/brioche/$PLATFORM/"
-          cp \
-            "target/$TARGET/release/brioche" \
-            "artifacts/brioche/$PLATFORM/"
+          artifact_name="brioche-${PLATFORM}"
+          artifact_path="artifacts/${artifact_name}.tar.gz"
+
+          mkdir -p "artifacts/$artifact_name/bin"
+          cp "target/$TARGET/release/brioche" "artifacts/$artifact_name/bin"
+
+          tar -czvf "$artifact_path" -C artifacts "$artifact_name"
+
+          echo "artifact-name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact-path=$artifact_path" >> "$GITHUB_OUTPUT"
+
+          ls -lhR artifacts/
 
           if command -v sha256sum &> /dev/null; then
             find artifacts/ -type f | xargs sha256sum
-          fi
-
-          if command -v tree &> /dev/null; then
-            tree --du -h artifacts/brioche
           fi
         env:
           PLATFORM: ${{ matrix.name }}
@@ -159,12 +171,13 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: brioche-${{ matrix.name }}
+          name: ${{ steps.prepare-artifact.outputs.artifact-name }}
+          path: ${{ steps.prepare-artifact.outputs.artifact-path }}
+          compression-level: 0
           if-no-files-found: error
-          path: artifacts/brioche
 
   build-packed:
-    name: Build packed artifacts
+    name: Build [${{ matrix.name }}] (Packed)
     if: github.event_name == 'push'
     strategy:
       matrix:
@@ -184,88 +197,72 @@ jobs:
         with:
           version: ${{ matrix.brioche-release-channel }}
       - name: Build Brioche
+        id: build
         # HACK: Added a workaround for bug fixed by https://github.com/brioche-dev/brioche/pull/216
         # TODO: Update when Brioche >0.1.5 is released
         run: |
+          artifact_name="brioche-${PLATFORM}"
+          artifact_path="artifacts/${artifact_name}.tar.gz"
+
+          mkdir -p "artifacts"
           brioche check || true
-          brioche build --check -o "brioche-packed-$PLATFORM"
-        env:
-          PLATFORM: ${{ matrix.name }}
-      - name: Prepare artifact
-        run: |
-          mkdir -p "artifacts/brioche-packed/$PLATFORM"
-          tar -czf "artifacts/brioche-packed/$PLATFORM/brioche-packed-$PLATFORM.tar.gz" "brioche-packed-$PLATFORM"
+          brioche build --check -o "artifacts/$artifact_name"
+
+          tar -czvf "$artifact_path" -C artifacts "$artifact_name"
+
+          echo "artifact-name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "artifact-path=$artifact_path" >> "$GITHUB_OUTPUT"
+
+          ls -lhR artifacts/
 
           if command -v sha256sum &> /dev/null; then
             find artifacts/ -type f | xargs sha256sum
-          fi
-
-          if command -v tree &> /dev/null; then
-            tree --du -h artifacts/brioche-packed
           fi
         env:
           PLATFORM: ${{ matrix.name }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: brioche-packed-${{ matrix.name }}
+          name: ${{ steps.build.outputs.artifact-name }}
+          path: ${{ steps.build.outputs.artifact-path }}
+          compression-level: 0
           if-no-files-found: error
-          path: artifacts/brioche-packed
 
   push:
     name: Push artifacts
     if: github.event_name == 'push' && github.repository == 'brioche-dev/brioche'
-    needs: [check, all-tests-passed, build, build-packed]
+    needs: [check, all-tests-passed, build-unpacked, build-packed]
     runs-on: ubuntu-24.04
     steps:
-      - name: Install AWS CLI
-        uses: unfor19/install-aws-cli-action@v1
-      - name: Download artifacts (x86_64-linux)
-        uses: actions/download-artifact@v5
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: brioche-x86_64-linux
-          path: artifacts/brioche
-      - name: Download artifacts (aarch64-linux)
-        uses: actions/download-artifact@v5
-        with:
-          name: brioche-aarch64-linux
-          path: artifacts/brioche
-      - name: Download artifacts (x86_64-macos)
-        uses: actions/download-artifact@v5
-        with:
-          name: brioche-x86_64-macos
-          path: artifacts/brioche
-      - name: Download artifacts (aarch64-macos)
-        uses: actions/download-artifact@v5
-        with:
-          name: brioche-aarch64-macos
-          path: artifacts/brioche
-      - name: Download artifacts (x86_64-linux packed)
-        uses: actions/download-artifact@v5
-        with:
-          name: brioche-packed-x86_64-linux
-          path: artifacts/brioche-packed
-      - name: Download artifacts (aarch64-linux packed)
-        uses: actions/download-artifact@v5
-        with:
-          name: brioche-packed-aarch64-linux
-          path: artifacts/brioche-packed
-      # Upload the Brioche build for the current branch
-      - name: Prepare upload
+          path: artifacts
+          merge-multiple: true
+      - name: Sign artifacts (channel=${{ env.BRIOCHE_RELEASE_CHANNEL }})
         run: |
-          mkdir -p artifacts/uploads/branch/brioche-packed
-          cp -r artifacts/brioche/* artifacts/uploads/branch/
-          cp -r artifacts/brioche-packed/* artifacts/uploads/branch/brioche-packed/
+          SIGNING_NAMESPACE="${BRIOCHE_RELEASE_CHANNEL}@brioche.dev"
 
-          if command -v tree &> /dev/null; then
-            tree --du -h artifacts/uploads/branch
-          fi
+          install -m 0600 <(echo "$BRIOCHE_CODESIGN_PRIVATE_KEY") ./brioche-codesign-key
+          ssh-keygen -Y sign -n "$SIGNING_NAMESPACE" -f ./brioche-codesign-key artifacts/brioche-*.tar.gz
+          rm brioche-codesign-key
+
+          for artifact in artifacts/brioche-*.tar.gz; do
+            sha256sum "$artifact"
+            cat "${artifact}.sig"
+            echo
+          done
+        env:
+          BRIOCHE_CODESIGN_PRIVATE_KEY: ${{ secrets.BRIOCHE_CODESIGN_PRIVATE_KEY }}
+      # Upload the Brioche build for the current branch
       - name: Upload to S3
         run: |
+          ls -lhR artifacts/
+
           aws s3 sync \
             --endpoint "$S3_ENDPOINT" \
             --delete \
-            artifacts/uploads/branch/ \
+            artifacts/ \
             "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/branches/$GITHUB_REF_NAME/"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
