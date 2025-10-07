@@ -112,7 +112,7 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
         .join(&latest_version_dir_name);
 
     let download_basename = format!("brioche-{platform}");
-    let download_filename = format!("v{latest_version}/{download_basename}.tar.gz");
+    let download_filename = format!("v{latest_version}/{download_basename}.tar.xz");
     let download_url = BRIOCHE_RELEASES_URL.join(&download_filename)?;
 
     let signature_filename = format!("{download_filename}.sig");
@@ -196,7 +196,7 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     let id = ulid::Ulid::new();
     let download_path = installation_info
         .install_root
-        .join(format!("v{latest_version}-{download_basename}-{id}.tar.gz"));
+        .join(format!("v{latest_version}-{download_basename}-{id}.tar.xz"));
     let mut download_file = tokio::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -236,13 +236,13 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
 
     println!("Installing update...");
 
-    // Rewind the file, wrap with a gzip decoding stream, and pick a path
+    // Rewind the file, wrap with a xz decoding stream, and pick a path
     // to unpack it
     download_file
         .rewind()
         .await
         .context("failed to rewind downloaded file")?;
-    let download_archive = async_compression::tokio::bufread::GzipDecoder::new(download_file);
+    let download_archive = async_compression::tokio::bufread::XzDecoder::new(download_file);
     let new_version_temp_path = installation_info
         .install_root
         .join(format!("temp-{id}-v{latest_version}"));
