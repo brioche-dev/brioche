@@ -143,11 +143,7 @@ pub async fn check(
     guard.shutdown_console().await;
     brioche.wait_for_tasks().await;
 
-    let exit_code = if error_result.is_some() {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    };
+    let exit_code = error_result.map_or(ExitCode::SUCCESS, |()| ExitCode::FAILURE);
 
     Ok(exit_code)
 }
