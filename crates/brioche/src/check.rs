@@ -181,17 +181,15 @@ async fn run_check(
 
     match result {
         Ok(()) => {
-            if let Some(project_name) = project_name {
-                reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("No errors found in {project_name} 🎉",),
-                    superconsole::style::ContentStyle::default(),
-                ));
-            } else {
-                reporter.emit(superconsole::Lines::from_multiline_string(
-                    "No errors found in projects 🎉",
-                    superconsole::style::ContentStyle::default(),
-                ));
-            }
+            let format_string = project_name.map_or_else(
+                || "No errors found in projects 🎉".to_string(),
+                |project_name| format!("No errors found in {project_name} 🎉"),
+            );
+
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &format_string,
+                superconsole::style::ContentStyle::default(),
+            ));
 
             Ok(true)
         }
