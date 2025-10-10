@@ -6,7 +6,6 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = { version = "1.0.98", features = ["backtrace"] }
-assert_matches = "1.5.0"
 async-compression = { version = "0.4.27", features = [
     "tokio",
     "bzip2",
@@ -144,6 +143,7 @@ zstd = "0.13.3"
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
 [dev-dependencies]
+assert_matches = "1.5.0"
 aws-runtime = "1.5.6"
 brioche-test-support = { path = "../brioche-test-support" }
 deno_core = { version = "0.354.0", features = [
