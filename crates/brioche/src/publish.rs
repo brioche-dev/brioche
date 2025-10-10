@@ -19,10 +19,6 @@ pub struct PublishArgs {
     #[arg(long)]
     no_verify: bool,
 
-    /// Allow publishing with dirty working directories
-    #[arg(long)]
-    allow_dirty: bool,
-
     /// The output display format.
     #[arg(long, value_enum, default_value_t)]
     display: super::DisplayMode,
@@ -67,7 +63,6 @@ pub async fn publish(
                     project_hash,
                     &project_name,
                     args.no_verify,
-                    args.allow_dirty,
                 )
                 .await;
                 consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
@@ -86,7 +81,6 @@ pub async fn publish(
     Ok(exit_code)
 }
 
-#[expect(clippy::too_many_arguments)]
 async fn run_publish(
     reporter: &Reporter,
     brioche: &Brioche,
@@ -95,7 +89,6 @@ async fn run_publish(
     project_hash: ProjectHash,
     project_name: &String,
     no_verify: bool,
-    allow_dirty: bool,
 ) -> Result<bool, anyhow::Error> {
     let project = projects.project(project_hash)?;
     let name = project.definition.name.as_deref().unwrap_or("[unnamed]");
@@ -105,9 +98,7 @@ async fn run_publish(
         .as_deref()
         .unwrap_or("[unversioned]");
 
-    if !allow_dirty {
-        projects.validate_no_dirty_lockfiles()?;
-    }
+    projects.validate_no_dirty_lockfiles()?;
 
     if !no_verify {
         let project_hashes = HashSet::from_iter([project_hash]);
