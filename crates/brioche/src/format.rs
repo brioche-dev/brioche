@@ -116,7 +116,7 @@ async fn run_format(
                 Ok(true)
             } else if files.is_empty() {
                 reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("All files of {project_name} are formatted",),
+                    &format!("All files of {project_name} are formatted"),
                     superconsole::style::ContentStyle::default(),
                 ));
 

@@ -231,7 +231,7 @@ async fn run_install(
         };
 
         reporter.emit(superconsole::Lines::from_multiline_string(
-            &format!("Build finished, completed {jobs_message} in {elapsed}",),
+            &format!("Build finished, completed {jobs_message} in {elapsed}"),
             superconsole::style::ContentStyle::default(),
         ));
 

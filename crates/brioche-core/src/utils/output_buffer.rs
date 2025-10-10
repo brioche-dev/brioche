@@ -380,7 +380,7 @@ mod tests {
         output.append(job_stream(1, Stdout), "a\nb\nc");
 
         assert_eq!(output.total_bytes, 5);
-        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())],);
+        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())]);
         assert_eq!(
             output.partial_append,
             BTreeMap::from_iter([(job_stream(1, Stdout), "c".into())])
@@ -659,7 +659,7 @@ mod tests {
         output.append(job_stream(1, Stdout), "a\nb\nc");
 
         assert_eq!(output.total_bytes, 5);
-        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())],);
+        assert_eq!(output.contents, [(job_stream(1, Stdout), "a\nb\n".into())]);
         assert_eq!(
             output.partial_append,
             BTreeMap::from_iter([(job_stream(1, Stdout), "c".into())]),

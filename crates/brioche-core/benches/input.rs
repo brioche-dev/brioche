@@ -197,7 +197,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                 let mut file =
                     std::fs::File::create(input_path.join(format!("file{i}.txt"))).unwrap();
 
-                writeln!(&mut file, "{i}",).unwrap();
+                writeln!(&mut file, "{i}").unwrap();
 
                 brioche_pack::inject_pack(
                     &mut file,
