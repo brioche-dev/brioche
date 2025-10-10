@@ -61,8 +61,9 @@ pub async fn check(
             args.project.project
         };
 
-    let mut project_names = HashMap::new();
-    let mut projects_to_check = HashSet::new();
+    // Pre-allocate capacity for project names and projects to check
+    let mut project_names = HashMap::with_capacity(project_paths.len());
+    let mut projects_to_check = HashSet::with_capacity(project_paths.len());
 
     // Load each path project
     for project_path in project_paths {
