@@ -15,6 +15,10 @@ pub struct PublishArgs {
     #[arg(short, long)]
     project: Vec<PathBuf>,
 
+    /// Skip verifying the project before publishing
+    #[arg(long)]
+    no_verify: bool,
+
     /// The output display format.
     #[arg(long, value_enum, default_value_t)]
     display: super::DisplayMode,
@@ -58,6 +62,7 @@ pub async fn publish(
                     &projects,
                     project_hash,
                     &project_name,
+                    args.no_verify,
                 )
                 .await;
                 consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
@@ -71,11 +76,7 @@ pub async fn publish(
     guard.shutdown_console().await;
     brioche.wait_for_tasks().await;
 
-    let exit_code = if error_result.is_some() {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    };
+    let exit_code = error_result.map_or(ExitCode::SUCCESS, |()| ExitCode::FAILURE);
 
     Ok(exit_code)
 }
@@ -87,6 +88,7 @@ async fn run_publish(
     projects: &Projects,
     project_hash: ProjectHash,
     project_name: &String,
+    no_verify: bool,
 ) -> Result<bool, anyhow::Error> {
     let project = projects.project(project_hash)?;
     let name = project.definition.name.as_deref().unwrap_or("[unnamed]");
@@ -98,61 +100,62 @@ async fn run_publish(
 
     projects.validate_no_dirty_lockfiles()?;
 
-    let project_hashes = HashSet::from_iter([project_hash]);
+    if !no_verify {
+        let project_hashes = HashSet::from_iter([project_hash]);
 
-    let result =
-        brioche_core::script::check::check(brioche, js_platform, projects, &project_hashes)
-            .await?
-            .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
+        let result =
+            brioche_core::script::check::check(brioche, js_platform, projects, &project_hashes)
+                .await?
+                .ensure_ok(brioche_core::script::check::DiagnosticLevel::Warning);
 
-    match result {
-        Ok(()) => {
-            reporter.emit(superconsole::Lines::from_multiline_string(
-                &format!("No errors found in {project_name} 🎉",),
-                superconsole::style::ContentStyle::default(),
-            ));
-
-            let response =
-                brioche_core::publish::publish_project(brioche, projects, project_hash).await?;
-
-            if response.tags.is_empty() {
+        match result {
+            Ok(()) => {
                 reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("Project already up to date: {name} {version}"),
-                    superconsole::style::ContentStyle::default(),
-                ));
-            } else {
-                let tags_info = response
-                    .tags
-                    .iter()
-                    .map(|tag| {
-                        let status = if tag.previous_hash.is_some() {
-                            "updated"
-                        } else {
-                            "new"
-                        };
-                        format!("{} {} ({})", tag.name, tag.tag, status)
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("🚀 Published project {name} {version}\nUpdated tags:\n{tags_info}"),
+                    &format!("No errors found in {project_name} 🎉",),
                     superconsole::style::ContentStyle::default(),
                 ));
             }
+            Err(diagnostics) => {
+                let mut output = Vec::new();
+                diagnostics.write(&brioche.vfs, &mut output)?;
 
-            Ok(true)
-        }
-        Err(diagnostics) => {
-            let mut output = Vec::new();
-            diagnostics.write(&brioche.vfs, &mut output)?;
+                reporter.emit(superconsole::Lines::from_multiline_string(
+                    &String::from_utf8(output)?,
+                    superconsole::style::ContentStyle::default(),
+                ));
 
-            reporter.emit(superconsole::Lines::from_multiline_string(
-                &String::from_utf8(output)?,
-                superconsole::style::ContentStyle::default(),
-            ));
-
-            Ok(false)
+                return Ok(false);
+            }
         }
     }
+
+    let response = brioche_core::publish::publish_project(brioche, projects, project_hash).await?;
+
+    if response.tags.is_empty() {
+        reporter.emit(superconsole::Lines::from_multiline_string(
+            &format!("Project already up to date: {name} {version}"),
+            superconsole::style::ContentStyle::default(),
+        ));
+    } else {
+        let tags_info = response
+            .tags
+            .iter()
+            .map(|tag| {
+                let status = if tag.previous_hash.is_some() {
+                    "updated"
+                } else {
+                    "new"
+                };
+                format!("{} {} ({})", tag.name, tag.tag, status)
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        reporter.emit(superconsole::Lines::from_multiline_string(
+            &format!("🚀 Published project {name} {version}\nUpdated tags:\n{tags_info}"),
+            superconsole::style::ContentStyle::default(),
+        ));
+    }
+
+    Ok(true)
 }
