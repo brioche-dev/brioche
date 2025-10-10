@@ -212,6 +212,18 @@ impl Projects {
         Ok(module_paths.collect())
     }
 
+    pub fn project_module_paths_for_projects(
+        &self,
+        project_hashes: &HashSet<ProjectHash>,
+    ) -> anyhow::Result<Vec<PathBuf>> {
+        let projects = self
+            .inner
+            .read()
+            .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
+        let module_paths = projects.project_module_paths_for_projects(project_hashes)?;
+        Ok(module_paths.collect())
+    }
+
     pub fn project_module_specifiers(
         &self,
         project_hash: ProjectHash,
@@ -233,7 +245,7 @@ impl Projects {
             .read()
             .map_err(|_| anyhow::anyhow!("failed to acquire 'projects' lock"))?;
         let module_specifiers = projects.project_module_specifiers_for_projects(project_hashes)?;
-        Ok(module_specifiers)
+        Ok(module_specifiers.collect())
     }
 
     pub fn find_containing_project(&self, path: &Path) -> anyhow::Result<Option<ProjectHash>> {
@@ -548,6 +560,18 @@ impl ProjectsInner {
         Ok(super::script::specifier::BriocheModuleSpecifier::File { path })
     }
 
+    pub fn project_module_paths_for_projects(
+        &self,
+        project_hashes: &HashSet<ProjectHash>,
+    ) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
+        let mut paths = Vec::with_capacity(project_hashes.len());
+        for project_hash in project_hashes {
+            paths.push(self.project_module_paths(*project_hash)?);
+        }
+
+        Ok(paths.into_iter().flatten())
+    }
+
     pub fn project_module_paths(
         &self,
         project_hash: ProjectHash,
@@ -574,14 +598,15 @@ impl ProjectsInner {
     pub fn project_module_specifiers_for_projects(
         &self,
         project_hashes: &HashSet<ProjectHash>,
-    ) -> anyhow::Result<HashSet<super::script::specifier::BriocheModuleSpecifier>> {
-        let mut module_specifiers = HashSet::new();
+    ) -> anyhow::Result<impl Iterator<Item = super::script::specifier::BriocheModuleSpecifier>>
+    {
+        let mut module_specifiers = Vec::with_capacity(project_hashes.len());
         for project_hash in project_hashes {
             let module_paths = self.project_module_specifiers(*project_hash)?;
-            module_specifiers.extend(module_paths);
+            module_specifiers.push(module_paths);
         }
 
-        Ok(module_specifiers)
+        Ok(module_specifiers.into_iter().flatten())
     }
 
     pub fn project_module_specifiers(

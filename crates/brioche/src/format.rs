@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::{path::PathBuf, process::ExitCode};
 
 use brioche_core::{
@@ -38,35 +40,55 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
 
     let mut error_result = Option::None;
 
-    // Loop over the projects
+    // Pre-allocate capacity for project names and projects to format
+    let mut project_names = HashMap::with_capacity(args.project.len());
+    let mut projects_to_format = HashSet::with_capacity(args.project.len());
+
+    // Load each path project
     for project_path in args.project {
         let project_name = format!("project '{name}'", name = project_path.display());
-
-        match projects
+        let project_hash = projects
             .load(
                 &brioche,
                 &project_path,
                 ProjectValidation::Standard,
                 ProjectLocking::Unlocked,
             )
-            .await
-        {
-            Ok(project_hash) => {
-                let result = run_format(
+            .await;
+
+        let project_hash = match project_hash {
+            Ok(project_hash) => project_hash,
+            Err(error) => {
+                consolidate_result(
                     &reporter,
-                    &projects,
-                    project_hash,
-                    &project_name,
-                    args.check,
-                )
-                .await;
-                consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
+                    Some(&project_name),
+                    Err(error),
+                    &mut error_result,
+                );
+                continue;
             }
-            Err(e) => {
-                consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
-            }
-        }
+        };
+
+        project_names.entry(project_hash).or_insert(project_name);
+        projects_to_format.insert(project_hash);
     }
+
+    let project_name = if project_names.len() == 1 {
+        Some(project_names.values().next().unwrap())
+    } else {
+        None
+    };
+    let project_name = project_name.map(String::as_str);
+
+    let result = run_format(
+        &reporter,
+        &projects,
+        &projects_to_format,
+        project_name,
+        args.check,
+    )
+    .await;
+    consolidate_result(&reporter, project_name, result, &mut error_result);
 
     guard.shutdown_console().await;
     brioche.wait_for_tasks().await;
@@ -79,15 +101,15 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
 async fn run_format(
     reporter: &Reporter,
     projects: &Projects,
-    project_hash: ProjectHash,
-    project_name: &String,
+    project_hashes: &HashSet<ProjectHash>,
+    project_name: Option<&str>,
     check: bool,
 ) -> Result<bool, anyhow::Error> {
     let result = async {
         if check {
-            brioche_core::script::format::check_format(projects, project_hash).await
+            brioche_core::script::format::check_format(projects, project_hashes).await
         } else {
-            brioche_core::script::format::format(projects, project_hash).await
+            brioche_core::script::format::format(projects, project_hashes).await
         }
     }
     .instrument(tracing::info_span!("format"))
@@ -100,37 +122,51 @@ async fn run_format(
 
             if !check {
                 if !files.is_empty() {
+                    let files = files
+                        .iter()
+                        .map(|file| format!("- {}", file.display()))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    let format_string = project_name.map_or_else(|| format!("The following files in projects have been formatted:\n{files}"), |project_name| format!(
+                            "The following files of {project_name} have been formatted:\n{files}"
+                        ));
+
                     reporter.emit(superconsole::Lines::from_multiline_string(
-                        &format!(
-                            "The following files of {project_name} have been formatted:\n{files}",
-                            files = files
-                                .iter()
-                                .map(|file| format!("- {}", file.display()))
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        ),
+                        &format_string,
                         superconsole::style::ContentStyle::default(),
                     ));
                 }
 
                 Ok(true)
             } else if files.is_empty() {
+                let format_string = project_name.map_or_else(
+                    || "All files in projects are formatted".to_string(),
+                    |project_name| format!("All files of {project_name} are formatted"),
+                );
+
                 reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("All files of {project_name} are formatted"),
+                    &format_string,
                     superconsole::style::ContentStyle::default(),
                 ));
 
                 Ok(true)
             } else {
+                let files = files
+                    .iter()
+                    .map(|file| format!("- {}", file.display()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                let format_string = project_name.map_or_else(
+                    || format!("The following files in projects are not formatted:\n{files}"),
+                    |project_name| {
+                        format!("The following files of {project_name} are not formatted:\n{files}")
+                    },
+                );
+
                 reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!(
-                        "The following files of {project_name} are not formatted:\n{files}",
-                        files = files
-                            .iter()
-                            .map(|file| format!("- {}", file.display()))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    ),
+                    &format_string,
                     superconsole::style::ContentStyle::default(),
                 ));
 

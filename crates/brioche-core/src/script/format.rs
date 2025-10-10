@@ -1,40 +1,41 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use crate::project::{ProjectHash, Projects};
 
-/// Formats the specified project using the provided formatter.
+/// Formats the specified projects using the provided formatter.
 ///
-/// This function takes a reference to the `Projects` struct, a `ProjectHash` representing the project to format.
+/// This function takes a reference to the `Projects` struct, a list of `ProjectHash` representing the projects to format.
 /// It returns a `Result` containing a vector of `PathBuf` representing the paths of the formatted files,
 /// or an `anyhow::Error` if an error occurs.
 pub async fn format(
     projects: &Projects,
-    project_hash: ProjectHash,
+    project_hashes: &HashSet<ProjectHash>,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    format_project(projects, project_hash, false).await
+    format_project(projects, project_hashes, false).await
 }
 
-/// Checks the formatting of the specified project using the provided formatter.
+/// Checks the formatting of the specified projects using the provided formatter.
 ///
-/// This function takes a reference to the `Projects` struct, a `ProjectHash` representing the project to check.
+/// This function takes a reference to the `Projects` struct, a list of `ProjectHash` representing the projects to check.
 /// It returns a `Result` containing a vector of `PathBuf` representing the paths of the unformatted files,
 /// or an `anyhow::Error` if an error occurs.
 pub async fn check_format(
     projects: &Projects,
-    project_hash: ProjectHash,
+    project_hashes: &HashSet<ProjectHash>,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    format_project(projects, project_hash, true).await
+    format_project(projects, project_hashes, true).await
 }
 
 #[tracing::instrument(skip(projects), err)]
 async fn format_project(
     projects: &Projects,
-    project_hash: ProjectHash,
+    project_hashes: &HashSet<ProjectHash>,
     check: bool,
 ) -> anyhow::Result<Vec<PathBuf>> {
     let mut result = vec![];
 
-    let module_paths = projects.project_module_paths(project_hash)?;
+    let module_paths = projects.project_module_paths_for_projects(project_hashes)?;
     for path in module_paths {
         let contents = tokio::fs::read_to_string(&path).await?;
 
