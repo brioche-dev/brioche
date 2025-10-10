@@ -126,7 +126,7 @@ pub async fn check(
     } else {
         None
     };
-    let project_name = project_name.as_ref().map(|name| name.as_str());
+    let project_name = project_name.map(String::as_str);
 
     let result = run_check(
         &reporter,
