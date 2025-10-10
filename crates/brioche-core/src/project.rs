@@ -481,7 +481,7 @@ impl ProjectsInner {
         Ok(workspace)
     }
 
-    fn local_paths(&self, project_hash: ProjectHash) -> Option<impl Iterator<Item = &Path> + '_> {
+    fn local_paths(&self, project_hash: ProjectHash) -> Option<impl Iterator<Item = &Path>> {
         let paths = self.projects_to_paths.get(&project_hash)?;
         Some(paths.iter().map(|path| &**path))
     }
@@ -551,7 +551,7 @@ impl ProjectsInner {
     pub fn project_module_paths(
         &self,
         project_hash: ProjectHash,
-    ) -> anyhow::Result<impl Iterator<Item = PathBuf> + '_> {
+    ) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
         let project = self.project(project_hash)?;
         let project_root = self
             .projects_to_paths
@@ -587,7 +587,7 @@ impl ProjectsInner {
     pub fn project_module_specifiers(
         &self,
         project_hash: ProjectHash,
-    ) -> anyhow::Result<impl Iterator<Item = super::script::specifier::BriocheModuleSpecifier> + '_>
+    ) -> anyhow::Result<impl Iterator<Item = super::script::specifier::BriocheModuleSpecifier>>
     {
         let module_paths = self.project_module_paths(project_hash)?;
         let module_specifiers = module_paths

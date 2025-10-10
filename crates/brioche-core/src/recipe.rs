@@ -830,11 +830,9 @@ impl Directory {
         artifact: Option<Artifact>,
     ) -> Result<Option<Artifact>, DirectoryError> {
         match path_components {
-            [] => {
-                return Err(DirectoryError::EmptyPath {
-                    path: full_path.into(),
-                });
-            }
+            [] => Err(DirectoryError::EmptyPath {
+                path: full_path.into(),
+            }),
             [filename] => {
                 let replaced_hash = match artifact {
                     Some(artifact) => {

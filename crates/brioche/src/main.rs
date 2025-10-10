@@ -339,23 +339,18 @@ fn consolidate_result(
 ) {
     match result {
         Err(err) => {
-            if let Some(project_name) = project_name {
-                reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("Error occurred with {project_name}: {err}"),
-                    superconsole::style::ContentStyle {
-                        foreground_color: Some(superconsole::style::Color::Red),
-                        ..superconsole::style::ContentStyle::default()
-                    },
-                ));
-            } else {
-                reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("Error occurred in project: {err}"),
-                    superconsole::style::ContentStyle {
-                        foreground_color: Some(superconsole::style::Color::Red),
-                        ..superconsole::style::ContentStyle::default()
-                    },
-                ));
-            }
+            let format_string = project_name.map_or_else(
+                || format!("Error occurred in project: {err}"),
+                |project_name| format!("Error occurred with {project_name}: {err}"),
+            );
+
+            reporter.emit(superconsole::Lines::from_multiline_string(
+                &format_string,
+                superconsole::style::ContentStyle {
+                    foreground_color: Some(superconsole::style::Color::Red),
+                    ..superconsole::style::ContentStyle::default()
+                },
+            ));
 
             *error_result = Some(());
         }

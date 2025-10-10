@@ -113,9 +113,9 @@ mod tests {
 
     #[test]
     fn test_display_duration_basic() {
-        assert_eq!(display_duration_ms(0).to_string(), "0.00s",);
-        assert_eq!(display_duration_ms(10).to_string(), "0.01s",);
-        assert_eq!(display_duration_ms(99).to_string(), "0.10s",);
+        assert_eq!(display_duration_ms(0).to_string(), "0.00s");
+        assert_eq!(display_duration_ms(10).to_string(), "0.01s");
+        assert_eq!(display_duration_ms(99).to_string(), "0.10s");
         assert_eq!(display_duration_ms(1_010).to_string(), "1.01s");
         assert_eq!(display_duration_ms(59_990).to_string(), "59.99s");
         assert_eq!(display_duration_ms(59_999).to_string(), "60.00s");

@@ -111,7 +111,7 @@ async fn run_publish(
         match result {
             Ok(()) => {
                 reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("No errors found in {project_name} 🎉",),
+                    &format!("No errors found in {project_name} 🎉"),
                     superconsole::style::ContentStyle::default(),
                 ));
             }

@@ -51,7 +51,7 @@ async fn get(brioche: &brioche_core::Brioche, dir: &Directory, path: impl AsRef<
     let path = bstr::BStr::new(path.as_ref());
     try_get(brioche, dir, &path)
         .await
-        .with_context(|| format!("error getting context for path {path:?}",))
+        .with_context(|| format!("error getting context for path {path:?}"))
         .unwrap()
         .with_context(|| format!("no artifact found for path {path:?}"))
         .unwrap()
@@ -1421,7 +1421,7 @@ fn test_bake_process_output_with_shared_resources() -> anyhow::Result<()> {
                             false
                         )
                     ),
-                    ("bar", brioche_test_support::symlink("bar_target"),),
+                    ("bar", brioche_test_support::symlink("bar_target")),
                     (
                         "bar_target",
                         brioche_test_support::file(
@@ -1465,7 +1465,7 @@ fn test_bake_process_output_with_shared_resources() -> anyhow::Result<()> {
                             false
                         )
                     ),
-                    ("bar", brioche_test_support::symlink("bar_target"),),
+                    ("bar", brioche_test_support::symlink("bar_target")),
                     (
                         "bar_target",
                         brioche_test_support::file(
