@@ -19,6 +19,8 @@ mod run;
 mod run_sandbox;
 mod self_update;
 
+const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug, Parser)]
 #[command(version)]
 enum Args {
@@ -76,6 +78,7 @@ enum Args {
     RunSandbox(run_sandbox::RunSandboxArgs),
 }
 
+#[expect(clippy::print_stdout)]
 fn main() -> anyhow::Result<ExitCode> {
     let args = Args::parse();
 
@@ -176,8 +179,9 @@ fn main() -> anyhow::Result<ExitCode> {
         Args::SelfPostInstall => {
             // This subcommand is called by the installer / self-updater after
             // installation is complete. This gives us a chance to migrate,
-            // clean up, or perform setup after installation. For now, this
-            // is a no-op.
+            // clean up, or perform setup after installation. For now, we just
+            // print a success message.
+            println!("Brioche v{CURRENT_VERSION} is now installed");
             Ok(ExitCode::SUCCESS)
         }
         Args::Analyze(args) => {

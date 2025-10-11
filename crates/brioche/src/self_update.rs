@@ -10,7 +10,7 @@ use futures::{TryFutureExt as _, TryStreamExt as _};
 use sha2::Digest as _;
 use tokio::io::{AsyncBufReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _};
 
-const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+use crate::CURRENT_VERSION;
 
 static BRIOCHE_RELEASES_URL: LazyLock<url::Url> = LazyLock::new(|| {
     let custom_releases_url = option_env!("BRIOCHE_CUSTOM_RELEASES_URL");
