@@ -306,6 +306,42 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     let _ = tokio::fs::remove_dir_all(&old_version_temp_path).await;
     let _ = tokio::fs::remove_dir_all(&new_version_temp_path).await;
 
+    // Run post-install steps
+    let post_install_result = tokio::process::Command::new(latest_version_dir.join("bin/brioche"))
+        .arg("self-post-install")
+        .env("BRIOCHE_SELF_POST_INSTALL_SOURCE", "self-update")
+        .env(
+            "BRIOCHE_SELF_POST_INSTALL_PREVIOUS_VERSION",
+            CURRENT_VERSION,
+        )
+        .status()
+        .await;
+
+    let post_install_succeeded = match post_install_result {
+        Ok(status) => status.success(),
+        Err(error) => {
+            println!("Error running post-install command:");
+            println!("{error:#}");
+            println!();
+            false
+        }
+    };
+
+    if !post_install_succeeded {
+        println!("Warning: post-install command failed! The new version was installed,");
+        println!("but may not be set up correctly. The last version of Brioche is still");
+        println!("available at the following path:");
+        println!();
+        println!("  {}", installation_info.current_exe.display());
+        println!();
+        println!("Here are some suggestions:");
+        println!();
+        println!("- Validate to see if the new installation is working correctly");
+        println!("- Check for open issues, or file a new one with details about your system:");
+        println!("    https://github.com/brioche-dev/brioche/issues");
+        println!("- Try manually updating: https://brioche.dev/help/manual-update");
+    }
+
     Ok(true)
 }
 
