@@ -55,6 +55,10 @@ enum Args {
     /// Update Brioche itself
     SelfUpdate(self_update::SelfUpdateArgs),
 
+    /// Internal tool: called by installer / self-updater after installation
+    #[command(hide = true)]
+    SelfPostInstall,
+
     /// Internal tool: analyze a project
     #[command(hide = true)]
     Analyze(AnalyzeArgs),
@@ -169,6 +173,13 @@ fn main() -> anyhow::Result<ExitCode> {
             }
         }
         Args::Jobs(command) => jobs::jobs(command),
+        Args::SelfPostInstall => {
+            // This subcommand is called by the installer / self-updater after
+            // installation is complete. This gives us a chance to migrate,
+            // clean up, or perform setup after installation. For now, this
+            // is a no-op.
+            Ok(ExitCode::SUCCESS)
+        }
         Args::Analyze(args) => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
