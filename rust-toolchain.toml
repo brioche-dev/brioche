@@ -1,4 +1,3 @@
 [toolchain]
 channel = "1.90"
 profile = "default"
-targets = ["x86_64-unknown-linux-musl"]
