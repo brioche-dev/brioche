@@ -11,12 +11,12 @@ updates:
     schedule:
       interval: "weekly"
       day: "sunday"
-    # Update all the dependencies:
+    # Update the direct dependencies and not the indirect ones,
+    # since there are too many ones, and dependabot reaches its 1h timeout most of the time):
     # - direct: explicitly defined dependencies in the Cargo.toml file
     # - indirect: transient dependencies in the Cargo.lock file
     allow:
       - dependency-type: direct
-      - dependency-type: indirect
     # As for now, disable the update of biome dependencies
     # See: https://github.com/biomejs/biome/issues/5151
     ignore:
