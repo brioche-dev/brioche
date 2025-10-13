@@ -4,17 +4,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "friday"
-      time: "17:00"
-      timezone: "America/Los_Angeles"
+      day: "sunday"
 
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "weekly"
-      day: "friday"
-      time: "17:00"
-      timezone: "America/Los_Angeles"
+      day: "sunday"
     # Update all the dependencies:
     # - direct: explicitly defined dependencies in the Cargo.toml file
     # - indirect: transient dependencies in the Cargo.lock file
