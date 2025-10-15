@@ -260,7 +260,7 @@ impl BriocheBuilder {
             let cache_config = match std::env::var_os("BRIOCHE_CACHE_URL") {
                 Some(url) => {
                     let url = url.to_str().ok_or_else(|| {
-                        anyhow::anyhow!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}")
+                        anyhow::anyhow!("invalid URL for $BRIOCHE_CACHE_URL: {}", url.display())
                     })?;
                     let url = url
                         .parse()
@@ -271,7 +271,8 @@ impl BriocheBuilder {
                             Some(value) if value.to_str() == Some("false") => false,
                             Some(value) => {
                                 anyhow::bail!(
-                                    "invalid value for $BRIOCHE_CACHE_USE_DEFAULT_CACHE: {value:?}"
+                                    "invalid value for $BRIOCHE_CACHE_USE_DEFAULT_CACHE: {}",
+                                    value.display()
                                 );
                             }
                             None => true,
@@ -280,7 +281,10 @@ impl BriocheBuilder {
                         Some(value) if value.to_str() == Some("true") => true,
                         Some(value) if value.to_str() == Some("false") => false,
                         Some(value) => {
-                            anyhow::bail!("invalid value for $BRIOCHE_CACHE_READ_ONLY: {value:?}");
+                            anyhow::bail!(
+                                "invalid value for $BRIOCHE_CACHE_READ_ONLY: {}",
+                                value.display()
+                            );
                         }
                         None => false,
                     };
@@ -288,7 +292,7 @@ impl BriocheBuilder {
                         "BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS",
                     ) {
                         Some(value) => {
-                            let value = value.to_str().ok_or_else(|| anyhow::anyhow!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
+                            let value = value.to_str().ok_or_else(|| anyhow::anyhow!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {}", value.display()))?;
                             let value: usize = value.parse().with_context(|| format!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
                             value
                         }
@@ -298,7 +302,10 @@ impl BriocheBuilder {
                         Some(value) if value.to_str() == Some("true") => Some(true),
                         Some(value) if value.to_str() == Some("false") => Some(false),
                         Some(value) => {
-                            anyhow::bail!("invalid value for $BRIOCHE_CACHE_ALLOW_HTTP: {value:?}");
+                            anyhow::bail!(
+                                "invalid value for $BRIOCHE_CACHE_ALLOW_HTTP: {}",
+                                value.display()
+                            );
                         }
                         None => None,
                     };

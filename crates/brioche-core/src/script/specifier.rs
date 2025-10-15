@@ -115,7 +115,7 @@ impl TryFrom<&'_ url::Url> for BriocheModuleSpecifier {
                 Ok(Self::File { path })
             }
             "briocheruntime" => {
-                anyhow::ensure!(!value.has_host(), "invalid specifier: {}", value);
+                anyhow::ensure!(!value.has_host(), "invalid specifier: {value}");
                 let subpath = RelativePathBuf::from(value.path().trim_start_matches('/'));
                 Ok(Self::Runtime { subpath })
             }

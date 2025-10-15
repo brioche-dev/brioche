@@ -1061,7 +1061,7 @@ async fn read_path(
                 components.push(ArtifactPathComponent::FileResources);
             }
             tag => {
-                anyhow::bail!("invalid tag byte encountered while reading path: {:?}", tag);
+                anyhow::bail!("invalid tag byte encountered while reading path: {tag:?}");
             }
         }
     }

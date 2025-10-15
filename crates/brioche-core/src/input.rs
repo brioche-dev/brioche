@@ -125,7 +125,7 @@ pub async fn create_input(
     // ensures that we process each node after all of its dependencies have
     // been processed.
     let planned_nodes = petgraph::algo::toposort(petgraph::visit::Reversed(&plan.graph), None)
-        .map_err(|_| anyhow::anyhow!("cycle detected in input {:?}", options.input_path))?;
+        .map_err(|_| anyhow::anyhow!("cycle detected in input {}", options.input_path.display()))?;
 
     tracing::debug!(input_path = %options.input_path.display(), "creating nodes");
 
@@ -136,9 +136,9 @@ pub async fn create_input(
 
         let artifact = match node {
             CreateInputPlanNode::File { is_executable } => {
-                let content_blob = nodes_to_blobs
-                    .get(&node_index)
-                    .ok_or_else(|| anyhow::anyhow!("blob not found for file node: {:?}", path))?;
+                let content_blob = nodes_to_blobs.get(&node_index).ok_or_else(|| {
+                    anyhow::anyhow!("blob not found for file node: {}", path.display())
+                })?;
 
                 let mut resources = Directory::default();
 
@@ -479,8 +479,8 @@ fn add_input_plan_nodes(
             let file_name = dir_entry.file_name();
             let file_name = <Vec<u8>>::from_os_string(file_name).map_err(|_| {
                 anyhow::anyhow!(
-                    "invalid file name {:?} in directory {}",
-                    dir_entry.file_name(),
+                    "invalid file name {} in directory {}",
+                    dir_entry.file_name().display(),
                     options.input_path.display()
                 )
             })?;
@@ -507,7 +507,7 @@ fn add_input_plan_nodes(
 
         node_index
     } else {
-        anyhow::bail!("unsupported file type at {:?}", options.input_path);
+        anyhow::bail!("unsupported file type at {}", options.input_path.display());
     };
 
     Ok(root_node)

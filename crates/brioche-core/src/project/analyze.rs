@@ -647,7 +647,7 @@ pub fn expression_to_json(
                     "true" => Ok(serde_json::Value::Bool(true)),
                     "false" => Ok(serde_json::Value::Bool(false)),
                     other => {
-                        anyhow::bail!("invalid boolean literal: {:?}", other);
+                        anyhow::bail!("invalid boolean literal: {other:?}");
                     }
                 }
             }
