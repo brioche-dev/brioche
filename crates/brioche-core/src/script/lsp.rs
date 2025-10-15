@@ -729,14 +729,14 @@ fn js_lsp_task(
             tracing::info!("calling JS");
 
             let js_lsp = {
-                let mut js_scope = js_runtime.handle_scope();
-                let module_namespace = deno_core::v8::Local::new(&mut js_scope, module_namespace);
+                deno_core::scope!(js_scope, js_runtime);
+                let module_namespace = deno_core::v8::Local::new(js_scope, module_namespace);
 
                 let export_key_name = "buildLsp";
-                let export_key = deno_core::v8::String::new(&mut js_scope, export_key_name)
+                let export_key = deno_core::v8::String::new(js_scope, export_key_name)
                     .context("failed to create V8 string")?;
                 let export = module_namespace
-                    .get(&mut js_scope, export_key.into())
+                    .get(js_scope, export_key.into())
                     .with_context(|| {
                         format!("expected module to have an export named {export_key_name:?}")
                     })?;
@@ -748,11 +748,11 @@ fn js_lsp_task(
                 tracing::info!(%main_module, ?export_key_name, "running function");
 
                 let js_lsp = export
-                    .call(&mut js_scope, module_namespace.into(), &[])
+                    .call(js_scope, module_namespace.into(), &[])
                     .context("failed to build LSP")?;
                 let js_lsp: deno_core::v8::Local<deno_core::v8::Object> =
                     js_lsp.try_into().context("expected LSP to be an object")?;
-                deno_core::v8::Global::new(&mut js_scope, js_lsp)
+                deno_core::v8::Global::new(js_scope, js_lsp)
             };
 
             tracing::info!("built JS LSP");
@@ -814,12 +814,12 @@ fn call_method(
     method_name: &str,
     args: &[deno_core::v8::Global<deno_core::v8::Value>],
 ) -> anyhow::Result<serde_json::Value> {
-    let mut js_scope = runtime.handle_scope();
-    let value = deno_core::v8::Local::new(&mut js_scope, this);
-    let method_key = deno_core::v8::String::new(&mut js_scope, method_name)
-        .context("failed to create V8 string")?;
+    deno_core::scope!(js_scope, runtime);
+    let value = deno_core::v8::Local::new(js_scope, this);
+    let method_key =
+        deno_core::v8::String::new(js_scope, method_name).context("failed to create V8 string")?;
     let method = value
-        .get(&mut js_scope, method_key.into())
+        .get(js_scope, method_key.into())
         .context("failed to get property")?;
     let method: deno_core::v8::Local<deno_core::v8::Function> = method
         .try_into()
@@ -827,23 +827,22 @@ fn call_method(
 
     let args = args
         .iter()
-        .map(|arg| deno_core::v8::Local::new(&mut js_scope, arg))
+        .map(|arg| deno_core::v8::Local::new(js_scope, arg))
         .collect::<Vec<_>>();
 
-    let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
-    let result = method.call(&mut js_scope, value.into(), &args);
+    deno_core::v8::tc_scope!(let js_scope, js_scope);
+    let result = method.call(js_scope, value.into(), &args);
     let Some(result) = result else {
         if let Some(exception) = js_scope.exception() {
             return Err(deno_core::error::JsError::from_v8_exception(
-                &mut js_scope,
-                exception,
+                js_scope, exception,
             ))
             .with_context(|| format!("error when calling {method_name:?}"));
         }
         anyhow::bail!("unknown error when calling {method_name:?}");
     };
 
-    let result = serde_v8::from_v8(&mut js_scope, result)?;
+    let result = serde_v8::from_v8(js_scope, result)?;
 
     Ok(result)
 }
@@ -855,9 +854,9 @@ fn call_method_1(
     arg_1: &impl serde::Serialize,
 ) -> anyhow::Result<serde_json::Value> {
     let arg_1 = {
-        let mut js_scope = js_runtime.handle_scope();
-        let value = serde_v8::to_v8(&mut js_scope, arg_1)?;
-        deno_core::v8::Global::new(&mut js_scope, value)
+        deno_core::scope!(js_scope, js_runtime);
+        let value = serde_v8::to_v8(js_scope, arg_1)?;
+        deno_core::v8::Global::new(js_scope, value)
     };
     call_method(js_runtime, this, method_name, &[arg_1])
 }

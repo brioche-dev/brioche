@@ -52,9 +52,9 @@ fn op_brioche_console(#[serde] level: ConsoleLevel, #[string] message: &str) {
 
 #[deno_core::op2(reentrant)]
 #[serde]
-fn op_brioche_stack_frames_from_exception(
-    scope: &mut v8::HandleScope,
-    exception: v8::Local<v8::Value>,
+fn op_brioche_stack_frames_from_exception<'a>(
+    scope: &mut v8::PinScope<'a, 'a>,
+    exception: v8::Local<'a, v8::Value>,
 ) -> Vec<StackFrame> {
     let error = deno_core::error::JsError::from_v8_exception(scope, exception);
     error
@@ -70,7 +70,7 @@ fn op_brioche_stack_frames_from_exception(
 
 #[deno_core::op2]
 fn op_brioche_utf8_encode<'a>(
-    scope: &'a mut v8::HandleScope,
+    scope: &'a v8::PinScope,
     string: v8::Local<v8::String>,
 ) -> Result<v8::Local<'a, v8::Uint8Array>, super::AnyError> {
     let string = string.to_rust_string_lossy(scope);
@@ -113,7 +113,7 @@ fn op_brioche_tick_encode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, su
 
 #[deno_core::op2]
 fn op_brioche_tick_decode<'a>(
-    scope: &'a mut v8::HandleScope,
+    scope: &'a v8::PinScope,
     bytes: v8::Local<'a, v8::Uint8Array>,
 ) -> Result<v8::Local<'a, v8::Uint8Array>, super::AnyError> {
     let byte_length = bytes.byte_length();

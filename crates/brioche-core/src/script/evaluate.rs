@@ -94,15 +94,15 @@ async fn evaluate_with_deno(
 
             // Call the provided export from the module
             let result = {
-                let mut js_scope = js_runtime.handle_scope();
-                let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
+                deno_core::scope!(js_scope, js_runtime);
+                deno_core::v8::tc_scope!(let js_scope, js_scope);
 
-                let module_namespace = deno_core::v8::Local::new(&mut js_scope, module_namespace);
+                let module_namespace = deno_core::v8::Local::new(js_scope, module_namespace);
 
-                let export_key = deno_core::v8::String::new(&mut js_scope, &export)
+                let export_key = deno_core::v8::String::new(js_scope, &export)
                     .context("failed to create V8 string")?;
                 let export_value = module_namespace
-                    .get(&mut js_scope, export_key.into())
+                    .get(js_scope, export_key.into())
                     .with_context(|| format!("expected module to have an export named {export}"))?;
                 let export_value: deno_core::v8::Local<deno_core::v8::Function> =
                     export_value
@@ -111,18 +111,18 @@ async fn evaluate_with_deno(
 
                 tracing::debug!(%main_module, %export, "running exported function");
 
-                let result = export_value.call(&mut js_scope, module_namespace.into(), &[]);
+                let result = export_value.call(js_scope, module_namespace.into(), &[]);
 
                 let Some(result) = result else {
                     if let Some(exception) = js_scope.exception() {
                         return Err(anyhow::anyhow!(
-                            deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
+                            deno_core::error::JsError::from_v8_exception(js_scope, exception)
                         ))
                         .with_context(|| format!("error when calling {export}"));
                     }
                     anyhow::bail!("unknown error when calling {export}");
                 };
-                deno_core::v8::Global::new(&mut js_scope, result)
+                deno_core::v8::Global::new(js_scope, result)
             };
 
             // Resolve the export if it's a promise
@@ -131,48 +131,48 @@ async fn evaluate_with_deno(
 
             // Call the `briocheSerialize` function on the result
             let serialized_result = {
-                let mut js_scope = js_runtime.handle_scope();
-                let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
+                deno_core::scope!(js_scope, js_runtime);
+                deno_core::v8::tc_scope!(let js_scope, js_scope);
 
-                let resolved_result = deno_core::v8::Local::new(&mut js_scope, resolved_result);
+                let resolved_result = deno_core::v8::Local::new(js_scope, resolved_result);
                 let resolved_result: deno_core::v8::Local<deno_core::v8::Object> = resolved_result
                     .try_into()
                     .context("expected result to be an object")?;
 
-                let serialize_key = deno_core::v8::String::new(&mut js_scope, "briocheSerialize")
+                let serialize_key = deno_core::v8::String::new(js_scope, "briocheSerialize")
                     .context("failed to create V8 string")?;
                 let result_serialize = resolved_result
-                    .get(&mut js_scope, serialize_key.into())
+                    .get(js_scope, serialize_key.into())
                     .context("expected value to have a `briocheSerialize` function")?;
                 let result_serialize: deno_core::v8::Local<deno_core::v8::Function> = result_serialize
                     .try_into()
                     .context("expected `briocheSerialize` to be a function")?;
 
-                let serialized_result = result_serialize.call(&mut js_scope, resolved_result.into(), &[]);
+                let serialized_result = result_serialize.call(js_scope, resolved_result.into(), &[]);
                 let Some(serialized_result) = serialized_result else {
                     if let Some(exception) = js_scope.exception() {
                         return Err(anyhow::anyhow!(
-                            deno_core::error::JsError::from_v8_exception(&mut js_scope, exception)
+                            deno_core::error::JsError::from_v8_exception(js_scope, exception)
                         ))
                         .with_context(|| format!("error when serializing result from {export}"));
                     }
                     anyhow::bail!("unknown error when serializing result from {export}");
                 };
 
-                deno_core::v8::Global::new(&mut js_scope, serialized_result)
+                deno_core::v8::Global::new(js_scope, serialized_result)
             };
 
             // Resolve the result of `briocheSerialize` if it's a promise
             let serialized_resolved_result_fut = js_runtime.resolve(serialized_result);
             let serialized_resolved_result = js_runtime.with_event_loop_promise(serialized_resolved_result_fut, deno_core::PollEventLoopOptions::default()).await?;
 
-            let mut js_scope = js_runtime.handle_scope();
+            deno_core::scope!(js_scope, js_runtime);
 
             let serialized_resolved_result =
-                deno_core::v8::Local::new(&mut js_scope, serialized_resolved_result);
+                deno_core::v8::Local::new(js_scope, serialized_resolved_result);
 
             // Deserialize the result as a recipe
-            let recipe: WithMeta<Recipe> = serde_v8::from_v8(&mut js_scope, serialized_resolved_result)
+            let recipe: WithMeta<Recipe> = serde_v8::from_v8(js_scope, serialized_resolved_result)
                 .with_context(|| {
                     format!("invalid recipe returned when serializing result from {export}")
                 })?;
