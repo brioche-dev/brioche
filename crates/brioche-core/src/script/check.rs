@@ -84,15 +84,15 @@ async fn check_with_deno(
 
             let module_namespace = js_runtime.get_module_namespace(module_id)?;
 
-            let mut js_scope = js_runtime.handle_scope();
-            let module_namespace = deno_core::v8::Local::new(&mut js_scope, module_namespace);
+            deno_core::scope!(js_scope, js_runtime);
+            let module_namespace = deno_core::v8::Local::new(js_scope, module_namespace);
 
             // Get the `check` function from the module
             let export_key_name = "check";
-            let export_key = deno_core::v8::String::new(&mut js_scope, export_key_name)
+            let export_key = deno_core::v8::String::new(js_scope, export_key_name)
                 .context("failed to create V8 string")?;
             let export = module_namespace
-                .get(&mut js_scope, export_key.into())
+                .get(js_scope, export_key.into())
                 .with_context(|| {
                     format!("expected module to have an export named {export_key_name:?}")
                 })?;
@@ -104,18 +104,17 @@ async fn check_with_deno(
 
             // Call `check` with the project specifiers
 
-            let files = serde_v8::to_v8(&mut js_scope, &project_specifiers)?;
+            let files = serde_v8::to_v8(js_scope, &project_specifiers)?;
 
-            let mut js_scope = deno_core::v8::TryCatch::new(&mut js_scope);
+            deno_core::v8::tc_scope!(let js_scope, js_scope);
 
-            let result = export.call(&mut js_scope, module_namespace.into(), &[files]);
+            let result = export.call(js_scope, module_namespace.into(), &[files]);
             let Some(result) = result else {
                 let error_message = js_scope.exception().map_or_else(
                     || anyhow::anyhow!("unknown error when calling function"),
                     |exception| {
                         anyhow::anyhow!(deno_core::error::JsError::from_v8_exception(
-                            &mut js_scope,
-                            exception
+                            js_scope, exception
                         ))
                     },
                 );
@@ -123,9 +122,9 @@ async fn check_with_deno(
                     .with_context(|| format!("error when calling {export_key_name:?}"));
             };
 
-            // Deserialize the result as an array of `Dignostic` values
+            // Deserialize the result as an array of `Diagnostic` values
 
-            let diagnostics: Vec<Diagnostic> = serde_v8::from_v8(&mut js_scope, result)?;
+            let diagnostics: Vec<Diagnostic> = serde_v8::from_v8(js_scope, result)?;
 
             tracing::debug!(%main_module, "finished evaluating module");
 

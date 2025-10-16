@@ -716,7 +716,7 @@ async fn resolve_dependency_version_to_local_path(
                     })?
             }
             ProjectLocking::Locked => {
-                anyhow::bail!("dependency '{}' not found in lockfile", dependency_name);
+                anyhow::bail!("dependency '{dependency_name}' not found in lockfile");
             }
         },
     };

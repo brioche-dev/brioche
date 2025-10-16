@@ -206,7 +206,7 @@ impl std::str::FromStr for FileId {
                 let hash = s.parse()?;
                 Ok(Self::Hash(hash))
             }
-            _ => anyhow::bail!("invalid file ID: {}", s),
+            _ => anyhow::bail!("invalid file ID: {s}"),
         }
     }
 }

@@ -718,7 +718,7 @@ impl std::str::FromStr for Version {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "*" => Ok(Self::Any),
-            _ => anyhow::bail!("unsupported version specifier: {}", s),
+            _ => anyhow::bail!("unsupported version specifier: {s}"),
         }
     }
 }
