@@ -45,17 +45,17 @@ bytesize = "2.1.0"
 cfg-if = "1.0.4"
 console-subscriber = "0.4.1"
 debug-ignore = "1.0.5"
-deno_ast = { version = "0.50.3", features = ["transpiling"] }
+deno_ast = { version = "0.51.0", features = ["transpiling"] }
 deno_core = "0.363.0"
 deno_error = "0.7.0"
 directories = "6.0.0"
 fastcdc = { version = "3.2.1", features = ["tokio"] }
 futures = "0.3.31"
-gix = { version = "0.73.0", features = [
+gix = { version = "0.74.1", features = [
     "blocking-network-client",
     "blocking-http-transport-reqwest",
 ] }
-globset = "0.4.17"
+globset = "0.4.18"
 hex = "0.4.3"
 http = "1.3.1"
 jiff = { version = "0.2.15", features = ["serde"] }
@@ -63,7 +63,7 @@ joinery = "3.1.0"
 json-canon = "0.1.3"
 lazy_format = "2.0.3"
 nix = { version = "0.30.1", features = ["user"] }
-num_enum = "0.7.3"
+num_enum = "0.7.5"
 object_store = { version = "0.12.4", features = [
     "aws",
     "http",
@@ -102,7 +102,7 @@ rustls-native-certs = "0.8.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 serde_v8 = "0.272.0"
-serde_with = { version = "3.15.0", features = ["hex"] }
+serde_with = { version = "3.15.1", features = ["hex"] }
 sha2 = "0.10.9"
 sqlx = { version = "0.8.6", features = [
     "runtime-tokio-rustls",
@@ -153,7 +153,7 @@ deno_core = { version = "0.363.0", features = [
     "unsafe_use_unprotected_platform",
 ] }
 divan = "0.1.21"
-indoc = "2.0.6"
+indoc = "2.0.7"
 mockito = "1.7.0"
 pretty_assertions = "1.4.1"
 tempfile = "3.23.0"
