@@ -233,6 +233,9 @@ jobs:
     if: github.event_name == 'push' && github.repository == 'brioche-dev/brioche'
     needs: [check, all-tests-passed, build-unpacked, build-packed]
     runs-on: ubuntu-24.04
+    permissions:
+      id-token: write
+      attestations: write
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v6
@@ -254,6 +257,18 @@ jobs:
           done
         env:
           BRIOCHE_CODESIGN_PRIVATE_KEY: ${{ secrets.BRIOCHE_CODESIGN_PRIVATE_KEY }}
+      - name: Attest artifacts
+        id: attest
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            artifacts/brioche-*.tar.xz
+            artifacts/brioche-*.tar.xz.sig
+      - name: Save attestation
+        run: |
+          cp "$attestation_bundle" "./artifacts/attestation.json"
+        env:
+          attestation_bundle: ${{ steps.attest.outputs.bundle-path }}
       # Upload the Brioche build for the current branch
       - name: Upload to S3
         run: |
