@@ -11,10 +11,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
 env:
-  # Determine the name of the release channel:
+  # Determine the namespace used to sign the release:
   # - `nightly`: Pushes to `main`
   # - Otherwise, `wip`
-  BRIOCHE_RELEASE_CHANNEL: ${{ (github.event_name == 'push' && github.repository == 'brioche-dev/brioche' && github.ref == 'refs/heads/main' && 'nightly') || 'wip' }}
+  BRIOCHE_RELEASE_NAMESPACE: ${{ (github.event_name == 'push' && github.repository == 'brioche-dev/brioche' && github.ref == 'refs/heads/main' && 'nightly') || 'wip' }}
 
 jobs:
   check:
@@ -242,9 +242,9 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Sign artifacts (channel=${{ env.BRIOCHE_RELEASE_CHANNEL }})
+      - name: Sign artifacts (namespace=${{ env.BRIOCHE_RELEASE_NAMESPACE }})
         run: |
-          SIGNING_NAMESPACE="${BRIOCHE_RELEASE_CHANNEL}@brioche.dev"
+          SIGNING_NAMESPACE="${BRIOCHE_RELEASE_NAMESPACE}@brioche.dev"
 
           install -m 0600 <(echo "$BRIOCHE_CODESIGN_PRIVATE_KEY") ./brioche-codesign-key
           ssh-keygen -Y sign -n "$SIGNING_NAMESPACE" -f ./brioche-codesign-key artifacts/brioche-*.tar.xz
