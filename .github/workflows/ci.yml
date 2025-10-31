@@ -311,6 +311,9 @@ jobs:
           # Add artifacts to release
           gh release upload "$GITHUB_REF_NAME" --repo="$GITHUB_REPOSITORY" artifacts/*
 
+          # Create update manifest
+          echo '{"selfUpdateAllowed": "*"}' > artifacts/update.json
+
           # Upload to releases.brioche.dev
           aws s3 sync \
             --endpoint "$S3_ENDPOINT" \
