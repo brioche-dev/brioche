@@ -14,6 +14,47 @@ async fn test_eval_basic() -> anyhow::Result<()> {
             "myproject/project.bri",
             r#"
                 export const project = {};
+                export default {
+                    briocheSerialize: () => {
+                        return {
+                            type: "directory",
+                            entries: {},
+                        }
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    assert_eq!(resolved, brioche_test_support::dir_empty().into());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_basic_function() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
                 export default () => {
                     return {
                         briocheSerialize: () => {

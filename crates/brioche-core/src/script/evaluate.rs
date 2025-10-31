@@ -92,36 +92,49 @@ async fn evaluate_with_deno(
 
             let module_namespace = js_runtime.get_module_namespace(module_id)?;
 
-            // Call the provided export from the module
+            // Get the provided export from the module, and call it if
+            // it's a function
             let result = {
                 deno_core::scope!(js_scope, js_runtime);
                 deno_core::v8::tc_scope!(let js_scope, js_scope);
 
                 let module_namespace = deno_core::v8::Local::new(js_scope, module_namespace);
 
+                // Get the export by name
                 let export_key = deno_core::v8::String::new(js_scope, &export)
                     .context("failed to create V8 string")?;
                 let export_value = module_namespace
                     .get(js_scope, export_key.into())
                     .with_context(|| format!("expected module to have an export named {export}"))?;
-                let export_value: deno_core::v8::Local<deno_core::v8::Function> =
+
+                let result = if export_value.is_function() {
+                    // If the export is a function, call it
+
+                    let export_value: deno_core::v8::Local<deno_core::v8::Function> =
+                        export_value
+                            .try_into()
+                            .with_context(|| format!("expected export named {export} to be a function"))?;
+
+                    tracing::debug!(%main_module, %export, "running exported function");
+
+                    let result = export_value.call(js_scope, module_namespace.into(), &[]);
+                    let Some(result) = result else {
+                        if let Some(exception) = js_scope.exception() {
+                            return Err(anyhow::anyhow!(
+                                deno_core::error::JsError::from_v8_exception(js_scope, exception)
+                            ))
+                            .with_context(|| format!("error when calling {export}"));
+                        }
+                        anyhow::bail!("unknown error when calling {export}");
+                    };
+
+                    result
+                } else {
+                    // Otherwise, return it as-is
+
                     export_value
-                        .try_into()
-                        .with_context(|| format!("expected export named {export} to be a function"))?;
-
-                tracing::debug!(%main_module, %export, "running exported function");
-
-                let result = export_value.call(js_scope, module_namespace.into(), &[]);
-
-                let Some(result) = result else {
-                    if let Some(exception) = js_scope.exception() {
-                        return Err(anyhow::anyhow!(
-                            deno_core::error::JsError::from_v8_exception(js_scope, exception)
-                        ))
-                        .with_context(|| format!("error when calling {export}"));
-                    }
-                    anyhow::bail!("unknown error when calling {export}");
                 };
+
                 deno_core::v8::Global::new(js_scope, result)
             };
 
