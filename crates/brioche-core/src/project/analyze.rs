@@ -333,7 +333,9 @@ pub async fn analyze_module(
 
     let mut imports = HashMap::new();
 
-    let import_specifiers = find_imports(module, display_location);
+    let top_level_imports_specifiers = find_top_level_imports(module, display_location);
+    let dynamic_import_specifiers = find_dynamic_imports(module, env, display_location);
+    let import_specifiers = top_level_imports_specifiers.chain(dynamic_import_specifiers);
     for import_specifier in import_specifiers {
         let import_specifier = import_specifier?;
 
@@ -389,7 +391,7 @@ pub async fn analyze_module(
     Ok(module_specifier)
 }
 
-pub fn find_imports<'a, D>(
+pub fn find_top_level_imports<'a, D>(
     module: &'a biome_js_syntax::JsModule,
     mut display_location: impl FnMut(usize) -> D + 'a,
 ) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
@@ -447,6 +449,57 @@ where
                 .parse()
                 .with_context(|| format!("{location}: invalid import specifier"))?;
             Ok(Some(import_specifier))
+        })
+        .filter_map(std::result::Result::transpose)
+}
+
+pub fn find_dynamic_imports<'a, D>(
+    module: &'a biome_js_syntax::JsModule,
+    env: &'a HashMap<String, serde_json::Value>,
+    mut display_location: impl FnMut(usize) -> D + 'a,
+) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
+where
+    D: std::fmt::Display,
+{
+    module
+        .syntax()
+        .descendants()
+        .map(move |node| {
+            if let Some(import_call_expr) = biome_js_syntax::JsImportCallExpression::cast(node) {
+                let location =
+                    display_location(import_call_expr.syntax().text_range().start().into());
+
+                // Get the arguments
+                let args = import_call_expr
+                    .arguments()
+                    .with_context(|| format!("{location}: failed to parse import call statement"))?
+                    .args();
+                let args = args
+                    .iter()
+                    .map(|arg| arg_to_string_literal(arg, env))
+                    .map(|arg| {
+                        arg.with_context(|| {
+                            format!("{location}: invalid arg to Brioche.includeFile")
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                // Ensure there's exactly one argument
+                let specifier = match &args[..] {
+                    [specifier] => specifier.clone(),
+                    _ => {
+                        anyhow::bail!(
+                            "{location}: import() is only supported with exactly one argument",
+                        );
+                    }
+                };
+                let import_specifier: BriocheImportSpecifier = specifier
+                    .parse()
+                    .with_context(|| format!("{location}: invalid import specifier"))?;
+                Ok(Some(import_specifier))
+            } else {
+                Ok(None)
+            }
         })
         .filter_map(std::result::Result::transpose)
 }
