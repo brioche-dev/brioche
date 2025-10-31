@@ -13,7 +13,6 @@ mod install;
 mod jobs;
 mod live_update;
 mod lsp;
-mod migrate_registry_to_cache;
 mod publish;
 mod run;
 mod run_sandbox;
@@ -68,10 +67,6 @@ enum Args {
     /// Internal tool: serialize an entire project as JSON
     #[command(hide = true)]
     ExportProject(ExportProjectArgs),
-
-    /// Internal tool: migrate bakes/artifacts/projects from a registry to a cache
-    #[command(hide = true)]
-    MigrateRegistryToCache(migrate_registry_to_cache::MigrateRegistryToCacheArgs),
 
     /// Used by Brioche itself to run a sandboxed process
     #[command(hide = true)]
@@ -199,15 +194,6 @@ fn main() -> anyhow::Result<ExitCode> {
                 .build()?;
 
             rt.block_on(export_project(args))?;
-
-            Ok(ExitCode::SUCCESS)
-        }
-        Args::MigrateRegistryToCache(args) => {
-            let rt = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()?;
-
-            rt.block_on(migrate_registry_to_cache::migrate_registry_to_cache(args))?;
 
             Ok(ExitCode::SUCCESS)
         }

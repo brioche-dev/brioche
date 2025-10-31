@@ -284,6 +284,69 @@ async fn test_analyze_external_dep() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_analyze_dynamic_imports() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import("dep1");
+                await import("dep2");
+                const dep3 = import("dep3");
+                const dep4 = await import("dep4");
+
+                async function foo() {
+                    import("dep5");
+                    await import("dep6");
+                    const dep7 = import("dep7");
+                    const dep8 = await import("dep8");
+                }
+            "#,
+        )
+        .await;
+
+    let project = analyze_project(&brioche.vfs, &project_dir).await?;
+
+    let root_module = &project.local_modules[&project.root_module];
+    assert_eq!(
+        root_module.imports[&"dep1".parse().unwrap()],
+        ImportAnalysis::ExternalProject("dep1".to_string())
+    );
+    assert_eq!(
+        root_module.imports[&"dep2".parse().unwrap()],
+        ImportAnalysis::ExternalProject("dep2".to_string())
+    );
+    assert_eq!(
+        root_module.imports[&"dep3".parse().unwrap()],
+        ImportAnalysis::ExternalProject("dep3".to_string())
+    );
+    assert_eq!(
+        root_module.imports[&"dep4".parse().unwrap()],
+        ImportAnalysis::ExternalProject("dep4".to_string())
+    );
+    assert_eq!(
+        root_module.imports[&"dep5".parse().unwrap()],
+        ImportAnalysis::ExternalProject("dep5".to_string())
+    );
+    assert_eq!(
+        root_module.imports[&"dep6".parse().unwrap()],
+        ImportAnalysis::ExternalProject("dep6".to_string())
+    );
+    assert_eq!(
+        root_module.imports[&"dep7".parse().unwrap()],
+        ImportAnalysis::ExternalProject("dep7".to_string())
+    );
+    assert_eq!(
+        root_module.imports[&"dep8".parse().unwrap()],
+        ImportAnalysis::ExternalProject("dep8".to_string())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_analyze_static_brioche_include() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 

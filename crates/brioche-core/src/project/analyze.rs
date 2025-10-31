@@ -201,7 +201,7 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
             .with_context(|| format!("{file_line}: invalid project export: expected assignment like `export const project = {{ ... }}`"))??;
         let env = HashMap::default();
 
-        let json = expression_to_json(&project_export_expr, &env)
+        let json = expression_to_json(&project_export_expr, Some(&env))
             .with_context(|| format!("{file_line}: invalid project export"))?;
         anyhow::Ok((json, file_line))
     }).transpose()?;
@@ -391,6 +391,17 @@ pub async fn analyze_module(
 
 pub fn find_imports<'a, D>(
     module: &'a biome_js_syntax::JsModule,
+    display_location: impl FnMut(usize) -> D + Clone + 'a,
+) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
+where
+    D: std::fmt::Display,
+{
+    find_top_level_imports(module, display_location.clone())
+        .chain(find_dynamic_imports(module, display_location))
+}
+
+fn find_top_level_imports<'a, D>(
+    module: &'a biome_js_syntax::JsModule,
     mut display_location: impl FnMut(usize) -> D + 'a,
 ) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
 where
@@ -447,6 +458,56 @@ where
                 .parse()
                 .with_context(|| format!("{location}: invalid import specifier"))?;
             Ok(Some(import_specifier))
+        })
+        .filter_map(std::result::Result::transpose)
+}
+
+pub fn find_dynamic_imports<'a, D>(
+    module: &'a biome_js_syntax::JsModule,
+    mut display_location: impl FnMut(usize) -> D + 'a,
+) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
+where
+    D: std::fmt::Display,
+{
+    module
+        .syntax()
+        .descendants()
+        .map(move |node| {
+            if let Some(import_call_expr) = biome_js_syntax::JsImportCallExpression::cast(node) {
+                let location =
+                    display_location(import_call_expr.syntax().text_range().start().into());
+
+                // Get the arguments
+                let args = import_call_expr
+                    .arguments()
+                    .with_context(|| format!("{location}: failed to parse import call statement"))?
+                    .args();
+                let args = args
+                    .iter()
+                    .map(|arg| arg_to_string_literal(arg, None))
+                    .map(|arg| {
+                        arg.with_context(|| {
+                            format!("{location}: invalid arg to Brioche.includeFile")
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                // Ensure there's exactly one argument
+                let specifier = match &args[..] {
+                    [specifier] => specifier.clone(),
+                    _ => {
+                        anyhow::bail!(
+                            "{location}: import() is only supported with exactly one argument",
+                        );
+                    }
+                };
+                let import_specifier: BriocheImportSpecifier = specifier
+                    .parse()
+                    .with_context(|| format!("{location}: invalid import specifier"))?;
+                Ok(Some(import_specifier))
+            } else {
+                Ok(None)
+            }
         })
         .filter_map(std::result::Result::transpose)
 }
@@ -508,7 +569,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(|arg| arg_to_string_literal(arg, env))
+                        .map(|arg| arg_to_string_literal(arg, Some(env)))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.includeFile")
@@ -535,7 +596,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(|arg| arg_to_string_literal(arg, env))
+                        .map(|arg| arg_to_string_literal(arg, Some(env)))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.includeDirectory")
@@ -562,7 +623,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(|arg| arg_to_string_literal(arg, env))
+                        .map(|arg| arg_to_string_literal(arg, Some(env)))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.glob")
@@ -577,7 +638,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(|arg| arg_to_string_literal(arg, env))
+                        .map(|arg| arg_to_string_literal(arg, Some(env)))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.download")
@@ -604,7 +665,7 @@ where
                     let args = call_expr.arguments()?.args();
                     let args = args
                         .iter()
-                        .map(|arg| arg_to_json(arg, env))
+                        .map(|arg| arg_to_json(arg, Some(env)))
                         .map(|arg| {
                             arg.with_context(|| {
                                 format!("{location}: invalid arg to Brioche.{callee_member_text}")
@@ -637,7 +698,7 @@ where
 
 pub fn expression_to_json(
     expr: &biome_js_syntax::AnyJsExpression,
-    env: &HashMap<String, serde_json::Value>,
+    env: Option<&HashMap<String, serde_json::Value>>,
 ) -> anyhow::Result<serde_json::Value> {
     use biome_js_syntax::{AnyJsExpression as Expr, AnyJsLiteralExpression as Literal};
     match expr {
@@ -776,7 +837,7 @@ pub fn expression_to_json(
             let name = ident.name().context("invalid identifier")?;
             let name = name.text();
             let value = env
-                .get(&name)
+                .and_then(|env| env.get(&name))
                 .with_context(|| format!("variable {name:?} is not allowed in this context"))?;
             Ok(value.clone())
         }
@@ -849,7 +910,7 @@ pub fn expression_to_json(
 
 fn arg_to_json(
     arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
-    env: &HashMap<String, serde_json::Value>,
+    env: Option<&HashMap<String, serde_json::Value>>,
 ) -> anyhow::Result<serde_json::Value> {
     let arg = arg?;
     let arg = arg
@@ -862,7 +923,7 @@ fn arg_to_json(
 
 fn arg_to_string_literal(
     arg: biome_rowan::SyntaxResult<biome_js_syntax::AnyJsCallArgument>,
-    env: &HashMap<String, serde_json::Value>,
+    env: Option<&HashMap<String, serde_json::Value>>,
 ) -> anyhow::Result<String> {
     let arg = arg_to_json(arg, env)?;
     let arg = arg.as_str().context("expected string argument")?;
