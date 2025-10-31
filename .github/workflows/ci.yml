@@ -241,6 +241,10 @@ jobs:
       attestations: write
       contents: write
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          path: checkout
       - name: Download artifacts
         uses: actions/download-artifact@v6
         with:
@@ -303,7 +307,7 @@ jobs:
           S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
         run: |
           # Validate Cargo.toml version matches release version
-          crate_version=$(cargo metadata --format-version=1 | jq -r '.packages | map(select(.name == "brioche")) | first.version')
+          crate_version=$(cargo metadata --manifest-path checkout/Cargo.toml --format-version=1 | jq -r '.packages | map(select(.name == "brioche")) | first.version')
           if [ "$GITHUB_REF_NAME" != "v${crate_version}" ]; then
             echo "Version does not match!"
             echo "Git ref name: $GITHUB_REF_NAME"
