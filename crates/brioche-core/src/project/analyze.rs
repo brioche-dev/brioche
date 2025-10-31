@@ -333,9 +333,7 @@ pub async fn analyze_module(
 
     let mut imports = HashMap::new();
 
-    let top_level_imports_specifiers = find_top_level_imports(module, display_location);
-    let dynamic_import_specifiers = find_dynamic_imports(module, display_location);
-    let import_specifiers = top_level_imports_specifiers.chain(dynamic_import_specifiers);
+    let import_specifiers = find_imports(module, display_location);
     for import_specifier in import_specifiers {
         let import_specifier = import_specifier?;
 
@@ -391,7 +389,18 @@ pub async fn analyze_module(
     Ok(module_specifier)
 }
 
-pub fn find_top_level_imports<'a, D>(
+pub fn find_imports<'a, D>(
+    module: &'a biome_js_syntax::JsModule,
+    display_location: impl FnMut(usize) -> D + Clone + 'a,
+) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
+where
+    D: std::fmt::Display,
+{
+    find_top_level_imports(module, display_location.clone())
+        .chain(find_dynamic_imports(module, display_location))
+}
+
+fn find_top_level_imports<'a, D>(
     module: &'a biome_js_syntax::JsModule,
     mut display_location: impl FnMut(usize) -> D + 'a,
 ) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a

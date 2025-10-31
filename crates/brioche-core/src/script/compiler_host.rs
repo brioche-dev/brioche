@@ -10,7 +10,7 @@ use std::{
 use anyhow::Context as _;
 use deno_core::OpState;
 
-use crate::project::analyze::find_top_level_imports;
+use crate::project::analyze::find_imports;
 
 use super::{
     bridge::RuntimeBridge,
@@ -129,7 +129,7 @@ impl BriocheCompilerHost {
                     return Ok(());
                 };
 
-                find_top_level_imports(&parsed_module, |_| "<unknown>").collect::<Vec<_>>()
+                find_imports(&parsed_module, |_| "<unknown>").collect::<Vec<_>>()
             };
 
             for import_specifier in import_specifiers {

@@ -138,6 +138,7 @@ async fn check_with_deno(
     Ok(result)
 }
 
+#[derive(Debug)]
 pub struct CheckResult {
     pub diagnostics: Vec<Diagnostic>,
 }
