@@ -302,6 +302,15 @@ jobs:
           AWS_RESPONSE_CHECKSUM_CALCULATION: WHEN_REQUIRED
           S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
         run: |
+          # Validate Cargo.toml version matches release version
+          crate_version=$(cargo metadata --format-version=1 | jq -r '.packages | map(select(.name == "brioche")) | first.version')
+          if [ "$GITHUB_REF_NAME" != "v${crate_version}" ]; then
+            echo "Version does not match!"
+            echo "Git ref name: $GITHUB_REF_NAME"
+            echo "Crate version: $crate_version"
+            exit 1
+          fi
+
           # Remove nightly-only platforms before publishing
           rm artifacts/brioche-*-macos.*
 
