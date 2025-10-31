@@ -302,13 +302,18 @@ jobs:
           AWS_RESPONSE_CHECKSUM_CALCULATION: WHEN_REQUIRED
           S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
         run: |
+          # Remove nightly-only platforms before publishing
+          rm artifacts/brioche-*-macos.*
+
+          # Create the draft release
           gh release create "$GITHUB_REF_NAME" --repo="$GITHUB_REPOSITORY" --draft --generate-notes
 
+          # Add artifacts to release
+          gh release upload "$GITHUB_REF_NAME" --repo="$GITHUB_REPOSITORY" artifacts/*
+
+          # Upload to releases.brioche.dev
           aws s3 sync \
             --endpoint "$S3_ENDPOINT" \
             --delete \
             artifacts/ \
             "s3://brioche-releases/$GITHUB_REF_NAME/"
-
-          gh release upload "$GITHUB_REF_NAME" --repo="$GITHUB_REPOSITORY" artifacts/*
-
