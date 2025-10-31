@@ -83,7 +83,7 @@ pub async fn edit_project(
 
         let current_project_export_json = super::analyze::expression_to_json(
             &biome_js_syntax::AnyJsExpression::JsObjectExpression(project_export_expr.clone()),
-            &env,
+            Some(&env),
         )
         .with_context(|| format!("{file_line}: invalid project export"))?;
 
