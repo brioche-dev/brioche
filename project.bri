@@ -41,11 +41,6 @@ export default function (): std.Recipe<std.Directory> {
     source,
     path: "crates/brioche",
     runnable: "bin/brioche",
-    buildParams: {
-      // Disable self-updates. Currently, self updates aren't supported for
-      // packed builds.
-      defaultFeatures: false,
-    },
     unsafe: {
       // Network access is used for vendoring libraries (e.g. V8)
       networking: true,
