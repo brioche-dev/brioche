@@ -6,6 +6,36 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+## [v0.1.6]
+
+**Check [the v0.1.6 announcement blog post](http://brioche.dev/blog/announcing-brioche-v0-1-5) for an overview of the new features in this release**
+
+### Added
+
+- **Add support for aarch64 Linux!** We have been using a nightly build in the Brioche Packages repo for quite some time, so all existing packages are available for x86-64 Linux and aarch64 Linux (with a few exceptions due to upstream package limitations)
+- Add new `brioche live-update` subcommand. Projects can export a `liveUpdate` recipe, which can update the project metadata, such as by bumping the version number based on an upstream repository. This feature mainly exists to automate package updates in Brioche Packages ([#234](https://github.com/brioche-dev/brioche/pull/234))
+- Add `--no-verify` flag to `brioche publish` to skip type-checking and validating a project when publishing. This can be useful e.g. in a CI pipeline if a package is checked in an earlier step ([#326](https://github.com/brioche-dev/brioche/pull/326))
+- (**Experimental**): Add `--experimental-lazy` flag to `brioche build`. This will allow short-circuiting the build if the build result is already available in the remote cache. (This flag is experimental and could be either renamed or removed in the future!) ([#294](https://github.com/brioche-dev/brioche/pull/294))
+
+### Changed
+
+- Overhaul release and self-update process ([#281](https://github.com/brioche-dev/brioche/pull/281))
+- Support implicit dependencies via dynamic `import()` calls ([#356](https://github.com/brioche-dev/brioche/pull/356))
+- Support evaluating recipe exports that aren't functions ([#357](https://github.com/brioche-dev/brioche/pull/357))
+- Speed up `brioche check` when checking multiple projects ([#255](https://github.com/brioche-dev/brioche/pull/255))
+- Speed up `brioche fmt` when formatting multiple projects ([#338](https://github.com/brioche-dev/brioche/pull/338))
+- Improve OpenTelemetry output ([#305](https://github.com/brioche-dev/brioche/pull/305))
+- Remove a few uses of the legacy registry API ([#239](https://github.com/brioche-dev/brioche/pull/239))
+
+### Fixed
+
+- Fix "File exists" error that could sometimes happen when fetching a project from the registry ([#259](https://github.com/brioche-dev/brioche/pull/259))
+- Fix network errors not being retried when fetching from the cache ([#286](https://github.com/brioche-dev/brioche/pull/286))
+
+### Removed
+
+- Remove `brioche migrate-registry-to-cache` command. This existed as an internal tool to help transition to the new cache, and so should no longer be needed ([#355](https://github.com/brioche-dev/brioche/pull/355))
+
 ## [v0.1.5]
 
 **Check the blog post ["Announcing Brioche v0.1.5"](http://brioche.dev/blog/announcing-brioche-v0-1-5) for an overview of the new features in this release**
@@ -132,7 +162,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 - **Initial release!**
 
-[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.6...HEAD
+[v0.1.6]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.6
 [v0.1.5]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.4
 [v0.1.3]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.3
