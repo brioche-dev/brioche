@@ -316,7 +316,7 @@ jobs:
           fi
 
           # Remove nightly-only platforms before publishing
-          rm artifacts/brioche-*-macos.*
+          rm artifacts/brioche-*-macos.tar.* artifacts/brioche-*-linux-gnu.tar.*
 
           # Create the draft release
           gh release create "$GITHUB_REF_NAME" --repo="$GITHUB_REPOSITORY" --draft --generate-notes
