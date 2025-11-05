@@ -87,7 +87,7 @@ async fn run_publish(
     js_platform: brioche_core::script::JsPlatform,
     projects: &Projects,
     project_hash: ProjectHash,
-    project_name: &String,
+    project_name: &str,
     no_verify: bool,
 ) -> Result<bool, anyhow::Error> {
     let project = projects.project(project_hash)?;

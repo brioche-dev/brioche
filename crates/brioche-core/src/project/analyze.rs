@@ -371,7 +371,7 @@ pub async fn analyze_module(
                 ImportAnalysis::LocalModule(import_module_specifier)
             }
             BriocheImportSpecifier::External(dependency) => {
-                ImportAnalysis::ExternalProject(dependency.to_string())
+                ImportAnalysis::ExternalProject(dependency.clone())
             }
         };
         imports.insert(import_specifier, import_analysis);
@@ -775,8 +775,7 @@ pub fn expression_to_json(
                         let value = member
                             .value()
                             .with_context(|| format!("{key}: syntax error"))?;
-                        let value =
-                            expression_to_json(&value, env).with_context(|| key.to_string())?;
+                        let value = expression_to_json(&value, env).with_context(|| key.clone())?;
                         (key, value)
                     }
                     biome_js_syntax::AnyJsObjectMember::JsShorthandPropertyObjectMember(member) => {

@@ -158,8 +158,8 @@ async fn run_install(
     js_platform: brioche_core::script::JsPlatform,
     projects: &Projects,
     project_hash: ProjectHash,
-    project_name: &String,
-    export: &String,
+    project_name: &str,
+    export: &str,
     options: &InstallOptions,
 ) -> Result<bool, anyhow::Error> {
     async {
@@ -216,7 +216,7 @@ async fn run_install(
             recipe,
             &brioche_core::bake::BakeScope::Project {
                 project_hash,
-                export: export.to_string(),
+                export: export.to_owned(),
             },
         )
         .instrument(tracing::info_span!("bake"))
