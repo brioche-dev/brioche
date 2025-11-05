@@ -454,7 +454,7 @@ impl Hasher {
             Self::Sha256(hasher) => {
                 let hash = hasher.finalize();
                 Ok(Hash::Sha256 {
-                    value: hash.as_slice().to_vec(),
+                    value: hash.to_vec(),
                 })
             }
         }
