@@ -555,7 +555,7 @@ impl LanguageServer for BriocheLspServer {
             .await;
 
         let text_document_uri = &params.text_document.uri;
-        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
+        let load_result = self.load_document(text_document_uri).await;
         if let Err(error) = load_result {
             tracing::warn!(
                 "failed to load document {text_document_uri} during diagnostic request: {error:#}"
