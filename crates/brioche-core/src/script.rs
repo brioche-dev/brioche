@@ -170,8 +170,7 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         &self,
         module_specifier: &deno_core::ModuleSpecifier,
         _maybe_referrer: Option<&deno_core::ModuleLoadReferrer>,
-        _is_dyn_import: bool,
-        _requested_module_type: deno_core::RequestedModuleType,
+        _options: deno_core::ModuleLoadOptions,
     ) -> deno_core::ModuleLoadResponse {
         deno_core::ModuleLoadResponse::Sync(
             self.load_module_source(module_specifier)

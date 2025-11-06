@@ -166,7 +166,7 @@ pub async fn build(
             recipe,
             &brioche_core::bake::BakeScope::Project {
                 project_hash,
-                export: args.export.to_string(),
+                export: args.export.clone(),
             },
         )
         .instrument(tracing::info_span!("bake"))

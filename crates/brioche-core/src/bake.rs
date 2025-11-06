@@ -67,7 +67,7 @@ pub async fn bake(
                 let mut db_transaction = db_conn.begin().await?;
 
                 let project_hash_value = project_hash.to_string();
-                let export_value = export.to_string();
+                let export_value = export.clone();
                 let recipe_hash_value = recipe_hash.to_string();
                 sqlx::query!(
                     r#"
