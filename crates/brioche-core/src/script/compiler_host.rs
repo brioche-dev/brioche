@@ -4,7 +4,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use anyhow::Context as _;
@@ -20,7 +20,7 @@ use super::{
 #[derive(Clone)]
 pub struct BriocheCompilerHost {
     pub bridge: RuntimeBridge,
-    pub documents: Arc<RwLock<HashMap<BriocheModuleSpecifier, BriocheDocument>>>,
+    pub documents: Arc<tokio::sync::RwLock<HashMap<BriocheModuleSpecifier, BriocheDocument>>>,
 }
 
 impl BriocheCompilerHost {
@@ -40,15 +40,15 @@ impl BriocheCompilerHost {
 
         Self {
             bridge,
-            documents: Arc::new(RwLock::new(documents)),
+            documents: Arc::new(tokio::sync::RwLock::new(documents)),
         }
     }
 
-    pub fn is_document_loaded(&self, specifier: &BriocheModuleSpecifier) -> anyhow::Result<bool> {
-        let documents = self
-            .documents
-            .read()
-            .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+    pub async fn is_document_loaded(
+        &self,
+        specifier: &BriocheModuleSpecifier,
+    ) -> anyhow::Result<bool> {
+        let documents = self.documents.read().await;
 
         Ok(documents.contains_key(specifier))
     }
@@ -66,10 +66,7 @@ impl BriocheCompilerHost {
             }
 
             let contents = {
-                let documents = self
-                    .documents
-                    .read()
-                    .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+                let documents = self.documents.read().await;
                 documents.get(&specifier).map(|doc| doc.contents.clone())
             };
 
@@ -93,10 +90,7 @@ impl BriocheCompilerHost {
                     format!("failed to parse module '{specifier}' contents as UTF-8 string")
                 })?;
 
-                let mut documents = self
-                    .documents
-                    .write()
-                    .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+                let mut documents = self.documents.write().await;
 
                 match documents.entry(specifier.clone()) {
                     std::collections::hash_map::Entry::Occupied(entry) => {
@@ -167,10 +161,7 @@ impl BriocheCompilerHost {
         let specifier: BriocheModuleSpecifier = uri.try_into()?;
 
         {
-            let mut documents = self
-                .documents
-                .write()
-                .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+            let mut documents = self.documents.write().await;
             documents
                 .entry(specifier.clone())
                 .and_modify(|doc| {
@@ -199,21 +190,42 @@ impl BriocheCompilerHost {
         Ok(())
     }
 
-    pub fn read_loaded_document<R>(
+    pub async fn read_loaded_document<R>(
         &self,
         specifier: &BriocheModuleSpecifier,
         f: impl FnOnce(&BriocheDocument) -> R,
     ) -> anyhow::Result<Option<R>> {
-        let documents = self
-            .documents
-            .read()
-            .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+        let documents = self.documents.read().await;
         let Some(document) = documents.get(specifier) else {
             return Ok(None);
         };
 
         let result = f(document);
         Ok(Some(result))
+    }
+
+    fn read_loaded_document_sync<R: Send + 'static>(
+        &self,
+        specifier: &BriocheModuleSpecifier,
+        f: impl FnOnce(&BriocheDocument) -> R + Send + 'static,
+    ) -> anyhow::Result<Option<R>> {
+        if let Ok(documents) = self.documents.try_read() {
+            let Some(document) = documents.get(specifier) else {
+                return Ok(None);
+            };
+            let result = f(document);
+            Ok(Some(result))
+        } else {
+            let result = std::thread::spawn({
+                let rt = tokio::runtime::Handle::current();
+                let host = self.clone();
+                let specifier = specifier.clone();
+                move || rt.block_on(host.read_loaded_document(&specifier, f))
+            })
+            .join()
+            .map_err(|_| anyhow::anyhow!("failed to wait for loaded document"))??;
+            Ok(result)
+        }
     }
 
     pub async fn reload_module_project(&self, uri: &url::Url) -> anyhow::Result<()> {
@@ -225,10 +237,7 @@ impl BriocheCompilerHost {
             .await?;
 
         if did_update {
-            let mut documents = self
-                .documents
-                .write()
-                .map_err(|_| anyhow::anyhow!("failed to acquire lock on documents"))?;
+            let mut documents = self.documents.write().await;
             documents.entry(specifier.clone()).and_modify(|doc| {
                 doc.version += 1;
             });
@@ -281,7 +290,8 @@ pub fn op_brioche_file_read(
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
 
-    let contents = compiler_host.read_loaded_document(&specifier, |doc| doc.contents.clone())?;
+    let contents =
+        compiler_host.read_loaded_document_sync(&specifier, |doc| doc.contents.clone())?;
     Ok(contents)
 }
 
@@ -294,7 +304,7 @@ pub fn op_brioche_file_exists(
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
 
-    let result = compiler_host.read_loaded_document(&specifier, |_| ())?;
+    let result = compiler_host.read_loaded_document_sync(&specifier, |_| ())?;
     Ok(result.is_some())
 }
 
@@ -308,7 +318,7 @@ pub fn op_brioche_file_version(
 
     let specifier: BriocheModuleSpecifier = path.parse()?;
 
-    let version = compiler_host.read_loaded_document(&specifier, |doc| doc.version)?;
+    let version = compiler_host.read_loaded_document_sync(&specifier, |doc| doc.version)?;
     Ok(version)
 }
 
