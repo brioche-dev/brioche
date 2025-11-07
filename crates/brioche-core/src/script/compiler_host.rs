@@ -58,17 +58,15 @@ impl BriocheCompilerHost {
         specifiers: Vec<BriocheModuleSpecifier>,
     ) -> anyhow::Result<()> {
         let mut already_visited = HashSet::new();
-        let mut specifiers_to_load = specifiers;
+        let mut specifiers_to_load = specifiers.clone();
+        let mut documents = self.documents.write().await;
 
         while let Some(specifier) = specifiers_to_load.pop() {
             if !already_visited.insert(specifier.clone()) {
                 continue;
             }
 
-            let contents = {
-                let documents = self.documents.read().await;
-                documents.get(&specifier).map(|doc| doc.contents.clone())
-            };
+            let document_entry = documents.entry(specifier.clone());
 
             match &specifier {
                 BriocheModuleSpecifier::File { path } => {
@@ -79,32 +77,25 @@ impl BriocheCompilerHost {
                 BriocheModuleSpecifier::Runtime { .. } => {}
             }
 
-            let contents = if let Some(contents) = contents {
-                contents
-            } else {
-                let contents = self
-                    .bridge
-                    .load_specifier_contents(specifier.clone())
-                    .await?;
-                let contents = std::str::from_utf8(&contents).with_context(|| {
-                    format!("failed to parse module '{specifier}' contents as UTF-8 string")
-                })?;
+            let contents = match document_entry {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.get().contents.clone(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let contents = self
+                        .bridge
+                        .load_specifier_contents(specifier.clone())
+                        .await?;
+                    let contents = std::str::from_utf8(&contents).with_context(|| {
+                        format!("failed to parse module '{specifier}' contents as UTF-8 string")
+                    })?;
+                    let contents = Arc::new(contents.to_string());
+                    entry.insert(BriocheDocument {
+                        contents: contents.clone(),
+                        version: 0,
+                    });
 
-                let mut documents = self.documents.write().await;
+                    tracing::debug!("loaded new document into compiler host: {specifier}");
 
-                match documents.entry(specifier.clone()) {
-                    std::collections::hash_map::Entry::Occupied(entry) => {
-                        entry.get().contents.clone()
-                    }
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        tracing::debug!("loaded new document into compiler host: {specifier}");
-                        let contents = Arc::new(contents.to_string());
-                        entry.insert(BriocheDocument {
-                            contents: contents.clone(),
-                            version: 0,
-                        });
-                        contents
-                    }
+                    contents
                 }
             };
 
