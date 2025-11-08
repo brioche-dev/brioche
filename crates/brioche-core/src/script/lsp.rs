@@ -79,7 +79,7 @@ impl BriocheLspServer {
     async fn load_document_if_not_loaded(&self, uri: &url::Url) -> anyhow::Result<()> {
         let specifier = lsp_uri_to_module_specifier(uri)?;
 
-        if !self.compiler_host.is_document_loaded(&specifier)? {
+        if !self.compiler_host.is_document_loaded(&specifier).await? {
             self.compiler_host
                 .load_documents(vec![specifier.clone()])
                 .await?;
@@ -504,7 +504,8 @@ impl LanguageServer for BriocheLspServer {
 
         let contents = self
             .compiler_host
-            .read_loaded_document(&specifier, |doc| doc.contents.clone());
+            .read_loaded_document(&specifier, |doc| doc.contents.clone())
+            .await;
         let contents = match contents {
             Ok(Some(contents)) => contents,
             Ok(None) => {
@@ -555,7 +556,7 @@ impl LanguageServer for BriocheLspServer {
             .await;
 
         let text_document_uri = &params.text_document.uri;
-        let load_result = self.load_document(text_document_uri).await;
+        let load_result = self.load_document_if_not_loaded(text_document_uri).await;
         if let Err(error) = load_result {
             tracing::warn!(
                 "failed to load document {text_document_uri} during diagnostic request: {error:#}"
