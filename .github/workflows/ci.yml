@@ -61,10 +61,7 @@ jobs:
       - name: Install Brioche
         uses: brioche-dev/setup-brioche@v1
       - name: Check Brioche project
-        # HACK: Added a workaround for bug fixed by https://github.com/brioche-dev/brioche/pull/216
-        # TODO: Update when Brioche >0.1.5 is released
         run: |
-          brioche check || true
           brioche check
           brioche fmt --check
 
@@ -201,14 +198,11 @@ jobs:
           version: ${{ matrix.brioche-release-channel }}
       - name: Build Brioche
         id: build
-        # HACK: Added a workaround for bug fixed by https://github.com/brioche-dev/brioche/pull/216
-        # TODO: Update when Brioche >0.1.5 is released
         run: |
           artifact_name="brioche-${PLATFORM}"
           artifact_path="artifacts/${artifact_name}.tar.xz"
 
           mkdir -p "artifacts"
-          brioche check || true
           brioche build --check -o "artifacts/$artifact_name"
 
           tar -cJvf "$artifact_path" -C artifacts "$artifact_name"
