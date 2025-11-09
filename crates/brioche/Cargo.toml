@@ -11,7 +11,7 @@ self-update = []
 
 [dependencies]
 anyhow = { version = "1.0.100", features = ["backtrace"] }
-async-compression = { version = "0.4.32", features = [
+async-compression = { version = "0.4.33", features = [
     "xz",
 ] }
 brioche-core = { path = "../brioche-core" }
@@ -23,7 +23,7 @@ futures = "0.3.31"
 hex = "0.4.3"
 notify = "8.2.0"
 object_store = "0.12.4"
-openssl = { version = "0.10.74", optional = true }
+openssl = { version = "0.10.75", optional = true }
 reqwest = { version = "0.12.24", default-features = false, features = [
     "rustls-tls",
     "zstd",
