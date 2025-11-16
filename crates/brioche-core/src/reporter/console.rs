@@ -299,11 +299,11 @@ impl ConsoleReporter {
                         if let Some(finished_at) = finished_at {
                             let elapsed = finished_at.saturating_duration_since(job.created_at());
 
-                            let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                            let downloaded_size = bytesize::ByteSize(*downloaded_bytes).as_kb();
                             let elapsed_duration = DisplayDuration(elapsed);
 
                             eprintln!(
-                                "Finished downloading {url} ({downloaded_size}) in {elapsed_duration}"
+                                "Finished downloading {url} ({downloaded_size} kB) in {elapsed_duration}s"
                             );
                         }
                     }
@@ -315,10 +315,10 @@ impl ConsoleReporter {
                         if let Some(finished_at) = finished_at {
                             let elapsed = finished_at.saturating_duration_since(job.created_at());
 
-                            let read_size = bytesize::ByteSize(*read_bytes);
+                            let read_size = bytesize::ByteSize(*read_bytes).as_kb();
                             let elapsed_duration = DisplayDuration(elapsed);
 
-                            eprintln!("Finished unarchiving {read_size} in {elapsed_duration}");
+                            eprintln!("Finished unarchiving {read_size} kB in {elapsed_duration}s");
                         }
                     }
                     UpdateJob::ProcessUpdateStatus { status } => {
@@ -429,11 +429,11 @@ impl ConsoleReporter {
                             crate::reporter::job::CacheFetchKind::Project => "project",
                         };
 
-                        let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
+                        let downloaded_size = bytesize::ByteSize(*downloaded_bytes).as_kb();
                         let elapsed_duration = DisplayDuration(elapsed);
 
                         eprintln!(
-                            "Fetched {downloaded_size} for {fetch_kind} from cache in {elapsed_duration}",
+                            "Fetched {downloaded_size} kB for {fetch_kind} from cache in {elapsed_duration}s",
                         );
                     }
                 }
@@ -727,11 +727,11 @@ impl superconsole::Component for JobComponent<'_> {
                     .saturating_sub(1)
                     .saturating_sub(line.len());
 
-                let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
-                let total_size = total_bytes.map(bytesize::ByteSize);
+                let downloaded_size = bytesize::ByteSize(*downloaded_bytes).as_kb();
+                let total_size = total_bytes.map(|value| bytesize::ByteSize(value).as_kb());
                 let mut download_message = total_size.map_or_else(
-                    || downloaded_size.to_string(),
-                    |total_size| format!("{downloaded_size} / {total_size}"),
+                    || format!("{downloaded_size} kB"),
+                    |total_size| format!("{downloaded_size} kB / {total_size} kB"),
                 );
                 let truncated_url = string_with_width(
                     url.as_str(),
@@ -784,12 +784,12 @@ impl superconsole::Component for JobComponent<'_> {
                     .saturating_sub(1)
                     .saturating_sub(line.len());
 
-                let read_size = bytesize::ByteSize(*read_bytes);
-                let total_size = bytesize::ByteSize(*total_bytes);
+                let read_size = bytesize::ByteSize(*read_bytes).as_kb();
+                let total_size = bytesize::ByteSize(*total_bytes).as_kb();
                 let unarchive_message = if job.is_complete() {
-                    format!("Unarchive: {read_size}")
+                    format!("Unarchive: {read_size} kB")
                 } else {
-                    format!("Unarchive: {read_size} / {total_size}")
+                    format!("Unarchive: {read_size} kB / {total_size} kB")
                 };
 
                 line.extend(progress_bar_spans(
@@ -897,17 +897,17 @@ impl superconsole::Component for JobComponent<'_> {
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
-                let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
-                let total_size = total_bytes.map(bytesize::ByteSize);
+                let downloaded_size = bytesize::ByteSize(*downloaded_bytes).as_kb();
+                let total_size = total_bytes.map(|value| bytesize::ByteSize(value).as_kb());
 
                 let fetch_kind = match kind {
                     super::job::CacheFetchKind::Bake => "artifact",
                     super::job::CacheFetchKind::Project => "project",
                 };
                 let fetching_message = if job.is_complete() {
-                    format!("Fetch {fetch_kind}: {downloaded_size}")
+                    format!("Fetch {fetch_kind}: {downloaded_size} kB")
                 } else if let Some(total_size) = total_size {
-                    format!("Fetch {fetch_kind}: {downloaded_size} / {total_size}")
+                    format!("Fetch {fetch_kind}: {downloaded_size} kB / {total_size} kB")
                 } else {
                     format!("Fetch {fetch_kind}")
                 };
