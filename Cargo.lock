@@ -1308,7 +1308,7 @@ dependencies = [
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
  "pathdiff",
- "pem-rfc7468 1.0.0-rc.3",
+ "pem-rfc7468 1.0.0",
  "petgraph",
  "pin-project-lite",
  "pretty_assertions",
@@ -1443,9 +1443,9 @@ dependencies = [
 
 [[package]]
 name = "bytesize"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5c434ae3cf0089ca203e9019ebe529c47ff45cefe8af7c85ecb734ef541822f"
+checksum = "c99fa31e08a43eaa5913ef68d7e01c37a2bdce6ed648168239ad33b7d30a9cd8"
 
 [[package]]
 name = "bzip2"
@@ -2151,9 +2151,9 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.367.0"
+version = "0.368.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35bc5bd853f22f22954aff45968f059e5f727755f1818dafba6c19cf1c6a43c2"
+checksum = "5ed73cb6f959f3692a8eb2eedd8e1a2a5e1d11dec141b4836fc21788402095f5"
 dependencies = [
  "anyhow",
  "az",
@@ -2232,9 +2232,9 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.243.0"
+version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70093389f10651aada28d3b535e115aca21888d357e0346ba67ee63600a48218"
+checksum = "b4b6175c620af5e2ca21113dfb619d463796396082eec5bef030dc8ab1923055"
 dependencies = [
  "indexmap 2.12.0",
  "proc-macro-rules",
@@ -5579,9 +5579,9 @@ dependencies = [
 
 [[package]]
 name = "pem-rfc7468"
-version = "1.0.0-rc.3"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8e58fab693c712c0d4e88f8eb3087b6521d060bcaf76aeb20cb192d809115ba"
+checksum = "a6305423e0e7738146434843d1694d621cce767262b2a86910beab705e4493d9"
 dependencies = [
  "base64ct",
 ]
@@ -6779,9 +6779,9 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.276.0"
+version = "0.277.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d64a436af65a4fb070cd22d69d80bd97f5a9c67d31c2d0809a9fe0e84c59096"
+checksum = "def24655f388a9a7f07a350b822f82d4523e9f1c3a6d2e786a9da1520000a002"
 dependencies = [
  "deno_error",
  "num-bigint",
@@ -6793,9 +6793,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
-version = "3.15.1"
+version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa66c845eee442168b2c8134fec70ac50dc20e760769c8ba0ad1319ca1959b04"
+checksum = "10574371d41b0d9b2cff89418eda27da52bcaff2cc8741db26382a77c29131f1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -6812,9 +6812,9 @@ dependencies = [
 
 [[package]]
 name = "serde_with_macros"
-version = "3.15.1"
+version = "3.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b91a903660542fced4e99881aa481bdbaec1634568ee02e0b8bd57c64cb38955"
+checksum = "08a72d8216842fdd57820dc78d840bef99248e35fb2554ff923319e60f2d686b"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -7285,7 +7285,7 @@ checksum = "2f1447aab1592c131dec60f7d8cc0b2fb4042d0bf2c90c40f972c2c046b25d1b"
 dependencies = [
  "base64ct",
  "digest 0.11.0-rc.4",
- "pem-rfc7468 1.0.0-rc.3",
+ "pem-rfc7468 1.0.0",
  "subtle",
  "zeroize",
 ]
