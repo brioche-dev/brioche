@@ -41,12 +41,12 @@ biome_unicode_table = "=0.5.7"
 blake3 = "1.8.2"
 brioche-pack = { path = "../brioche-pack" }
 bstr = { version = "1.12.1", features = ["serde"] }
-bytesize = "2.1.0"
+bytesize = "2.2.0"
 cfg-if = "1.0.4"
 console-subscriber = "0.5.0"
 debug-ignore = "1.0.5"
 deno_ast = { version = "0.51.0", features = ["transpiling"] }
-deno_core = "0.367.0"
+deno_core = "0.368.0"
 deno_error = "0.7.0"
 directories = "6.0.0"
 fastcdc = { version = "3.2.1", features = ["tokio"] }
@@ -80,7 +80,7 @@ opentelemetry-appender-tracing = { version = "0.31.1", features = ["experimental
 opentelemetry-semantic-conventions = "0.31.0"
 opentelemetry_sdk = { version = "0.31.0", features = ["logs", "trace", "rt-tokio"] }
 pathdiff = "0.2.3"
-pem-rfc7468 = { version = "1.0.0-rc", features = ["std"] }
+pem-rfc7468 = { version = "1.0.0", features = ["std"] }
 petgraph = "0.8.3"
 pin-project-lite = "0.2.16"
 regex = "1.12.2"
@@ -101,8 +101,8 @@ rust-embed = { version = "8.9.0", features = [
 rustls-native-certs = "0.8.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
-serde_v8 = "0.276.0"
-serde_with = { version = "3.15.1", features = ["hex"] }
+serde_v8 = "0.277.0"
+serde_with = { version = "3.16.0", features = ["hex"] }
 sha2 = "0.10.9"
 sqlx = { version = "0.8.6", features = [
     "runtime-tokio-rustls",
@@ -146,7 +146,7 @@ zstd-framed = { version = "0.1.1", features = ["tokio"] }
 assert_matches = "1.5.0"
 aws-runtime = "1.5.14"
 brioche-test-support = { path = "../brioche-test-support" }
-deno_core = { version = "0.367.0", features = [
+deno_core = { version = "0.368.0", features = [
     # For tests, this feature should be enabled to resolve a segfault that
     # can occur if V8 detects the `pki` CPU flag. See this issue:
     # https://github.com/denoland/deno_core/issues/1091
