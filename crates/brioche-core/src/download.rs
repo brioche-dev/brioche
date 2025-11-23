@@ -103,9 +103,9 @@ pub async fn fetch_git_commit_for_ref(
             .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
         move || {
             // Connect to the repository by URL
-            let transport = gix::protocol::transport::connect(
+            let transport = gix::protocol::transport::client::blocking_io::connect::connect(
                 repository,
-                gix::protocol::transport::client::connect::Options::default(),
+                gix::protocol::transport::client::blocking_io::connect::Options::default(),
             );
             let mut transport = match transport {
                 Ok(transport) => transport,
@@ -118,8 +118,9 @@ pub async fn fetch_git_commit_for_ref(
             // Perform a handshake to get the remote's capabilities.
             // Authentication is disabled
             let empty_auth = |_| Ok(None);
-            let outcome = gix::protocol::fetch::handshake(
+            let outcome = gix::protocol::handshake(
                 &mut transport,
+                gix::protocol::transport::Service::UploadPack,
                 empty_auth,
                 vec![],
                 &mut gix::progress::Discard,
@@ -143,9 +144,10 @@ pub async fn fetch_git_commit_for_ref(
                 let refs = gix::protocol::ls_refs(
                     &mut transport,
                     &outcome.capabilities,
-                    |_, _, _| Ok(gix::protocol::ls_refs::Action::Continue),
+                    |_, _| Ok(gix::protocol::ls_refs::Action::Continue),
                     &mut gix::progress::Discard,
                     false,
+                    ("agent", None),
                 );
                 match refs {
                     Ok(refs) => refs,
