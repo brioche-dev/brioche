@@ -11,13 +11,13 @@ self-update = []
 
 [dependencies]
 anyhow = { version = "1.0.100", features = ["backtrace"] }
-async-compression = { version = "0.4.33", features = [
+async-compression = { version = "0.4.34", features = [
     "xz",
 ] }
 brioche-core = { path = "../brioche-core" }
 bstr = "1.12.1"
 cfg-if = "1.0.4"
-clap = { version = "4.5.51", features = ["derive"] }
+clap = { version = "4.5.53", features = ["derive"] }
 csv = "1.4.0"
 futures = "0.3.31"
 hex = "0.4.3"
