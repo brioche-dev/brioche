@@ -15,9 +15,9 @@ async-compression = { version = "0.4.35", features = [
 ] }
 async-recursion = "1.1.1"
 async-trait = "0.1.89"
-aws-config = "1.8.11"
-aws-credential-types = "1.2.9"
-aws-types = "1.3.9"
+aws-config = "1.8.12"
+aws-credential-types = "1.2.11"
+aws-types = "1.3.11"
 biome_console = "=0.5.7"
 biome_deserialize = "=0.5.7"
 biome_deserialize_macros = "=0.5.7"
@@ -47,7 +47,7 @@ console-subscriber = "0.5.0"
 debug-ignore = "1.0.5"
 deno_ast = { version = "0.52.0", features = ["transpiling"] }
 deno_core = "0.372.0"
-deno_error = "0.7.1"
+deno_error = "0.7.3"
 directories = "6.0.0"
 fastcdc = { version = "3.2.1", features = ["tokio"] }
 futures = "0.3.31"
@@ -85,7 +85,7 @@ petgraph = "0.8.3"
 pin-project-lite = "0.2.16"
 regex = "1.12.2"
 relative-path = { version = "2.0.1", features = ["serde"] }
-reqwest = { version = "0.12.24", default-features = false, features = [
+reqwest = { version = "0.12.25", default-features = false, features = [
     "rustls-tls",
     "zstd",
     "json",
@@ -117,7 +117,7 @@ tar = "0.4.44"
 thiserror = "2.0.17"
 tick-encoding = "0.1.3"
 tokio = { version = "1.48.0", features = ["full", "tracing"] }
-tokio-util = { version = "0.7.16", features = ["compat", "io-util", "rt"] }
+tokio-util = { version = "0.7.17", features = ["compat", "io-util", "rt"] }
 toml = "0.9.8"
 tower-lsp = "0.20.0"
 tracing = "0.1.43"
@@ -128,7 +128,7 @@ tracing-subscriber = { version = "0.3.22", features = [
     "tracing-log",
 ] }
 ulid = "1.2.1"
-url = { version = "2.5.4", features = ["serde"] }
+url = { version = "2.5.7", features = ["serde"] }
 urlencoding = "2.1.3"
 walkdir = "2.5.0"
 wax = { version = "0.6.0", default-features = false }
@@ -144,7 +144,7 @@ zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-aws-runtime = "1.5.14"
+aws-runtime = "1.5.17"
 brioche-test-support = { path = "../brioche-test-support" }
 deno_core = { version = "0.372.0", features = [
     # For tests, this feature should be enabled to resolve a segfault that
