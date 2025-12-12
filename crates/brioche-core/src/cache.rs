@@ -201,16 +201,18 @@ pub async fn save_bake(
     let bake_output = CachedBakeOutput { output_hash };
     let bake_output_json = serde_json::to_string(&bake_output)?;
 
-    let put_result = store
-        .put_opts(
-            &bake_output_path,
-            bake_output_json.into(),
-            object_store::PutOptions {
-                mode: object_store::PutMode::Create,
-                ..Default::default()
-            },
-        )
-        .await;
+    let put_result = crate::object_store_utils::put_opts_with_retry(
+        &store,
+        &bake_output_path,
+        bake_output_json.into(),
+        object_store::PutOptions {
+            mode: object_store::PutMode::Create,
+            ..Default::default()
+        },
+        crate::object_store_utils::PUT_NUM_RETRIES,
+        crate::object_store_utils::PUT_RETRY_DELAY,
+    )
+    .await;
 
     let did_create = match put_result {
         Ok(_) => true,
@@ -293,16 +295,18 @@ pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Res
     archive::write_artifact_archive(brioche, artifact, &store, &mut archive_writer).await?;
     archive_writer.shutdown().await?;
 
-    let put_result = store
-        .put_opts(
-            &artifact_path,
-            archive_compressed.into(),
-            object_store::PutOptions {
-                mode: object_store::PutMode::Create,
-                ..Default::default()
-            },
-        )
-        .await;
+    let put_result = crate::object_store_utils::put_opts_with_retry(
+        &store,
+        &artifact_path,
+        archive_compressed.into(),
+        object_store::PutOptions {
+            mode: object_store::PutMode::Create,
+            ..Default::default()
+        },
+        crate::object_store_utils::PUT_NUM_RETRIES,
+        crate::object_store_utils::PUT_RETRY_DELAY,
+    )
+    .await;
 
     let did_create = match put_result {
         Ok(_) => true,
@@ -357,16 +361,18 @@ pub async fn save_project_artifact_hash(
     let project_source = CachedProjectSource { artifact_hash };
     let project_source_json = serde_json::to_string(&project_source)?;
 
-    let put_result = store
-        .put_opts(
-            &project_source_path,
-            project_source_json.into(),
-            object_store::PutOptions {
-                mode: object_store::PutMode::Create,
-                ..Default::default()
-            },
-        )
-        .await;
+    let put_result = crate::object_store_utils::put_opts_with_retry(
+        &store,
+        &project_source_path,
+        project_source_json.into(),
+        object_store::PutOptions {
+            mode: object_store::PutMode::Create,
+            ..Default::default()
+        },
+        crate::object_store_utils::PUT_NUM_RETRIES,
+        crate::object_store_utils::PUT_RETRY_DELAY,
+    )
+    .await;
 
     let did_create = match put_result {
         Ok(_) => true,

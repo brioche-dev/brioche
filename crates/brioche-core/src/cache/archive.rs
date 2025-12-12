@@ -201,16 +201,18 @@ pub async fn write_artifact_archive(
             let chunk_compressed = zstd::encode_all(&chunk.data[..], 0)?;
 
             // Try to write the compressed chunk to the cache
-            let result = store
-                .put_opts(
-                    &chunk_path,
-                    chunk_compressed.into(),
-                    object_store::PutOptions {
-                        mode: object_store::PutMode::Create,
-                        ..Default::default()
-                    },
-                )
-                .await;
+            let result = crate::object_store_utils::put_opts_with_retry(
+                store,
+                &chunk_path,
+                chunk_compressed.into(),
+                object_store::PutOptions {
+                    mode: object_store::PutMode::Create,
+                    ..Default::default()
+                },
+                crate::object_store_utils::PUT_NUM_RETRIES,
+                crate::object_store_utils::PUT_RETRY_DELAY,
+            )
+            .await;
 
             match result {
                 Ok(_) | Err(object_store::Error::AlreadyExists { .. }) => {
