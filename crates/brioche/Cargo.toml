@@ -11,7 +11,7 @@ self-update = []
 
 [dependencies]
 anyhow = { version = "1.0.100", features = ["backtrace"] }
-async-compression = { version = "0.4.35", features = [
+async-compression = { version = "0.4.36", features = [
     "xz",
 ] }
 brioche-core = { path = "../brioche-core" }
