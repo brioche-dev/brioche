@@ -141,6 +141,8 @@ zip = { version = "6.0.0", default-features = false, features = [
 ] }
 zstd = "0.13.3"
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
+humantime-serde = "1.1.1"
+humantime = "2.3.0"
 
 [dev-dependencies]
 assert_matches = "1.5.0"
