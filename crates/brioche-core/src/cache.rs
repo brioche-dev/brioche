@@ -49,14 +49,28 @@ pub async fn cache_client_with_config(
 ) -> anyhow::Result<CacheClient> {
     let use_default_cache = config.is_none_or(|config| config.use_default_cache);
     let default_cache_store = if use_default_cache {
-        let store = build_object_store(&DEFAULT_CACHE_URL.parse()?, None).await?;
+        let store = build_object_store(&ObjectStoreConfig {
+            url: &DEFAULT_CACHE_URL
+                .parse()
+                .expect("invalid default cache URL"),
+            allow_http: None,
+            timeout: None,
+            connect_timeout: None,
+        })
+        .await?;
         Some(store)
     } else {
         None
     };
 
     let configured_cache_store = if let Some(config) = config {
-        let store = build_object_store(&config.url, config.allow_http).await?;
+        let store = build_object_store(&ObjectStoreConfig {
+            url: &config.url,
+            allow_http: config.allow_http,
+            timeout: config.timeout,
+            connect_timeout: config.connect_timeout,
+        })
+        .await?;
         Some(store)
     } else {
         None
@@ -85,9 +99,15 @@ pub async fn cache_client_with_config(
     })
 }
 
-async fn build_object_store(
-    url: &url::Url,
+struct ObjectStoreConfig<'a> {
+    url: &'a url::Url,
     allow_http: Option<bool>,
+    connect_timeout: Option<std::time::Duration>,
+    timeout: Option<std::time::Duration>,
+}
+
+async fn build_object_store(
+    config: &ObjectStoreConfig<'_>,
 ) -> anyhow::Result<Arc<dyn object_store::ObjectStore>> {
     let retry_config = object_store::RetryConfig {
         backoff: object_store::BackoffConfig {
@@ -101,24 +121,31 @@ async fn build_object_store(
 
     let mut client_options = object_store::ClientOptions::new()
         .with_user_agent(http::HeaderValue::from_static(crate::USER_AGENT));
-    if let Some(allow_http) = allow_http {
+    if let Some(connect_timeout) = config.connect_timeout {
+        client_options = client_options.with_connect_timeout(connect_timeout);
+    }
+    if let Some(timeout) = config.timeout {
+        client_options = client_options.with_timeout(timeout);
+    }
+    if let Some(allow_http) = config.allow_http {
         client_options = client_options.with_allow_http(allow_http);
     }
 
-    let store: Arc<dyn object_store::ObjectStore> = match url.scheme() {
+    let store: Arc<dyn object_store::ObjectStore> = match config.url.scheme() {
         "http" | "https" => {
             let store = object_store::http::HttpBuilder::new()
-                .with_url(url.as_str())
+                .with_url(config.url.as_str())
                 .with_retry(retry_config)
                 .with_client_options(client_options)
                 .build()?;
             Arc::new(store)
         }
         "s3" => {
-            let bucket = url
+            let bucket = config
+                .url
                 .host_str()
                 .context("S3 cache URL must include a bucket name")?;
-            let prefix = url.path().trim_start_matches('/').to_string();
+            let prefix = config.url.path().trim_start_matches('/').to_string();
 
             let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
 
@@ -140,7 +167,8 @@ async fn build_object_store(
             Arc::new(store)
         }
         "file" => {
-            let path = url
+            let path = config
+                .url
                 .to_file_path()
                 .map_err(|()| anyhow::anyhow!("invalid file:// URL for cache"))?;
 
