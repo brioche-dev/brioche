@@ -119,6 +119,64 @@ impl object_store::ObjectStore for LayeredObjectStore {
     }
 }
 
+pub const PUT_NUM_RETRIES: usize = 5;
+pub const PUT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+pub async fn put_opts_with_retry(
+    object_store: &impl object_store::ObjectStore,
+    location: &object_store::path::Path,
+    payload: object_store::PutPayload,
+    opts: object_store::PutOptions,
+    mut num_retries: usize,
+    retry_delay: std::time::Duration,
+) -> object_store::Result<object_store::PutResult> {
+    loop {
+        let result = object_store
+            .put_opts(location, payload.clone(), opts.clone())
+            .await;
+        let error = match result {
+            Ok(result) => {
+                return Ok(result);
+            }
+            Err(
+                error @ (object_store::Error::NotFound { .. }
+                | object_store::Error::InvalidPath { .. }
+                | object_store::Error::JoinError { .. }
+                | object_store::Error::NotSupported { .. }
+                | object_store::Error::AlreadyExists { .. }
+                | object_store::Error::Precondition { .. }
+                | object_store::Error::NotModified { .. }
+                | object_store::Error::NotImplemented
+                | object_store::Error::PermissionDenied { .. }
+                | object_store::Error::Unauthenticated { .. }
+                | object_store::Error::UnknownConfigurationKey { .. }),
+            ) => {
+                // These errors are all fatal and shouldn't be retried,
+                // as we'd probably get the same error
+                return Err(error);
+            }
+            Err(error @ (object_store::Error::Generic { .. } | _)) => {
+                // Other error: default to assuming that it's retryable
+                error
+            }
+        };
+
+        let Some(retries_remaining) = num_retries.checked_sub(1) else {
+            // No retries left, so return the last error
+            return Err(error);
+        };
+        num_retries = retries_remaining;
+
+        tracing::warn!(
+            %location,
+            retries_remaining,
+            ?error,
+            "object store PUT request failed, retrying"
+        );
+        tokio::time::sleep(retry_delay).await;
+    }
+}
+
 #[derive(Debug)]
 pub struct AwsS3CredentialProvider {
     config: aws_config::SdkConfig,

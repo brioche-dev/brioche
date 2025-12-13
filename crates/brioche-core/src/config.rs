@@ -85,6 +85,12 @@ pub struct CacheConfig {
     pub read_only: bool,
 
     pub allow_http: Option<bool>,
+
+    #[serde(default, with = "humantime_serde")]
+    pub timeout: Option<std::time::Duration>,
+
+    #[serde(default, with = "humantime_serde")]
+    pub connect_timeout: Option<std::time::Duration>,
 }
 
 const fn default_use_default_cache() -> bool {

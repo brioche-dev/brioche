@@ -309,12 +309,38 @@ impl BriocheBuilder {
                         }
                         None => None,
                     };
+                    let timeout = std::env::var_os("BRIOCHE_CACHE_TIMEOUT")
+                        .map(|value| {
+                            let value = value.to_str().ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "invalid value for $BRIOCHE_CACHE_TIMEOUT: {}",
+                                    value.display()
+                                )
+                            })?;
+                            let duration = humantime::parse_duration(value)?;
+                            anyhow::Ok(duration)
+                        })
+                        .transpose()?;
+                    let connect_timeout = std::env::var_os("BRIOCHE_CACHE_CONNECT_TIMEOUT")
+                        .map(|value| {
+                            let value = value.to_str().ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "invalid value for $BRIOCHE_CACHE_CONNECT_TIMEOUT: {}",
+                                    value.display()
+                                )
+                            })?;
+                            let duration = humantime::parse_duration(value)?;
+                            anyhow::Ok(duration)
+                        })
+                        .transpose()?;
                     Some(config::CacheConfig {
                         url,
                         max_concurrent_operations,
                         use_default_cache,
                         read_only,
                         allow_http,
+                        timeout,
+                        connect_timeout,
                     })
                 }
                 None => config.cache.clone(),
