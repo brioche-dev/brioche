@@ -169,7 +169,7 @@ jobs:
           PLATFORM: ${{ matrix.name }}
           TARGET: ${{ matrix.target }}
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.prepare-artifact.outputs.artifact-name }}
           path: ${{ steps.prepare-artifact.outputs.artifact-path }}
@@ -218,7 +218,7 @@ jobs:
         env:
           PLATFORM: ${{ matrix.name }}
       - name: Upload artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ steps.build.outputs.artifact-name }}
           path: ${{ steps.build.outputs.artifact-path }}
