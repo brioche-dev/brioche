@@ -1,15 +1,15 @@
 {
-    "compilerOptions": {
-        "target": "ESNext",
-        "module": "ESNext",
-        "skipDefaultLibCheck": true,
-        "strict": true,
-        "moduleResolution": "bundler",
-        "noFallthroughCasesInSwitch": true,
-        "noImplicitOverride": true,
-        "noImplicitReturns": true,
-        "noUncheckedIndexedAccess": true,
-        "allowImportingTsExtensions": true,
-        "noEmit": true
-    }
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "skipDefaultLibCheck": true,
+    "strict": true,
+    "moduleResolution": "bundler",
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+  },
 }

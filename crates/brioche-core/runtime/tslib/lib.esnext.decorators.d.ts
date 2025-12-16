@@ -16,29 +16,13 @@ and limitations under the License.
 
 /// <reference no-default-lib="true"/>
 
-declare namespace Intl {
-    interface DateTimeFormatPartTypesRegistry {
-        day: any;
-        dayPeriod: any;
-        era: any;
-        hour: any;
-        literal: any;
-        minute: any;
-        month: any;
-        second: any;
-        timeZoneName: any;
-        weekday: any;
-        year: any;
-    }
+/// <reference lib="es2015.symbol" />
+/// <reference lib="decorators" />
 
-    type DateTimeFormatPartTypes = keyof DateTimeFormatPartTypesRegistry;
+interface SymbolConstructor {
+    readonly metadata: unique symbol;
+}
 
-    interface DateTimeFormatPart {
-        type: DateTimeFormatPartTypes;
-        value: string;
-    }
-
-    interface DateTimeFormat {
-        formatToParts(date?: Date | number): DateTimeFormatPart[];
-    }
+interface Function {
+    [Symbol.metadata]: DecoratorMetadata | null;
 }
