@@ -3,6 +3,7 @@
         "target": "ESNext",
         "module": "ESNext",
         "skipDefaultLibCheck": true,
+        "skipLibCheck": true,
         "strict": true,
         "moduleResolution": "bundler",
         "noFallthroughCasesInSwitch": true,

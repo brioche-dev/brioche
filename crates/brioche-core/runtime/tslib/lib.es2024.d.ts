@@ -16,7 +16,11 @@ and limitations under the License.
 
 /// <reference no-default-lib="true"/>
 
-/// <reference lib="es5" />
-/// <reference lib="dom" />
-/// <reference lib="webworker.importscripts" />
-/// <reference lib="scripthost" />
+/// <reference lib="es2023" />
+/// <reference lib="es2024.arraybuffer" />
+/// <reference lib="es2024.collection" />
+/// <reference lib="es2024.object" />
+/// <reference lib="es2024.promise" />
+/// <reference lib="es2024.regexp" />
+/// <reference lib="es2024.sharedmemory" />
+/// <reference lib="es2024.string" />
