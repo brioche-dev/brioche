@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::project::{ProjectHash, Projects};
 
-/// Formats the specified projects using the provided formatter.
+/// Formats the specified projects.
 ///
 /// This function takes a reference to the `Projects` struct, a list of `ProjectHash` representing the projects to format.
 /// It returns a `Result` containing a vector of `PathBuf` representing the paths of the formatted files,
@@ -15,7 +15,7 @@ pub async fn format(
     format_project(projects, project_hashes, false).await
 }
 
-/// Checks the formatting of the specified projects using the provided formatter.
+/// Checks the formatting of the specified projects.
 ///
 /// This function takes a reference to the `Projects` struct, a list of `ProjectHash` representing the projects to check.
 /// It returns a `Result` containing a vector of `PathBuf` representing the paths of the unformatted files,
@@ -27,18 +27,40 @@ pub async fn check_format(
     format_project(projects, project_hashes, true).await
 }
 
-#[tracing::instrument(skip(projects), err)]
+/// Formats a project.
+///
+/// This function takes a project and formats it.
+/// If `check` is true, it only checks formatting without writing changes.
+/// It returns a `Result` containing a vector of `PathBuf` representing the paths of files
+/// that were formatted (or would be formatted in check mode).
 async fn format_project(
     projects: &Projects,
     project_hashes: &HashSet<ProjectHash>,
     check: bool,
 ) -> anyhow::Result<Vec<PathBuf>> {
-    let mut result = vec![];
-
     let module_paths = projects.project_module_paths_for_projects(project_hashes)?;
-    for path in module_paths {
-        let contents = tokio::fs::read_to_string(&path).await?;
 
+    format_files(module_paths, check).await
+}
+
+/// Formats individual files.
+///
+/// This function takes a slice of file paths and formats each one.
+/// If `check` is true, it only checks formatting without writing changes.
+/// It returns a `Result` containing a vector of `PathBuf` representing the paths of files
+/// that were formatted (or would be formatted in check mode).
+#[tracing::instrument(skip(paths), err)]
+pub async fn format_files(
+    paths: impl IntoIterator<Item = PathBuf>,
+    check: bool,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let paths = paths.into_iter();
+
+    // Pre-allocate capacity for the result vector based on the worst-case scenario
+    let mut result = Vec::with_capacity(paths.size_hint().0);
+
+    for path in paths {
+        let contents = tokio::fs::read_to_string(&path).await?;
         let formatted_contents = format_code(&contents)?;
 
         // Check if the file was formatted
@@ -54,7 +76,7 @@ async fn format_project(
     Ok(result)
 }
 
-/// Formats the code using the specified formatter.
+/// Formats the code.
 ///
 /// This function takes a string slice `contents` as input and formats the code using the `biome_js_formatter` crate.
 /// It returns a `Result` containing the formatted code as a `String`, or an `anyhow::Error` if an error occurs.
