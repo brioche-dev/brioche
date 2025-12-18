@@ -1215,11 +1215,11 @@ pub enum LoadProjectError {
     },
     DependencyError {
         name: String,
-        error: Box<LoadProjectError>,
+        error: Box<Self>,
     },
     WorkspaceMemberError {
         workspace_member_path: RelativePathBuf,
-        error: Box<LoadProjectError>,
+        error: Box<Self>,
     },
     InvalidProjectHash {
         path: PathBuf,

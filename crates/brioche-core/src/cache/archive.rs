@@ -944,13 +944,13 @@ enum ArtifactBuilder {
     File {
         executable: bool,
         content_blob: BlobHash,
-        resources: Box<Option<ArtifactBuilder>>,
+        resources: Box<Option<Self>>,
     },
     Symlink {
         target: bstr::BString,
     },
     Directory {
-        entries: HashMap<bstr::BString, Option<ArtifactBuilder>>,
+        entries: HashMap<bstr::BString, Option<Self>>,
     },
 }
 
