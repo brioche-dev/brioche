@@ -36,7 +36,7 @@ pub enum Recipe {
     File {
         content_blob: BlobHash,
         executable: bool,
-        resources: Box<WithMeta<Recipe>>,
+        resources: Box<WithMeta<Self>>,
     },
     #[serde(rename_all = "camelCase")]
     Directory(Directory),
@@ -56,59 +56,59 @@ pub enum Recipe {
         #[serde_as(as = "TickEncoded")]
         content: BString,
         executable: bool,
-        resources: Box<WithMeta<Recipe>>,
+        resources: Box<WithMeta<Self>>,
     },
     #[serde(rename_all = "camelCase")]
     CreateDirectory(CreateDirectory),
     #[serde(rename_all = "camelCase")]
     Cast {
-        recipe: Box<WithMeta<Recipe>>,
+        recipe: Box<WithMeta<Self>>,
         to: ArtifactDiscriminants,
     },
     #[serde(rename_all = "camelCase")]
     Merge {
-        directories: Vec<WithMeta<Recipe>>,
+        directories: Vec<WithMeta<Self>>,
     },
     #[serde(rename_all = "camelCase")]
     Peel {
-        directory: Box<WithMeta<Recipe>>,
+        directory: Box<WithMeta<Self>>,
         depth: u32,
     },
     #[serde(rename_all = "camelCase")]
     Get {
-        directory: Box<WithMeta<Recipe>>,
+        directory: Box<WithMeta<Self>>,
         #[serde_as(as = "TickEncoded")]
         path: BString,
     },
     #[serde(rename_all = "camelCase")]
     Insert {
-        directory: Box<WithMeta<Recipe>>,
+        directory: Box<WithMeta<Self>>,
         #[serde_as(as = "TickEncoded")]
         path: BString,
-        recipe: Option<Box<WithMeta<Recipe>>>,
+        recipe: Option<Box<WithMeta<Self>>>,
     },
     Glob {
-        directory: Box<WithMeta<Recipe>>,
+        directory: Box<WithMeta<Self>>,
         patterns: BTreeSet<BString>,
     },
     #[serde(rename_all = "camelCase")]
     SetPermissions {
-        file: Box<WithMeta<Recipe>>,
+        file: Box<WithMeta<Self>>,
         executable: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
     CollectReferences {
-        recipe: Box<WithMeta<Recipe>>,
+        recipe: Box<WithMeta<Self>>,
     },
     #[serde(rename_all = "camelCase")]
     AttachResources {
-        recipe: Box<WithMeta<Recipe>>,
+        recipe: Box<WithMeta<Self>>,
     },
     #[serde(rename_all = "camelCase")]
     Proxy(ProxyRecipe),
     #[serde(rename_all = "camelCase")]
     Sync {
-        recipe: Box<WithMeta<Recipe>>,
+        recipe: Box<WithMeta<Self>>,
     },
 }
 
