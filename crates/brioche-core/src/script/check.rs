@@ -185,7 +185,7 @@ pub enum DiagnosticLevel {
 pub struct DiagnosticMessage {
     pub level: DiagnosticLevel,
     text: String,
-    nested: Vec<DiagnosticMessage>,
+    nested: Vec<Self>,
 }
 
 #[derive(Debug)]
