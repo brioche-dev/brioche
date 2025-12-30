@@ -35,7 +35,7 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
 
     let (paths, is_file) = partition_paths(args.paths, args.project)?;
 
-    let mut error_result = Option::None;
+    let mut error_result = None;
     // Heuristic pre-allocation: assuming all the paths won't be re-formatted
     // and one quarter of them are going to be updated
     let mut all_formatted_files = Vec::with_capacity(paths.len() / 4);
