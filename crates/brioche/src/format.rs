@@ -33,7 +33,8 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
         args.display.to_console_reporter_kind(),
     )?;
 
-    let (paths, is_file) = partition_paths(args.paths, args.project)?;
+    let (paths, is_file) =
+        tokio::task::spawn_blocking(|| partition_paths(args.paths, args.project)).await??;
 
     let mut error_result = None;
     let mut all_formatted_files = vec![];
