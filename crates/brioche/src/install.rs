@@ -61,7 +61,7 @@ pub async fn install(
     } else {
         ProjectLocking::Unlocked
     };
-    let mut error_result = Option::None;
+    let mut error_result = None;
 
     // Handle the case where no projects and no registries are specified
     let projects_path =

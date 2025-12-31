@@ -39,7 +39,7 @@ pub async fn publish(
 
     let projects = brioche_core::project::Projects::default();
 
-    let mut error_result = Option::None;
+    let mut error_result = None;
 
     // Loop over the projects
     for project_path in args.project {
