@@ -25,7 +25,7 @@ updates:
       # exists but is effectively an empty crate. For context, see:
       # https://crates.io/crates/bincode/3.0.0
       - dependency-name: bincode
-        update-types: ["version-update:major"]
+        update-types: ["version-update:semver-major"]
     groups:
       cargo:
         patterns:
