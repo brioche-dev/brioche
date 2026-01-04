@@ -141,14 +141,9 @@ pub async fn fetch_git_commit_for_ref(
                 refs
             } else {
                 // Fetch the refs
-                let refs = gix::protocol::ls_refs(
-                    &mut transport,
-                    &outcome.capabilities,
-                    |_, _| Ok(gix::protocol::ls_refs::Action::Continue),
-                    &mut gix::progress::Discard,
-                    false,
-                    ("agent", None),
-                );
+                let refs =
+                    gix::protocol::LsRefsCommand::new(None, &outcome.capabilities, ("agent", None))
+                        .invoke_blocking(&mut transport, &mut gix::progress::Discard, false);
                 match refs {
                     Ok(refs) => refs,
                     Err(error) => {
