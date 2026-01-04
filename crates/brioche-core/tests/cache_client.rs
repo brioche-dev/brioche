@@ -8,6 +8,7 @@ use brioche_core::{
     recipe::{Artifact, Recipe},
 };
 use futures::StreamExt as _;
+use object_store::ObjectStoreExt as _;
 
 #[tokio::test]
 async fn test_cache_client_save_and_load_bake() -> anyhow::Result<()> {

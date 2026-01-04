@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
+use object_store::ObjectStoreExt as _;
 use tokio::io::AsyncWriteExt as _;
 
 use crate::{

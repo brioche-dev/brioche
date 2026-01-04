@@ -84,38 +84,57 @@ impl object_store::ObjectStore for LayeredObjectStore {
         layer.put_multipart_opts(location, opts).await
     }
 
-    async fn delete(&self, _location: &object_store::path::Path) -> object_store::Result<()> {
-        Err(object_store::Error::NotImplemented)
+    fn delete_stream(
+        &self,
+        _locations: futures::stream::BoxStream<
+            'static,
+            object_store::Result<object_store::path::Path>,
+        >,
+    ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::path::Path>> {
+        let implementer = self.to_string();
+        futures::stream::once(async {
+            Err(object_store::Error::NotImplemented {
+                implementer,
+                operation: "delete_stream".to_string(),
+            })
+        })
+        .boxed()
     }
 
     fn list(
         &self,
         _prefix: Option<&object_store::path::Path>,
     ) -> futures::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>> {
-        futures::stream::once(async { Err(object_store::Error::NotImplemented) }).boxed()
+        let implementer = self.to_string();
+        futures::stream::once(async {
+            Err(object_store::Error::NotImplemented {
+                implementer,
+                operation: "list".to_string(),
+            })
+        })
+        .boxed()
     }
 
     async fn list_with_delimiter(
         &self,
         _prefix: Option<&object_store::path::Path>,
     ) -> object_store::Result<object_store::ListResult> {
-        Err(object_store::Error::NotImplemented)
+        Err(object_store::Error::NotImplemented {
+            implementer: self.to_string(),
+            operation: "list_with_delimiter".to_string(),
+        })
     }
 
-    async fn copy(
+    async fn copy_opts(
         &self,
         _from: &object_store::path::Path,
         _to: &object_store::path::Path,
+        _options: object_store::CopyOptions,
     ) -> object_store::Result<()> {
-        Err(object_store::Error::NotImplemented)
-    }
-
-    async fn copy_if_not_exists(
-        &self,
-        _from: &object_store::path::Path,
-        _to: &object_store::path::Path,
-    ) -> object_store::Result<()> {
-        Err(object_store::Error::NotImplemented)
+        Err(object_store::Error::NotImplemented {
+            implementer: self.to_string(),
+            operation: "copy_opts".to_string(),
+        })
     }
 }
 
@@ -146,7 +165,7 @@ pub async fn put_opts_with_retry(
                 | object_store::Error::AlreadyExists { .. }
                 | object_store::Error::Precondition { .. }
                 | object_store::Error::NotModified { .. }
-                | object_store::Error::NotImplemented
+                | object_store::Error::NotImplemented { .. }
                 | object_store::Error::PermissionDenied { .. }
                 | object_store::Error::Unauthenticated { .. }
                 | object_store::Error::UnknownConfigurationKey { .. }),

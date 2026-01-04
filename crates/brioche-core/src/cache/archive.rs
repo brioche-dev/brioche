@@ -17,6 +17,7 @@ use std::{
 
 use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
+use object_store::ObjectStoreExt as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::{
