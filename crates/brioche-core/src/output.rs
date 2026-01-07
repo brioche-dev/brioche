@@ -181,10 +181,17 @@ async fn create_output_inner<'a: 'async_recursion>(
         }
         Artifact::Symlink { target } => {
             let target = target.to_path()?;
+
+            // If symlink already exists and points to the same target, skip
+            if let Ok(existing_target) = tokio::fs::read_link(options.output_path).await
+                && existing_target == target
+            {
+                return Ok(());
+            }
+
             if options.merge {
                 // Try to remove the file if it already exists so we can
-                // replace it. In practice, we should end up replacing it
-                // with an identical symlink even if it does exist
+                // replace it with the correct symlink target
                 if tokio::fs::remove_file(options.output_path).await.is_ok() {
                     tracing::debug!(target = %target.display(), "removed conflicting file to create symlink");
                 }
