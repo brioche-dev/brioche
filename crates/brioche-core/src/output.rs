@@ -80,16 +80,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                 );
 
                 if options.link_locals && !*executable {
-                    crate::fs_utils::try_remove(options.output_path).await?;
-                    tokio::fs::hard_link(&blob_path, options.output_path)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "failed to create hardlink from {} to {}",
-                                blob_path.display(),
-                                options.output_path.display()
-                            )
-                        })?;
+                    try_hard_link(&blob_path, options.output_path).await?;
                 } else {
                     tokio::fs::copy(&blob_path, options.output_path)
                         .await
@@ -170,16 +161,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                     let local_path =
                         create_local_output_inner(brioche, &artifact_without_resources, link_lock)
                             .await?;
-                    crate::fs_utils::try_remove(options.output_path).await?;
-                    tokio::fs::hard_link(&local_path.path, options.output_path)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "failed to create hardlink from {} to {}",
-                                local_path.path.display(),
-                                options.output_path.display()
-                            )
-                        })?;
+                    try_hard_link(&local_path.path, options.output_path).await?;
                 } else {
                     create_output_inner(
                         brioche,
@@ -265,10 +247,7 @@ async fn create_output_inner<'a: 'async_recursion>(
 
                         let local_output =
                             create_local_output_inner(brioche, &entry, link_lock).await?;
-                        crate::fs_utils::try_remove(&entry_path).await?;
-                        tokio::fs::hard_link(&local_output.path, &entry_path)
-                            .await
-                            .context("failed to create hardlink into Brioche `locals` directory")?;
+                        try_hard_link(&local_output.path, &entry_path).await?;
                     }
                     _ => {
                         create_output_inner(
@@ -503,4 +482,15 @@ cfg_if::cfg_if! {
             Ok(())
         }
     }
+}
+
+/// Creates a hard link at `dst` pointing to `src`, removing any existing file first.
+async fn try_hard_link(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    crate::fs_utils::try_remove(dst).await?;
+    tokio::fs::hard_link(src, dst).await.context(format!(
+        "failed to create hardlink from {} to {}",
+        src.display(),
+        dst.display()
+    ))?;
+    Ok(())
 }
