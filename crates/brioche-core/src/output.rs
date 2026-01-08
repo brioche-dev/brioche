@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
@@ -5,7 +6,7 @@ use bstr::ByteSlice as _;
 
 use super::{
     Brioche,
-    recipe::{Artifact, Directory, File},
+    recipe::{Artifact, Directory, File, RecipeHash},
 };
 
 struct LocalOutputLock(());
@@ -45,7 +46,15 @@ pub async fn create_output(
     if options.link_locals {
         ensure_locals_dir_exists(brioche).await?;
     }
-    create_output_inner(brioche, artifact, options, lock.as_ref()).await?;
+    let mut processed_artifacts = HashSet::new();
+    create_output_inner(
+        brioche,
+        artifact,
+        options,
+        lock.as_ref(),
+        &mut processed_artifacts,
+    )
+    .await?;
 
     tracing::debug!(output_path = %options.output_path.display(), "finished creating output");
 
@@ -59,6 +68,7 @@ async fn create_output_inner<'a: 'async_recursion>(
     artifact: &Artifact,
     options: OutputOptions<'a>,
     link_lock: Option<&'a tokio::sync::MutexGuard<'a, LocalOutputLock>>,
+    processed_artifacts: &mut HashSet<(RecipeHash, PathBuf)>,
 ) -> anyhow::Result<()> {
     let link_lock = match (options.link_locals, link_lock) {
         (false, _) => None,
@@ -69,6 +79,12 @@ async fn create_output_inner<'a: 'async_recursion>(
             );
         }
     };
+
+    // Check if this exact artifact has been processed at this location
+    let cache_key = (artifact.hash(), options.output_path.to_path_buf());
+    if processed_artifacts.contains(&cache_key) {
+        return Ok(());
+    }
 
     match artifact {
         Artifact::File(File {
@@ -154,6 +170,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                         link_locals: options.link_locals,
                     },
                     link_lock,
+                    processed_artifacts,
                 )
                 .await?;
 
@@ -180,6 +197,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                             link_locals: options.link_locals,
                         },
                         link_lock,
+                        processed_artifacts,
                     )
                     .await?;
                 }
@@ -251,6 +269,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                                     link_locals: options.link_locals,
                                 },
                                 Some(link_lock),
+                                processed_artifacts,
                             )
                             .await?;
                         }
@@ -274,6 +293,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                                 link_locals: options.link_locals,
                             },
                             link_lock,
+                            processed_artifacts,
                         )
                         .await?;
                     }
@@ -288,6 +308,7 @@ async fn create_output_inner<'a: 'async_recursion>(
         }
     }
 
+    processed_artifacts.insert(cache_key);
     Ok(())
 }
 
@@ -326,6 +347,7 @@ async fn create_local_output_inner(
         let local_temp_path = local_temp_dir.join(temp_id.to_string());
         let local_temp_resource_dir = local_temp_dir.join(format!("{temp_id}-resources.d"));
 
+        let mut processed_artifacts = HashSet::new();
         create_output_inner(
             brioche,
             artifact,
@@ -337,6 +359,7 @@ async fn create_local_output_inner(
                 link_locals: true,
             },
             Some(lock),
+            &mut processed_artifacts,
         )
         .await?;
 
