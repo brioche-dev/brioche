@@ -13,6 +13,9 @@ struct LocalOutputLock(());
 static LOCAL_OUTPUT_MUTEX: tokio::sync::Mutex<LocalOutputLock> =
     tokio::sync::Mutex::const_new(LocalOutputLock(()));
 
+const LOCALS_DIR_NAME: &str = "locals";
+const LOCALS_TEMP_DIR_NAME: &str = "locals-temp";
+
 #[derive(Debug, Clone, Copy)]
 pub struct OutputOptions<'a> {
     pub output_path: &'a Path,
@@ -39,6 +42,9 @@ pub async fn create_output(
     tracing::debug!(output_path = %options.output_path.display(), "creating output");
 
     // Create the output
+    if options.link_locals {
+        ensure_locals_dir_exists(brioche).await?;
+    }
     create_output_inner(brioche, artifact, options, lock.as_ref()).await?;
 
     tracing::debug!(output_path = %options.output_path.display(), "finished creating output");
@@ -295,6 +301,7 @@ pub async fn create_local_output(
     let lock = LOCAL_OUTPUT_MUTEX.lock().await;
 
     // Create the output
+    ensure_locals_dir_exists(brioche).await?;
     let result = create_local_output_inner(brioche, artifact, &lock).await?;
 
     Ok(result)
@@ -305,16 +312,16 @@ async fn create_local_output_inner(
     artifact: &Artifact,
     lock: &tokio::sync::MutexGuard<'_, LocalOutputLock>,
 ) -> anyhow::Result<LocalOutput> {
-    let local_dir = brioche.data_dir.join("locals");
-    tokio::fs::create_dir_all(&local_dir).await?;
+    let local_dir = brioche.data_dir.join(LOCALS_DIR_NAME);
 
     let artifact_hash = artifact.hash();
     let local_path = local_dir.join(artifact_hash.to_string());
     let local_resource_dir = local_dir.join(format!("{artifact_hash}-resources.d"));
 
     if !try_exists_and_ensure_local_meta(&local_path).await? {
-        let local_temp_dir = brioche.data_dir.join("locals-temp");
+        let local_temp_dir = brioche.data_dir.join(LOCALS_TEMP_DIR_NAME);
         tokio::fs::create_dir_all(&local_temp_dir).await?;
+
         let temp_id = ulid::Ulid::new();
         let local_temp_path = local_temp_dir.join(temp_id.to_string());
         let local_temp_resource_dir = local_temp_dir.join(format!("{temp_id}-resources.d"));
@@ -489,6 +496,16 @@ cfg_if::cfg_if! {
             Ok(())
         }
     }
+}
+
+/// Ensures the locals directory exists.
+///
+/// Should be called once at entry points before recursive processing.
+async fn ensure_locals_dir_exists(brioche: &Brioche) -> anyhow::Result<()> {
+    let local_dir = brioche.data_dir.join(LOCALS_DIR_NAME);
+    tokio::fs::create_dir_all(&local_dir).await?;
+
+    Ok(())
 }
 
 /// Creates a hard link at `dst` pointing to `src`, removing any existing file first.
