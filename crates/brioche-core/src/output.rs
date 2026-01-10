@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context as _;
@@ -5,13 +6,16 @@ use bstr::ByteSlice as _;
 
 use super::{
     Brioche,
-    recipe::{Artifact, Directory, File},
+    recipe::{Artifact, Directory, File, RecipeHash},
 };
 
 struct LocalOutputLock(());
 
 static LOCAL_OUTPUT_MUTEX: tokio::sync::Mutex<LocalOutputLock> =
     tokio::sync::Mutex::const_new(LocalOutputLock(()));
+
+const LOCALS_DIR_NAME: &str = "locals";
+const LOCALS_TEMP_DIR_NAME: &str = "locals-temp";
 
 #[derive(Debug, Clone, Copy)]
 pub struct OutputOptions<'a> {
@@ -39,7 +43,18 @@ pub async fn create_output(
     tracing::debug!(output_path = %options.output_path.display(), "creating output");
 
     // Create the output
-    create_output_inner(brioche, artifact, options, lock.as_ref()).await?;
+    if options.link_locals {
+        ensure_locals_dir_exists(brioche).await?;
+    }
+    let mut processed_artifacts = HashSet::new();
+    create_output_inner(
+        brioche,
+        artifact,
+        options,
+        lock.as_ref(),
+        &mut processed_artifacts,
+    )
+    .await?;
 
     tracing::debug!(output_path = %options.output_path.display(), "finished creating output");
 
@@ -53,6 +68,7 @@ async fn create_output_inner<'a: 'async_recursion>(
     artifact: &Artifact,
     options: OutputOptions<'a>,
     link_lock: Option<&'a tokio::sync::MutexGuard<'a, LocalOutputLock>>,
+    processed_artifacts: &mut HashSet<(RecipeHash, PathBuf)>,
 ) -> anyhow::Result<()> {
     let link_lock = match (options.link_locals, link_lock) {
         (false, _) => None,
@@ -63,6 +79,12 @@ async fn create_output_inner<'a: 'async_recursion>(
             );
         }
     };
+
+    // Check if this exact artifact has been processed at this location
+    let cache_key = (artifact.hash(), options.output_path.to_path_buf());
+    if processed_artifacts.contains(&cache_key) {
+        return Ok(());
+    }
 
     match artifact {
         Artifact::File(File {
@@ -80,16 +102,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                 );
 
                 if options.link_locals && !*executable {
-                    crate::fs_utils::try_remove(options.output_path).await?;
-                    tokio::fs::hard_link(&blob_path, options.output_path)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "failed to create hardlink from {} to {}",
-                                blob_path.display(),
-                                options.output_path.display()
-                            )
-                        })?;
+                    try_hard_link(&blob_path, options.output_path).await?;
                 } else {
                     tokio::fs::copy(&blob_path, options.output_path)
                         .await
@@ -157,6 +170,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                         link_locals: options.link_locals,
                     },
                     link_lock,
+                    processed_artifacts,
                 )
                 .await?;
 
@@ -170,16 +184,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                     let local_path =
                         create_local_output_inner(brioche, &artifact_without_resources, link_lock)
                             .await?;
-                    crate::fs_utils::try_remove(options.output_path).await?;
-                    tokio::fs::hard_link(&local_path.path, options.output_path)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "failed to create hardlink from {} to {}",
-                                local_path.path.display(),
-                                options.output_path.display()
-                            )
-                        })?;
+                    try_hard_link(&local_path.path, options.output_path).await?;
                 } else {
                     create_output_inner(
                         brioche,
@@ -192,6 +197,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                             link_locals: options.link_locals,
                         },
                         link_lock,
+                        processed_artifacts,
                     )
                     .await?;
                 }
@@ -199,10 +205,17 @@ async fn create_output_inner<'a: 'async_recursion>(
         }
         Artifact::Symlink { target } => {
             let target = target.to_path()?;
+
+            // If symlink already exists and points to the same target, skip
+            if let Ok(existing_target) = tokio::fs::read_link(options.output_path).await
+                && existing_target == target
+            {
+                return Ok(());
+            }
+
             if options.merge {
                 // Try to remove the file if it already exists so we can
-                // replace it. In practice, we should end up replacing it
-                // with an identical symlink even if it does exist
+                // replace it with the correct symlink target
                 if tokio::fs::remove_file(options.output_path).await.is_ok() {
                     tracing::debug!(target = %target.display(), "removed conflicting file to create symlink");
                 }
@@ -256,6 +269,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                                     link_locals: options.link_locals,
                                 },
                                 Some(link_lock),
+                                processed_artifacts,
                             )
                             .await?;
                         }
@@ -265,10 +279,7 @@ async fn create_output_inner<'a: 'async_recursion>(
 
                         let local_output =
                             create_local_output_inner(brioche, &entry, link_lock).await?;
-                        crate::fs_utils::try_remove(&entry_path).await?;
-                        tokio::fs::hard_link(&local_output.path, &entry_path)
-                            .await
-                            .context("failed to create hardlink into Brioche `locals` directory")?;
+                        try_hard_link(&local_output.path, &entry_path).await?;
                     }
                     _ => {
                         create_output_inner(
@@ -282,6 +293,7 @@ async fn create_output_inner<'a: 'async_recursion>(
                                 link_locals: options.link_locals,
                             },
                             link_lock,
+                            processed_artifacts,
                         )
                         .await?;
                     }
@@ -296,6 +308,7 @@ async fn create_output_inner<'a: 'async_recursion>(
         }
     }
 
+    processed_artifacts.insert(cache_key);
     Ok(())
 }
 
@@ -309,6 +322,7 @@ pub async fn create_local_output(
     let lock = LOCAL_OUTPUT_MUTEX.lock().await;
 
     // Create the output
+    ensure_locals_dir_exists(brioche).await?;
     let result = create_local_output_inner(brioche, artifact, &lock).await?;
 
     Ok(result)
@@ -319,20 +333,21 @@ async fn create_local_output_inner(
     artifact: &Artifact,
     lock: &tokio::sync::MutexGuard<'_, LocalOutputLock>,
 ) -> anyhow::Result<LocalOutput> {
-    let local_dir = brioche.data_dir.join("locals");
-    tokio::fs::create_dir_all(&local_dir).await?;
+    let local_dir = brioche.data_dir.join(LOCALS_DIR_NAME);
 
     let artifact_hash = artifact.hash();
     let local_path = local_dir.join(artifact_hash.to_string());
     let local_resource_dir = local_dir.join(format!("{artifact_hash}-resources.d"));
 
     if !try_exists_and_ensure_local_meta(&local_path).await? {
-        let local_temp_dir = brioche.data_dir.join("locals-temp");
+        let local_temp_dir = brioche.data_dir.join(LOCALS_TEMP_DIR_NAME);
         tokio::fs::create_dir_all(&local_temp_dir).await?;
+
         let temp_id = ulid::Ulid::new();
         let local_temp_path = local_temp_dir.join(temp_id.to_string());
         let local_temp_resource_dir = local_temp_dir.join(format!("{temp_id}-resources.d"));
 
+        let mut processed_artifacts = HashSet::new();
         create_output_inner(
             brioche,
             artifact,
@@ -344,6 +359,7 @@ async fn create_local_output_inner(
                 link_locals: true,
             },
             Some(lock),
+            &mut processed_artifacts,
         )
         .await?;
 
@@ -503,4 +519,25 @@ cfg_if::cfg_if! {
             Ok(())
         }
     }
+}
+
+/// Ensures the locals directory exists.
+///
+/// Should be called once at entry points before recursive processing.
+async fn ensure_locals_dir_exists(brioche: &Brioche) -> anyhow::Result<()> {
+    let local_dir = brioche.data_dir.join(LOCALS_DIR_NAME);
+    tokio::fs::create_dir_all(&local_dir).await?;
+
+    Ok(())
+}
+
+/// Creates a hard link at `dst` pointing to `src`, removing any existing file first.
+async fn try_hard_link(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    crate::fs_utils::try_remove(dst).await?;
+    tokio::fs::hard_link(src, dst).await.context(format!(
+        "failed to create hardlink from {} to {}",
+        src.display(),
+        dst.display()
+    ))?;
+    Ok(())
 }
