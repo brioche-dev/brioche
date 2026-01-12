@@ -238,7 +238,7 @@ deno_core::extension!(brioche_rt,
     },
 );
 
-#[deno_core::op2(async)]
+#[deno_core::op2]
 #[serde]
 pub async fn op_brioche_bake_all(
     state: Rc<RefCell<OpState>>,
@@ -265,7 +265,7 @@ pub async fn op_brioche_bake_all(
     Ok(results)
 }
 
-#[deno_core::op2(async)]
+#[deno_core::op2]
 #[serde]
 pub async fn op_brioche_create_proxy(
     state: Rc<RefCell<OpState>>,
@@ -284,7 +284,7 @@ pub async fn op_brioche_create_proxy(
 }
 
 // TODO: Return a Uint8Array instead of tick-encoding
-#[deno_core::op2(async)]
+#[deno_core::op2]
 #[serde]
 pub async fn op_brioche_read_blob(
     state: Rc<RefCell<OpState>>,
@@ -302,7 +302,7 @@ pub async fn op_brioche_read_blob(
     Ok(crate::encoding::TickEncode(bytes))
 }
 
-#[deno_core::op2(async)]
+#[deno_core::op2]
 #[serde]
 pub async fn op_brioche_get_static(
     state: Rc<RefCell<OpState>>,

@@ -11,7 +11,7 @@ self-update = []
 
 [dependencies]
 anyhow = { version = "1.0.100", features = ["backtrace"] }
-async-compression = { version = "0.4.36", features = [
+async-compression = { version = "0.4.37", features = [
     "xz",
 ] }
 brioche-core = { path = "../brioche-core" }
@@ -24,14 +24,14 @@ hex = "0.4.3"
 notify = "8.2.0"
 object_store = "0.13.0"
 openssl = { version = "0.10.75", optional = true }
-reqwest = { version = "0.12.25", default-features = false, features = [
-    "rustls-tls",
+reqwest = { version = "0.13.1", default-features = false, features = [
+    "rustls",
     "zstd",
     "json",
 ] }
 semver = { version = "1.0.27", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.148"
+serde_json = "1.0.149"
 sha2 = "0.10.9"
 ssh-key = { version = "0.7.0-rc.4", default-features = false, features = ["std", "ed25519"] }
 superconsole = "0.2.0"
@@ -41,7 +41,7 @@ tokio-util = "0.7.18"
 tower-lsp = "0.20.0"
 tracing = "0.1.44"
 ulid = "1.2.1"
-url = { version = "2.5.7", features = ["serde"] }
+url = { version = "2.5.8", features = ["serde"] }
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
 [lints]
