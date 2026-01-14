@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context as _;
 use joinery::JoinableIterator as _;
-use sqlx::{Acquire as _, Arguments as _};
+use sqlx::Arguments as _;
 
 use crate::{
     Brioche,
@@ -326,8 +326,7 @@ pub async fn descendent_project_bakes(
     project_hash: ProjectHash,
     export: &str,
 ) -> anyhow::Result<Vec<(Recipe, Artifact)>> {
-    let mut db_conn = brioche.db_conn.lock().await;
-    let mut db_transaction = db_conn.begin().await?;
+    let mut db_transaction = brioche.db_pool.begin().await?;
 
     // Find all recipes baked by the project (either directly in the
     // `project_resolves` table or indirectly in the `child_resolves` table),
@@ -416,8 +415,7 @@ pub async fn local_recipes(
 ) -> anyhow::Result<HashSet<RecipeHash>> {
     let recipes = recipes.into_iter().collect::<Vec<_>>();
 
-    let mut db_conn = brioche.db_conn.lock().await;
-    let mut db_transaction = db_conn.begin().await?;
+    let mut db_transaction = brioche.db_pool.begin().await?;
 
     // Fetch recipes in batches to avoid hitting the maximum number of
     // SQLite variables per query
