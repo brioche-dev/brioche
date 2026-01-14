@@ -6,8 +6,7 @@ use registry::RegistryClient;
 use reporter::Reporter;
 use sandbox::SandboxBackend;
 use sha2::Digest as _;
-use sqlx::Connection as _;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tracing::Instrument as _;
 
 pub mod bake;
@@ -37,6 +36,8 @@ pub mod vfs;
 
 const MAX_CONCURRENT_PROCESSES: usize = 20;
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;
+const DB_POOL_MIN_CONNECTIONS: u32 = 1;
+const DB_POOL_MAX_CONNECTIONS: u32 = 10;
 
 const DEFAULT_REGISTRY_URL: &str = "https://registry.brioche.dev/";
 pub const USER_AGENT: &str = concat!("brioche/", env!("CARGO_PKG_VERSION"));
@@ -48,7 +49,7 @@ pub struct Brioche {
 
     pub vfs: vfs::Vfs,
 
-    db_conn: Arc<Mutex<sqlx::SqliteConnection>>,
+    db_pool: sqlx::Pool<sqlx::Sqlite>,
 
     /// The directory where all of Brioche's data is stored. Usually configured
     /// to follow the platform's conventions for storing application data, such
@@ -212,19 +213,23 @@ impl BriocheBuilder {
 
         let database_path = data_dir.join("brioche.db");
 
-        let db_conn_options = sqlx::sqlite::SqliteConnectOptions::new()
+        let db_pool_options = sqlx::sqlite::SqliteConnectOptions::new()
             .filename(&database_path)
             .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .auto_vacuum(sqlx::sqlite::SqliteAutoVacuum::Full);
-        let mut db_conn = sqlx::sqlite::SqliteConnection::connect_with(&db_conn_options).await?;
+        let db_pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .min_connections(DB_POOL_MIN_CONNECTIONS)
+            .max_connections(DB_POOL_MAX_CONNECTIONS)
+            .connect_with(db_pool_options)
+            .await?;
 
         tracing::debug!(
             database_path = %database_path.display(),
             "connected to database"
         );
 
-        sqlx::migrate!().run(&mut db_conn).await?;
+        Self::sqlx_run_migrations(&db_pool).await?;
 
         tracing::debug!("finished running database migrations");
 
@@ -414,7 +419,7 @@ impl BriocheBuilder {
         Ok(Brioche {
             reporter: self.reporter,
             vfs: self.vfs,
-            db_conn: Arc::new(Mutex::new(db_conn)),
+            db_pool,
             data_dir,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
@@ -431,6 +436,17 @@ impl BriocheBuilder {
             cancellation_token,
             task_tracker,
         })
+    }
+
+    async fn sqlx_run_migrations(db_pool: &sqlx::Pool<sqlx::Sqlite>) -> anyhow::Result<()> {
+        sqlx::migrate!().run(db_pool).await?;
+
+        // WAL checkpoint to ensure migrations are fully committed
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .execute(db_pool)
+            .await?;
+
+        Ok(())
     }
 }
 
