@@ -774,8 +774,9 @@ async fn fetch_blobs_from_chunks(
             let chunk_stream_compressed = chunk_object.into_stream();
             let chunk_reader_compressed =
                 tokio_util::io::StreamReader::new(chunk_stream_compressed);
+            let chunk_reader_buffered = tokio::io::BufReader::new(chunk_reader_compressed);
             let mut chunk_reader =
-                async_compression::tokio::bufread::ZstdDecoder::new(chunk_reader_compressed);
+                async_compression::tokio::bufread::ZstdDecoder::new(chunk_reader_buffered);
 
             let mut artifact_offset = chunk.artifact_range.start;
             for (blob_hash, range) in blobs {
@@ -832,8 +833,10 @@ async fn fetch_blobs_from_chunks(
                         let chunk_stream_compressed = chunk_object.into_stream();
                         let chunk_reader_compressed =
                             tokio_util::io::StreamReader::new(chunk_stream_compressed);
+                        let chunk_reader_buffered =
+                            tokio::io::BufReader::new(chunk_reader_compressed);
                         let mut chunk_reader = async_compression::tokio::bufread::ZstdDecoder::new(
-                            chunk_reader_compressed,
+                            chunk_reader_buffered,
                         );
 
                         // Advance the reader to the part of the chunk
