@@ -43,7 +43,7 @@ pub async fn sync_bakes(
     bakes: Vec<(crate::recipe::Recipe, crate::recipe::Artifact)>,
     verbose: bool,
 ) -> anyhow::Result<SyncBakesResults> {
-    if !brioche.cache_client.writable {
+    if !brioche.cache_client.writable && !brioche.dry_run {
         anyhow::bail!("cannot sync: cache is read-only");
     }
 
