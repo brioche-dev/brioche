@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::Context as _;
 use object_store::ObjectStoreExt as _;
@@ -15,6 +16,12 @@ mod archive;
 
 pub const DEFAULT_CACHE_URL: &str = "https://cache.brioche.dev/";
 pub const DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS: usize = 200;
+
+static SKIP_CACHE_ARTIFACTS: LazyLock<HashSet<String>> = LazyLock::new(|| {
+    std::env::var("BRIOCHE_SKIP_CACHE_ARTIFACTS")
+        .map(|s| s.split(',').map(|h| h.trim().to_string()).collect())
+        .unwrap_or_default()
+});
 
 #[derive(Debug, Default, Clone)]
 pub struct CacheClient {
@@ -260,6 +267,12 @@ pub async fn load_artifact(
     artifact_hash: RecipeHash,
     fetch_kind: CacheFetchKind,
 ) -> anyhow::Result<Option<Artifact>> {
+    // Check if this artifact should be skipped
+    if SKIP_CACHE_ARTIFACTS.contains(&artifact_hash.to_string()) {
+        tracing::debug!(%artifact_hash, "skipping artifact due to BRIOCHE_SKIP_CACHE_ARTIFACTS");
+        return Ok(None);
+    }
+
     let Some(store) = brioche.cache_client.store.clone() else {
         return Ok(None);
     };
