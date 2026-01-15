@@ -223,6 +223,11 @@ pub async fn save_bake(
     input_hash: RecipeHash,
     output_hash: RecipeHash,
 ) -> anyhow::Result<bool> {
+    if brioche.dry_run {
+        tracing::debug!(%input_hash, %output_hash, "dry-run: skipping save_bake");
+        return Ok(true);
+    }
+
     let store = brioche.cache_client.writable_store()?;
 
     let bake_output_path =
@@ -295,7 +300,17 @@ pub async fn load_artifact(
 
 #[tracing::instrument(skip_all, fields(artifact_hash = %artifact.hash()))]
 pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Result<bool> {
-    let store = brioche.cache_client.writable_store()?;
+    let dry_run = brioche.dry_run;
+
+    // In dry run mode, use a dummy memory store if no writable cache is configured
+    let store = if dry_run {
+        brioche
+            .cache_client
+            .try_writable_store()
+            .unwrap_or_else(|| std::sync::Arc::new(object_store::memory::InMemory::new()))
+    } else {
+        brioche.cache_client.writable_store()?
+    };
 
     let artifact_filename = format!("{}.bar.zst", artifact.hash());
     let artifact_path = object_store::path::Path::from_iter(["artifacts", &artifact_filename]);
@@ -304,17 +319,19 @@ pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Res
     // can return early. Note that another process or machine may still
     // end up writing the artifact before we do, but this check helps us
     // avoid doing extra work.
-    let existing_object = store.head(&artifact_path).await;
-    match existing_object {
-        Ok(_) => {
-            // The artifact already exists in the cache
-            return Ok(false);
-        }
-        Err(object_store::Error::NotFound { .. }) => {
-            // The artifact doesn't exist, so we can create it
-        }
-        Err(error) => {
-            return Err(error.into());
+    if !dry_run {
+        let existing_object = store.head(&artifact_path).await;
+        match existing_object {
+            Ok(_) => {
+                // The artifact already exists in the cache
+                return Ok(false);
+            }
+            Err(object_store::Error::NotFound { .. }) => {
+                // The artifact doesn't exist, so we can create it
+            }
+            Err(error) => {
+                return Err(error.into());
+            }
         }
     }
 
@@ -323,6 +340,11 @@ pub async fn save_artifact(brioche: &Brioche, artifact: Artifact) -> anyhow::Res
         async_compression::tokio::write::ZstdEncoder::new(&mut archive_compressed);
     archive::write_artifact_archive(brioche, artifact, &store, &mut archive_writer).await?;
     archive_writer.shutdown().await?;
+
+    if dry_run {
+        tracing::warn!(%artifact_path, archive_size = archive_compressed.len(), "dry run: skipping upload");
+        return Ok(true);
+    }
 
     let put_result = crate::object_store_utils::put_opts_with_retry(
         &store,
@@ -383,6 +405,11 @@ pub async fn save_project_artifact_hash(
     project_hash: ProjectHash,
     artifact_hash: RecipeHash,
 ) -> anyhow::Result<bool> {
+    if brioche.dry_run {
+        tracing::debug!(%project_hash, %artifact_hash, "dry-run: skipping save_project_artifact_hash");
+        return Ok(true);
+    }
+
     let store = brioche.cache_client.writable_store()?;
 
     let project_source_path =

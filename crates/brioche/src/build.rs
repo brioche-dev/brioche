@@ -43,6 +43,10 @@ pub struct BuildArgs {
     #[arg(long)]
     sync: bool,
 
+    /// Dry-run sync: create archives locally but don't upload to cache
+    #[arg(long, requires = "sync")]
+    dry_run: bool,
+
     /// (Experimental!) If the build result is found in the remote cache, exit
     /// early without fetching the build result. Conflicts with `--output`
     #[arg(long)]
@@ -65,6 +69,7 @@ pub async fn build(
     let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
         .keep_temps(args.keep_temps)
         .sync(args.sync)
+        .sync_dry_run(args.dry_run)
         .build()
         .await?;
     crate::start_shutdown_handler(brioche.clone());

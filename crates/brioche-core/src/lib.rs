@@ -66,6 +66,10 @@ pub struct Brioche {
     /// manually investigated.
     pub keep_temps: bool,
 
+    /// When enabled, write operations will be simulated. Useful for testing
+    /// and validation.
+    pub dry_run: bool,
+
     /// Synchronize baked recipes to the registry automatically.
     pub sync_tx: Arc<tokio::sync::mpsc::Sender<SyncMessage>>,
 
@@ -119,6 +123,7 @@ pub struct BriocheBuilder {
     self_exec_processes: bool,
     keep_temps: bool,
     sync: bool,
+    sync_dry_run: bool,
 }
 
 impl BriocheBuilder {
@@ -135,6 +140,7 @@ impl BriocheBuilder {
             self_exec_processes: true,
             keep_temps: false,
             sync: false,
+            sync_dry_run: false,
         }
     }
 
@@ -189,6 +195,12 @@ impl BriocheBuilder {
     #[must_use]
     pub const fn sync(mut self, sync: bool) -> Self {
         self.sync = sync;
+        self
+    }
+
+    #[must_use]
+    pub const fn sync_dry_run(mut self, sync_dry_run: bool) -> Self {
+        self.sync_dry_run = sync_dry_run;
         self
     }
 
@@ -399,6 +411,7 @@ impl BriocheBuilder {
             data_dir,
             self_exec_processes: self.self_exec_processes,
             keep_temps: self.keep_temps,
+            dry_run: self.sync_dry_run,
             sync_tx: Arc::new(sync_tx),
             cached_recipes: Arc::new(RwLock::new(bake::CachedRecipes::default())),
             active_bakes: Arc::new(RwLock::new(bake::ActiveBakes::default())),
