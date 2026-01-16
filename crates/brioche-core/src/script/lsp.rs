@@ -641,7 +641,22 @@ fn lsp_uri_to_module_specifier(uri: &url::Url) -> anyhow::Result<BriocheModuleSp
     Ok(specifier)
 }
 
-const TIMEOUT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
+static TIMEOUT_DURATION: std::sync::LazyLock<std::time::Duration> =
+    std::sync::LazyLock::new(|| {
+        // Use a longer default timeout for debug builds since they're much slower
+        // than release builds.
+        // Environment variable still takes precedence over default.
+        let default_timeout = if cfg!(debug_assertions) {
+            std::time::Duration::from_secs(60)
+        } else {
+            std::time::Duration::from_secs(10)
+        };
+
+        std::env::var("BRIOCHE_LSP_TIMEOUT")
+            .ok()
+            .and_then(|value| humantime::parse_duration(&value).ok())
+            .unwrap_or(default_timeout)
+    });
 
 struct JsLspTask {
     tx: tokio::sync::mpsc::Sender<(
@@ -660,7 +675,7 @@ impl JsLspTask {
         self.tx.send((message, response_tx)).await?;
 
         // Await the response with a timeout
-        let response = tokio::time::timeout(TIMEOUT_DURATION, response_rx)
+        let response = tokio::time::timeout(*TIMEOUT_DURATION, response_rx)
             .await
             .map_err(|_| anyhow::anyhow!("timeout waiting for response from JS LSP"))??;
 
