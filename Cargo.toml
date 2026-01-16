@@ -34,21 +34,5 @@ unused_trait_names = "warn"
 [profile.dev]
 debug = "limited"
 
-# Optimize some dependencies in dev mode to speed up tests
-[profile.dev.package.swc_ecma_ast]
-opt-level = 2
-[profile.dev.package.swc_ecma_visit]
-opt-level = 2
-[profile.dev.package.swc_ecma_transforms_base]
-opt-level = 2
-[profile.dev.package.swc_ecma_lexer]
-opt-level = 2
-[profile.dev.package.swc_ecma_parser]
-opt-level = 2
-[profile.dev.package.swc_ecma_codegen]
-opt-level = 2
-[profile.dev.package.swc_common]
-opt-level = 2
-
 [profile.release]
 strip = "debuginfo"
