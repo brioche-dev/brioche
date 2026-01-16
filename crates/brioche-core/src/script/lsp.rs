@@ -33,6 +33,9 @@ use super::specifier::BriocheModuleSpecifier;
 /// lockfile in the Language Server
 const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
+/// The default timeout for Language Server operations
+const LSP_DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub type BuildBriocheFn = dyn Fn() -> futures::future::BoxFuture<'static, anyhow::Result<BriocheBuilder>>
     + Send
     + Sync
@@ -641,7 +644,13 @@ fn lsp_uri_to_module_specifier(uri: &url::Url) -> anyhow::Result<BriocheModuleSp
     Ok(specifier)
 }
 
-const TIMEOUT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
+static TIMEOUT_DURATION: std::sync::LazyLock<std::time::Duration> =
+    std::sync::LazyLock::new(|| {
+        std::env::var("BRIOCHE_LSP_TIMEOUT")
+            .ok()
+            .and_then(|value| humantime::parse_duration(&value).ok())
+            .unwrap_or(LSP_DEFAULT_TIMEOUT)
+    });
 
 struct JsLspTask {
     tx: tokio::sync::mpsc::Sender<(
@@ -682,7 +691,7 @@ impl JsLspTask {
         self.tx.send((message, response_tx)).await?;
 
         // Await the response with a timeout
-        let response = tokio::time::timeout(TIMEOUT_DURATION, response_rx)
+        let response = tokio::time::timeout(*TIMEOUT_DURATION, response_rx)
             .await
             .map_err(|_| anyhow::anyhow!("timeout waiting for response from JS LSP"))??;
 
