@@ -236,7 +236,11 @@ impl BriocheBuilder {
             .build_with_max_retries(5);
         let download_retry_middleware =
             reqwest_retry::RetryTransientMiddleware::new_with_policy(download_retry_policy);
-        let download_client = reqwest::Client::builder().user_agent(USER_AGENT).build()?;
+        let download_client = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .pool_idle_timeout(std::time::Duration::from_secs(60))
+            .pool_max_idle_per_host(10)
+            .build()?;
         let download_client = reqwest_middleware::ClientBuilder::new(download_client)
             .with(download_retry_middleware)
             .build();
