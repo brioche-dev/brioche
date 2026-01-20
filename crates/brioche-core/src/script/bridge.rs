@@ -1,7 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context as _;
-use futures::{StreamExt as _, TryStreamExt as _};
 use joinery::JoinableIterator as _;
 use tracing::Instrument as _;
 
@@ -182,15 +181,17 @@ impl RuntimeBridge {
                             bake_scope,
                             results_tx,
                         } => {
-                            let results = futures::stream::iter(recipes)
-                                .then(|recipe| async {
-                                    let brioche = brioche.clone();
+                            let bake_futures = recipes.into_iter().map(|recipe| {
+                                let brioche = brioche.clone();
+                                let bake_scope = bake_scope.clone();
+                                async move {
                                     crate::bake::bake(&brioche, recipe, &bake_scope)
                                         .instrument(tracing::info_span!("runtime_bake_all"))
                                         .await
-                                })
-                                .try_collect::<Vec<_>>()
-                                .await;
+                                }
+                            });
+
+                            let results = futures::future::try_join_all(bake_futures).await;
 
                             let _ = results_tx.send(results);
                         }
