@@ -291,8 +291,9 @@ pub async fn load_artifact(
 
     let archive_stream_compressed = archive_object.into_stream();
     let archive_reader_compressed = tokio_util::io::StreamReader::new(archive_stream_compressed);
+    let archive_reader_buffered = tokio::io::BufReader::new(archive_reader_compressed);
     let mut archive_reader =
-        async_compression::tokio::bufread::ZstdDecoder::new(archive_reader_compressed);
+        async_compression::tokio::bufread::ZstdDecoder::new(archive_reader_buffered);
 
     let artifact =
         archive::read_artifact_archive(brioche, &store, fetch_kind, &mut archive_reader).await?;
