@@ -1116,7 +1116,7 @@ impl TryFrom<Recipe> for Directory {
 }
 
 #[serde_with::serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyRecipe {
     pub recipe: RecipeHash,
