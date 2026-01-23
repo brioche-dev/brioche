@@ -507,23 +507,22 @@ pub async fn bake_process(
             guest_ca_certificate_bundle_path: guest_ca_certificate_bundle_path.as_deref(),
         };
 
-        let command =
-            build_process_template(brioche, process.command.clone(), template_paths).await?;
-        let args = futures::stream::iter(process.args.clone())
+        let command = build_process_template(brioche, &process.command, template_paths).await?;
+        let args = futures::stream::iter(&process.args)
             .then(|arg| build_process_template(brioche, arg, template_paths))
             .try_collect::<Vec<_>>()
             .await?;
 
-        let env = futures::stream::iter(process.env.clone())
+        let env = futures::stream::iter(&process.env)
             .then(|(key, artifact)| async move {
                 let template = build_process_template(brioche, artifact, template_paths).await?;
-                anyhow::Ok((key, template))
+                anyhow::Ok((key.clone(), template))
             })
             .try_collect::<HashMap<_, _>>()
             .await?;
 
         let current_dir =
-            build_process_template(brioche, process.current_dir.clone(), template_paths).await?;
+            build_process_template(brioche, &process.current_dir, template_paths).await?;
 
         let sandbox_config = SandboxExecutionConfig {
             sandbox_root: root_dir.clone(),
@@ -1002,7 +1001,7 @@ async fn get_process_template_input_resource_dirs(
 
 async fn build_process_template(
     brioche: &Brioche,
-    template: CompleteProcessTemplate,
+    template: &CompleteProcessTemplate,
     dirs: ProcessTemplatePaths<'_>,
 ) -> anyhow::Result<SandboxTemplate> {
     let output_parent = dirs.output_path.parent().context("invalid output path")?;
