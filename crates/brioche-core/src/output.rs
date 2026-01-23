@@ -231,84 +231,103 @@ async fn create_output_inner<'a: 'async_recursion>(
                 })?;
         }
         Artifact::Directory(directory) => {
-            let result = tokio::fs::create_dir(options.output_path).await;
-
-            match result {
-                Ok(()) => {}
-                Err(error)
-                    if options.merge && error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!(
-                            "failed to create directory {}",
-                            options.output_path.display()
-                        )
-                    })?;
-                }
-            }
-
-            for (path, entry) in directory.entries(brioche).await? {
-                let path = bytes_to_path_component(path.as_bstr())?;
-                let entry_path = options.output_path.join(path);
-                let resource_dir = options.resource_dir.map_or_else(
-                    || options.output_path.join("brioche-resources.d"),
-                    std::path::Path::to_path_buf,
-                );
-
-                match (&entry, link_lock) {
-                    (Artifact::File(file), Some(link_lock)) => {
-                        if !file.resources.is_empty() {
-                            create_output_inner(
-                                brioche,
-                                &Artifact::Directory(file.resources.clone()),
-                                OutputOptions {
-                                    output_path: &resource_dir,
-                                    resource_dir: Some(&resource_dir),
-                                    merge: true,
-                                    mtime: options.mtime,
-                                    link_locals: options.link_locals,
-                                },
-                                Some(link_lock),
-                                processed_artifacts,
-                            )
-                            .await?;
-                        }
-
-                        // If `link_locals` is enabled, create a local output
-                        // for the file, then hardlink to it
-
-                        let local_output =
-                            create_local_output_inner(brioche, &entry, link_lock).await?;
-                        try_hard_link(&local_output.path, &entry_path).await?;
-                    }
-                    _ => {
-                        create_output_inner(
-                            brioche,
-                            &entry,
-                            OutputOptions {
-                                output_path: &entry_path,
-                                resource_dir: Some(&resource_dir),
-                                merge: true,
-                                mtime: options.mtime,
-                                link_locals: options.link_locals,
-                            },
-                            link_lock,
-                            processed_artifacts,
-                        )
-                        .await?;
-                    }
-                }
-            }
-
-            set_directory_permissions(
-                options.output_path,
-                SetDirectoryPermissions { readonly: false },
+            create_directory_output_inner(
+                brioche,
+                directory,
+                options,
+                link_lock,
+                processed_artifacts,
             )
             .await?;
         }
     }
 
     processed_artifacts.insert(cache_key);
+    Ok(())
+}
+
+#[expect(clippy::multiple_bound_locations)]
+#[async_recursion::async_recursion]
+async fn create_directory_output_inner<'a: 'async_recursion>(
+    brioche: &Brioche,
+    directory: &Directory,
+    options: OutputOptions<'a>,
+    link_lock: Option<&'a tokio::sync::MutexGuard<'a, LocalOutputLock>>,
+    processed_artifacts: &mut HashSet<(RecipeHash, PathBuf)>,
+) -> anyhow::Result<()> {
+    let result = tokio::fs::create_dir(options.output_path).await;
+
+    match result {
+        Ok(()) => {}
+        Err(error) if options.merge && error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to create directory {}",
+                    options.output_path.display()
+                )
+            })?;
+        }
+    }
+
+    for (path, entry) in directory.entries(brioche).await? {
+        let path = bytes_to_path_component(path.as_bstr())?;
+        let entry_path = options.output_path.join(path);
+        let resource_dir = options.resource_dir.map_or_else(
+            || options.output_path.join("brioche-resources.d"),
+            std::path::Path::to_path_buf,
+        );
+
+        match (&entry, link_lock) {
+            (Artifact::File(file), Some(link_lock)) => {
+                if !file.resources.is_empty() {
+                    create_directory_output_inner(
+                        brioche,
+                        &file.resources,
+                        OutputOptions {
+                            output_path: &resource_dir,
+                            resource_dir: Some(&resource_dir),
+                            merge: true,
+                            mtime: options.mtime,
+                            link_locals: options.link_locals,
+                        },
+                        Some(link_lock),
+                        processed_artifacts,
+                    )
+                    .await?;
+                }
+
+                // If `link_locals` is enabled, create a local output
+                // for the file, then hardlink to it
+
+                let local_output = create_local_output_inner(brioche, &entry, link_lock).await?;
+                try_hard_link(&local_output.path, &entry_path).await?;
+            }
+            _ => {
+                create_output_inner(
+                    brioche,
+                    &entry,
+                    OutputOptions {
+                        output_path: &entry_path,
+                        resource_dir: Some(&resource_dir),
+                        merge: true,
+                        mtime: options.mtime,
+                        link_locals: options.link_locals,
+                    },
+                    link_lock,
+                    processed_artifacts,
+                )
+                .await?;
+            }
+        }
+    }
+
+    set_directory_permissions(
+        options.output_path,
+        SetDirectoryPermissions { readonly: false },
+    )
+    .await?;
+
     Ok(())
 }
 
