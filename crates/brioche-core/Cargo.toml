@@ -86,6 +86,7 @@ pin-project-lite = "0.2.16"
 regex = "1.12.2"
 relative-path = { version = "2.0.1", features = ["serde"] }
 reqwest = { version = "0.13.1", default-features = false, features = [
+    "http2",
     "json",
     "query",
     "rustls",
