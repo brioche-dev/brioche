@@ -159,9 +159,9 @@ async fn create_output_inner<'a: 'async_recursion>(
                     anyhow::bail!("cannot output file outside of a directory, file has resources");
                 };
 
-                create_output_inner(
+                create_directory_output_inner(
                     brioche,
-                    &Artifact::Directory(resources.clone()),
+                    resources,
                     OutputOptions {
                         output_path: resource_dir,
                         resource_dir: Some(resource_dir),
