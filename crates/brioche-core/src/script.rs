@@ -109,12 +109,10 @@ impl BriocheModuleLoader {
             },
         )?;
 
+        let deno_ast::EmittedSourceText { text, source_map } = transpiled.into_source();
+
         if let Entry::Vacant(entry) = self.sources.borrow_mut().entry(brioche_module_specifier) {
-            let source_map = transpiled
-                .clone()
-                .into_source()
-                .source_map
-                .context("source map not generated")?;
+            let source_map = source_map.context("source map not generated")?;
             entry.insert(ModuleSource {
                 source_contents: contents.clone(),
                 source_map: source_map.into_bytes(),
@@ -123,7 +121,7 @@ impl BriocheModuleLoader {
 
         Ok(deno_core::ModuleSource::new(
             deno_core::ModuleType::JavaScript,
-            deno_core::ModuleSourceCode::String(transpiled.into_source().text.into()),
+            deno_core::ModuleSourceCode::String(text.into()),
             module_specifier,
             None,
         ))

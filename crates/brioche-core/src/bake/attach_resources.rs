@@ -260,13 +260,19 @@ async fn resolve_internal_file_resources(
         let existing_resource = file.resources.get(brioche, &resource_path).await?;
 
         match (resolved_resource, existing_resource) {
-            (Some(resolved), _) => {
+            (
+                Some(ResolvedResource {
+                    resource_dir_path,
+                    artifact,
+                }),
+                _,
+            ) => {
                 // We resolved the resource internally, so add it
                 // to the list
                 resolved_resource_paths.push(ResolvedResourcePath {
-                    resource_dir_path: resolved.resource_dir_path.clone(),
+                    resource_dir_path,
                     resource_path,
-                    resource_kind: ArtifactDiscriminants::from(&resolved.artifact),
+                    resource_kind: ArtifactDiscriminants::from(&artifact),
                 });
             }
             (None, Some(_)) => {

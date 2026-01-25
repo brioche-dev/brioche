@@ -1465,8 +1465,8 @@ async fn select_sandbox_backend(
                     if result_without_proot? {
                         crate::sandbox::linux_namespace::MountStyle::Namespace
                     } else {
-                        let rootfs_recipes = process_rootfs_recipes(platform);
-                        let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
+                        let ProcessRootfsRecipes { proot, .. } = process_rootfs_recipes(platform);
+                        let proot_path = default_proot_path(brioche, proot).await?;
                         if let Some(proot_path) = proot_path {
                             tracing::warn!(
                                 "failed to run process sandbox with mount namespace, falling back to PRoot (see https://brioche.dev/help/proot-fallback)"
@@ -1497,8 +1497,8 @@ async fn select_sandbox_backend(
                     if result_without_proot? {
                         crate::sandbox::linux_namespace::MountStyle::Namespace
                     } else {
-                        let rootfs_recipes = process_rootfs_recipes(platform);
-                        let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
+                        let ProcessRootfsRecipes { proot, .. } = process_rootfs_recipes(platform);
+                        let proot_path = default_proot_path(brioche, proot).await?;
                         if let Some(proot_path) = proot_path {
                             crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path }
                         } else {
@@ -1512,8 +1512,8 @@ async fn select_sandbox_backend(
                     crate::sandbox::linux_namespace::MountStyle::Namespace
                 }
                 Some(crate::config::PRootConfig::Value(true)) => {
-                    let rootfs_recipes = process_rootfs_recipes(platform);
-                    let proot_path = default_proot_path(brioche, &rootfs_recipes).await?;
+                    let ProcessRootfsRecipes { proot, .. } = process_rootfs_recipes(platform);
+                    let proot_path = default_proot_path(brioche, proot).await?;
                     let proot_path = proot_path.context("sandbox is configured to use PRoot, but there is no default PRoot binary for the current platform")?;
                     crate::sandbox::linux_namespace::MountStyle::PRoot { proot_path }
                 }
@@ -1553,7 +1553,7 @@ async fn auto_select_sandbox_backend(
                 return Ok(backend);
             }
 
-            let proot_path = default_proot_path(&backend_selector.brioche, &backend_selector.rootfs_recipes).await?;
+            let proot_path = default_proot_path(&backend_selector.brioche, backend_selector.rootfs_recipes.proot.clone()).await?;
             if let Some(proot_path) = proot_path {
                 let backend = SandboxBackend::LinuxNamespace(
                     crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
@@ -1864,14 +1864,14 @@ fn sanity_check_sandbox_output(output_path: &Path) -> anyhow::Result<()> {
 #[tracing::instrument(skip_all)]
 async fn default_proot_path(
     brioche: &Brioche,
-    rootfs_recipes: &ProcessRootfsRecipes,
+    proot_recipe: Option<Recipe>,
 ) -> anyhow::Result<Option<PathBuf>> {
-    let Some(proot_recipe) = &rootfs_recipes.proot else {
+    let Some(proot_recipe) = proot_recipe else {
         return Ok(None);
     };
     let proot_artifact = super::bake(
         brioche,
-        WithMeta::without_meta(proot_recipe.clone()),
+        WithMeta::without_meta(proot_recipe),
         &super::BakeScope::Anonymous,
     )
     .instrument(tracing::info_span!("bake_default_proot_path"))
