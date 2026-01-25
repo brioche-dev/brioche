@@ -55,14 +55,12 @@ impl Vfs {
             .inner
             .write()
             .map_err(|_| anyhow::anyhow!("failed to acquire VFS lock"))?;
+
+        tracing::debug!(path = %path.display(), %file_id, "load file into VFS");
+
         vfs.contents.insert(file_id, contents.clone());
         vfs.locations_to_ids.insert(path.clone(), file_id);
-        vfs.ids_to_locations
-            .entry(file_id)
-            .or_default()
-            .push(path.clone());
-
-        tracing::debug!(path = %path.display(), %file_id, "loaded file into VFS");
+        vfs.ids_to_locations.entry(file_id).or_default().push(path);
 
         Ok((file_id, contents))
     }
