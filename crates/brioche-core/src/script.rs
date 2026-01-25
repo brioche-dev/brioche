@@ -57,7 +57,7 @@ pub struct JsPlatform(());
 /// the V8 platform is initialized appropriately.
 #[must_use]
 pub fn initialize_js_platform() -> JsPlatform {
-    deno_core::JsRuntime::init_platform(None, false);
+    deno_core::JsRuntime::init_platform(None);
     JsPlatform(())
 }
 
