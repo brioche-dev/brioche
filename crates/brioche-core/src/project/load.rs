@@ -434,12 +434,12 @@ async fn load_project_inner(
                     dependencies
                         .insert(dep_name.clone(), DependencyRef::Project(*dep_project_hash));
 
-                    for error in &dep_errors[..] {
-                        errors.push(LoadProjectError::DependencyError {
+                    errors.extend(dep_errors.iter().map(|error| {
+                        LoadProjectError::DependencyError {
                             name: dep_name.clone(),
                             error: Box::new(error.clone()),
-                        });
-                    }
+                        }
+                    }));
                 }
             }
 

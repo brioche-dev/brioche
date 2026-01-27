@@ -33,10 +33,10 @@ pub async fn attach_resources(brioche: &Brioche, directory: &mut Directory) -> a
                 .graph
                 .edges_directed(node_index, petgraph::Direction::Outgoing);
 
-            for edge in edges_out {
-                let AttachResourcesPlanEdge::InternalResource(resource) = &edge.weight();
-                resources_to_attach.push(resource);
-            }
+            resources_to_attach.extend(edges_out.map(|edge| {
+                let AttachResourcesPlanEdge::InternalResource(resource) = edge.weight();
+                resource
+            }));
         }
 
         // If there are no resources to attach, no need to update this node
