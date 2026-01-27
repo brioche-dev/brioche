@@ -657,15 +657,17 @@ impl std::fmt::Display for BakeFailed {
             .message
             .lines()
             .partition::<Vec<_>, _>(|line| line.trim_start().starts_with("at "));
+
         message_lines.retain(|line| !line.trim().is_empty());
         let message = message_lines.join("\n");
+        write!(f, "{message}")?;
 
         // HACK: Currently, detailed errors get converted to and from strings
         // via `anyhow`. To properly print all source lines without duplicates,
         // we do our best to parse the error message. This should instead be
         // handled by keeping structured errors throughout.
         let mut seen_sources = HashSet::new();
-        let sources = message_sources
+        message_sources
             .into_iter()
             .map(|s| {
                 s.trim_start()
@@ -675,12 +677,7 @@ impl std::fmt::Display for BakeFailed {
             })
             .chain(self.meta.source.iter().flatten().map(ToString::to_string))
             .filter(|source| seen_sources.insert(source.clone()))
-            .collect::<Vec<_>>();
-
-        write!(f, "{message}")?;
-        for source in &sources {
-            write!(f, "\n    at {source}")?;
-        }
+            .try_for_each(|source| write!(f, "\n    at {source}"))?;
 
         Ok(())
     }
