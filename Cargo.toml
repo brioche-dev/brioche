@@ -49,3 +49,8 @@ opt-level = 2
 opt-level = 2
 [profile.dev.package.swc_common]
 opt-level = 2
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "debuginfo"
