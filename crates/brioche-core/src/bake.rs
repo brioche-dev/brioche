@@ -660,30 +660,22 @@ impl std::fmt::Display for BakeFailed {
         message_lines.retain(|line| !line.trim().is_empty());
         let message = message_lines.join("\n");
 
-        let mut sources = vec![];
-        let mut seen_sources = HashSet::new();
-
         // HACK: Currently, detailed errors get converted to and from strings
         // via `anyhow`. To properly print all source lines without duplicates,
         // we do our best to parse the error message. This should instead be
         // handled by keeping structured errors throughout.
-        for source in message_sources {
-            let source = source
-                .trim_start()
-                .strip_prefix("at ")
-                .expect("invalid line")
-                .to_string();
-            if seen_sources.insert(source.clone()) {
-                sources.push(source);
-            }
-        }
-
-        for source in self.meta.source.iter().flatten() {
-            let source = source.to_string();
-            if seen_sources.insert(source.clone()) {
-                sources.push(source);
-            }
-        }
+        let mut seen_sources = HashSet::new();
+        let sources = message_sources
+            .into_iter()
+            .map(|s| {
+                s.trim_start()
+                    .strip_prefix("at ")
+                    .expect("invalid line")
+                    .to_string()
+            })
+            .chain(self.meta.source.iter().flatten().map(ToString::to_string))
+            .filter(|source| seen_sources.insert(source.clone()))
+            .collect::<Vec<_>>();
 
         write!(f, "{message}")?;
         for source in &sources {
