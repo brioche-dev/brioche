@@ -281,16 +281,15 @@ where
 {
     let cached_recipes = brioche.cached_recipes.read().await;
 
-    let mut uncached_recipes = vec![];
-    for recipe in recipes {
-        let recipe = recipe.borrow();
-
-        if !cached_recipes.recipes_by_hash.contains_key(&recipe.hash()) {
-            // Recipe not cached, so try to insert it into the database
-            // and cache it afterward
-            uncached_recipes.push(recipe.clone());
-        }
-    }
+    // Recipe not cached, so try to insert it into the database
+    // and cache it afterward
+    let uncached_recipes = recipes
+        .into_iter()
+        .filter_map(|recipe| {
+            let recipe = recipe.borrow();
+            (!cached_recipes.recipes_by_hash.contains_key(&recipe.hash())).then(|| recipe.clone())
+        })
+        .collect::<Vec<_>>();
 
     // Release the read lock
     drop(cached_recipes);
