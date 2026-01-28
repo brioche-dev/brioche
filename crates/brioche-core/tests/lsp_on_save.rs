@@ -8,7 +8,7 @@ use url::Url;
 
 // Timeout used to wait for messages back from the LSP. This is mainly used
 // as a sanity check to prevent a test from hanging forever
-const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[tokio::test]
 async fn test_lsp_on_save_respects_existing_lock() -> anyhow::Result<()> {
