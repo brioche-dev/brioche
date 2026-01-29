@@ -564,11 +564,10 @@ impl ProjectsInner {
         &self,
         project_hashes: &HashSet<ProjectHash>,
     ) -> anyhow::Result<impl Iterator<Item = PathBuf>> {
-        let mut paths = Vec::with_capacity(project_hashes.len());
-        for project_hash in project_hashes {
-            paths.push(self.project_module_paths(*project_hash)?);
-        }
-
+        let paths = project_hashes
+            .iter()
+            .map(|project_hash| self.project_module_paths(*project_hash))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(paths.into_iter().flatten())
     }
 
@@ -600,12 +599,10 @@ impl ProjectsInner {
         project_hashes: &HashSet<ProjectHash>,
     ) -> anyhow::Result<impl Iterator<Item = super::script::specifier::BriocheModuleSpecifier>>
     {
-        let mut module_specifiers = Vec::with_capacity(project_hashes.len());
-        for project_hash in project_hashes {
-            let module_paths = self.project_module_specifiers(*project_hash)?;
-            module_specifiers.push(module_paths);
-        }
-
+        let module_specifiers = project_hashes
+            .iter()
+            .map(|project_hash| self.project_module_specifiers(*project_hash))
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(module_specifiers.into_iter().flatten())
     }
 
