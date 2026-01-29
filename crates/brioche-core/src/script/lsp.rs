@@ -33,6 +33,9 @@ use super::specifier::BriocheModuleSpecifier;
 /// lockfile in the Language Server
 const LOCKFILE_LOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
+/// The default timeout for Language Server operations
+const LSP_DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub type BuildBriocheFn = dyn Fn() -> futures::future::BoxFuture<'static, anyhow::Result<BriocheBuilder>>
     + Send
     + Sync
@@ -641,26 +644,54 @@ fn lsp_uri_to_module_specifier(uri: &url::Url) -> anyhow::Result<BriocheModuleSp
     Ok(specifier)
 }
 
-const TIMEOUT_DURATION: std::time::Duration = std::time::Duration::from_secs(10);
+static TIMEOUT_DURATION: std::sync::LazyLock<std::time::Duration> =
+    std::sync::LazyLock::new(|| {
+        std::env::var("BRIOCHE_LSP_TIMEOUT")
+            .ok()
+            .and_then(|value| humantime::parse_duration(&value).ok())
+            .unwrap_or(LSP_DEFAULT_TIMEOUT)
+    });
 
 struct JsLspTask {
     tx: tokio::sync::mpsc::Sender<(
         JsLspMessage,
         tokio::sync::oneshot::Sender<serde_json::Value>,
     )>,
+    /// Watch channel receiver for initialization status.
+    /// `None` means still initializing, `Some(result)` means initialization completed.
+    ready_rx: tokio::sync::watch::Receiver<Option<std::result::Result<(), String>>>,
 }
 
 impl JsLspTask {
+    /// Ensures the JS LSP runtime has finished initialization.
+    async fn ensure_ready(&self) -> anyhow::Result<()> {
+        let mut rx = self.ready_rx.clone();
+
+        // Wait until the initialization status is ready
+        rx.wait_for(Option::is_some)
+            .await
+            .map_err(|_| anyhow::anyhow!("JS LSP initialization task terminated unexpectedly"))?;
+
+        // Check the result
+        match rx.borrow().as_ref() {
+            Some(Ok(())) => Ok(()),
+            Some(Err(msg)) => Err(anyhow::anyhow!("JS LSP initialization failed: {msg}")),
+            None => unreachable!(),
+        }
+    }
+
     async fn send<T>(&self, message: JsLspMessage) -> anyhow::Result<T>
     where
         T: for<'de> serde::Deserialize<'de>,
     {
+        self.ensure_ready().await?;
+
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
 
         self.tx.send((message, response_tx)).await?;
 
         // Await the response with a timeout
-        let response = tokio::time::timeout(TIMEOUT_DURATION, response_rx)
+        let response = tokio::time::timeout(*TIMEOUT_DURATION, response_rx)
             .await
             .map_err(|_| anyhow::anyhow!("timeout waiting for response from JS LSP"))??;
 
@@ -685,6 +716,9 @@ fn js_lsp_task(
         tokio::sync::oneshot::Sender<serde_json::Value>,
     )>(1);
 
+    let (ready_tx, ready_rx) =
+        tokio::sync::watch::channel::<Option<std::result::Result<(), String>>>(None);
+
     std::thread::spawn(move || {
         let module_loader = super::BriocheModuleLoader::new(bridge);
 
@@ -694,12 +728,14 @@ fn js_lsp_task(
         let runtime = match runtime {
             Ok(runtime) => runtime,
             Err(error) => {
-                tracing::error!("failed to create runtime: {error:#}");
+                let error_msg = format!("failed to create Tokio runtime: {error:#}");
+                tracing::error!("{error_msg}");
+                let _ = ready_tx.send(Some(Err(error_msg)));
                 return;
             }
         };
 
-        let result = runtime.block_on(async move {
+        let init_result: anyhow::Result<(_, deno_core::v8::Global<_>)> = runtime.block_on(async {
             tracing::info!("building JS LSP");
 
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
@@ -756,8 +792,25 @@ fn js_lsp_task(
                 deno_core::v8::Global::new(js_scope, js_lsp)
             };
 
-            tracing::info!("built JS LSP");
+            Ok((js_runtime, js_lsp))
+        });
 
+        let (mut js_runtime, js_lsp) = match init_result {
+            Ok(result) => {
+                // Signal success
+                let _ = ready_tx.send(Some(Ok(())));
+                tracing::info!("built JS LSP");
+                result
+            }
+            Err(error) => {
+                let error_msg = format!("{error:#}");
+                tracing::error!("failed to initialize JS LSP: {error_msg}");
+                let _ = ready_tx.send(Some(Err(error_msg)));
+                return;
+            }
+        };
+
+        let loop_result = runtime.block_on(async move {
             while let Some((message, response_tx)) = rx.recv().await {
                 tracing::info!(?message, "got message");
                 let response = match message {
@@ -801,12 +854,12 @@ fn js_lsp_task(
             anyhow::Ok(())
         });
 
-        if let Err(error) = result {
-            tracing::error!("failed to run runtime: {error:#}");
+        if let Err(error) = loop_result {
+            tracing::error!("JS LSP message loop failed: {error:#}");
         }
     });
 
-    JsLspTask { tx }
+    JsLspTask { tx, ready_rx }
 }
 
 fn call_method(
