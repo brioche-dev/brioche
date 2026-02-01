@@ -10,7 +10,7 @@ bstr = { version = "1.12.1", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_with = { version = "3.16.1" }
 thiserror = "2.0.18"
-tick-encoding = "0.1.3"
+tick-encoding = "0.1.4"
 
 [lints]
 workspace = true
