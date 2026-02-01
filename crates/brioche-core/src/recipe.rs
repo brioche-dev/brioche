@@ -9,7 +9,7 @@ use bstr::{BStr, BString, ByteSlice as _, ByteVec as _};
 use futures::{StreamExt as _, TryStreamExt as _};
 use joinery::JoinableIterator as _;
 use sqlx::{Acquire as _, Arguments as _};
-use wax::Pattern as _;
+use wax::Program as _;
 
 use crate::encoding::TickEncoded;
 
