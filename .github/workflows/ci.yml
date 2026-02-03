@@ -18,6 +18,10 @@ env:
   # - `nightly`: Pushes to `main`
   # - Otherwise, `wip`
   BRIOCHE_RELEASE_NAMESPACE: ${{ (github.event_name == 'push' && github.repository == 'brioche-dev/brioche' && startsWith(github.ref, 'refs/tags/v') && 'release') || (github.event_name == 'push' && github.repository == 'brioche-dev/brioche' && github.ref == 'refs/heads/main' && 'nightly') || 'wip' }}
+  # Default environment variables for Cargo
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "false"
+  CARGO_PROFILE_TEST_DEBUG: "false"
 
 jobs:
   check:
@@ -97,10 +101,8 @@ jobs:
       - name: Set up runner
         if: matrix.setup
         run: ${{ matrix.setup }}
-      # Run tests in release mode. Running tests in debug mode uses a lot
-      # more disk space, so much so that it can cause the run to fail
       - name: Run tests
-        run: cargo test --all --release
+        run: cargo test --all
 
   # Extra job that succeeds when all test jobs succeed (useful for PR requirements)
   all-tests-passed:
