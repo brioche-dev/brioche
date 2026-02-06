@@ -269,6 +269,20 @@ impl BriocheBuilder {
                     let url = url
                         .parse()
                         .with_context(|| format!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}"))?;
+                    let write_url = std::env::var_os("BRIOCHE_CACHE_WRITE_URL")
+                        .map(|write_url| {
+                            let write_url = write_url.to_str().ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "invalid URL for $BRIOCHE_CACHE_WRITE_URL: {}",
+                                    write_url.display()
+                                )
+                            })?;
+                            let write_url = write_url.parse().with_context(|| {
+                                format!("invalid URL for $BRIOCHE_CACHE_WRITE_URL: {write_url:?}")
+                            })?;
+                            anyhow::Ok(write_url)
+                        })
+                        .transpose()?;
                     let use_default_cache =
                         match std::env::var_os("BRIOCHE_CACHE_USE_DEFAULT_CACHE") {
                             Some(value) if value.to_str() == Some("true") => true,
@@ -339,6 +353,7 @@ impl BriocheBuilder {
                         .transpose()?;
                     Some(config::CacheConfig {
                         url,
+                        write_url,
                         max_concurrent_operations,
                         use_default_cache,
                         read_only,

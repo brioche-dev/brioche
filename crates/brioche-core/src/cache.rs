@@ -83,6 +83,20 @@ pub async fn cache_client_with_config(
     } else {
         None
     };
+    let configured_writable_cache_store = if let Some(config) = config
+        && let Some(write_url) = &config.write_url
+    {
+        let store = build_object_store(&ObjectStoreConfig {
+            url: write_url,
+            allow_http: config.allow_http,
+            timeout: config.timeout,
+            connect_timeout: config.connect_timeout,
+        })
+        .await?;
+        Some(store)
+    } else {
+        configured_cache_store.clone()
+    };
 
     let max_concurrent_operations = config
         .map_or(DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS, |config| {
@@ -95,7 +109,7 @@ pub async fn cache_client_with_config(
             .into_iter()
             .flatten()
             .collect(),
-        write_layer: configured_cache_store.filter(|_| writable),
+        write_layer: configured_writable_cache_store.filter(|_| writable),
     };
     let store = object_store::limit::LimitStore::new(store, max_concurrent_operations);
     let store = Arc::new(store);

@@ -75,6 +75,8 @@ pub enum PRootAutoConfig {
 pub struct CacheConfig {
     pub url: url::Url,
 
+    pub write_url: Option<url::Url>,
+
     #[serde(default = "default_cache_max_concurrent_operations")]
     pub max_concurrent_operations: usize,
 
