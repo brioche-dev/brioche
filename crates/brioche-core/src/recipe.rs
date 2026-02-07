@@ -8,7 +8,7 @@ use anyhow::Context as _;
 use bstr::{BStr, BString, ByteSlice as _, ByteVec as _};
 use futures::{StreamExt as _, TryStreamExt as _};
 use joinery::JoinableIterator as _;
-use sqlx::{Acquire as _, Arguments as _};
+use sqlx::Arguments as _;
 use wax::Program as _;
 
 use crate::encoding::TickEncoded;
@@ -198,8 +198,7 @@ pub async fn get_recipes(
         return Ok(recipes);
     }
 
-    let mut db_conn = brioche.db_conn.lock().await;
-    let mut db_transaction = db_conn.begin().await?;
+    let mut db_transaction = brioche.db_pool.begin().await?;
 
     let mut records = vec![];
     {
@@ -237,7 +236,6 @@ pub async fn get_recipes(
     }
 
     db_transaction.commit().await?;
-    drop(db_conn);
 
     let mut cached_recipes = brioche.cached_recipes.write().await;
     for (recipe_hash, recipe_json) in records {
@@ -300,8 +298,7 @@ where
         return Ok(0);
     }
 
-    let mut db_conn = brioche.db_conn.lock().await;
-    let mut db_transaction = db_conn.begin().await?;
+    let mut db_transaction = brioche.db_pool.begin().await?;
 
     // Save each recipe to the database in batches, so we don't hit the
     // maximum number of variables per query
@@ -337,7 +334,6 @@ where
     }
 
     db_transaction.commit().await?;
-    drop(db_conn);
 
     // Cache each recipe that wasn't cached before. We do this after
     // writing to the database to ensure cached items are always in the database
