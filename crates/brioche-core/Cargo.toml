@@ -5,8 +5,8 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-anyhow = { version = "1.0.100", features = ["backtrace"] }
-async-compression = { version = "0.4.37", features = [
+anyhow = { version = "1.0.101", features = ["backtrace"] }
+async-compression = { version = "0.4.39", features = [
     "tokio",
     "bzip2",
     "gzip",
@@ -15,7 +15,7 @@ async-compression = { version = "0.4.37", features = [
 ] }
 async-recursion = "1.1.1"
 async-trait = "0.1.89"
-aws-config = "1.8.12"
+aws-config = "1.8.13"
 aws-credential-types = "1.2.11"
 aws-types = "1.3.11"
 biome_console = "=0.5.7"
@@ -46,7 +46,7 @@ cfg-if = "1.0.4"
 console-subscriber = "0.5.0"
 debug-ignore = "1.0.5"
 deno_ast = { version = "0.53.0", features = ["transpiling"] }
-deno_core = "0.382.0"
+deno_core = "0.385.0"
 deno_error = "0.7.3"
 directories = "6.0.0"
 fastcdc = { version = "3.2.1", features = ["tokio"] }
@@ -58,7 +58,7 @@ gix = { version = "0.78.0", features = [
 globset = "0.4.18"
 hex = "0.4.3"
 http = "1.4.0"
-jiff = { version = "0.2.18", features = ["serde"] }
+jiff = { version = "0.2.19", features = ["serde"] }
 joinery = "3.1.0"
 json-canon = "0.1.3"
 lazy_format = "2.0.3"
@@ -83,9 +83,9 @@ pathdiff = "0.2.3"
 pem-rfc7468 = { version = "1.0.0", features = ["std"] }
 petgraph = "0.8.3"
 pin-project-lite = "0.2.16"
-regex = "1.12.2"
+regex = "1.12.3"
 relative-path = { version = "2.0.1", features = ["serde"] }
-reqwest = { version = "0.13.1", default-features = false, features = [
+reqwest = { version = "0.13.2", default-features = false, features = [
     "http2",
     "json",
     "query",
@@ -93,8 +93,8 @@ reqwest = { version = "0.13.1", default-features = false, features = [
     "stream",
     "zstd",
 ] }
-reqwest-middleware = { version = "0.5.0", features = ["json", "query"] }
-reqwest-retry = "0.9.0"
+reqwest-middleware = { version = "0.5.1", features = ["json", "query"] }
+reqwest-retry = "0.9.1"
 rust-embed = { version = "8.11.0", features = [
     "debug-embed",
     "interpolate-folder-path",
@@ -103,9 +103,9 @@ rust-embed = { version = "8.11.0", features = [
 rustls-native-certs = "0.8.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-serde_v8 = "0.291.0"
+serde_v8 = "0.294.0"
 serde_with = { version = "3.16.1", features = ["hex"] }
-sha2 = "0.11.0-rc"
+sha2 = "0.11.0-rc.5"
 sqlx = { version = "0.8.6", features = [
     "runtime-tokio-rustls",
     "sqlite",
@@ -134,7 +134,7 @@ url = { version = "2.5.8", features = ["serde"] }
 urlencoding = "2.1.3"
 walkdir = "2.5.0"
 wax = { version = "0.7.0", default-features = false }
-zip = { version = "7.2.0", default-features = false, features = [
+zip = { version = "7.4.0", default-features = false, features = [
     "bzip2",
     "deflate",
     "deflate64",
@@ -150,7 +150,7 @@ humantime = "2.3.0"
 assert_matches = "1.5.0"
 aws-runtime = "1.5.18"
 brioche-test-support = { path = "../brioche-test-support" }
-deno_core = { version = "0.382.0", features = [
+deno_core = { version = "0.385.0", features = [
     # For tests, this feature should be enabled to resolve a segfault that
     # can occur if V8 detects the `pki` CPU flag. See this issue:
     # https://github.com/denoland/deno_core/issues/1091
@@ -158,7 +158,7 @@ deno_core = { version = "0.382.0", features = [
 ] }
 divan = "0.1.21"
 indoc = "2.0.7"
-mockito = "1.7.1"
+mockito = "1.7.2"
 pretty_assertions = "1.4.1"
 tempfile = "3.24.0"
 
