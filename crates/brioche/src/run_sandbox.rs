@@ -1,6 +1,6 @@
 use std::process::ExitCode;
 
-use brioche_core::sandbox::{SandboxBackend, SandboxExecutionConfig};
+use brioche_sandbox::{SandboxBackend, SandboxExecutionConfig};
 use clap::Parser;
 
 const BRIOCHE_SANDBOX_ERROR_CODE: u8 = 122;
@@ -30,7 +30,7 @@ pub fn run_sandbox(args: &RunSandboxArgs) -> ExitCode {
         }
     };
 
-    let status = match brioche_core::sandbox::run_sandbox(backend, config) {
+    let status = match brioche_sandbox::run_sandbox(backend, config) {
         Ok(status) => status,
         Err(error) => {
             eprintln!("brioche: failed to run sandbox: {error:#}");

@@ -1,16 +1,9 @@
-use std::path::PathBuf;
 use std::{collections::HashMap, ffi::OsString};
 
 use anyhow::Context as _;
 use bstr::ByteSlice as _;
 
 use super::{SandboxPath, SandboxTemplate, SandboxTemplateComponent};
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum MountStyle {
-    Namespace,
-    PRoot { proot_path: PathBuf },
-}
 
 pub fn run_sandbox(exec: &super::SandboxExecutionConfig) -> anyhow::Result<super::ExitStatus> {
     let program = build_template(&exec.command)?;

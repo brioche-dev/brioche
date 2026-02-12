@@ -1,0 +1,21 @@
+[package]
+name = "brioche-sandbox"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.101"
+bstr = { version = "1.12.1", features = ["serde"] }
+cfg-if = "1.0.4"
+nix = { version = "0.31.1", features = ["user"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_with = { version = "3.16.1", features = ["hex"] }
+tick-encoding = "0.1.4"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libmount = "0.1.15"
+unshare = { git = "https://github.com/brioche-dev/unshare.git" }
+
+[lints]
+workspace = true

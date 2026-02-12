@@ -1,9 +1,10 @@
 use std::{collections::HashMap, path::PathBuf};
 
-use crate::encoding::{AsPath, TickEncoded};
+use crate::serde_utils::{AsPath, TickEncoded};
 
-pub mod linux_namespace;
-pub mod unsandboxed;
+mod linux_namespace;
+mod serde_utils;
+mod unsandboxed;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
