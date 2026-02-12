@@ -46,107 +46,84 @@ pub async fn check(
         .await?;
     crate::start_shutdown_handler(brioche.clone());
 
-    let projects = brioche_core::project::Projects::default();
+    let check_result = async {
+        let projects = brioche_core::project::Projects::default();
 
-    let check_options = CheckOptions {
-        locked: args.locked,
-    };
-    let locking = if args.locked {
-        ProjectLocking::Locked
-    } else {
-        ProjectLocking::Unlocked
-    };
-    let mut error_result = None;
-
-    // Handle the case where no projects and no registries are specified
-    let project_paths =
-        tokio::task::spawn_blocking(|| resolve_project_paths(args.projects, args.project))
-            .await
-            .context("failed to resolve project paths")??;
-
-    // Pre-allocate capacity for project names and projects to check
-    let mut project_names = HashMap::with_capacity(project_paths.len());
-    let mut projects_to_check = HashSet::with_capacity(project_paths.len());
-
-    // Load each path project
-    for project_path in project_paths {
-        let project_name = format!("project '{name}'", name = project_path.display());
-        let project_hash = projects
-            .load(
-                &brioche,
-                &project_path,
-                ProjectValidation::Standard,
-                locking,
-            )
-            .await;
-
-        let project_hash = match project_hash {
-            Ok(project_hash) => project_hash,
-            Err(error) => {
-                consolidate_result(
-                    &reporter,
-                    Some(&project_name),
-                    Err(error),
-                    &mut error_result,
-                );
-                continue;
-            }
+        let check_options = CheckOptions {
+            locked: args.locked,
         };
-
-        project_names.entry(project_hash).or_insert(project_name);
-        projects_to_check.insert(project_hash);
-    }
-
-    // Load each registry project
-    for registry_project in args.project.registry_project {
-        let project_name = format!("registry project '{registry_project}'");
-        let project_hash = projects
-            .load_from_registry(
-                &brioche,
-                &registry_project,
-                &brioche_core::project::Version::Any,
-            )
-            .await;
-
-        let project_hash = match project_hash {
-            Ok(project_hash) => project_hash,
-            Err(error) => {
-                consolidate_result(
-                    &reporter,
-                    Some(&project_name),
-                    Err(error),
-                    &mut error_result,
-                );
-                continue;
-            }
+        let locking = if args.locked {
+            ProjectLocking::Locked
+        } else {
+            ProjectLocking::Unlocked
         };
+        let mut error_result = None;
 
-        project_names.entry(project_hash).or_insert(project_name);
-        projects_to_check.insert(project_hash);
+        let project_paths =
+            tokio::task::spawn_blocking(|| resolve_project_paths(args.projects, args.project))
+                .await
+                .context("failed to resolve project paths")??;
+
+        // Pre-allocate capacity for project names and projects to check
+        let mut project_names = HashMap::with_capacity(project_paths.len());
+        let mut projects_to_check = HashSet::with_capacity(project_paths.len());
+
+        // Load each path project
+        for project_path in project_paths {
+            let project_name = format!("project '{name}'", name = project_path.display());
+            let project_hash = projects
+                .load(
+                    &brioche,
+                    &project_path,
+                    ProjectValidation::Standard,
+                    locking,
+                )
+                .await;
+
+            let project_hash = match project_hash {
+                Ok(project_hash) => project_hash,
+                Err(error) => {
+                    consolidate_result(
+                        &reporter,
+                        Some(&project_name),
+                        Err(error),
+                        &mut error_result,
+                    );
+                    continue;
+                }
+            };
+
+            project_names.entry(project_hash).or_insert(project_name);
+            projects_to_check.insert(project_hash);
+        }
+
+        let project_name = if project_names.len() == 1 {
+            Some(project_names.values().next().unwrap())
+        } else {
+            None
+        };
+        let project_name = project_name.map(String::as_str);
+
+        let result = run_check(
+            &reporter,
+            &brioche,
+            js_platform,
+            &projects,
+            &projects_to_check,
+            project_name,
+            &check_options,
+        )
+        .await;
+        consolidate_result(&reporter, project_name, result, &mut error_result);
+
+        anyhow::Ok(error_result)
     }
-
-    let project_name = if project_names.len() == 1 {
-        Some(project_names.values().next().unwrap())
-    } else {
-        None
-    };
-    let project_name = project_name.map(String::as_str);
-
-    let result = run_check(
-        &reporter,
-        &brioche,
-        js_platform,
-        &projects,
-        &projects_to_check,
-        project_name,
-        &check_options,
-    )
     .await;
-    consolidate_result(&reporter, project_name, result, &mut error_result);
 
     guard.shutdown_console().await;
     brioche.wait_for_tasks().await;
 
+    let error_result = check_result?;
     let exit_code = error_result.map_or(ExitCode::SUCCESS, |()| ExitCode::FAILURE);
 
     Ok(exit_code)

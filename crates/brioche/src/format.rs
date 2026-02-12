@@ -34,43 +34,49 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
         args.display.to_console_reporter_kind(),
     )?;
 
-    let (paths, is_file) =
-        tokio::task::spawn_blocking(|| partition_paths(args.paths, args.project))
-            .await
-            .context("failed to partition paths")??;
+    let format_result = async {
+        let (paths, is_file) =
+            tokio::task::spawn_blocking(|| partition_paths(args.paths, args.project))
+                .await
+                .context("failed to partition paths")??;
 
-    let mut error_result = None;
-    let mut all_formatted_files = vec![];
+        let mut error_result = None;
+        let mut all_formatted_files = vec![];
 
-    if is_file {
-        format_files(
-            &reporter,
-            paths,
-            args.check,
-            &mut error_result,
-            &mut all_formatted_files,
-        )
-        .await;
-    } else {
-        format_projects(
-            &reporter,
-            paths,
-            args.check,
-            &mut error_result,
-            &mut all_formatted_files,
-        )
-        .await?;
+        if is_file {
+            format_files(
+                &reporter,
+                paths,
+                args.check,
+                &mut error_result,
+                &mut all_formatted_files,
+            )
+            .await;
+        } else {
+            format_projects(
+                &reporter,
+                paths,
+                args.check,
+                &mut error_result,
+                &mut all_formatted_files,
+            )
+            .await?;
+        }
+
+        // Report results
+        all_formatted_files.sort();
+        report_format_results(&reporter, &all_formatted_files, args.check);
+        if args.check && !all_formatted_files.is_empty() {
+            error_result = Some(());
+        }
+
+        anyhow::Ok(error_result)
     }
-
-    // Report results
-    all_formatted_files.sort();
-    report_format_results(&reporter, &all_formatted_files, args.check);
-    if args.check && !all_formatted_files.is_empty() {
-        error_result = Some(());
-    }
+    .await;
 
     guard.shutdown_console().await;
 
+    let error_result = format_result?;
     let exit_code = error_result.map_or(ExitCode::SUCCESS, |()| ExitCode::FAILURE);
 
     Ok(exit_code)
