@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use anyhow::Context as _;
 use brioche_core::Brioche;
 use brioche_core::project::ProjectHash;
 use brioche_core::project::ProjectLocking;
@@ -16,12 +17,16 @@ use crate::consolidate_result;
 
 #[derive(Debug, Parser)]
 pub struct CheckArgs {
+    /// Project directories to check. Defaults to current directory.
+    projects: Vec<PathBuf>,
+
+    /// Deprecated: use positional arguments instead
+    #[arg(short, long, hide = true)]
+    project: Vec<PathBuf>,
+
     /// Validate that the lockfile is up-to-date
     #[arg(long)]
     locked: bool,
-
-    #[command(flatten)]
-    project: super::MultipleProjectArgs,
 
     /// The output display format.
     #[arg(long, value_enum, default_value_t)]
@@ -55,11 +60,9 @@ pub async fn check(
 
     // Handle the case where no projects and no registries are specified
     let project_paths =
-        if args.project.project.is_empty() && args.project.registry_project.is_empty() {
-            vec![PathBuf::from(".")]
-        } else {
-            args.project.project
-        };
+        tokio::task::spawn_blocking(|| resolve_project_paths(args.projects, args.project))
+            .await
+            .context("failed to resolve project paths")??;
 
     // Pre-allocate capacity for project names and projects to check
     let mut project_names = HashMap::with_capacity(project_paths.len());

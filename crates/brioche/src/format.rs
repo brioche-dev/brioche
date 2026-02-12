@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::{path::PathBuf, process::ExitCode};
 
+use anyhow::Context as _;
 use brioche_core::{
     project::{ProjectLocking, ProjectValidation},
     reporter::Reporter,
@@ -34,7 +35,9 @@ pub async fn format(args: FormatArgs) -> anyhow::Result<ExitCode> {
     )?;
 
     let (paths, is_file) =
-        tokio::task::spawn_blocking(|| partition_paths(args.paths, args.project)).await??;
+        tokio::task::spawn_blocking(|| partition_paths(args.paths, args.project))
+            .await
+            .context("failed to partition paths")??;
 
     let mut error_result = None;
     let mut all_formatted_files = vec![];
