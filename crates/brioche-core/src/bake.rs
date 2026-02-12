@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::Context as _;
 use futures::{TryStreamExt as _, stream::FuturesUnordered};
+use sqlx::Acquire as _;
 use tracing::Instrument as _;
 
 use crate::{
@@ -62,7 +63,8 @@ pub async fn bake(
                 project_hash,
                 export,
             } => {
-                let mut db_transaction = brioche.db_pool.begin().await?;
+                let mut db_conn = brioche.db_conn.lock().await;
+                let mut db_transaction = db_conn.begin().await?;
 
                 let project_hash_value = project_hash.to_string();
                 let recipe_hash_value = recipe_hash.to_string();
@@ -85,7 +87,8 @@ pub async fn bake(
                 db_transaction.commit().await?;
             }
             BakeScope::Child { parent_hash } => {
-                let mut db_transaction = brioche.db_pool.begin().await?;
+                let mut db_conn = brioche.db_conn.lock().await;
+                let mut db_transaction = db_conn.begin().await?;
 
                 let parent_hash_value = parent_hash.to_string();
                 let recipe_hash_value = recipe_hash.to_string();
@@ -179,7 +182,8 @@ async fn bake_inner(
     }
 
     // Check the database to see if we've cached this recipe before
-    let mut db_transaction = brioche.db_pool.begin().await?;
+    let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
     let input_hash = recipe_hash.to_string();
     let result = sqlx::query!(
         r#"
@@ -195,6 +199,7 @@ async fn bake_inner(
     .fetch_optional(&mut *db_transaction)
     .await?;
     db_transaction.commit().await?;
+    drop(db_conn);
 
     if let Some(row) = result {
         let artifact: Artifact = serde_json::from_str(&row.artifact_json)?;
@@ -579,7 +584,8 @@ pub async fn save_bake_result(
     output_hash: RecipeHash,
     output_json: &str,
 ) -> anyhow::Result<bool> {
-    let mut db_transaction = brioche.db_pool.begin().await?;
+    let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
     let input_hash_string = input_hash.to_string();
     let output_hash_string = output_hash.to_string();
 

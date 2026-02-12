@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Context as _;
+use sqlx::Acquire as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use super::{Brioche, Hash};
@@ -42,7 +43,8 @@ pub async fn save_blob(
         let validated_hash_string = validated_hash.to_string();
         let blob_hash_string = blob_hash.to_string();
 
-        let mut db_transaction = brioche.db_pool.begin().await?;
+        let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
                 INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
@@ -55,6 +57,7 @@ pub async fn save_blob(
         .execute(&mut *db_transaction)
         .await?;
         db_transaction.commit().await?;
+        drop(db_conn);
     }
 
     if let Some(parent) = blob_path.parent() {
@@ -149,7 +152,8 @@ where
         let validated_hash_string = validated_hash.to_string();
         let blob_hash_string = blob_hash.to_string();
 
-        let mut db_transaction = brioche.db_pool.begin().await?;
+        let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
                 INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
@@ -162,6 +166,7 @@ where
         .execute(&mut *db_transaction)
         .await?;
         db_transaction.commit().await?;
+        drop(db_conn);
     }
 
     if let Some(parent) = blob_path.parent() {
@@ -293,7 +298,8 @@ pub async fn save_blob_from_file(
         let validated_hash_string = validated_hash.to_string();
         let blob_hash_string = blob_hash.to_string();
 
-        let mut db_transaction = brioche.db_pool.begin().await?;
+        let mut db_conn = brioche.db_conn.lock().await;
+        let mut db_transaction = db_conn.begin().await?;
         sqlx::query!(
             r"
                 INSERT INTO blob_aliases (hash, blob_hash) VALUES (?, ?)
@@ -306,6 +312,7 @@ pub async fn save_blob_from_file(
         .execute(&mut *db_transaction)
         .await?;
         db_transaction.commit().await?;
+        drop(db_conn);
     }
 
     if let Some(parent) = blob_path.parent() {
@@ -445,7 +452,8 @@ impl<'a> SaveBlobOptions<'a> {
 
 pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<BlobHash>> {
     let hash_string = hash.to_string();
-    let mut db_transaction = brioche.db_pool.begin().await?;
+    let mut db_conn = brioche.db_conn.lock().await;
+    let mut db_transaction = db_conn.begin().await?;
     let result = sqlx::query!(
         r#"
             SELECT blob_hash FROM blob_aliases WHERE hash = ? LIMIT 1
@@ -455,6 +463,7 @@ pub async fn find_blob(brioche: &Brioche, hash: &Hash) -> anyhow::Result<Option<
     .fetch_optional(&mut *db_transaction)
     .await?;
     db_transaction.commit().await?;
+    drop(db_conn);
 
     match result {
         Some(row) => {
