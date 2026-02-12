@@ -84,7 +84,9 @@ fn partition_paths(
     project: Vec<PathBuf>,
 ) -> anyhow::Result<(HashSet<PathBuf>, bool)> {
     if paths.is_empty() && project.is_empty() {
-        return Ok((HashSet::from([PathBuf::from(".")]), false));
+        let path = PathBuf::from(".");
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        return Ok((HashSet::from([path]), false));
     }
 
     // Merge positional args with --project flag
@@ -111,6 +113,7 @@ fn partition_paths(
             _ => {}
         }
 
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
         result.insert(path);
     }
 
@@ -240,5 +243,41 @@ fn report_format_results(reporter: &Reporter, files: &[PathBuf], check: bool) {
             &format!("The following files are not formatted:\n{file_list}"),
             superconsole::style::ContentStyle::default(),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_inputs_defaults_to_current_dir() {
+        let (paths, is_file) = partition_paths(vec![], vec![]).unwrap();
+        let expected = std::fs::canonicalize(".").unwrap();
+        assert_eq!(paths, HashSet::from([expected]));
+        assert!(!is_file);
+    }
+
+    #[test]
+    fn test_deduplicates_paths() {
+        let dir = std::env::temp_dir().join("brioche_format_dedup_test");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path_a = dir.join("./");
+        let path_b = dir.clone();
+        let (paths, _) = partition_paths(vec![path_a, path_b], vec![]).unwrap();
+        assert_eq!(paths.len(), 1);
+
+        std::fs::remove_dir(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_nonexistent_path_accepted() {
+        let path = PathBuf::from("this/path/does/not/exist");
+        let result = partition_paths(vec![path.clone()], vec![]);
+        assert!(result.is_ok());
+        let (paths, is_file) = result.unwrap();
+        assert!(paths.contains(&path));
+        assert!(!is_file);
     }
 }

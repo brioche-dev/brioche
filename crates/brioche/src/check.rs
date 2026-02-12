@@ -153,6 +153,37 @@ struct CheckOptions {
     locked: bool,
 }
 
+/// Resolves input paths by merging positional args with the deprecated `--project` flag,
+/// then deduplicates them. Only project directories are accepted — individual files are rejected.
+///
+/// Returns the current directory as a default when no paths are provided.
+fn resolve_project_paths(
+    projects: Vec<PathBuf>,
+    project: Vec<PathBuf>,
+) -> anyhow::Result<HashSet<PathBuf>> {
+    if projects.is_empty() && project.is_empty() {
+        let path = PathBuf::from(".");
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        return Ok(HashSet::from([path]));
+    }
+
+    let all_paths = projects.into_iter().chain(project);
+    let mut result = HashSet::with_capacity(all_paths.size_hint().0);
+
+    for path in all_paths {
+        if path.is_file() {
+            anyhow::bail!(
+                "path '{}' is a file, but check only supports project directories",
+                path.display()
+            );
+        }
+        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        result.insert(path);
+    }
+
+    Ok(result)
+}
+
 async fn run_check(
     reporter: &Reporter,
     brioche: &Brioche,
@@ -205,5 +236,38 @@ async fn run_check(
 
             Ok(false)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_empty_inputs_defaults_to_current_dir() {
+        let result = resolve_project_paths(vec![], vec![]).unwrap();
+        let expected = std::fs::canonicalize(".").unwrap();
+        assert_eq!(result, HashSet::from([expected]));
+    }
+
+    #[test]
+    fn test_deduplicates_paths() {
+        let dir = std::env::temp_dir().join("brioche_check_dedup_test");
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let path_a = dir.join("./");
+        let path_b = dir.clone();
+        let result = resolve_project_paths(vec![path_a, path_b], vec![]).unwrap();
+        assert_eq!(result.len(), 1);
+
+        std::fs::remove_dir(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_nonexistent_path_accepted() {
+        let path = PathBuf::from("this/path/does/not/exist");
+        let result = resolve_project_paths(vec![path.clone()], vec![]);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains(&path));
     }
 }
