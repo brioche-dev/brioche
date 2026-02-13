@@ -1,5 +1,6 @@
 use std::{path::PathBuf, process::ExitCode};
 
+use brioche_core::projects::ProjectSpecifier;
 use clap::Parser;
 
 #[derive(Debug, Parser)]
@@ -50,8 +51,26 @@ pub struct BuildArgs {
     display: super::DisplayMode,
 }
 
-pub async fn build(_args: BuildArgs) -> anyhow::Result<ExitCode> {
-    todo!();
+pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
+    let brioche = brioche_core::Brioche::default();
+
+    if args.project.registry.is_some() {
+        todo!("registry projects");
+    }
+    let Some(path) = args.project.project else {
+        todo!("no project arg specified");
+    };
+    let path = brioche_core::path::canonicalize_system_path(&path).await?;
+    let specifier = ProjectSpecifier::Path(path);
+    let mut projects = brioche_core::projects::load_projects(&brioche, [specifier.clone()]).await?;
+    let project_ref = projects
+        .remove(&specifier)
+        .expect("project not found in result");
+
+    dbg!(project_ref);
+
+    Ok(ExitCode::SUCCESS)
+
     // let (reporter, mut guard) = brioche_core::reporter::console::start_console_reporter(
     //     args.display.to_console_reporter_kind(),
     // )?;
