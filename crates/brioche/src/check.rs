@@ -20,11 +20,11 @@ pub struct CheckArgs {
     /// Project directories to check. Defaults to current directory.
     projects: Vec<PathBuf>,
 
-    /// Deprecated: use positional arguments instead
+    /// Deprecated: use positional arguments instead.
     #[arg(short, long, hide = true)]
     project: Vec<PathBuf>,
 
-    /// Validate that the lockfile is up-to-date
+    /// Validate that the lockfile is up-to-date.
     #[arg(long)]
     locked: bool,
 

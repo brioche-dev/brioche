@@ -19,7 +19,7 @@ pub struct PublishArgs {
     #[arg(short, long, hide = true)]
     project: Vec<PathBuf>,
 
-    /// Skip verifying the project before publishing
+    /// Skip verifying the project before publishing.
     #[arg(long)]
     no_verify: bool,
 

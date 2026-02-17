@@ -11,15 +11,15 @@ pub struct LiveUpdateArgs {
     #[command(flatten)]
     project: super::ProjectArgs,
 
-    /// Check the project before building
+    /// Check the project before building.
     #[arg(long)]
     check: bool,
 
-    /// Validate that the lockfile is up-to-date before applying updates
+    /// Validate that the lockfile is up-to-date before applying updates.
     #[arg(long)]
     locked: bool,
 
-    /// Keep temporary build files. Useful for debugging build failures
+    /// Keep temporary build files. Useful for debugging build failures.
     #[arg(long)]
     keep_temps: bool,
 

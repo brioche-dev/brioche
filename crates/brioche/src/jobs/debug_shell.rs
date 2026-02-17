@@ -10,7 +10,7 @@ use super::{log_file_reader_from_path, log_file_reader_from_stdin};
 
 #[derive(Debug, Parser)]
 pub struct DebugShellArgs {
-    /// The path to the event file from the job
+    /// The path to the event file from the job.
     path: PathBuf,
 }
 

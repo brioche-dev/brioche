@@ -279,7 +279,7 @@ struct ProjectArgs {
     #[clap(short, long)]
     project: Option<PathBuf>,
 
-    /// The name of a registry project to build
+    /// The name of a registry project to build.
     #[clap(short, long)]
     registry: Option<String>,
 }
@@ -291,7 +291,7 @@ struct MultipleProjectArgs {
     #[clap(short, long)]
     project: Vec<PathBuf>,
 
-    /// The name of a registry project to build
+    /// The name of a registry project to build.
     #[clap(id = "registry", short, long)]
     registry_project: Vec<String>,
 }

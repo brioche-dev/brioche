@@ -20,15 +20,15 @@ pub struct InstallArgs {
     #[command(flatten)]
     project: super::MultipleProjectArgs,
 
-    /// Which TypeScript export to build
+    /// Which TypeScript export to build.
     #[arg(short, long, default_value = "default")]
     export: String,
 
-    /// Check the project before building
+    /// Check the project before building.
     #[arg(long)]
     check: bool,
 
-    /// Validate that the lockfile is up-to-date
+    /// Validate that the lockfile is up-to-date.
     #[arg(long)]
     locked: bool,
 
