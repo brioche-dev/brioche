@@ -36,61 +36,66 @@ pub async fn publish(
         args.display.to_console_reporter_kind(),
     )?;
 
-    let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
-        .build()
-        .await?;
-    crate::start_shutdown_handler(brioche.clone());
+    let check_result = async {
+        let brioche = brioche_core::BriocheBuilder::new(reporter.clone())
+            .build()
+            .await?;
+        crate::start_shutdown_handler(brioche.clone());
 
-    let projects = brioche_core::project::Projects::default();
+        let projects = brioche_core::project::Projects::default();
 
-    let mut error_result = None;
+        let mut error_result = None;
 
-    // Do nothing if no projects are specified.
-    if args.projects.is_empty() && args.project.is_empty() {
-        guard.shutdown_console().await;
-        return Ok(ExitCode::SUCCESS);
-    }
+        // Do nothing if no projects are specified.
+        if args.projects.is_empty() && args.project.is_empty() {
+            return Ok(None);
+        }
 
-    let project_paths =
-        tokio::task::spawn_blocking(|| resolve_project_paths(args.projects, args.project))
-            .await
-            .context("failed to resolve project paths")??;
+        let project_paths =
+            tokio::task::spawn_blocking(|| resolve_project_paths(args.projects, args.project))
+                .await
+                .context("failed to resolve project paths")??;
 
-    // Loop over the projects
-    for project_path in project_paths {
-        let project_name = format!("project '{name}'", name = project_path.display());
+        // Loop over the projects
+        for project_path in project_paths {
+            let project_name = format!("project '{name}'", name = project_path.display());
 
-        match projects
-            .load(
-                &brioche,
-                &project_path,
-                ProjectValidation::Standard,
-                ProjectLocking::Locked,
-            )
-            .await
-        {
-            Ok(project_hash) => {
-                let result = run_publish(
-                    &reporter,
+            match projects
+                .load(
                     &brioche,
-                    js_platform,
-                    &projects,
-                    project_hash,
-                    &project_name,
-                    args.no_verify,
+                    &project_path,
+                    ProjectValidation::Standard,
+                    ProjectLocking::Locked,
                 )
-                .await;
-                consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
-            }
-            Err(e) => {
-                consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
+                .await
+            {
+                Ok(project_hash) => {
+                    let result = run_publish(
+                        &reporter,
+                        &brioche,
+                        js_platform,
+                        &projects,
+                        project_hash,
+                        &project_name,
+                        args.no_verify,
+                    )
+                    .await;
+                    consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
+                }
+                Err(e) => {
+                    consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
+                }
             }
         }
+
+        brioche.wait_for_tasks().await;
+        anyhow::Ok(error_result)
     }
+    .await;
 
     guard.shutdown_console().await;
-    brioche.wait_for_tasks().await;
 
+    let error_result = check_result?;
     let exit_code = error_result.map_or(ExitCode::SUCCESS, |()| ExitCode::FAILURE);
 
     Ok(exit_code)
