@@ -1,5 +1,6 @@
 use std::{collections::HashSet, path::PathBuf, process::ExitCode};
 
+use anyhow::Context as _;
 use brioche_core::{
     Brioche,
     project::{ProjectHash, ProjectLocking, ProjectValidation, Projects},
@@ -11,8 +12,11 @@ use crate::utils::{consolidate_result, resolve_project_paths};
 
 #[derive(Debug, Parser)]
 pub struct PublishArgs {
-    /// The path to the project directory to publish
-    #[arg(short, long)]
+    /// Project directories to publish.
+    projects: Vec<PathBuf>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
     project: Vec<PathBuf>,
 
     /// Skip verifying the project before publishing
@@ -41,8 +45,19 @@ pub async fn publish(
 
     let mut error_result = None;
 
+    // Do nothing if no projects are specified.
+    if args.projects.is_empty() && args.project.is_empty() {
+        guard.shutdown_console().await;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let project_paths =
+        tokio::task::spawn_blocking(|| resolve_project_paths(args.projects, args.project))
+            .await
+            .context("failed to resolve project paths")??;
+
     // Loop over the projects
-    for project_path in args.project {
+    for project_path in project_paths {
         let project_name = format!("project '{name}'", name = project_path.display());
 
         match projects
