@@ -7,7 +7,7 @@ use brioche_core::{
 };
 use clap::Parser;
 
-use crate::consolidate_result;
+use crate::utils::{consolidate_result, resolve_project_paths};
 
 #[derive(Debug, Parser)]
 pub struct PublishArgs {

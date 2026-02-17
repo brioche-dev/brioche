@@ -13,7 +13,7 @@ use brioche_core::utils::DisplayDuration;
 use clap::Parser;
 use tracing::Instrument as _;
 
-use crate::consolidate_result;
+use crate::utils::consolidate_result;
 
 #[derive(Debug, Parser)]
 pub struct InstallArgs {
