@@ -105,26 +105,33 @@ pub struct RelativePath {
 }
 
 impl RelativePath {
+    pub fn new(path: impl AsRef<[u8]>) -> Self {
+        let components = path
+            .as_ref()
+            .split(|b| *b == b'/')
+            .filter_map(RelativePathComponent::new)
+            .collect();
+        Self { components }
+    }
+
     #[must_use]
-    pub fn one(component: impl Into<RelativePathComponent>) -> Self {
-        Self {
-            components: vec![component.into()],
+    pub fn one(component: impl AsRef<[u8]>) -> Self {
+        let mut path = Self::default();
+        path.add_one(component.as_ref());
+        path
+    }
+
+    fn add_one(&mut self, component: impl AsRef<[u8]>) {
+        let component = RelativePathComponent::new(component);
+        if let Some(component) = component {
+            self.components.push(component);
         }
     }
 
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.components.is_empty()
-    }
-
-    fn add_one(&mut self, component: impl Into<RelativePathComponent>) {
-        self.components.push(component.into());
-    }
-
-    #[must_use]
-    pub fn join_one(&self, component: impl Into<RelativePathComponent>) -> Self {
+    pub fn join_one(&self, component: impl AsRef<[u8]>) -> Self {
         let mut new = self.clone();
-        new.add_one(component.into());
+        new.add_one(component.as_ref());
         new
     }
 
@@ -149,6 +156,11 @@ impl RelativePath {
         let mut new = self.clone();
         new.add_subpath(subpath)?;
         Ok(new)
+    }
+
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.components.is_empty()
     }
 
     fn normalize_logical(&mut self) {
@@ -185,11 +197,20 @@ impl RelativePath {
         Ok(subpath)
     }
 
+    pub fn components(&self) -> impl Iterator<Item = &RelativePathComponent> {
+        self.components.iter()
+    }
+
+    #[must_use]
+    pub fn parent_with_last_component(&self) -> Option<(Self, RelativePathComponent)> {
+        let mut parent = self.clone();
+        let last = parent.components.pop()?;
+        Some((parent, last))
+    }
+
     #[must_use]
     pub fn parent(&self) -> Option<Self> {
-        let mut parent = self.clone();
-        let popped = parent.components.pop();
-        Some(parent).filter(|_| popped.is_some())
+        self.parent_with_last_component().map(|(parent, _)| parent)
     }
 
     #[must_use]
@@ -207,82 +228,6 @@ impl RelativePath {
     }
 }
 
-impl From<&str> for RelativePath {
-    fn from(value: &str) -> Self {
-        Self {
-            components: value.split('/').map(RelativePathComponent::from).collect(),
-        }
-    }
-}
-
-impl From<&[u8]> for RelativePath {
-    fn from(value: &[u8]) -> Self {
-        Self {
-            components: value
-                .split(|b| *b == b'/')
-                .map(RelativePathComponent::from)
-                .collect(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum RelativePathComponent {
-    CurrentDir,
-    ParentDir,
-    Normal(bstr::BString),
-}
-
-impl std::fmt::Display for RelativePathComponent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::CurrentDir => write!(f, "."),
-            Self::ParentDir => write!(f, ".."),
-            Self::Normal(normal) => write!(f, "{normal}"),
-        }
-    }
-}
-
-impl From<&str> for RelativePathComponent {
-    fn from(value: &str) -> Self {
-        match value {
-            "." => Self::CurrentDir,
-            ".." => Self::ParentDir,
-            value => Self::Normal(value.into()),
-        }
-    }
-}
-
-impl From<String> for RelativePathComponent {
-    fn from(value: String) -> Self {
-        match &*value {
-            "." => Self::CurrentDir,
-            ".." => Self::ParentDir,
-            _ => Self::Normal(value.into()),
-        }
-    }
-}
-
-impl From<&[u8]> for RelativePathComponent {
-    fn from(value: &[u8]) -> Self {
-        match value {
-            b"." => Self::CurrentDir,
-            b".." => Self::ParentDir,
-            value => Self::Normal(value.into()),
-        }
-    }
-}
-
-impl From<Vec<u8>> for RelativePathComponent {
-    fn from(value: Vec<u8>) -> Self {
-        match &*value {
-            b"." => Self::CurrentDir,
-            b".." => Self::ParentDir,
-            _ => Self::Normal(value.into()),
-        }
-    }
-}
-
 impl std::fmt::Display for RelativePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: Allow customizing the separator with validation, infer
@@ -294,6 +239,44 @@ impl std::fmt::Display for RelativePath {
 impl std::fmt::Debug for RelativePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "RelativePath({self})")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RelativePathComponent {
+    CurrentDir,
+    ParentDir,
+    Normal(bstr::BString),
+}
+
+impl RelativePathComponent {
+    pub fn new(bytes: impl AsRef<[u8]>) -> Option<Self> {
+        match bytes.as_ref() {
+            b"" => None,
+            b"." => Some(Self::CurrentDir),
+            b".." => Some(Self::ParentDir),
+            name => Some(Self::Normal(name.into())),
+        }
+    }
+}
+
+impl AsRef<[u8]> for RelativePathComponent {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::CurrentDir => b".",
+            Self::ParentDir => b"..",
+            Self::Normal(component) => component,
+        }
+    }
+}
+
+impl std::fmt::Display for RelativePathComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::CurrentDir => write!(f, "."),
+            Self::ParentDir => write!(f, ".."),
+            Self::Normal(normal) => write!(f, "{normal}"),
+        }
     }
 }
 
@@ -309,20 +292,29 @@ pub struct AbsolutePath {
 }
 
 impl AbsolutePath {
-    pub fn add_one(&mut self, component: impl Into<RelativePathComponent>) {
-        self.subpath.add_one(component.into());
+    fn add_one(&mut self, component: impl AsRef<[u8]>) {
+        self.subpath.add_one(component.as_ref());
     }
 
     #[must_use]
-    pub fn join_one(&self, component: impl Into<RelativePathComponent>) -> Self {
+    pub fn join_one(&self, component: impl AsRef<[u8]>) -> Self {
         let mut new = self.clone();
-        new.add_one(component.into());
+        new.add_one(component.as_ref());
         new
     }
 
     pub fn join_subpath(&self, subpath: RelativePath) -> Result<Self, SubpathError> {
         let new_subpath = self.subpath.join_subpath(subpath)?;
         Ok(Self {
+            root: self.root.clone(),
+            subpath: new_subpath,
+        })
+    }
+
+    #[must_use]
+    pub fn parent(&self) -> Option<Self> {
+        let new_subpath = self.subpath.parent()?;
+        Some(Self {
             root: self.root.clone(),
             subpath: new_subpath,
         })
@@ -521,19 +513,26 @@ pub fn from_system_path(path: &std::path::Path) -> Result<AnyPath, FromSystemPat
     Ok(AnyPath { base, subpath })
 }
 
-pub async fn canonicalize_system_path(
+pub fn from_canonical_system_path(
     path: &std::path::Path,
-) -> Result<AbsolutePath, CanonicalizeSystemPathError> {
-    let path = tokio::fs::canonicalize(path).await?;
-    let path = from_system_path(&path)?;
+) -> Result<AbsolutePath, CanonicalSystemPathError> {
+    let path = from_system_path(path)?;
 
     match path.base {
         Some(BasePath::Root(root)) => Ok(AbsolutePath {
             root,
             subpath: path.subpath,
         }),
-        _ => Err(CanonicalizeSystemPathError::NotAnAbsolutePath),
+        _ => Err(CanonicalSystemPathError::NotAnAbsolutePath),
     }
+}
+
+pub async fn canonicalize_system_path(
+    path: &std::path::Path,
+) -> Result<AbsolutePath, CanonicalSystemPathError> {
+    let path = tokio::fs::canonicalize(path).await?;
+    let path = from_canonical_system_path(&path)?;
+    Ok(path)
 }
 
 fn to_system_path(
@@ -660,7 +659,7 @@ pub enum ToSystemPathError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CanonicalizeSystemPathError {
+pub enum CanonicalSystemPathError {
     #[error(transparent)]
     FromSystemPath(#[from] FromSystemPathError),
 

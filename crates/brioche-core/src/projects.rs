@@ -7,7 +7,7 @@ use petgraph::stable_graph::NodeIndex;
 
 use crate::{
     Brioche,
-    path::RelativePath,
+    path::{AbsolutePath, AnyPath, RelativePath},
     script::specifier::{ImportSpecifier, LocalImportSpecifier},
 };
 
@@ -16,16 +16,21 @@ pub struct Projects {
     graph: petgraph::stable_graph::StableDiGraph<ProjectNode, ProjectEdge>,
     projects: HashMap<ProjectRef, Project>,
     modules: HashMap<ModuleRef, Result<Module, LoadModuleError>>,
+    workspaces: HashMap<WorkspaceRef, Result<Workspace, LoadWorkspaceError>>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
+    workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
     issues: HashMap<NodeIndex, Vec<LoadProjectIssue>>,
 }
 
 pub(crate) enum ProjectNode {
+    Workspace,
     Project,
     Module,
 }
 
+#[derive(Debug)]
 pub(crate) enum ProjectEdge {
+    ProjectWithinWorkspace,
     ProjectDependency(String),
     ProjectRootModule,
     ModuleImport(ImportSpecifier),
@@ -38,6 +43,11 @@ pub(crate) struct Project {
 
 pub(crate) struct Module {
     ast: crate::script::parse::ScriptAst,
+}
+
+pub(crate) struct Workspace {
+    root: AbsolutePath,
+    definition: WorkspaceDefinition,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -54,6 +64,52 @@ pub(crate) struct ProjectDefinition {
 pub(crate) enum DependencyDefinition {
     Path { path: String },
     Version(Version),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct WorkspaceDefinition {
+    pub(crate) members: Vec<WorkspaceMember>,
+}
+
+#[derive(Debug, Clone, serde_with::SerializeDisplay, serde_with::DeserializeFromStr)]
+pub(crate) enum WorkspaceMember {
+    Path(RelativePath, String),
+    WildcardPath(RelativePath),
+}
+
+impl std::str::FromStr for WorkspaceMember {
+    type Err = WorkspaceMemberParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(wildcard_path) = s.strip_suffix("/*") {
+            if wildcard_path.contains('*') {
+                return Err(WorkspaceMemberParseError::InvalidGlobPattern);
+            }
+
+            let wildcard_path = RelativePath::new(wildcard_path).normalized_subpath()?;
+            Ok(Self::WildcardPath(wildcard_path))
+        } else {
+            if s.contains('*') {
+                return Err(WorkspaceMemberParseError::InvalidGlobPattern);
+            }
+
+            let (parent, name) = match s.split_once('/') {
+                Some((parent, name)) => (RelativePath::new(parent), name),
+                None => (RelativePath::default(), s),
+            };
+
+            Ok(Self::Path(parent, name.to_string()))
+        }
+    }
+}
+
+impl std::fmt::Display for WorkspaceMember {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Path(path, name) => write!(f, "{path}/{name}"),
+            Self::WildcardPath(path) => write!(f, "{path}/*"),
+        }
+    }
 }
 
 #[derive(
@@ -91,35 +147,63 @@ pub struct ProjectRef(NodeIndex);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ModuleRef(NodeIndex);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct WorkspaceRef(NodeIndex);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ProjectSpecifier {
-    Path(crate::path::AbsolutePath),
+    Path(AbsolutePath),
     Hash(ProjectHash),
 }
 
+#[derive(Debug)]
+enum ProjectReferrer {
+    TopLevel,
+    Project {
+        referrer: ProjectRef,
+        edge: ProjectEdge,
+    },
+}
+
+#[tracing::instrument(skip_all)]
 pub async fn load_projects(
     brioche: &Brioche,
     specifiers: impl IntoIterator<Item = ProjectSpecifier>,
 ) -> Result<HashMap<ProjectSpecifier, ProjectRef>, LoadProjectError> {
     let mut queue = specifiers
         .into_iter()
-        .map(|specifier| (specifier, true))
+        .map(|specifier| (specifier, ProjectReferrer::TopLevel))
         .collect::<VecDeque<_>>();
     let mut projects = brioche.projects.write().await;
     let projects = &mut *projects;
     let mut results = HashMap::new();
 
-    while let Some((specifier, is_result)) = queue.pop_front() {
+    while let Some((specifier, referrer)) = queue.pop_front() {
         if let Some(project) = projects.projects_by_specifier.get(&specifier) {
-            if is_result {
-                results.insert(specifier, *project);
+            tracing::trace!(?specifier, ?referrer, "project already loaded");
+
+            match referrer {
+                ProjectReferrer::TopLevel => {
+                    results.insert(specifier, *project);
+                }
+                ProjectReferrer::Project { referrer, edge } => {
+                    projects.graph.add_edge(referrer.0, project.0, edge);
+                }
             }
 
             continue;
         }
 
-        let project_path = match &specifier {
-            ProjectSpecifier::Path(path) => path,
+        tracing::debug!(?specifier, ?referrer, "loading project");
+
+        let (project_path, workspace_root) = match &specifier {
+            ProjectSpecifier::Path(path) => {
+                let workspace_root = find_workspace_root(path).await?;
+
+                tracing::trace!(?path, ?workspace_root, "searched for workspace root");
+
+                (path, workspace_root)
+            }
             ProjectSpecifier::Hash(_project_hash) => {
                 todo!("load project by hash")
             }
@@ -127,6 +211,53 @@ pub async fn load_projects(
 
         let project_ref = projects.graph.add_node(ProjectNode::Project);
         let project_ref = ProjectRef(project_ref);
+
+        projects
+            .projects_by_specifier
+            .insert(specifier.clone(), project_ref);
+
+        match referrer {
+            ProjectReferrer::TopLevel => {
+                results.insert(specifier.clone(), project_ref);
+            }
+            ProjectReferrer::Project { referrer, edge } => {
+                projects.graph.add_edge(referrer.0, project_ref.0, edge);
+            }
+        }
+
+        let workspace_entry;
+        let workspace = if let Some(workspace_root) = workspace_root {
+            match projects.workspaces_by_path.entry(workspace_root) {
+                std::collections::hash_map::Entry::Occupied(entry) => {
+                    let workspace_ref = *entry.get();
+                    projects.workspaces[&workspace_ref].as_ref().ok()
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let workspace_ref = projects.graph.add_node(ProjectNode::Workspace);
+                    let workspace_ref = WorkspaceRef(workspace_ref);
+
+                    projects.graph.add_edge(
+                        workspace_ref.0,
+                        project_ref.0,
+                        ProjectEdge::ProjectWithinWorkspace,
+                    );
+
+                    let workspace = load_workspace(entry.key().clone()).await;
+
+                    tracing::trace!(workspace = ?workspace.as_ref().map(|_| ()), "loaded new workspace");
+
+                    entry.insert(workspace_ref);
+
+                    workspace_entry = projects
+                        .workspaces
+                        .entry(workspace_ref)
+                        .insert_entry(workspace);
+                    workspace_entry.get().as_ref().ok()
+                }
+            }
+        } else {
+            None
+        };
 
         let root_module_path = RelativePath::one("project.bri");
 
@@ -183,10 +314,10 @@ pub async fn load_projects(
                         ImportSpecifier::Local(specifier) => {
                             let subpath = match specifier {
                                 LocalImportSpecifier::Relative(subpath) => {
-                                    module_dir.join(RelativePath::from(&**subpath))
+                                    module_dir.join(RelativePath::new(&**subpath))
                                 }
                                 LocalImportSpecifier::ProjectRoot(subpath) => {
-                                    RelativePath::from(&**subpath)
+                                    RelativePath::new(&**subpath)
                                 }
                             };
                             let Ok(subpath) = subpath.normalized_subpath() else {
@@ -219,7 +350,21 @@ pub async fn load_projects(
                                 ));
                             }
                         }
-                        ImportSpecifier::External(_) => todo!("external import"),
+                        ImportSpecifier::External(specifier) => {
+                            let issues = projects.issues.entry(project_ref.0).or_default();
+                            let resolved =
+                                resolve_project(brioche, workspace, specifier, issues).await;
+
+                            if let Some(resolved) = resolved {
+                                queue.push_back((
+                                    resolved,
+                                    ProjectReferrer::Project {
+                                        referrer: project_ref,
+                                        edge: ProjectEdge::ProjectDependency(specifier.clone()),
+                                    },
+                                ));
+                            }
+                        }
                     }
                 }
             }
@@ -271,6 +416,33 @@ pub async fn load_projects(
     Ok(results)
 }
 
+async fn find_workspace_root(
+    path: &AbsolutePath,
+) -> Result<Option<AbsolutePath>, LoadProjectError> {
+    let mut current_path = path.clone();
+    loop {
+        let workspace_definition_path = current_path
+            .join_one("brioche_workspace.toml")
+            .to_system_path()?;
+        let exists = tokio::fs::try_exists(&workspace_definition_path)
+            .await
+            .map_err(|error| LoadProjectError::IoError {
+                error,
+                path: workspace_definition_path.clone(),
+            })?;
+        if exists {
+            return Ok(Some(current_path));
+        }
+
+        let Some(next_path) = current_path.parent() else {
+            break;
+        };
+        current_path = next_path;
+    }
+
+    Ok(None)
+}
+
 async fn load_module(path: &Path) -> Result<Module, LoadModuleError> {
     let source = tokio::fs::read(path)
         .await
@@ -287,6 +459,97 @@ async fn load_module(path: &Path) -> Result<Module, LoadModuleError> {
     Ok(Module { ast })
 }
 
+async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceError> {
+    let workspace_definition_path = root
+        .join_one("brioche_workspace.toml")
+        .to_system_path()
+        .unwrap_or_else(|error| {
+            panic!("could not convert workspace root {root} to system path: {error}")
+        });
+    let source = tokio::fs::read(&workspace_definition_path)
+        .await
+        .map_err(|error| LoadWorkspaceError::IoError {
+            error,
+            path: workspace_definition_path.clone(),
+        })?;
+    let definition: WorkspaceDefinition =
+        toml::from_slice(&source).map_err(|error| LoadWorkspaceError::ParseError {
+            error,
+            path: workspace_definition_path,
+        })?;
+
+    Ok(Workspace { root, definition })
+}
+
+async fn resolve_project(
+    _brioche: &Brioche,
+    workspace: Option<&Workspace>,
+    specifier: &str,
+    issues: &mut Vec<LoadProjectIssue>,
+) -> Option<ProjectSpecifier> {
+    if let Some(workspace) = workspace
+        && let Some(resolved) = resolve_project_from_workspace(workspace, specifier, issues).await
+    {
+        return Some(resolved);
+    }
+
+    todo!("resolve from registry: {specifier}");
+}
+
+async fn resolve_project_from_workspace(
+    workspace: &Workspace,
+    specifier: &str,
+    issues: &mut Vec<LoadProjectIssue>,
+) -> Option<ProjectSpecifier> {
+    for member in &workspace.definition.members {
+        match member {
+            WorkspaceMember::Path(parent, name) => {
+                if name == specifier {
+                    let member_path = workspace
+                        .root
+                        .join_subpath(parent.clone())
+                        .expect("invalid workspace member subpath")
+                        .join_one(name);
+                    return Some(ProjectSpecifier::Path(member_path));
+                }
+            }
+            WorkspaceMember::WildcardPath(parent) => {
+                let member_path = workspace
+                    .root
+                    .join_subpath(parent.clone())
+                    .expect("invalid workspace member subpath")
+                    .join_one(specifier);
+                let root_module_path = member_path.join_one("project.bri");
+                let root_module_system_path = root_module_path.to_system_path();
+                let root_module_system_path = match root_module_system_path {
+                    Ok(path) => path,
+                    Err(error) => {
+                        issues.push(LoadProjectIssue::ToSystemPathError {
+                            error,
+                            path: root_module_path.into(),
+                        });
+                        continue;
+                    }
+                };
+
+                let exists = tokio::fs::try_exists(&root_module_system_path).await;
+                match exists {
+                    Ok(true) => return Some(ProjectSpecifier::Path(member_path)),
+                    Ok(false) => {}
+                    Err(error) => {
+                        issues.push(LoadProjectIssue::IoError {
+                            error,
+                            path: root_module_system_path,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    todo!();
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum LoadProjectIssue {
     #[error(transparent)]
@@ -296,6 +559,18 @@ pub(crate) enum LoadProjectIssue {
     InvalidProjectDefinition {
         error: serde_json::Error,
         range: crate::script::parse::TextRange,
+    },
+
+    #[error("IO error at {}: {error}", path.display())]
+    IoError {
+        error: std::io::Error,
+        path: std::path::PathBuf,
+    },
+
+    #[error("invalid path '{path}': {error}")]
+    ToSystemPathError {
+        error: crate::path::ToSystemPathError,
+        path: AnyPath,
     },
 
     #[error("module import '{}' escapes project path", import.specifier)]
@@ -308,6 +583,16 @@ pub(crate) enum LoadProjectIssue {
 pub enum LoadProjectError {
     #[error(transparent)]
     ToSystemPathError(#[from] crate::path::ToSystemPathError),
+
+    #[error("IO error at {}: {error}", path.display())]
+    IoError {
+        #[source]
+        error: std::io::Error,
+        path: std::path::PathBuf,
+    },
+
+    #[error(transparent)]
+    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -324,4 +609,29 @@ enum LoadModuleError {
         error: std::string::FromUtf8Error,
         path: std::path::PathBuf,
     },
+}
+
+#[derive(Debug, thiserror::Error)]
+enum LoadWorkspaceError {
+    #[error("failed to load workspace at {}: {error}", path.display())]
+    IoError {
+        #[source]
+        error: std::io::Error,
+        path: std::path::PathBuf,
+    },
+    #[error("failed to parse workspace definition at {}: {error}", path.display())]
+    ParseError {
+        #[source]
+        error: toml::de::Error,
+        path: std::path::PathBuf,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum WorkspaceMemberParseError {
+    #[error("invalid glob pattern in workspace member path")]
+    InvalidGlobPattern,
+
+    #[error(transparent)]
+    SubpathError(#[from] crate::path::SubpathError),
 }
