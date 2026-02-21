@@ -42,6 +42,11 @@ tokio = { version = "1.49.0", features = ["full", "tracing"] }
 tokio-util = "0.7.18"
 tower-lsp = "0.20.0"
 tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = [
+    "env-filter",
+    "json",
+    "tracing-log",
+] }
 ulid = "1.2.1"
 url = { version = "2.5.8", features = ["serde"] }
 zstd-framed = { version = "0.1.1", features = ["tokio"] }

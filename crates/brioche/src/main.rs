@@ -1,6 +1,7 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use clap::Parser;
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 mod build;
 mod run_sandbox;
@@ -24,6 +25,15 @@ fn main() -> anyhow::Result<ExitCode> {
 
     match args {
         Args::Build(args) => {
+            tracing_subscriber::registry()
+                .with(tracing_subscriber::fmt::layer())
+                .with(
+                    tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                        tracing_subscriber::EnvFilter::new("brioche=info,warn")
+                    }),
+                )
+                .init();
+
             // let js_platform = brioche_core::script::initialize_js_platform();
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
