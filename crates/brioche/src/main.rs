@@ -26,7 +26,12 @@ fn main() -> anyhow::Result<ExitCode> {
     match args {
         Args::Build(args) => {
             tracing_subscriber::registry()
-                .with(tracing_subscriber::fmt::layer())
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .compact()
+                        .with_target(false)
+                        .without_time(),
+                )
                 .with(
                     tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                         tracing_subscriber::EnvFilter::new("brioche=info,warn")
