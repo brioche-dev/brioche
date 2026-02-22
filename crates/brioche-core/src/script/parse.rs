@@ -596,7 +596,7 @@ fn arg_to_string_literal(
     Ok(arg_value.to_string())
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ScriptParseError {
     #[error("syntax error")]
     SyntaxError {
@@ -618,6 +618,17 @@ pub enum ScriptParseError {
 
     #[error("unsupported export: {reason}")]
     UnsupportedExport { range: TextRange, reason: String },
+}
+
+impl ScriptParseError {
+    pub const fn range(&self) -> TextRange {
+        match self {
+            Self::SyntaxError { range, .. }
+            | Self::UnsupportedFunctionCallArity { range, .. }
+            | Self::UnsupportedStaticExpression { range, .. }
+            | Self::UnsupportedExport { range, .. } => *range,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

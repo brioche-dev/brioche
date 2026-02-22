@@ -1,11 +1,9 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::{Path, PathBuf};
 
 use brioche_core::{
     Brioche,
-    projects::{Project, ProjectRef, ProjectSpecifier},
+    path::AbsolutePath,
+    projects::{ProjectRef, ProjectSpecifier},
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -30,13 +28,9 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
     tokio::fs::create_dir_all(&brioche_data_dir)
         .await
         .expect("failed to create brioche data dir");
-    let brioche_data_dir = tokio::fs::canonicalize(&brioche_data_dir)
-        .await
-        .expect("failed to canonicalize brioche data dir path");
 
     let brioche = Brioche::default();
     let context = TestContext {
-        brioche: brioche.clone(),
         temp,
         registry_server,
     };
@@ -55,14 +49,17 @@ pub async fn load_project(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
 }
 
 #[must_use]
-pub fn project_specifier_for_path(brioche: &Brioche, project_dir: &Path) -> ProjectSpecifier {
-    let path = std::fs::canonicalize(project_dir).unwrap();
-    let path = brioche_core::path::from_canonical_system_path(&path).unwrap();
-    ProjectSpecifier::Path(path)
+pub fn absolute_path(path: &Path) -> AbsolutePath {
+    let path = std::fs::canonicalize(path).unwrap();
+    brioche_core::path::from_canonical_system_path(&path).unwrap()
+}
+
+#[must_use]
+pub fn project_specifier_for_path(project_dir: &Path) -> ProjectSpecifier {
+    ProjectSpecifier::Path(absolute_path(project_dir))
 }
 
 pub struct TestContext {
-    brioche: Brioche,
     temp: tempfile::TempDir,
     pub registry_server: mockito::ServerGuard,
 }

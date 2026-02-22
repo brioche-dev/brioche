@@ -3,7 +3,7 @@ use std::{
     path::Path,
 };
 
-use petgraph::{stable_graph::NodeIndex, visit::EdgeRef};
+use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
 
 use crate::{
     Brioche,
@@ -28,7 +28,7 @@ pub(crate) enum ProjectNode {
     Module,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) enum ProjectEdge {
     ProjectWithinWorkspace,
     ProjectDependency(String),
@@ -177,7 +177,36 @@ enum ProjectReferrer {
     Project {
         referrer: ProjectRef,
         edge: ProjectEdge,
+        location: IssueLocation,
     },
+}
+
+#[derive(Debug)]
+enum ModuleReferrer {
+    ProjectRoot {
+        project_ref: ProjectRef,
+    },
+    ModuleImport {
+        referrer: ModuleRef,
+        specifier: ImportSpecifier,
+        location: IssueLocation,
+    },
+}
+
+impl ModuleReferrer {
+    const fn node_index(&self) -> NodeIndex {
+        match self {
+            Self::ProjectRoot { project_ref } => project_ref.0,
+            Self::ModuleImport { referrer, .. } => referrer.0,
+        }
+    }
+
+    fn edge(&self) -> ProjectEdge {
+        match self {
+            Self::ProjectRoot { .. } => ProjectEdge::ProjectRootModule,
+            Self::ModuleImport { specifier, .. } => ProjectEdge::ModuleImport(specifier.clone()),
+        }
+    }
 }
 
 #[tracing::instrument(skip_all)]
@@ -201,7 +230,7 @@ pub async fn load_projects(
                 ProjectReferrer::TopLevel => {
                     results.insert(specifier, *project);
                 }
-                ProjectReferrer::Project { referrer, edge } => {
+                ProjectReferrer::Project { referrer, edge, .. } => {
                     projects.graph.add_edge(referrer.0, project.0, edge);
                 }
             }
@@ -231,12 +260,14 @@ pub async fn load_projects(
             .projects_by_specifier
             .insert(specifier.clone(), project_ref);
 
-        match referrer {
+        match &referrer {
             ProjectReferrer::TopLevel => {
                 results.insert(specifier.clone(), project_ref);
             }
-            ProjectReferrer::Project { referrer, edge } => {
-                projects.graph.add_edge(referrer.0, project_ref.0, edge);
+            ProjectReferrer::Project { referrer, edge, .. } => {
+                projects
+                    .graph
+                    .add_edge(referrer.0, project_ref.0, edge.clone());
             }
         }
 
@@ -274,18 +305,24 @@ pub async fn load_projects(
             None
         };
 
-        let root_module_path = RelativePath::one("project.bri");
+        let root_module_subpath = RelativePath::one("project.bri");
+        let root_module_path = project_path
+            .join_subpath(root_module_subpath.clone())
+            .unwrap();
 
         let mut module_queue = VecDeque::from_iter([(
-            root_module_path.clone(),
-            ProjectEdge::ProjectRootModule,
-            project_ref.0,
+            root_module_subpath.clone(),
+            ModuleReferrer::ProjectRoot { project_ref },
         )]);
         let mut project_modules = HashMap::<RelativePath, ModuleRef>::new();
 
-        while let Some((module_subpath, edge, referrer)) = module_queue.pop_front() {
+        while let Some((module_subpath, module_referrer)) = module_queue.pop_front() {
             if let Some(module_ref) = project_modules.get(&module_subpath) {
-                projects.graph.add_edge(referrer, module_ref.0, edge);
+                projects.graph.add_edge(
+                    module_referrer.node_index(),
+                    module_ref.0,
+                    module_referrer.edge(),
+                );
                 continue;
             }
 
@@ -300,7 +337,11 @@ pub async fn load_projects(
 
             let module_ref = projects.graph.add_node(ProjectNode::Module);
             let module_ref = ModuleRef(module_ref);
-            projects.graph.add_edge(referrer, module_ref.0, edge);
+            projects.graph.add_edge(
+                module_referrer.node_index(),
+                module_ref.0,
+                module_referrer.edge(),
+            );
             project_modules.insert(module_subpath, module_ref);
 
             let module_system_path = module_path.to_system_path()?;
@@ -308,84 +349,108 @@ pub async fn load_projects(
 
             let module_entry = projects.modules.entry(module_ref).insert_entry(module);
             let module = module_entry.get();
-            if let Ok(module) = &module {
-                let imports = crate::script::parse::find_imports(&module.ast);
-                for import in imports {
-                    let import = match import {
-                        Ok(import) => import,
-                        Err(error) => {
-                            projects
-                                .issues
-                                .entry(module_ref.0)
-                                .or_default()
-                                .push(LoadProjectIssue::ScriptParseError(error));
-                            continue;
-                        }
-                    };
-                    let import_specifier: Result<ImportSpecifier, _> = import.specifier.parse();
-                    let Ok(import_specifier) = import_specifier;
 
-                    match &import_specifier {
-                        ImportSpecifier::Local(specifier) => {
-                            let subpath = match specifier {
-                                LocalImportSpecifier::Relative(subpath) => {
-                                    module_dir.join(RelativePath::new(&**subpath))
-                                }
-                                LocalImportSpecifier::ProjectRoot(subpath) => {
-                                    RelativePath::new(&**subpath)
-                                }
-                            };
-                            let Ok(subpath) = subpath.normalized_subpath() else {
+            match module {
+                Ok(module) => {
+                    let imports = crate::script::parse::find_imports(&module.ast);
+                    for import in imports {
+                        let import = match import {
+                            Ok(import) => import,
+                            Err(error) => {
                                 projects.issues.entry(module_ref.0).or_default().push(
-                                    LoadProjectIssue::ModuleImportEscapesProjectPath { import },
+                                    LoadProjectIssue::ScriptParseError {
+                                        error,
+                                        path: module_path.clone(),
+                                    },
                                 );
                                 continue;
-                            };
+                            }
+                        };
+                        let import_specifier: Result<ImportSpecifier, _> = import.specifier.parse();
+                        let Ok(import_specifier) = import_specifier;
 
-                            if subpath
-                                .filename()
-                                .is_some_and(|filename| filename.ends_with(b".bri"))
-                            {
+                        match &import_specifier {
+                            ImportSpecifier::Local(specifier) => {
+                                let subpath = match specifier {
+                                    LocalImportSpecifier::Relative(subpath) => {
+                                        module_dir.join(RelativePath::new(&**subpath))
+                                    }
+                                    LocalImportSpecifier::ProjectRoot(subpath) => {
+                                        RelativePath::new(&**subpath)
+                                    }
+                                };
+                                let Ok(subpath) = subpath.normalized_subpath() else {
+                                    projects.issues.entry(module_ref.0).or_default().push(
+                                        LoadProjectIssue::ModuleImportEscapesProjectPath {
+                                            import,
+                                            path: module_path.clone(),
+                                        },
+                                    );
+                                    continue;
+                                };
+
+                                let subpath = expand_module_subpath(subpath);
                                 module_queue.push_back((
                                     subpath,
-                                    ProjectEdge::ModuleImport(import_specifier),
-                                    module_ref.0,
-                                ));
-                            } else if subpath.is_empty() {
-                                module_queue.push_back((
-                                    subpath.join_one("project.bri"),
-                                    ProjectEdge::ModuleImport(import_specifier),
-                                    module_ref.0,
-                                ));
-                            } else {
-                                module_queue.push_back((
-                                    subpath.join_one("index.bri"),
-                                    ProjectEdge::ModuleImport(import_specifier),
-                                    module_ref.0,
-                                ));
-                            }
-                        }
-                        ImportSpecifier::External(specifier) => {
-                            let issues = projects.issues.entry(project_ref.0).or_default();
-                            let resolved =
-                                resolve_project(brioche, workspace, specifier, issues).await;
-
-                            if let Some(resolved) = resolved {
-                                queue.push_back((
-                                    resolved,
-                                    ProjectReferrer::Project {
-                                        referrer: project_ref,
-                                        edge: ProjectEdge::ProjectDependency(specifier.clone()),
+                                    ModuleReferrer::ModuleImport {
+                                        referrer: module_ref,
+                                        specifier: import_specifier,
+                                        location: IssueLocation {
+                                            path: module_path.clone(),
+                                            range: Some(import.range),
+                                        },
                                     },
                                 ));
+                            }
+                            ImportSpecifier::External(specifier) => {
+                                let location = IssueLocation {
+                                    path: module_path.clone(),
+                                    range: Some(import.range),
+                                };
+                                let issues = projects.issues.entry(project_ref.0).or_default();
+                                let resolved = resolve_project(
+                                    brioche,
+                                    workspace,
+                                    specifier,
+                                    location.clone(),
+                                    issues,
+                                )
+                                .await;
+
+                                if let Some(resolved) = resolved {
+                                    queue.push_back((
+                                        resolved,
+                                        ProjectReferrer::Project {
+                                            referrer: project_ref,
+                                            edge: ProjectEdge::ProjectDependency(specifier.clone()),
+                                            location,
+                                        },
+                                    ));
+                                }
                             }
                         }
                     }
                 }
+                Err(error) => {
+                    let location = match module_referrer {
+                        ModuleReferrer::ProjectRoot { .. } => match &referrer {
+                            ProjectReferrer::Project { location, .. } => Some(location.clone()),
+                            ProjectReferrer::TopLevel => None,
+                        },
+                        ModuleReferrer::ModuleImport { location, .. } => Some(location),
+                    };
+                    projects.issues.entry(project_ref.0).or_default().push(
+                        LoadProjectIssue::LoadModuleError {
+                            error: error.clone(),
+                            path: module_path,
+                            location,
+                        },
+                    );
+                }
             }
         }
 
-        let root_module_ref = &project_modules[&root_module_path];
+        let root_module_ref = &project_modules[&root_module_subpath];
         let root_module = &projects.modules[root_module_ref];
 
         let project_definition_value = root_module.as_ref().map_or_else(
@@ -395,13 +460,19 @@ pub async fn load_projects(
         let project_definition_value = match project_definition_value {
             Ok(value) => value,
             Err(error) => {
-                projects
-                    .issues
-                    .entry(root_module_ref.0)
-                    .or_default()
-                    .push(LoadProjectIssue::ScriptParseError(error));
+                projects.issues.entry(root_module_ref.0).or_default().push(
+                    LoadProjectIssue::ScriptParseError {
+                        error,
+                        path: root_module_path.clone(),
+                    },
+                );
                 None
             }
+        };
+
+        let project_definition_location = IssueLocation {
+            path: root_module_path.clone(),
+            range: project_definition_value.as_ref().map(|value| value.range),
         };
         let project_definition = project_definition_value.and_then(|value| {
             let project_definition: Result<ProjectDefinition, _> =
@@ -411,8 +482,10 @@ pub async fn load_projects(
                 Err(error) => {
                     projects.issues.entry(root_module_ref.0).or_default().push(
                         LoadProjectIssue::InvalidProjectDefinition {
-                            error,
-                            range: value.range,
+                            error_message: error.to_string(),
+                            line: error.line(),
+                            column: error.column(),
+                            location: project_definition_location.clone(),
                         },
                     );
                     None
@@ -429,7 +502,14 @@ pub async fn load_projects(
                     Some(ProjectSpecifier::Path(dep_path))
                 }
                 DependencyDefinition::Version(Version::Any) => {
-                    resolve_project(brioche, workspace, specifier, issues).await
+                    resolve_project(
+                        brioche,
+                        workspace,
+                        specifier,
+                        project_definition_location.clone(),
+                        issues,
+                    )
+                    .await
                 }
             };
 
@@ -439,6 +519,7 @@ pub async fn load_projects(
                     ProjectReferrer::Project {
                         referrer: project_ref,
                         edge: ProjectEdge::ProjectDependency(specifier.clone()),
+                        location: project_definition_location.clone(),
                     },
                 ));
             }
@@ -480,15 +561,24 @@ pub async fn get_specifier(brioche: &Brioche, project_ref: ProjectRef) -> Projec
     projects.projects[&project_ref].specifier.clone()
 }
 
+pub async fn get_all_issues(brioche: &Brioche) -> Vec<LoadProjectIssue> {
+    let projects = brioche.projects.read().await;
+
+    projects
+        .issues
+        .values()
+        .flat_map(|issues| issues.iter().cloned())
+        .collect()
+}
+
 async fn find_workspace_root(
     path: &AbsolutePath,
 ) -> Result<Option<AbsolutePath>, LoadProjectError> {
     let mut current_path = path.clone();
     loop {
-        let workspace_definition_path = current_path
-            .join_one("brioche_workspace.toml")
-            .to_system_path()?;
-        let exists = tokio::fs::try_exists(&workspace_definition_path)
+        let workspace_definition_path = current_path.join_one("brioche_workspace.toml");
+        let workspace_definition_system_path = workspace_definition_path.to_system_path()?;
+        let exists = tokio::fs::try_exists(&workspace_definition_system_path)
             .await
             .map_err(|error| LoadProjectError::IoError {
                 error,
@@ -511,13 +601,10 @@ async fn load_module(path: &Path) -> Result<Module, LoadModuleError> {
     let source = tokio::fs::read(path)
         .await
         .map_err(|error| LoadModuleError::IoError {
-            error,
-            path: path.to_path_buf(),
+            error_message: error.to_string(),
         })?;
-    let source = String::from_utf8(source).map_err(|error| LoadModuleError::FileUtf8Error {
-        error,
-        path: path.to_path_buf(),
-    })?;
+    let source = String::from_utf8(source)
+        .map_err(|error| LoadModuleError::Utf8Error(error.utf8_error()))?;
     let ast = crate::script::parse::parse_script(&source);
 
     Ok(Module { ast })
@@ -545,14 +632,29 @@ async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceEr
     Ok(Workspace { root, definition })
 }
 
+fn expand_module_subpath(subpath: RelativePath) -> RelativePath {
+    if subpath
+        .filename()
+        .is_some_and(|filename| filename.ends_with(b".bri"))
+    {
+        subpath
+    } else if subpath.is_empty() {
+        subpath.join_one("project.bri")
+    } else {
+        subpath.join_one("index.bri")
+    }
+}
+
 async fn resolve_project(
     _brioche: &Brioche,
     workspace: Option<&Workspace>,
     specifier: &str,
+    location: IssueLocation,
     issues: &mut Vec<LoadProjectIssue>,
 ) -> Option<ProjectSpecifier> {
     if let Some(workspace) = workspace
-        && let Some(resolved) = resolve_project_from_workspace(workspace, specifier, issues).await
+        && let Some(resolved) =
+            resolve_project_from_workspace(workspace, specifier, location, issues).await
     {
         return Some(resolved);
     }
@@ -563,6 +665,7 @@ async fn resolve_project(
 async fn resolve_project_from_workspace(
     workspace: &Workspace,
     specifier: &str,
+    location: IssueLocation,
     issues: &mut Vec<LoadProjectIssue>,
 ) -> Option<ProjectSpecifier> {
     for member in &workspace.definition.members {
@@ -591,6 +694,7 @@ async fn resolve_project_from_workspace(
                         issues.push(LoadProjectIssue::ToSystemPathError {
                             error,
                             path: root_module_path.into(),
+                            location: location.clone(),
                         });
                         continue;
                     }
@@ -602,8 +706,9 @@ async fn resolve_project_from_workspace(
                     Ok(false) => {}
                     Err(error) => {
                         issues.push(LoadProjectIssue::IoError {
-                            error,
-                            path: root_module_system_path,
+                            error_message: error.to_string(),
+                            path: root_module_path,
+                            location: location.clone(),
                         });
                     }
                 }
@@ -614,33 +719,74 @@ async fn resolve_project_from_workspace(
     todo!();
 }
 
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum LoadProjectIssue {
-    #[error(transparent)]
-    ScriptParseError(crate::script::parse::ScriptParseError),
-
-    #[error("invalid project definition: {error}")]
-    InvalidProjectDefinition {
-        error: serde_json::Error,
-        range: crate::script::parse::TextRange,
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum LoadProjectIssue {
+    #[error("{error}")]
+    ScriptParseError {
+        error: crate::script::parse::ScriptParseError,
+        path: AbsolutePath,
     },
 
-    #[error("IO error at {}: {error}", path.display())]
+    #[error("{error}")]
+    LoadModuleError {
+        error: LoadModuleError,
+        path: AbsolutePath,
+        location: Option<IssueLocation>,
+    },
+
+    #[error("invalid project definition: {error_message}")]
+    InvalidProjectDefinition {
+        error_message: String,
+        line: usize,
+        column: usize,
+        location: IssueLocation,
+    },
+
+    #[error("IO error at {path}: {error_message}")]
     IoError {
-        error: std::io::Error,
-        path: std::path::PathBuf,
+        error_message: String,
+        path: AbsolutePath,
+        location: IssueLocation,
     },
 
     #[error("invalid path '{path}': {error}")]
     ToSystemPathError {
         error: crate::path::ToSystemPathError,
         path: AnyPath,
+        location: IssueLocation,
     },
 
     #[error("module import '{}' escapes project path", import.specifier)]
     ModuleImportEscapesProjectPath {
         import: crate::script::parse::ScriptImport,
+        path: AbsolutePath,
     },
+}
+
+impl LoadProjectIssue {
+    #[must_use]
+    pub fn location(&self) -> Option<IssueLocation> {
+        match self {
+            Self::InvalidProjectDefinition { location, .. }
+            | Self::IoError { location, .. }
+            | Self::ToSystemPathError { location, .. } => Some(location.clone()),
+            Self::LoadModuleError { location, .. } => location.clone(),
+            Self::ScriptParseError { error, path } => Some(IssueLocation {
+                path: path.clone(),
+                range: Some(error.range()),
+            }),
+            Self::ModuleImportEscapesProjectPath { import, path } => Some(IssueLocation {
+                path: path.clone(),
+                range: Some(import.range),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct IssueLocation {
+    pub path: AbsolutePath,
+    pub range: Option<crate::script::parse::TextRange>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -648,31 +794,23 @@ pub enum LoadProjectError {
     #[error(transparent)]
     ToSystemPathError(#[from] crate::path::ToSystemPathError),
 
-    #[error("IO error at {}: {error}", path.display())]
+    #[error("IO error at {path}: {error}")]
     IoError {
         #[source]
         error: std::io::Error,
-        path: std::path::PathBuf,
+        path: AbsolutePath,
     },
 
     #[error(transparent)]
     CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
 }
 
-#[derive(Debug, thiserror::Error)]
-enum LoadModuleError {
-    #[error("failed to load module at {}: {error}", path.display())]
-    IoError {
-        #[source]
-        error: std::io::Error,
-        path: std::path::PathBuf,
-    },
-    #[error("module at {} is not UTF-8: {error}", path.display())]
-    FileUtf8Error {
-        #[source]
-        error: std::string::FromUtf8Error,
-        path: std::path::PathBuf,
-    },
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum LoadModuleError {
+    #[error("IO error: {error_message}")]
+    IoError { error_message: String },
+    #[error(transparent)]
+    Utf8Error(std::str::Utf8Error),
 }
 
 #[derive(Debug, thiserror::Error)]
