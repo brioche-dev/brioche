@@ -139,7 +139,7 @@ impl std::fmt::Display for Version {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ProjectHash(crate::hash::Hash);
+pub struct ProjectHash(crate::hash::Blake3Hash);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProjectRef(NodeIndex);
