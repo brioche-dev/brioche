@@ -421,6 +421,29 @@ pub async fn load_projects(
         });
         let project_definition = project_definition.unwrap_or_default();
 
+        for (specifier, dep_definition) in &project_definition.dependencies {
+            let issues = projects.issues.entry(project_ref.0).or_default();
+            let resolved = match dep_definition {
+                DependencyDefinition::Path { path } => {
+                    let dep_path = project_path.join(RelativePath::new(path));
+                    Some(ProjectSpecifier::Path(dep_path))
+                }
+                DependencyDefinition::Version(Version::Any) => {
+                    resolve_project(brioche, workspace, specifier, issues).await
+                }
+            };
+
+            if let Some(resolved) = resolved {
+                queue.push_back((
+                    resolved,
+                    ProjectReferrer::Project {
+                        referrer: project_ref,
+                        edge: ProjectEdge::ProjectDependency(specifier.clone()),
+                    },
+                ));
+            }
+        }
+
         let project = Project {
             definition: project_definition,
             specifier,
@@ -449,6 +472,12 @@ pub async fn get_dependencies(
             Some((dep_name.clone(), dep_ref))
         })
         .collect()
+}
+
+pub async fn get_specifier(brioche: &Brioche, project_ref: ProjectRef) -> ProjectSpecifier {
+    let projects = brioche.projects.read().await;
+
+    projects.projects[&project_ref].specifier.clone()
 }
 
 async fn find_workspace_root(

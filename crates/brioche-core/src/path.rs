@@ -312,6 +312,15 @@ impl AbsolutePath {
     }
 
     #[must_use]
+    pub fn join(&self, subpath: RelativePath) -> Self {
+        let new_subpath = self.subpath.join(subpath);
+        Self {
+            root: self.root.clone(),
+            subpath: new_subpath,
+        }
+    }
+
+    #[must_use]
     pub fn parent(&self) -> Option<Self> {
         let new_subpath = self.subpath.parent()?;
         Some(Self {

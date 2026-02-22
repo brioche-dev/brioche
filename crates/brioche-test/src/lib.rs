@@ -54,6 +54,13 @@ pub async fn load_project(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
     refs.remove(&specifier).unwrap()
 }
 
+#[must_use]
+pub fn project_specifier_for_path(brioche: &Brioche, project_dir: &Path) -> ProjectSpecifier {
+    let path = std::fs::canonicalize(project_dir).unwrap();
+    let path = brioche_core::path::from_canonical_system_path(&path).unwrap();
+    ProjectSpecifier::Path(path)
+}
+
 pub struct TestContext {
     brioche: Brioche,
     temp: tempfile::TempDir,
