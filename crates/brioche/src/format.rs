@@ -9,18 +9,18 @@ use brioche_core::{
 use clap::Parser;
 use tracing::Instrument as _;
 
-use crate::consolidate_result;
+use crate::utils::consolidate_result;
 
 #[derive(Debug, Parser)]
 pub struct FormatArgs {
     /// Paths to format (files or project directories). Defaults to current directory.
     paths: Vec<PathBuf>,
 
-    /// Deprecated: use positional arguments instead
+    /// Deprecated: use positional arguments instead.
     #[arg(short, long, hide = true)]
     project: Vec<PathBuf>,
 
-    /// Check formatting without writing changes
+    /// Check formatting without writing changes.
     #[arg(long)]
     check: bool,
 

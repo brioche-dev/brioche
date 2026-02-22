@@ -32,7 +32,7 @@ const RELEASE_SIGNATURE_NAMESPACE: &str = "release@brioche.dev";
 
 #[derive(Debug, Parser)]
 pub struct SelfUpdateArgs {
-    /// Confirm the update without prompting
+    /// Confirm the update without prompting.
     #[arg(short = 'y', long)]
     confirm: bool,
 }

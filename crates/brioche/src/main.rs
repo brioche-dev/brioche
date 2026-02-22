@@ -17,6 +17,7 @@ mod publish;
 mod run;
 mod run_sandbox;
 mod self_update;
+mod utils;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -278,7 +279,7 @@ struct ProjectArgs {
     #[clap(short, long)]
     project: Option<PathBuf>,
 
-    /// The name of a registry project to build
+    /// The name of a registry project to build.
     #[clap(short, long)]
     registry: Option<String>,
 }
@@ -290,7 +291,7 @@ struct MultipleProjectArgs {
     #[clap(short, long)]
     project: Vec<PathBuf>,
 
-    /// The name of a registry project to build
+    /// The name of a registry project to build.
     #[clap(id = "registry", short, long)]
     registry_project: Vec<String>,
 }
@@ -330,36 +331,6 @@ async fn load_project(
     };
 
     Ok(project_hash)
-}
-
-fn consolidate_result(
-    reporter: &brioche_core::reporter::Reporter,
-    project_name: Option<&str>,
-    result: Result<bool, anyhow::Error>,
-    error_result: &mut Option<()>,
-) {
-    match result {
-        Err(err) => {
-            let format_string = project_name.map_or_else(
-                || format!("Error occurred in project: {err}"),
-                |project_name| format!("Error occurred with {project_name}: {err}"),
-            );
-
-            reporter.emit(superconsole::Lines::from_multiline_string(
-                &format_string,
-                superconsole::style::ContentStyle {
-                    foreground_color: Some(superconsole::style::Color::Red),
-                    ..superconsole::style::ContentStyle::default()
-                },
-            ));
-
-            *error_result = Some(());
-        }
-        Ok(false) => {
-            *error_result = Some(());
-        }
-        _ => {}
-    }
 }
 
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]

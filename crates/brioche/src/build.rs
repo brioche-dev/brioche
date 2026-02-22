@@ -10,41 +10,41 @@ pub struct BuildArgs {
     #[command(flatten)]
     project: super::ProjectArgs,
 
-    /// Which TypeScript export to build
+    /// Which TypeScript export to build.
     #[arg(short, long, default_value = "default")]
     export: String,
 
     /// The path to write the output to. The build result will not be
-    /// saved if not specified
+    /// saved if not specified.
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Check the project before building
+    /// Check the project before building.
     #[arg(long)]
     check: bool,
 
-    /// Validate that the lockfile is up-to-date
+    /// Validate that the lockfile is up-to-date.
     #[arg(long)]
     locked: bool,
 
-    /// Replace the output path if it already exists
+    /// Replace the output path if it already exists.
     #[arg(long)]
     replace: bool,
 
-    /// Merge the output path if it already exists
+    /// Merge the output path if it already exists.
     #[arg(long)]
     merge: bool,
 
-    /// Keep temporary build files. Useful for debugging build failures
+    /// Keep temporary build files. Useful for debugging build failures.
     #[arg(long)]
     keep_temps: bool,
 
-    /// Sync / cache baked recipes to the registry during the build
+    /// Sync / cache baked recipes to the registry during the build.
     #[arg(long)]
     sync: bool,
 
     /// (Experimental!) If the build result is found in the remote cache, exit
-    /// early without fetching the build result. Conflicts with `--output`
+    /// early without fetching the build result. Conflicts with `--output`.
     #[arg(long)]
     experimental_lazy: bool,
 

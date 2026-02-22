@@ -12,27 +12,27 @@ pub struct RunArgs {
     #[command(flatten)]
     project: super::ProjectArgs,
 
-    /// Which TypeScript export to build
+    /// Which TypeScript export to build.
     #[arg(short, long, default_value = "default")]
     export: String,
 
-    /// The path within the build artifact to execute
+    /// The path within the build artifact to execute.
     #[arg(short, long, default_value = "brioche-run")]
     command: String,
 
-    /// Suppress Brioche's output
+    /// Suppress Brioche's output.
     #[arg(short, long)]
     quiet: bool,
 
-    /// Check the project before building
+    /// Check the project before building.
     #[arg(long)]
     check: bool,
 
-    /// Validate that the lockfile is up-to-date
+    /// Validate that the lockfile is up-to-date.
     #[arg(long)]
     locked: bool,
 
-    /// Keep temporary build files. Useful for debugging build failures
+    /// Keep temporary build files. Useful for debugging build failures.
     #[arg(long)]
     keep_temps: bool,
 
@@ -40,7 +40,7 @@ pub struct RunArgs {
     #[arg(long, value_enum, default_value_t)]
     display: super::DisplayMode,
 
-    /// Arguments to pass to the command
+    /// Arguments to pass to the command.
     #[arg(last = true)]
     args: Vec<std::ffi::OsString>,
 }

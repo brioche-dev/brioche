@@ -5,7 +5,7 @@ use futures::FutureExt as _;
 
 #[derive(Debug, Parser)]
 pub struct LspArgs {
-    /// Use stdio for LSP transport
+    /// Use stdio for LSP transport.
     #[arg(long)]
     stdio: bool,
 }
