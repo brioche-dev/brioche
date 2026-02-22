@@ -7,8 +7,22 @@ use brioche_core::{
     Brioche,
     projects::{Project, ProjectRef, ProjectSpecifier},
 };
+use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_target(false)
+                .without_time(),
+        )
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("brioche=info,warn")),
+        )
+        .init();
+
     let temp = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let registry_server = mockito::Server::new_async().await;
 

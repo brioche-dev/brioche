@@ -1390,6 +1390,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "tracing-subscriber",
 ]
 
 [[package]]
