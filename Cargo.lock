@@ -1247,7 +1247,6 @@ name = "brioche-core"
 version = "0.1.6"
 dependencies = [
  "anyhow",
- "assert_matches",
  "async-compression",
  "async-recursion",
  "async-trait",
@@ -1295,13 +1294,11 @@ dependencies = [
  "http 1.4.0",
  "humantime",
  "humantime-serde",
- "indoc",
  "jiff",
  "joinery",
  "json-canon",
  "lazy_format",
  "libmount",
- "mockito",
  "nix 0.31.1",
  "num_enum",
  "object_store",
@@ -1314,7 +1311,6 @@ dependencies = [
  "pem-rfc7468 1.0.0",
  "petgraph",
  "pin-project-lite",
- "pretty_assertions",
  "regex",
  "relative-path",
  "reqwest 0.13.2",
@@ -1331,7 +1327,6 @@ dependencies = [
  "strum",
  "superconsole",
  "tar",
- "tempfile",
  "thiserror 2.0.18",
  "tick-encoding",
  "tokio",
@@ -1377,6 +1372,24 @@ dependencies = [
  "serde_with",
  "tick-encoding",
  "unshare",
+]
+
+[[package]]
+name = "brioche-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_matches",
+ "brioche-core",
+ "futures",
+ "indoc",
+ "mockito",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -1641,11 +1654,11 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "colored"
-version = "3.0.0"
+version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
+checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

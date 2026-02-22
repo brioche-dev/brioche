@@ -1,9 +1,9 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     path::Path,
 };
 
-use petgraph::stable_graph::NodeIndex;
+use petgraph::{stable_graph::NodeIndex, visit::EdgeRef};
 
 use crate::{
     Brioche,
@@ -36,7 +36,8 @@ pub(crate) enum ProjectEdge {
     ModuleImport(ImportSpecifier),
 }
 
-pub(crate) struct Project {
+#[derive(Clone)]
+pub struct Project {
     pub definition: ProjectDefinition,
     pub specifier: ProjectSpecifier,
 }
@@ -52,7 +53,7 @@ pub(crate) struct Workspace {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProjectDefinition {
+pub struct ProjectDefinition {
     pub name: Option<String>,
     pub version: Option<String>,
     #[serde(default)]
@@ -61,18 +62,29 @@ pub(crate) struct ProjectDefinition {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
-pub(crate) enum DependencyDefinition {
+pub enum DependencyDefinition {
     Path { path: String },
     Version(Version),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub(crate) struct WorkspaceDefinition {
-    pub(crate) members: Vec<WorkspaceMember>,
+pub struct WorkspaceDefinition {
+    pub members: Vec<WorkspaceMember>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Lockfile {
+    pub dependencies: BTreeMap<String, ProjectHash>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub downloads: BTreeMap<url::Url, crate::hash::AnyHash>,
+
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub git_refs: BTreeMap<url::Url, BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone, serde_with::SerializeDisplay, serde_with::DeserializeFromStr)]
-pub(crate) enum WorkspaceMember {
+pub enum WorkspaceMember {
     Path(RelativePath, String),
     WildcardPath(RelativePath),
 }
@@ -115,7 +127,7 @@ impl std::fmt::Display for WorkspaceMember {
 #[derive(
     Debug, Clone, PartialEq, Eq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
 )]
-pub(crate) enum Version {
+pub enum Version {
     Any,
 }
 
@@ -138,7 +150,10 @@ impl std::fmt::Display for Version {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct ProjectHash(crate::hash::Blake3Hash);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -416,6 +431,26 @@ pub async fn load_projects(
     Ok(results)
 }
 
+pub async fn get_dependencies(
+    brioche: &Brioche,
+    project_ref: ProjectRef,
+) -> HashMap<String, ProjectRef> {
+    let projects = brioche.projects.read().await;
+
+    projects
+        .graph
+        .edges(project_ref.0)
+        .filter_map(|edge| {
+            let ProjectEdge::ProjectDependency(dep_name) = edge.weight() else {
+                return None;
+            };
+
+            let dep_ref = ProjectRef(edge.target());
+            Some((dep_name.clone(), dep_ref))
+        })
+        .collect()
+}
+
 async fn find_workspace_root(
     path: &AbsolutePath,
 ) -> Result<Option<AbsolutePath>, LoadProjectError> {
@@ -628,7 +663,7 @@ enum LoadWorkspaceError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorkspaceMemberParseError {
+pub enum WorkspaceMemberParseError {
     #[error("invalid glob pattern in workspace member path")]
     InvalidGlobPattern,
 

@@ -7,7 +7,7 @@ pub mod path;
 pub mod projects;
 mod script;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Brioche {
     projects: Arc<RwLock<projects::Projects>>,
 }
