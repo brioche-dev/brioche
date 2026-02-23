@@ -62,7 +62,8 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     };
     let path = brioche_core::path::canonicalize_system_path(&path).await?;
     let specifier = ProjectSpecifier::Path(path);
-    let mut projects = brioche_core::projects::load_projects(&brioche, [specifier.clone()]).await?;
+    let mut projects =
+        brioche_core::projects::load::load_projects(&brioche, [specifier.clone()]).await?;
     let project_ref = projects
         .remove(&specifier)
         .expect("project not found in result");

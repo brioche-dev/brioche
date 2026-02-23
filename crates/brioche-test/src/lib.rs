@@ -42,7 +42,7 @@ pub async fn load_project(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
         .await
         .unwrap();
     let specifier = ProjectSpecifier::Path(project_dir);
-    let mut refs = brioche_core::projects::load_projects(brioche, [specifier.clone()])
+    let mut refs = brioche_core::projects::load::load_projects(brioche, [specifier.clone()])
         .await
         .unwrap();
     refs.remove(&specifier).unwrap()

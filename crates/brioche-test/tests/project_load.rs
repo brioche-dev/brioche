@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use brioche_core::projects::{LoadModuleError, LoadProjectIssue};
+use brioche_core::projects::{LoadProjectIssue, load::LoadModuleError};
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
