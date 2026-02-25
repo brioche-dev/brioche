@@ -4,8 +4,8 @@ use crate::{
     Brioche,
     path::{AbsolutePath, RelativePath},
     projects::{
-        DependencyDefinition, IssueLocation, LoadProjectIssue, Module, ModuleRef, ModuleReferrer,
-        Project, ProjectDefinition, ProjectEdge, ProjectNode, ProjectRef, ProjectReferrer,
+        DependencyDefinition, Module, ModuleRef, ModuleReferrer, Project, ProjectDefinition,
+        ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode, ProjectRef, ProjectReferrer,
         ProjectSpecifier, Version, Workspace, WorkspaceDefinition, WorkspaceMember, WorkspaceRef,
     },
     script::specifier::{ImportSpecifier, LocalImportSpecifier},
@@ -160,7 +160,7 @@ pub async fn load_projects(
                             Ok(import) => import,
                             Err(error) => {
                                 projects.issues.entry(module_ref.0).or_default().push(
-                                    LoadProjectIssue::ScriptParseError {
+                                    ProjectIssue::ScriptParseError {
                                         error,
                                         path: module_path.clone(),
                                     },
@@ -183,7 +183,7 @@ pub async fn load_projects(
                                 };
                                 let Ok(subpath) = subpath.normalized_subpath() else {
                                     projects.issues.entry(module_ref.0).or_default().push(
-                                        LoadProjectIssue::ModuleImportEscapesProjectPath {
+                                        ProjectIssue::ModuleImportEscapesProjectPath {
                                             import,
                                             path: module_path.clone(),
                                         },
@@ -197,7 +197,7 @@ pub async fn load_projects(
                                     ModuleReferrer::ModuleImport {
                                         referrer: module_ref,
                                         specifier: import_specifier,
-                                        location: IssueLocation {
+                                        location: ProjectIssueLocation {
                                             path: module_path.clone(),
                                             range: Some(import.range),
                                         },
@@ -205,7 +205,7 @@ pub async fn load_projects(
                                 ));
                             }
                             ImportSpecifier::External(specifier) => {
-                                let location = IssueLocation {
+                                let location = ProjectIssueLocation {
                                     path: module_path.clone(),
                                     range: Some(import.range),
                                 };
@@ -242,7 +242,7 @@ pub async fn load_projects(
                         ModuleReferrer::ModuleImport { location, .. } => Some(location),
                     };
                     projects.issues.entry(project_ref.0).or_default().push(
-                        LoadProjectIssue::LoadModuleError {
+                        ProjectIssue::LoadModuleError {
                             error: error.clone(),
                             path: module_path,
                             location,
@@ -263,7 +263,7 @@ pub async fn load_projects(
             Ok(value) => value,
             Err(error) => {
                 projects.issues.entry(root_module_ref.0).or_default().push(
-                    LoadProjectIssue::ScriptParseError {
+                    ProjectIssue::ScriptParseError {
                         error,
                         path: root_module_path.clone(),
                     },
@@ -272,7 +272,7 @@ pub async fn load_projects(
             }
         };
 
-        let project_definition_location = IssueLocation {
+        let project_definition_location = ProjectIssueLocation {
             path: root_module_path.clone(),
             range: project_definition_value.as_ref().map(|value| value.range),
         };
@@ -283,7 +283,7 @@ pub async fn load_projects(
                 Ok(project_definition) => Some(project_definition),
                 Err(error) => {
                     projects.issues.entry(root_module_ref.0).or_default().push(
-                        LoadProjectIssue::InvalidProjectDefinition {
+                        ProjectIssue::InvalidProjectDefinition {
                             error_message: error.to_string(),
                             line: error.line(),
                             column: error.column(),
@@ -464,8 +464,8 @@ async fn resolve_project(
     _brioche: &Brioche,
     workspace: Option<&Workspace>,
     specifier: &str,
-    location: IssueLocation,
-    issues: &mut Vec<LoadProjectIssue>,
+    location: ProjectIssueLocation,
+    issues: &mut Vec<ProjectIssue>,
 ) -> Option<ProjectSpecifier> {
     if let Some(workspace) = workspace
         && let Some(resolved) =
@@ -480,8 +480,8 @@ async fn resolve_project(
 async fn resolve_project_from_workspace(
     workspace: &Workspace,
     specifier: &str,
-    location: IssueLocation,
-    issues: &mut Vec<LoadProjectIssue>,
+    location: ProjectIssueLocation,
+    issues: &mut Vec<ProjectIssue>,
 ) -> Option<ProjectSpecifier> {
     for member in &workspace.definition.members {
         match member {
@@ -506,7 +506,7 @@ async fn resolve_project_from_workspace(
                 let root_module_system_path = match root_module_system_path {
                     Ok(path) => path,
                     Err(error) => {
-                        issues.push(LoadProjectIssue::ToSystemPathError {
+                        issues.push(ProjectIssue::ToSystemPathError {
                             error,
                             path: root_module_path.into(),
                             location: location.clone(),
@@ -520,7 +520,7 @@ async fn resolve_project_from_workspace(
                     Ok(true) => return Some(ProjectSpecifier::Path(member_path)),
                     Ok(false) => {}
                     Err(error) => {
-                        issues.push(LoadProjectIssue::IoError {
+                        issues.push(ProjectIssue::IoError {
                             error_message: error.to_string(),
                             path: root_module_path,
                             location: location.clone(),

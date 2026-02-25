@@ -1,5 +1,5 @@
 use assert_matches::assert_matches;
-use brioche_core::projects::{LoadProjectIssue, load::LoadModuleError};
+use brioche_core::projects::{ProjectIssue, load::LoadModuleError};
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
@@ -128,7 +128,7 @@ async fn test_project_load_path_dep_not_found() {
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(
         &issues[..],
-        [LoadProjectIssue::LoadModuleError {
+        [ProjectIssue::LoadModuleError {
             error: LoadModuleError::IoError { .. },
             path,
             location: Some(_),

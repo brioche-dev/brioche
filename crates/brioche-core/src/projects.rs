@@ -18,7 +18,7 @@ pub struct Projects {
     workspaces: HashMap<WorkspaceRef, Result<Workspace, load::LoadWorkspaceError>>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
     workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
-    issues: HashMap<NodeIndex, Vec<LoadProjectIssue>>,
+    issues: HashMap<NodeIndex, Vec<ProjectIssue>>,
 }
 
 pub(crate) enum ProjectNode {
@@ -176,7 +176,7 @@ enum ProjectReferrer {
     Project {
         referrer: ProjectRef,
         edge: ProjectEdge,
-        location: IssueLocation,
+        location: ProjectIssueLocation,
     },
 }
 
@@ -188,7 +188,7 @@ enum ModuleReferrer {
     ModuleImport {
         referrer: ModuleRef,
         specifier: ImportSpecifier,
-        location: IssueLocation,
+        location: ProjectIssueLocation,
     },
 }
 
@@ -234,7 +234,7 @@ pub async fn get_specifier(brioche: &Brioche, project_ref: ProjectRef) -> Projec
     projects.projects[&project_ref].specifier.clone()
 }
 
-pub async fn get_all_issues(brioche: &Brioche) -> Vec<LoadProjectIssue> {
+pub async fn get_all_issues(brioche: &Brioche) -> Vec<ProjectIssue> {
     let projects = brioche.projects.read().await;
 
     projects
@@ -245,7 +245,7 @@ pub async fn get_all_issues(brioche: &Brioche) -> Vec<LoadProjectIssue> {
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum LoadProjectIssue {
+pub enum ProjectIssue {
     #[error("{error}")]
     ScriptParseError {
         error: crate::script::parse::ScriptParseError,
@@ -256,7 +256,7 @@ pub enum LoadProjectIssue {
     LoadModuleError {
         error: load::LoadModuleError,
         path: AbsolutePath,
-        location: Option<IssueLocation>,
+        location: Option<ProjectIssueLocation>,
     },
 
     #[error("invalid project definition: {error_message}")]
@@ -264,21 +264,21 @@ pub enum LoadProjectIssue {
         error_message: String,
         line: usize,
         column: usize,
-        location: IssueLocation,
+        location: ProjectIssueLocation,
     },
 
     #[error("IO error at {path}: {error_message}")]
     IoError {
         error_message: String,
         path: AbsolutePath,
-        location: IssueLocation,
+        location: ProjectIssueLocation,
     },
 
     #[error("invalid path '{path}': {error}")]
     ToSystemPathError {
         error: crate::path::ToSystemPathError,
         path: AnyPath,
-        location: IssueLocation,
+        location: ProjectIssueLocation,
     },
 
     #[error("module import '{}' escapes project path", import.specifier)]
@@ -288,19 +288,19 @@ pub enum LoadProjectIssue {
     },
 }
 
-impl LoadProjectIssue {
+impl ProjectIssue {
     #[must_use]
-    pub fn location(&self) -> Option<IssueLocation> {
+    pub fn location(&self) -> Option<ProjectIssueLocation> {
         match self {
             Self::InvalidProjectDefinition { location, .. }
             | Self::IoError { location, .. }
             | Self::ToSystemPathError { location, .. } => Some(location.clone()),
             Self::LoadModuleError { location, .. } => location.clone(),
-            Self::ScriptParseError { error, path } => Some(IssueLocation {
+            Self::ScriptParseError { error, path } => Some(ProjectIssueLocation {
                 path: path.clone(),
                 range: Some(error.range()),
             }),
-            Self::ModuleImportEscapesProjectPath { import, path } => Some(IssueLocation {
+            Self::ModuleImportEscapesProjectPath { import, path } => Some(ProjectIssueLocation {
                 path: path.clone(),
                 range: Some(import.range),
             }),
@@ -309,7 +309,7 @@ impl LoadProjectIssue {
 }
 
 #[derive(Debug, Clone)]
-pub struct IssueLocation {
+pub struct ProjectIssueLocation {
     pub path: AbsolutePath,
     pub range: Option<crate::script::parse::TextRange>,
 }
