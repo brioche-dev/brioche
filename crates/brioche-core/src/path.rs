@@ -26,7 +26,10 @@ pub struct AnyPath {
 
 impl AnyPath {
     pub fn to_system_path(&self) -> Result<std::path::PathBuf, ToSystemPathError> {
-        to_system_path(self.base.as_ref(), &self.subpath)
+        to_system_path(
+            self.base.as_ref(),
+            self.subpath.components().map(std::convert::AsRef::as_ref),
+        )
     }
 }
 
@@ -57,7 +60,16 @@ impl From<RelativePath> for AnyPath {
 
 impl From<AbsolutePath> for AnyPath {
     fn from(path: AbsolutePath) -> Self {
-        let AbsolutePath { root, subpath } = path;
+        let AbsolutePath {
+            root,
+            subpath_components,
+        } = path;
+        let subpath = RelativePath {
+            components: subpath_components
+                .into_iter()
+                .map(RelativePathComponent::Normal)
+                .collect(),
+        };
         Self {
             base: Some(root.into()),
             subpath,
@@ -224,7 +236,7 @@ impl RelativePath {
     }
 
     pub fn to_system_path(&self) -> Result<std::path::PathBuf, ToSystemPathError> {
-        to_system_path(None, self)
+        to_system_path(None, std::iter::empty())
     }
 }
 
@@ -282,13 +294,13 @@ impl std::fmt::Display for RelativePathComponent {
 
 /// An absolute path for any (supported) platform.
 ///
-/// Conceptually, an absolute path is what you get if you normalize an
-/// [`AnyPath`]. An absolute path consists of a [`RootPath`] plus a
-/// [`RelativePath`] subpath.
+/// An absolute path represents a canonicalized path. An absolute path
+/// conceptually consists of a [`RootPath`] plus a [`RelativePath`] subpath
+/// that contains only normal components.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AbsolutePath {
     root: RootPath,
-    subpath: RelativePath,
+    subpath_components: Vec<bstr::BString>,
 }
 
 impl AbsolutePath {
@@ -298,10 +310,10 @@ impl AbsolutePath {
             RelativePathComponent::ParentDir => {
                 // Try to ascend one directory, but ignore if we're already
                 // at the top-level
-                self.subpath.components.pop();
+                self.subpath_components.pop();
             }
-            component @ RelativePathComponent::Normal(_) => {
-                self.subpath.components.push(component);
+            RelativePathComponent::Normal(component) => {
+                self.subpath_components.push(component);
             }
         }
     }
@@ -326,32 +338,47 @@ impl AbsolutePath {
         new
     }
 
+    fn add_subpath(&mut self, subpath: RelativePath) -> Result<(), SubpathError> {
+        let components = subpath_components(subpath.components)?;
+        self.subpath_components.extend(components);
+        Ok(())
+    }
+
     pub fn join_subpath(&self, subpath: RelativePath) -> Result<Self, SubpathError> {
-        let new_subpath = self.subpath.join_subpath(subpath)?;
-        Ok(Self {
-            root: self.root.clone(),
-            subpath: new_subpath,
-        })
+        let mut new = self.clone();
+        new.add_subpath(subpath)?;
+        Ok(new)
+    }
+
+    #[must_use]
+    pub fn parent_with_last_component(&self) -> Option<(Self, RelativePathComponent)> {
+        let mut parent = self.clone();
+        let last = parent.subpath_components.pop()?;
+        Some((parent, RelativePathComponent::Normal(last)))
     }
 
     #[must_use]
     pub fn parent(&self) -> Option<Self> {
-        let new_subpath = self.subpath.parent()?;
-        Some(Self {
-            root: self.root.clone(),
-            subpath: new_subpath,
-        })
+        self.parent_with_last_component().map(|(parent, _)| parent)
     }
 
     pub fn to_system_path(&self) -> Result<std::path::PathBuf, ToSystemPathError> {
-        to_system_path(Some(&BasePath::Root(self.root.clone())), &self.subpath)
+        to_system_path(
+            Some(&BasePath::Root(self.root.clone())),
+            self.subpath_components
+                .iter()
+                .map(|component| &component[..]),
+        )
     }
 }
 
 impl std::fmt::Display for AbsolutePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Self { root, subpath } = self;
-        write!(f, "{root}{subpath}")
+        let Self {
+            root,
+            subpath_components,
+        } = self;
+        write!(f, "{root}{}", subpath_components.iter().join_with('/'))
     }
 }
 
@@ -431,10 +458,7 @@ pub enum RootPath {
 
 impl RootPath {
     pub fn to_system_path(&self) -> Result<std::path::PathBuf, ToSystemPathError> {
-        to_system_path(
-            Some(&BasePath::Root(self.clone())),
-            &RelativePath::default(),
-        )
+        to_system_path(Some(&BasePath::Root(self.clone())), std::iter::empty())
     }
 }
 
@@ -540,11 +564,22 @@ pub fn from_canonical_system_path(
     path: &std::path::Path,
 ) -> Result<AbsolutePath, CanonicalSystemPathError> {
     let path = from_system_path(path)?;
+    let subpath_components = path
+        .subpath
+        .components
+        .into_iter()
+        .map(|component| match component {
+            RelativePathComponent::Normal(component) => Ok(component),
+            RelativePathComponent::CurrentDir | RelativePathComponent::ParentDir => {
+                Err(CanonicalSystemPathError::NonCanonicalPath)
+            }
+        })
+        .collect::<Result<Vec<_>, CanonicalSystemPathError>>()?;
 
     match path.base {
         Some(BasePath::Root(root)) => Ok(AbsolutePath {
             root,
-            subpath: path.subpath,
+            subpath_components,
         }),
         _ => Err(CanonicalSystemPathError::NotAnAbsolutePath),
     }
@@ -558,9 +593,9 @@ pub async fn canonicalize_system_path(
     Ok(path)
 }
 
-fn to_system_path(
+fn to_system_path<'a>(
     base_path: Option<&BasePath>,
-    subpath: &RelativePath,
+    subpath_components: impl IntoIterator<Item = &'a [u8]>,
 ) -> Result<std::path::PathBuf, ToSystemPathError> {
     let mut path: std::path::PathBuf = match base_path {
         Some(BasePath::Root(RootPath::UnixRoot)) => {
@@ -601,21 +636,21 @@ fn to_system_path(
         None => std::path::PathBuf::new(),
     };
 
-    for component in &subpath.components {
+    for component in subpath_components {
         match component {
-            RelativePathComponent::CurrentDir => path.push("."),
-            RelativePathComponent::ParentDir => path.push(".."),
-            RelativePathComponent::Normal(filename) => {
+            b"." => path.push("."),
+            b".." => path.push(".."),
+            filename => {
                 if cfg!(target_family = "windows") {
                     if filename.find_byteset(b"<>:\"/\\|?*\0").is_some() {
                         return Err(ToSystemPathError::InvalidFilenameForPlatform(
-                            filename.clone(),
+                            filename.into(),
                         ));
                     }
                 } else if cfg!(any(target_family = "unix", target_family = "wasm")) {
                     if filename.find_byteset(b"/\0").is_some() {
                         return Err(ToSystemPathError::InvalidFilenameForPlatform(
-                            filename.clone(),
+                            filename.into(),
                         ));
                     }
                 } else {
@@ -691,6 +726,9 @@ pub enum CanonicalSystemPathError {
 
     #[error("not an absolute path")]
     NotAnAbsolutePath,
+
+    #[error("non-canonical path")]
+    NonCanonicalPath,
 }
 
 #[derive(Debug, thiserror::Error)]
