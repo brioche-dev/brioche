@@ -292,14 +292,37 @@ pub struct AbsolutePath {
 }
 
 impl AbsolutePath {
-    fn add_one(&mut self, component: impl AsRef<[u8]>) {
-        self.subpath.add_one(component.as_ref());
+    fn add_one_component(&mut self, component: RelativePathComponent) {
+        match component {
+            RelativePathComponent::CurrentDir => {}
+            RelativePathComponent::ParentDir => {
+                // Try to ascend one directory, but ignore if we're already
+                // at the top-level
+                self.subpath.components.pop();
+            }
+            component @ RelativePathComponent::Normal(_) => {
+                self.subpath.components.push(component);
+            }
+        }
     }
 
     #[must_use]
     pub fn join_one(&self, component: impl AsRef<[u8]>) -> Self {
+        let component = RelativePathComponent::new(component);
+
         let mut new = self.clone();
-        new.add_one(component.as_ref());
+        if let Some(component) = component {
+            new.add_one_component(component);
+        }
+        new
+    }
+
+    #[must_use]
+    pub fn join(&self, path: RelativePath) -> Self {
+        let mut new = self.clone();
+        for component in path.components {
+            new.add_one_component(component);
+        }
         new
     }
 
@@ -309,15 +332,6 @@ impl AbsolutePath {
             root: self.root.clone(),
             subpath: new_subpath,
         })
-    }
-
-    #[must_use]
-    pub fn join(&self, subpath: RelativePath) -> Self {
-        let new_subpath = self.subpath.join(subpath);
-        Self {
-            root: self.root.clone(),
-            subpath: new_subpath,
-        }
     }
 
     #[must_use]
