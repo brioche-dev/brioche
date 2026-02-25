@@ -1,3 +1,5 @@
+#![allow(clippy::similar_names)]
+
 use assert_matches::assert_matches;
 use brioche_core::projects::{ProjectIssue, load::LoadModuleError};
 use pretty_assertions::assert_eq;
@@ -26,7 +28,7 @@ async fn test_project_load_simple() {
 }
 
 #[tokio::test]
-async fn test_project_load_simple_no_definition() -> anyhow::Result<()> {
+async fn test_project_load_simple_no_definition() {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -39,12 +41,10 @@ async fn test_project_load_simple_no_definition() -> anyhow::Result<()> {
 
     let dependencies = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
     assert!(dependencies.is_empty());
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
+async fn test_project_load_workspace_dep() {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     context
@@ -96,12 +96,10 @@ async fn test_project_load_with_workspace_dep() -> anyhow::Result<()> {
     let foo_dependencies =
         brioche_core::projects::get_dependencies(&brioche, dependencies["foo"]).await;
     assert!(foo_dependencies.is_empty());
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn test_project_load_path_dep_not_found() {
+async fn test_project_load_path_dep() {
     let (brioche, context) = brioche_test::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -111,8 +109,11 @@ async fn test_project_load_path_dep_not_found() {
             r#"
                 export const project = {
                     dependencies: {
-                        mydep: {
-                            path: "../mydep",
+                        foo: {
+                            path: "../foo",
+                        },
+                        bar: {
+                            path: "../bar",
                         },
                     },
                 };
@@ -120,18 +121,194 @@ async fn test_project_load_path_dep_not_found() {
         )
         .await;
 
-    // project.bri does not exist
-    let _dep_dir = context.mkdir("mydep").await;
+    let foo_dir = context.mkdir("foo").await;
+    context
+        .write_file(
+            "foo/project.bri",
+            r#"
+                export const project = {
+                    name: "foo",
+                    dependencies: {
+                        baz: {
+                            path: "../baz",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let bar_dir = context.mkdir("bar").await;
+    context
+        .write_file(
+            "bar/project.bri",
+            r#"
+                export const project = {
+                    name: "bar",
+                    dependencies: {
+                        baz: {
+                            path: "../baz",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let baz_dir = context.mkdir("baz").await;
+    context
+        .write_file(
+            "baz/project.bri",
+            r#"
+                export const project = {
+                    name: "baz"
+                };
+            "#,
+        )
+        .await;
+
+    let project_ref = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        brioche_test::load_project(&brioche, &project_dir),
+    )
+    .await
+    .unwrap();
+
+    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    assert_matches!(&issues[..], []);
+
+    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    assert_eq!(
+        project_deps.len(),
+        2,
+        "expected to get 2 project dependencies, got: {project_deps:#?}"
+    );
+
+    let foo_ref = project_deps["foo"];
+    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
+    assert_eq!(
+        foo_specifier,
+        brioche_test::project_specifier_for_path(&foo_dir)
+    );
+    assert_eq!(
+        foo_deps.len(),
+        1,
+        "expected to get 1 dependency for foo, got: {foo_deps:#?}"
+    );
+
+    let bar_ref = project_deps["bar"];
+    let bar_specifier = brioche_core::projects::get_specifier(&brioche, bar_ref).await;
+    let bar_deps = brioche_core::projects::get_dependencies(&brioche, bar_ref).await;
+    assert_eq!(
+        bar_specifier,
+        brioche_test::project_specifier_for_path(&bar_dir)
+    );
+    assert_eq!(
+        bar_deps.len(),
+        1,
+        "expected to get 1 dependency for bar, got: {bar_deps:#?}"
+    );
+
+    assert_eq!(foo_deps["baz"], bar_deps["baz"]);
+    let baz_ref = foo_deps["baz"];
+    let baz_specifier = brioche_core::projects::get_specifier(&brioche, baz_ref).await;
+    let baz_deps = brioche_core::projects::get_dependencies(&brioche, baz_ref).await;
+    assert_eq!(
+        baz_specifier,
+        brioche_test::project_specifier_for_path(&baz_dir)
+    );
+    assert_eq!(
+        baz_deps.len(),
+        0,
+        "expected to get 0 dependencies for baz, got: {baz_deps:#?}"
+    );
+}
+
+#[tokio::test]
+async fn test_project_load_path_dep_not_found() {
+    let (brioche, context) = brioche_test::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    let project_root_module = context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        not_found_1: {
+                            path: "../not_found_1",
+                        },
+                        foo: {
+                            path: "../foo",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let foo_root_module = context
+        .write_file(
+            "foo/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        not_found_2: {
+                            path: "../not_found_2",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let not_found_1_dir = context.mkdir("not_found_1").await;
+    let not_found_2_dir = context.path("not_found_2");
+
+    // The directory `not_found_1` exists, but does not contain a root
+    // module. The directory `not_found_2` does not exist
 
     brioche_test::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_matches!(
-        &issues[..],
-        [ProjectIssue::LoadModuleError {
-            error: LoadModuleError::IoError { .. },
-            path,
-            location: Some(_),
-        }] if *path == brioche_test::absolute_path(&project_dir).join_one("..").join_one("mydep").join_one("project.bri")
+    let mut issues = brioche_core::projects::get_all_issues(&brioche).await;
+    assert_eq!(issues.len(), 2, "expected 2 issues, got: {issues:#?}");
+
+    let project_issue = brioche_test::take_where(&mut issues, |issue| {
+        issue.location().is_some_and(|location| {
+            location.path == brioche_test::absolute_path(&project_root_module)
+        })
+    });
+    let foo_issue = brioche_test::take_where(&mut issues, |issue| {
+        issue
+            .location()
+            .is_some_and(|location| location.path == brioche_test::absolute_path(&foo_root_module))
+    });
+    assert!(issues.is_empty());
+
+    let ProjectIssue::LoadModuleError {
+        error: LoadModuleError::IoError { .. },
+        path: project_issue_path,
+        ..
+    } = project_issue
+    else {
+        panic!("expected LoadModuleError::IoError, got: {project_issue:#?}");
+    };
+    let ProjectIssue::LoadModuleError {
+        error: LoadModuleError::IoError { .. },
+        path: foo_issue_path,
+        ..
+    } = foo_issue
+    else {
+        panic!("expected LoadModuleError::IoError, got: {foo_issue:#?}");
+    };
+
+    assert_eq!(
+        project_issue_path,
+        brioche_test::absolute_path(&not_found_1_dir).join_one("project.bri")
+    );
+    assert_eq!(
+        foo_issue_path,
+        brioche_test::absolute_path_nonexistent(&not_found_2_dir).join_one("project.bri")
     );
 }

@@ -55,8 +55,22 @@ pub fn absolute_path(path: &Path) -> AbsolutePath {
 }
 
 #[must_use]
+pub fn absolute_path_nonexistent(path: &Path) -> AbsolutePath {
+    brioche_core::path::from_canonical_system_path(path).unwrap()
+}
+
+#[must_use]
 pub fn project_specifier_for_path(project_dir: &Path) -> ProjectSpecifier {
     ProjectSpecifier::Path(absolute_path(project_dir))
+}
+
+pub fn take_where<T>(items: &mut Vec<T>, mut predicate: impl FnMut(&T) -> bool) -> T {
+    let index = items
+        .iter()
+        .enumerate()
+        .find_map(|(index, item)| if predicate(item) { Some(index) } else { None })
+        .expect("no item found matching predicate");
+    items.remove(index)
 }
 
 pub struct TestContext {
