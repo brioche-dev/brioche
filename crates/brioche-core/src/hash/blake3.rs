@@ -62,6 +62,12 @@ impl<'de> serde::Deserialize<'de> for Blake3Hash {
     }
 }
 
+impl From<blake3::Hash> for Blake3Hash {
+    fn from(value: blake3::Hash) -> Self {
+        Self(*value.as_bytes())
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Blake3HashString([u8; HASH_LEN * 2]);
 

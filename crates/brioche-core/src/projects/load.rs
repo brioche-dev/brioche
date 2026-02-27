@@ -378,6 +378,10 @@ pub async fn load_projects(
             specifier,
         };
         projects.projects.insert(project_ref, project);
+
+        projects
+            .modules_by_project
+            .insert(project_ref, project_modules);
     }
 
     Ok(results)
@@ -466,7 +470,7 @@ async fn load_module(path: &std::path::Path) -> Result<Module, LoadModuleError> 
         })?;
     let source = String::from_utf8(source)
         .map_err(|error| LoadModuleError::Utf8Error(error.utf8_error()))?;
-    let ast = crate::script::parse::parse_script(&source);
+    let ast = crate::script::parse::parse_script(source);
 
     Ok(Module { ast })
 }

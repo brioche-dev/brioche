@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use brioche_core::{
     Brioche,
     path::AbsolutePath,
-    projects::{ProjectRef, ProjectSpecifier},
+    projects::{ProjectRef, ProjectSpecifier, hash::ProjectHash},
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 

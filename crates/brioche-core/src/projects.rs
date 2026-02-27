@@ -8,6 +8,7 @@ use crate::{
     script::specifier::ImportSpecifier,
 };
 
+pub mod hash;
 pub mod load;
 
 #[derive(Default)]
@@ -17,10 +18,12 @@ pub struct Projects {
     modules: HashMap<ModuleRef, Result<Module, load::LoadModuleError>>,
     workspaces: HashMap<WorkspaceRef, Result<Workspace, load::LoadWorkspaceError>>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
+    modules_by_project: HashMap<ProjectRef, HashMap<RelativePath, ModuleRef>>,
     workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
     issues: HashMap<NodeIndex, Vec<ProjectIssue>>,
 }
 
+#[derive(Debug, Clone)]
 pub(crate) enum ProjectNode {
     Workspace,
     Project,
@@ -73,7 +76,7 @@ pub struct WorkspaceDefinition {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Lockfile {
-    pub dependencies: BTreeMap<String, ProjectHash>,
+    pub dependencies: BTreeMap<String, hash::ProjectHash>,
 
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub downloads: BTreeMap<url::Url, crate::hash::AnyHash>,
@@ -149,12 +152,6 @@ impl std::fmt::Display for Version {
     }
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
-#[serde(transparent)]
-pub struct ProjectHash(crate::hash::Blake3Hash);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProjectRef(NodeIndex);
 
@@ -167,7 +164,7 @@ pub(crate) struct WorkspaceRef(NodeIndex);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ProjectSpecifier {
     Path(AbsolutePath),
-    Hash(ProjectHash),
+    Hash(hash::ProjectHash),
 }
 
 #[derive(Debug)]

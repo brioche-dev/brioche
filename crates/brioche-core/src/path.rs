@@ -111,7 +111,17 @@ impl From<RootPath> for AnyPath {
 /// `/` is often used as a path separator when displaying or parsing a
 /// relative path by convention, but [`RelativePath`] itself is agnostic
 /// to the path separator.
-#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Default,
+    Clone,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde_with::SerializeDisplay,
+    serde_with::DeserializeFromStr,
+)]
 pub struct RelativePath {
     components: Vec<RelativePathComponent>,
 }
@@ -251,6 +261,14 @@ impl std::fmt::Display for RelativePath {
 impl std::fmt::Debug for RelativePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "RelativePath({self})")
+    }
+}
+
+impl std::str::FromStr for RelativePath {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self::new(s))
     }
 }
 

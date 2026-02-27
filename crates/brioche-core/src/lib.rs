@@ -5,6 +5,7 @@ use tokio::sync::RwLock;
 mod hash;
 pub mod path;
 pub mod projects;
+mod recipe;
 mod script;
 
 #[derive(Default, Clone)]
