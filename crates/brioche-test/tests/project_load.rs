@@ -126,6 +126,7 @@ async fn test_project_load_path_dep() {
         .write_file(
             "foo/project.bri",
             r#"
+                import "baz";
                 export const project = {
                     name: "foo",
                     dependencies: {

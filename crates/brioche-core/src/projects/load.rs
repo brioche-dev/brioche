@@ -112,12 +112,14 @@ pub async fn load_projects(
             .join_subpath(root_module_subpath.clone())
             .unwrap();
 
+        let mut project_definition = ProjectDefinition::default();
+        let mut project_modules = HashMap::<RelativePath, ModuleRef>::new();
+        let mut external_deps = HashMap::<String, Option<ProjectSpecifier>>::new();
+
         let mut module_queue = VecDeque::from_iter([(
             root_module_subpath.clone(),
             ModuleReferrer::ProjectRoot { project_ref },
         )]);
-        let mut project_modules = HashMap::<RelativePath, ModuleRef>::new();
-
         while let Some((module_subpath, module_referrer)) = module_queue.pop_front() {
             if let Some(module_ref) = project_modules.get(&module_subpath) {
                 projects.graph.add_edge(
@@ -154,6 +156,48 @@ pub async fn load_projects(
 
             match module {
                 Ok(module) => {
+                    if let ModuleReferrer::ProjectRoot { .. } = module_referrer {
+                        let project_definition_value =
+                            crate::script::parse::get_export_value(&module.ast, "project");
+                        let project_definition_value = match project_definition_value {
+                            Ok(value) => value,
+                            Err(error) => {
+                                projects.issues.entry(module_ref.0).or_default().push(
+                                    ProjectIssue::ScriptParseError {
+                                        error,
+                                        path: root_module_path.clone(),
+                                    },
+                                );
+                                None
+                            }
+                        };
+
+                        let project_definition_location = ProjectIssueLocation {
+                            path: root_module_path.clone(),
+                            range: project_definition_value.as_ref().map(|value| value.range),
+                        };
+                        project_definition = project_definition_value
+                            .and_then(|value| {
+                                let project_definition: Result<ProjectDefinition, _> =
+                                    serde_json::from_value(value.value);
+                                match project_definition {
+                                    Ok(project_definition) => Some(project_definition),
+                                    Err(error) => {
+                                        projects.issues.entry(module_ref.0).or_default().push(
+                                            ProjectIssue::InvalidProjectDefinition {
+                                                error_message: error.to_string(),
+                                                line: error.line(),
+                                                column: error.column(),
+                                                location: project_definition_location.clone(),
+                                            },
+                                        );
+                                        None
+                                    }
+                                }
+                            })
+                            .unwrap_or_default();
+                    }
+
                     let imports = crate::script::parse::find_imports(&module.ast);
                     for import in imports {
                         let import = match import {
@@ -212,10 +256,15 @@ pub async fn load_projects(
                                 let issues = projects.issues.entry(project_ref.0).or_default();
                                 let resolved = resolve_project(
                                     brioche,
-                                    workspace,
+                                    &mut ResolveProjectContext {
+                                        project_path,
+                                        project_definition: &project_definition,
+                                        workspace,
+                                        external_deps: &mut external_deps,
+                                        issues,
+                                    },
                                     specifier,
                                     location.clone(),
-                                    issues,
                                 )
                                 .await;
 
@@ -296,24 +345,21 @@ pub async fn load_projects(
         });
         let project_definition = project_definition.unwrap_or_default();
 
-        for (specifier, dep_definition) in &project_definition.dependencies {
+        for specifier in project_definition.dependencies.keys() {
             let issues = projects.issues.entry(project_ref.0).or_default();
-            let resolved = match dep_definition {
-                DependencyDefinition::Path { path } => {
-                    let dep_path = project_path.join(RelativePath::new(path));
-                    Some(ProjectSpecifier::Path(dep_path))
-                }
-                DependencyDefinition::Version(Version::Any) => {
-                    resolve_project(
-                        brioche,
-                        workspace,
-                        specifier,
-                        project_definition_location.clone(),
-                        issues,
-                    )
-                    .await
-                }
-            };
+            let resolved = resolve_project(
+                brioche,
+                &mut ResolveProjectContext {
+                    project_path,
+                    project_definition: &project_definition,
+                    workspace,
+                    external_deps: &mut external_deps,
+                    issues,
+                },
+                specifier,
+                project_definition_location.clone(),
+            )
+            .await;
 
             if let Some(resolved) = resolved {
                 queue.push_back((
@@ -460,17 +506,43 @@ fn expand_module_subpath(subpath: RelativePath) -> RelativePath {
     }
 }
 
+struct ResolveProjectContext<'a> {
+    project_path: &'a AbsolutePath,
+    project_definition: &'a ProjectDefinition,
+    workspace: Option<&'a Workspace>,
+    external_deps: &'a mut HashMap<String, Option<ProjectSpecifier>>,
+    issues: &'a mut Vec<ProjectIssue>,
+}
+
 async fn resolve_project(
     _brioche: &Brioche,
-    workspace: Option<&Workspace>,
+    ctx: &mut ResolveProjectContext<'_>,
     specifier: &str,
     location: ProjectIssueLocation,
-    issues: &mut Vec<ProjectIssue>,
 ) -> Option<ProjectSpecifier> {
-    if let Some(workspace) = workspace
-        && let Some(resolved) =
-            resolve_project_from_workspace(workspace, specifier, location, issues).await
+    if let Some(resolved) = ctx
+        .external_deps
+        .get(specifier)
+        .and_then(|resolved| resolved.as_ref())
     {
+        return Some(resolved.clone());
+    }
+
+    let _version = match ctx.project_definition.dependencies.get(specifier) {
+        Some(DependencyDefinition::Path { path }) => {
+            let dep_path = ctx.project_path.join(RelativePath::new(path));
+            let resolved = Some(ProjectSpecifier::Path(dep_path));
+            ctx.external_deps
+                .insert(specifier.to_string(), resolved.clone());
+            return resolved;
+        }
+        Some(DependencyDefinition::Version(version)) => version.clone(),
+        None => Version::Any,
+    };
+
+    if let Some(resolved) = resolve_project_from_workspace(ctx, specifier, location).await {
+        ctx.external_deps
+            .insert(specifier.to_string(), Some(resolved.clone()));
         return Some(resolved);
     }
 
@@ -478,11 +550,11 @@ async fn resolve_project(
 }
 
 async fn resolve_project_from_workspace(
-    workspace: &Workspace,
+    ctx: &mut ResolveProjectContext<'_>,
     specifier: &str,
     location: ProjectIssueLocation,
-    issues: &mut Vec<ProjectIssue>,
 ) -> Option<ProjectSpecifier> {
+    let workspace = ctx.workspace?;
     for member in &workspace.definition.members {
         match member {
             WorkspaceMember::Path(parent, name) => {
@@ -506,7 +578,7 @@ async fn resolve_project_from_workspace(
                 let root_module_system_path = match root_module_system_path {
                     Ok(path) => path,
                     Err(error) => {
-                        issues.push(ProjectIssue::ToSystemPathError {
+                        ctx.issues.push(ProjectIssue::ToSystemPathError {
                             error,
                             path: root_module_path.into(),
                             location: location.clone(),
@@ -520,7 +592,7 @@ async fn resolve_project_from_workspace(
                     Ok(true) => return Some(ProjectSpecifier::Path(member_path)),
                     Ok(false) => {}
                     Err(error) => {
-                        issues.push(ProjectIssue::IoError {
+                        ctx.issues.push(ProjectIssue::IoError {
                             error_message: error.to_string(),
                             path: root_module_path,
                             location: location.clone(),
