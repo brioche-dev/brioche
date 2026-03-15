@@ -229,7 +229,7 @@ pub async fn build(
                     &format!("Lazy: found all recipe inputs in cache in {elapsed}"),
                     superconsole::style::ContentStyle::default(),
                 ));
-                return Ok(Some(()));
+                return Ok(None);
             }
         }
 
