@@ -104,7 +104,7 @@ rustls-native-certs = "0.8.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_v8 = "0.296.0"
-serde_with = { version = "3.17.0", features = ["hex"] }
+serde_with = { version = "3.18.0", features = ["hex"] }
 sha2 = "0.11.0-rc.5"
 sqlx = { version = "0.8.6", features = [
     "runtime-tokio-rustls",
@@ -124,7 +124,7 @@ toml = "1.0.6"
 tower-lsp = "0.20.0"
 tracing = "0.1.44"
 tracing-opentelemetry = "0.32.1"
-tracing-subscriber = { version = "0.3.22", features = [
+tracing-subscriber = { version = "0.3.23", features = [
     "env-filter",
     "json",
     "tracing-log",
@@ -160,7 +160,7 @@ divan = "0.1.21"
 indoc = "2.0.7"
 mockito = "1.7.2"
 pretty_assertions = "1.4.1"
-tempfile = "3.26.0"
+tempfile = "3.27.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libmount = "0.1.15"
