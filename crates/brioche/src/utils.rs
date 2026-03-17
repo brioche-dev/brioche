@@ -174,7 +174,7 @@ pub fn resolve_project_refs(
     project: Option<PathBuf>,
     registry: Option<String>,
     export: Option<String>,
-) -> HashSet<ProjectRef> {
+) -> Vec<ProjectRef> {
     let project_refs = if positional.is_empty() {
         let export = export.unwrap_or_else(|| DEFAULT_EXPORT.to_string());
         let exports = vec![export];
@@ -191,6 +191,7 @@ pub fn resolve_project_refs(
         positional
     };
 
+    let mut seen = HashSet::new();
     project_refs
         .into_iter()
         .flat_map(|target| {
@@ -199,6 +200,7 @@ pub fn resolve_project_refs(
                 export,
             })
         })
+        .filter(|r| seen.insert((r.source.clone(), r.export.clone())))
         .collect()
 }
 
@@ -320,8 +322,7 @@ mod tests {
 
     #[test]
     fn test_resolve_project_refs_default() {
-        let project_refs = resolve_project_refs(vec![], None, None, None);
-        let result = project_refs.iter().collect::<Vec<_>>();
+        let result = resolve_project_refs(vec![], None, None, None);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].source, ProjectSource::Local(PathBuf::from(".")));
