@@ -1,15 +1,26 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use anyhow::Context as _;
-use brioche_core::{project::ProjectLocking, utils::DisplayDuration};
+use brioche_core::project::ProjectLocking;
+use brioche_core::utils::DisplayDuration;
 use bstr::ByteSlice as _;
 use clap::Parser;
 use tracing::Instrument as _;
 
+use crate::utils::{
+    ProjectRefs, ProjectRefsParser, ProjectSource, load_project_source, resolve_project_refs,
+};
+
 #[derive(Debug, Parser)]
 pub struct LiveUpdateArgs {
-    #[command(flatten)]
-    project: super::ProjectArgs,
+    /// Local project directory to update (e.g., `./pkg`, `.`).
+    #[arg(value_parser = ProjectRefsParser, conflicts_with = "project")]
+    target: Option<ProjectRefs>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    project: Option<PathBuf>,
 
     /// Check the project before building.
     #[arg(long)]
@@ -33,8 +44,18 @@ pub async fn live_update(
     js_platform: brioche_core::script::JsPlatform,
     args: LiveUpdateArgs,
 ) -> anyhow::Result<()> {
+    let project_refs =
+        resolve_project_refs(args.target.into_iter().collect(), args.project, None, None);
+
     anyhow::ensure!(
-        args.project.registry.is_none(),
+        project_refs.len() == 1,
+        "should accept a single project, but got {} targets",
+        project_refs.len()
+    );
+    let project_ref = &project_refs[0];
+
+    anyhow::ensure!(
+        matches!(project_ref.source, ProjectSource::Local(_)),
         "cannot edit a registry project"
     );
 
@@ -56,7 +77,8 @@ pub async fn live_update(
         ProjectLocking::Unlocked
     };
 
-    let project_hash = super::load_project(&brioche, &projects, &args.project, locking).await?;
+    let project_hash =
+        load_project_source(&brioche, &projects, &project_ref.source, locking).await?;
 
     // If the `--locked` flag is used, validate that all lockfiles are
     // up-to-date. Otherwise, write any out-of-date lockfiles
@@ -206,7 +228,13 @@ pub async fn live_update(
     if did_update {
         // Reload the project from scratch
         let projects = brioche_core::project::Projects::default();
-        super::load_project(&brioche, &projects, &args.project, ProjectLocking::Unlocked).await?;
+        load_project_source(
+            &brioche,
+            &projects,
+            &project_ref.source,
+            ProjectLocking::Unlocked,
+        )
+        .await?;
 
         // Update lockfiles
         projects.commit_dirty_lockfiles().await?;
