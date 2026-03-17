@@ -3,6 +3,8 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use brioche_core::project::{ProjectHash, ProjectLocking, ProjectValidation, Projects};
+
 const DEFAULT_EXPORT: &str = "default";
 
 /// Resolves input paths by merging positional args with the deprecated `--project` flag,
@@ -202,6 +204,27 @@ pub fn resolve_project_refs(
         })
         .filter(|r| seen.insert((r.source.clone(), r.export.clone())))
         .collect()
+}
+
+/// Loads a project from either a local path or the registry.
+pub async fn load_project_source(
+    brioche: &brioche_core::Brioche,
+    projects: &Projects,
+    source: &ProjectSource,
+    locking: ProjectLocking,
+) -> anyhow::Result<ProjectHash> {
+    match source {
+        ProjectSource::Local(path) => {
+            projects
+                .load(brioche, path, ProjectValidation::Standard, locking)
+                .await
+        }
+        ProjectSource::Registry(name) => {
+            projects
+                .load_from_registry(brioche, name, &brioche_core::project::Version::Any)
+                .await
+        }
+    }
 }
 
 /// Generate numbered output paths from a base path.
