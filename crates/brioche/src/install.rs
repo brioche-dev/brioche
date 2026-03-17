@@ -1,28 +1,37 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Context as _;
 use brioche_core::Brioche;
-use brioche_core::project::ProjectHash;
-use brioche_core::project::ProjectLocking;
-use brioche_core::project::ProjectValidation;
-use brioche_core::project::Projects;
+use brioche_core::project::{ProjectHash, ProjectLocking, Projects};
 use brioche_core::reporter::Reporter;
 use brioche_core::utils::DisplayDuration;
 use clap::Parser;
 use tracing::Instrument as _;
 
-use crate::utils::consolidate_result;
+use crate::utils::{
+    ProjectRef, ProjectRefs, ProjectRefsParser, consolidate_result, load_project_source,
+    resolve_project_refs,
+};
 
 #[derive(Debug, Parser)]
 pub struct InstallArgs {
-    #[command(flatten)]
-    project: super::MultipleProjectArgs,
+    /// Projects to install (e.g., `./pkg`, `curl`, `./pkg^test`, `^test`, `curl^test,default`).
+    #[arg(value_parser = ProjectRefsParser, conflicts_with_all = ["project", "registry", "export"])]
+    targets: Vec<ProjectRefs>,
 
-    /// Which TypeScript export to build.
-    #[arg(short, long, default_value = "default")]
-    export: String,
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true, conflicts_with = "registry")]
+    project: Option<PathBuf>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    registry: Option<String>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    export: Option<String>,
 
     /// Check the project before building.
     #[arg(long)]
@@ -50,92 +59,118 @@ pub async fn install(
         .await?;
     crate::start_shutdown_handler(brioche.clone());
 
+    let project_refs = resolve_project_refs(args.targets, args.project, args.registry, args.export);
+
     let projects = brioche_core::project::Projects::default();
 
-    let install_options = InstallOptions {
-        check: args.check,
-        locked: args.locked,
-    };
     let locking = if args.locked {
         ProjectLocking::Locked
     } else {
         ProjectLocking::Unlocked
     };
+
     let mut error_result = None;
 
-    // Handle the case where no projects and no registries are specified
-    let projects_path =
-        if args.project.project.is_empty() && args.project.registry_project.is_empty() {
-            vec![PathBuf::from(".")]
-        } else {
-            args.project.project
-        };
+    // Load projects and pair each ref with its resolved hash
+    let mut load_cache: HashMap<_, _> = HashMap::new();
+    let mut projects_resolved = Vec::with_capacity(project_refs.len());
 
-    // Loop over the projects
-    for project_path in projects_path {
-        let project_name = format!("project '{name}'", name = project_path.display());
-
-        match projects
-            .load(
-                &brioche,
-                &project_path,
-                ProjectValidation::Standard,
-                locking,
-            )
-            .await
-        {
-            Ok(project_hash) => {
-                let result = run_install(
-                    &reporter,
-                    &brioche,
-                    js_platform,
-                    &projects,
-                    project_hash,
-                    &project_name,
-                    &args.export,
-                    &install_options,
-                )
-                .await;
-
-                consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
+    for project_ref in &project_refs {
+        if let Some(&hash) = load_cache.get(&project_ref.source) {
+            projects_resolved.push((hash, project_ref));
+            continue;
+        }
+        let result = load_project_source(&brioche, &projects, &project_ref.source, locking).await;
+        match result {
+            Ok(hash) => {
+                load_cache.insert(&project_ref.source, hash);
+                projects_resolved.push((hash, project_ref));
             }
-            Err(e) => {
-                consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
+            Err(err) => {
+                let name = project_ref.source.to_string();
+                consolidate_result(&reporter, Some(&name), Err(err), &mut error_result);
+            }
+        }
+    }
+    drop(load_cache);
+
+    if error_result.is_some() {
+        guard.shutdown_console().await;
+        brioche.wait_for_tasks().await;
+        return Ok(ExitCode::FAILURE);
+    }
+
+    // If the `--locked` flag is used, validate that all lockfiles are
+    // up-to-date. Otherwise, write any out-of-date lockfiles
+    if args.locked {
+        projects.validate_no_dirty_lockfiles()?;
+    } else {
+        let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
+        if num_lockfiles_updated > 0 {
+            tracing::info!(num_lockfiles_updated, "updated lockfiles");
+        }
+    }
+
+    // Check (if --check): batch all loaded project hashes
+    if args.check {
+        let project_hashes = projects_resolved
+            .iter()
+            .map(|(hash, _)| *hash)
+            .collect::<HashSet<_>>();
+
+        if !project_hashes.is_empty() {
+            let checked = brioche_core::script::check::check(
+                &brioche,
+                js_platform,
+                &projects,
+                &project_hashes,
+            )
+            .await?;
+
+            let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
+
+            match result {
+                Ok(()) => reporter.emit(superconsole::Lines::from_multiline_string(
+                    "No errors found",
+                    superconsole::style::ContentStyle {
+                        foreground_color: Some(superconsole::style::Color::Green),
+                        ..superconsole::style::ContentStyle::default()
+                    },
+                )),
+                Err(diagnostics) => {
+                    guard.shutdown_console().await;
+
+                    let mut output = Vec::new();
+                    diagnostics.write(&brioche.vfs, &mut output)?;
+
+                    reporter.emit(superconsole::Lines::from_multiline_string(
+                        &String::from_utf8(output)?,
+                        superconsole::style::ContentStyle::default(),
+                    ));
+
+                    brioche.wait_for_tasks().await;
+                    return Ok(ExitCode::FAILURE);
+                }
             }
         }
     }
 
-    // Loop over the registry projects
-    for registry_project in args.project.registry_project {
-        let project_name = format!("registry project '{registry_project}'");
+    // Install loop
+    for &(project_hash, ProjectRef { source, export }) in &projects_resolved {
+        let project_name = source.to_string();
 
-        match projects
-            .load_from_registry(
-                &brioche,
-                &registry_project,
-                &brioche_core::project::Version::Any,
-            )
-            .await
-        {
-            Ok(project_hash) => {
-                let result = run_install(
-                    &reporter,
-                    &brioche,
-                    js_platform,
-                    &projects,
-                    project_hash,
-                    &project_name,
-                    &args.export,
-                    &install_options,
-                )
-                .await;
+        let result = run_install(
+            &reporter,
+            &brioche,
+            js_platform,
+            &projects,
+            project_hash,
+            &project_name,
+            export,
+        )
+        .await;
 
-                consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
-            }
-            Err(e) => {
-                consolidate_result(&reporter, Some(&project_name), Err(e), &mut error_result);
-            }
-        }
+        consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
     }
 
     guard.shutdown_console().await;
@@ -146,12 +181,6 @@ pub async fn install(
     Ok(exit_code)
 }
 
-struct InstallOptions {
-    check: bool,
-    locked: bool,
-}
-
-#[expect(clippy::too_many_arguments)]
 async fn run_install(
     reporter: &Reporter,
     brioche: &Brioche,
@@ -160,48 +189,8 @@ async fn run_install(
     project_hash: ProjectHash,
     project_name: &str,
     export: &str,
-    options: &InstallOptions,
 ) -> Result<bool, anyhow::Error> {
     async {
-        // If the `--locked` flag is used, validate that all lockfiles are
-        // up-to-date. Otherwise, write any out-of-date lockfiles
-        if options.locked {
-            projects.validate_no_dirty_lockfiles()?;
-        } else {
-            let num_lockfiles_updated = projects.commit_dirty_lockfiles().await?;
-            if num_lockfiles_updated > 0 {
-                tracing::info!(num_lockfiles_updated, "updated lockfiles");
-            }
-        }
-
-        if options.check {
-            let project_hashes = HashSet::from_iter([project_hash]);
-
-            let checked =
-                brioche_core::script::check::check(brioche, js_platform, projects, &project_hashes)
-                    .await?;
-
-            let result = checked.ensure_ok(brioche_core::script::check::DiagnosticLevel::Error);
-
-            match result {
-                Ok(()) => reporter.emit(superconsole::Lines::from_multiline_string(
-                    &format!("No errors found in {project_name}"),
-                    superconsole::style::ContentStyle::default(),
-                )),
-                Err(diagnostics) => {
-                    let mut output = Vec::new();
-                    diagnostics.write(&brioche.vfs, &mut output)?;
-
-                    reporter.emit(superconsole::Lines::from_multiline_string(
-                        &String::from_utf8(output)?,
-                        superconsole::style::ContentStyle::default(),
-                    ));
-
-                    return Ok(false);
-                }
-            }
-        }
-
         let recipe = brioche_core::script::evaluate::evaluate(
             brioche,
             js_platform,
