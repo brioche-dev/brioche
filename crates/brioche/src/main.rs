@@ -273,66 +273,6 @@ async fn export_project(args: ExportProjectArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, clap::Args)]
-struct ProjectArgs {
-    /// The path of the project directory to build [default: .]
-    #[clap(short, long)]
-    project: Option<PathBuf>,
-
-    /// The name of a registry project to build.
-    #[clap(short, long)]
-    registry: Option<String>,
-}
-
-#[derive(Debug, clap::Args)]
-#[group(required = false, multiple = false)]
-struct MultipleProjectArgs {
-    /// The path of the project directory to build [default: .]
-    #[clap(short, long)]
-    project: Vec<PathBuf>,
-
-    /// The name of a registry project to build.
-    #[clap(id = "registry", short, long)]
-    registry_project: Vec<String>,
-}
-
-async fn load_project(
-    brioche: &brioche_core::Brioche,
-    projects: &brioche_core::project::Projects,
-    args: &ProjectArgs,
-    locking: ProjectLocking,
-) -> anyhow::Result<brioche_core::project::ProjectHash> {
-    let project_hash = match (&args.project, &args.registry) {
-        (Some(project), None) => {
-            projects
-                .load(brioche, project, ProjectValidation::Standard, locking)
-                .await?
-        }
-        (None, Some(registry)) => {
-            projects
-                .load_from_registry(brioche, registry, &brioche_core::project::Version::Any)
-                .await?
-        }
-        (None, None) => {
-            // Default to the current directory if a project path
-            // is not specified
-            projects
-                .load(
-                    brioche,
-                    &PathBuf::from("."),
-                    ProjectValidation::Standard,
-                    ProjectLocking::Unlocked,
-                )
-                .await?
-        }
-        (Some(_), Some(_)) => {
-            anyhow::bail!("cannot specify both --project and --registry");
-        }
-    };
-
-    Ok(project_hash)
-}
-
 #[derive(Debug, Default, Clone, Copy, clap::ValueEnum)]
 enum DisplayMode {
     /// Display with console output if stdout is a tty, otherwise use
