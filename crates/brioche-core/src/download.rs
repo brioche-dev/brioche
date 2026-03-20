@@ -117,6 +117,7 @@ pub async fn fetch_git_commit_for_ref(
 
             // Perform a handshake to get the remote's capabilities.
             // Authentication is disabled
+            #[expect(clippy::result_large_err)]
             let empty_auth = |_| Ok(None);
             let outcome = gix::protocol::handshake(
                 &mut transport,
