@@ -3,6 +3,8 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use brioche_core::project::{ProjectHash, ProjectLocking, ProjectValidation, Projects};
+
 const DEFAULT_EXPORT: &str = "default";
 
 /// Resolves input paths by merging positional args with the deprecated `--project` flag,
@@ -174,7 +176,7 @@ pub fn resolve_project_refs(
     project: Option<PathBuf>,
     registry: Option<String>,
     export: Option<String>,
-) -> HashSet<ProjectRef> {
+) -> Vec<ProjectRef> {
     let project_refs = if positional.is_empty() {
         let export = export.unwrap_or_else(|| DEFAULT_EXPORT.to_string());
         let exports = vec![export];
@@ -191,6 +193,7 @@ pub fn resolve_project_refs(
         positional
     };
 
+    let mut seen = HashSet::new();
     project_refs
         .into_iter()
         .flat_map(|target| {
@@ -199,7 +202,29 @@ pub fn resolve_project_refs(
                 export,
             })
         })
+        .filter(|r| seen.insert((r.source.clone(), r.export.clone())))
         .collect()
+}
+
+/// Loads a project from either a local path or the registry.
+pub async fn load_project_source(
+    brioche: &brioche_core::Brioche,
+    projects: &Projects,
+    source: &ProjectSource,
+    locking: ProjectLocking,
+) -> anyhow::Result<ProjectHash> {
+    match source {
+        ProjectSource::Local(path) => {
+            projects
+                .load(brioche, path, ProjectValidation::Standard, locking)
+                .await
+        }
+        ProjectSource::Registry(name) => {
+            projects
+                .load_from_registry(brioche, name, &brioche_core::project::Version::Any)
+                .await
+        }
+    }
 }
 
 /// Generate numbered output paths from a base path.
@@ -320,8 +345,7 @@ mod tests {
 
     #[test]
     fn test_resolve_project_refs_default() {
-        let project_refs = resolve_project_refs(vec![], None, None, None);
-        let result = project_refs.iter().collect::<Vec<_>>();
+        let result = resolve_project_refs(vec![], None, None, None);
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].source, ProjectSource::Local(PathBuf::from(".")));

@@ -1,20 +1,34 @@
-use std::{collections::HashSet, process::ExitCode};
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::process::ExitCode;
 
 use anyhow::Context as _;
-use brioche_core::{project::ProjectLocking, utils::DisplayDuration};
+use brioche_core::project::ProjectLocking;
+use brioche_core::utils::DisplayDuration;
 use clap::Parser;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt as _;
 use tracing::Instrument as _;
 
+use crate::utils::{ProjectRefs, ProjectRefsParser, load_project_source, resolve_project_refs};
+
 #[derive(Debug, Parser)]
 pub struct RunArgs {
-    #[command(flatten)]
-    project: super::ProjectArgs,
+    /// Project to run (e.g., `./pkg`, `curl`, `./pkg^test`, `^test`).
+    #[arg(value_parser = ProjectRefsParser, conflicts_with_all = ["project", "registry", "export"])]
+    target: Option<ProjectRefs>,
 
-    /// Which TypeScript export to build.
-    #[arg(short, long, default_value = "default")]
-    export: String,
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true, conflicts_with = "registry")]
+    project: Option<PathBuf>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    registry: Option<String>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    export: Option<String>,
 
     /// The path within the build artifact to execute.
     #[arg(short, long, default_value = "brioche-run")]
@@ -50,6 +64,20 @@ pub async fn run(
     js_platform: brioche_core::script::JsPlatform,
     args: RunArgs,
 ) -> anyhow::Result<ExitCode> {
+    let project_refs = resolve_project_refs(
+        args.target.into_iter().collect(),
+        args.project,
+        args.registry,
+        args.export,
+    );
+
+    anyhow::ensure!(
+        project_refs.len() == 1,
+        "should accept a single project and export, but got {} targets",
+        project_refs.len()
+    );
+    let project_ref = &project_refs[0];
+
     let (reporter, mut guard) = if args.quiet {
         brioche_core::reporter::start_null_reporter()
     } else {
@@ -73,7 +101,8 @@ pub async fn run(
     };
 
     let build_future = async {
-        let project_hash = super::load_project(&brioche, &projects, &args.project, locking).await?;
+        let project_hash =
+            load_project_source(&brioche, &projects, &project_ref.source, locking).await?;
 
         // If the `--locked` flag is used, validate that all lockfiles are
         // up-to-date. Otherwise, write any out-of-date lockfiles
@@ -121,7 +150,7 @@ pub async fn run(
             js_platform,
             &projects,
             project_hash,
-            &args.export,
+            &project_ref.export,
         )
         .await?;
 
@@ -130,7 +159,7 @@ pub async fn run(
             recipe,
             &brioche_core::bake::BakeScope::Project {
                 project_hash,
-                export: args.export.clone(),
+                export: project_ref.export.clone(),
             },
         )
         .instrument(tracing::info_span!("bake"))

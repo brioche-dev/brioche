@@ -3,15 +3,16 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::Context as _;
-use brioche_core::project::{ProjectHash, ProjectLocking, ProjectValidation, Projects};
+use brioche_core::Brioche;
+use brioche_core::fs_utils;
+use brioche_core::project::{ProjectHash, ProjectLocking, Projects};
 use brioche_core::reporter::Reporter;
 use brioche_core::utils::DisplayDuration;
-use brioche_core::{Brioche, fs_utils};
 use clap::Parser;
 use tracing::Instrument as _;
 
 use crate::utils::{
-    ProjectRef, ProjectRefs, ProjectRefsParser, ProjectSource, consolidate_result,
+    ProjectRef, ProjectRefs, ProjectRefsParser, consolidate_result, load_project_source,
     numbered_output_paths, resolve_project_refs,
 };
 
@@ -267,26 +268,6 @@ pub async fn build(
     let exit_code = error_result.map_or(ExitCode::SUCCESS, |()| ExitCode::FAILURE);
 
     Ok(exit_code)
-}
-
-async fn load_project_source(
-    brioche: &Brioche,
-    projects: &Projects,
-    source: &ProjectSource,
-    locking: ProjectLocking,
-) -> anyhow::Result<ProjectHash> {
-    match source {
-        ProjectSource::Local(path) => {
-            projects
-                .load(brioche, path, ProjectValidation::Standard, locking)
-                .await
-        }
-        ProjectSource::Registry(name) => {
-            projects
-                .load_from_registry(brioche, name, &brioche_core::project::Version::Any)
-                .await
-        }
-    }
 }
 
 struct BuildTargetOptions<'a> {
