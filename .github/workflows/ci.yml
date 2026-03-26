@@ -282,25 +282,27 @@ jobs:
             --endpoint "$S3_ENDPOINT" \
             --delete \
             artifacts/ \
-            "s3://brioche-dev-development-content/github.com/brioche-dev/brioche/branches/$GITHUB_REF_NAME/"
+            "$S3_URL_DEVELOPMENT_CONTENT/github.com/brioche-dev/brioche/branches/$GITHUB_REF_NAME/"
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ vars.R2_S3_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
           AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
           AWS_RESPONSE_CHECKSUM_CALCULATION: WHEN_REQUIRED
-          S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          S3_ENDPOINT: ${{ vars.AWS_ENDPOINT_URL_S3 }}
+          S3_URL_DEVELOPMENT_CONTENT: ${{ vars.S3_URL_DEVELOPMENT_CONTENT }}
       # Publish to "releases" bucket and create a draft GitHub release
       - name: Publish release
         if: env.BRIOCHE_RELEASE_NAMESPACE == 'release'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_S3_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_S3_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: ${{ vars.R2_S3_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_DEFAULT_REGION }}
           AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
           AWS_RESPONSE_CHECKSUM_CALCULATION: WHEN_REQUIRED
-          S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          S3_ENDPOINT: ${{ vars.AWS_ENDPOINT_URL_S3 }}
+          S3_URL_RELEASES: ${{ vars.S3_URL_RELEASES }}
         run: |
           # Validate Cargo.toml version matches release version
           crate_version=$(cargo metadata --manifest-path checkout/Cargo.toml --format-version=1 | jq -r '.packages | map(select(.name == "brioche")) | first.version')
@@ -328,4 +330,4 @@ jobs:
             --endpoint "$S3_ENDPOINT" \
             --delete \
             artifacts/ \
-            "s3://brioche-releases/$GITHUB_REF_NAME/"
+            "$S3_URL_RELEASES/$GITHUB_REF_NAME/"
