@@ -6,6 +6,39 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+## [v0.1.7]
+
+**Check [the v0.1.7 announcement blog post](https://brioche.dev/blog/brioche-v0-1-7/) for an overview of the new features in this release**
+
+### Added
+
+- **New simplified CLI commands.** `brioche` can now be called using positional parameters for projects/exports, instead of the `-p` / `-r` / `-e` flags. The old flags still work, but are considered deprecated.
+    - Local projects are be prefixed with a `./`, `../`, or `/`, registry projects just use their local name.
+    - Exports are written using `^`, e.g. `project^export`.
+    - Example: `brioche check -p project` → `brioche check ./project`
+    - Example: `brioche run -r curl -- https://example.com` → `brioche run curl -- https://example.com`
+    - Example: `brioche build -p ./packages/llvm -e test` → `brioche build ./packages/llvm^test`
+    - Applies to the CLI subcommands `fmt` ([#386](https://github.com/brioche-dev/brioche/pull/386)), `check` ([#424](https://github.com/brioche-dev/brioche/pull/424)), `publish` ([#427](https://github.com/brioche-dev/brioche/pull/427)), `build` ([#437](https://github.com/brioche-dev/brioche/pull/437)), `run` ([#440](https://github.com/brioche-dev/brioche/pull/440)), `install` ([#440](https://github.com/brioche-dev/brioche/pull/440)), and `live-update` ([#440](https://github.com/brioche-dev/brioche/pull/440))
+- Add `cache.write_url` config option to use separate URLs when reading from or writing to the cache ([#422](https://github.com/brioche-dev/brioche/pull/422))
+- (Experimental): Allow skipping specific cached artifacts with the env var `$BRIOCHE_SKIP_CACHE_ARTIFACTS` ([#401](https://github.com/brioche-dev/brioche/pull/401))
+
+### Changed
+
+- `brioche fmt` can now format individual files ([#386](https://github.com/brioche-dev/brioche/pull/386))
+- Update sandbox so `localhost` resolves even when networking is disabled ([#445](https://github.com/brioche-dev/brioche/pull/445))
+- Tweak cache timeouts and add new timeout config options ([#379](https://github.com/brioche-dev/brioche/pull/379))
+- Enable HTTP/2 and enable HTTP connection pooling for downloads ([#406](https://github.com/brioche-dev/brioche/pull/406))
+- Use a larger buffer for decoding from cache ([#402](https://github.com/brioche-dev/brioche/pull/402))
+- Optimize outputting artifacts ([#397](https://github.com/brioche-dev/brioche/pull/397), [#411](https://github.com/brioche-dev/brioche/pull/411))
+- Upgrade ESLint version used for linting `.bri` files ([#377](https://github.com/brioche-dev/brioche/pull/377))
+- Upgrade to TypeScript 5.9.3 ([#388](https://github.com/brioche-dev/brioche/pull/388))
+- Improve parallel recipe baking ([#407](https://github.com/brioche-dev/brioche/pull/407))
+- Tweak Cargo profile for release builds ([#403](https://github.com/brioche-dev/brioche/pull/403))
+
+### Fixed
+
+- Fix race conditions in LSP ([#364](https://github.com/brioche-dev/brioche/pull/364), [#366](https://github.com/brioche-dev/brioche/pull/366))
+
 ## [v0.1.6]
 
 **Check [the v0.1.6 announcement blog post](https://brioche.dev/blog/brioche-v0-1-6/) for an overview of the new features in this release**
@@ -162,7 +195,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 - **Initial release!**
 
-[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.7...HEAD
+[v0.1.7]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.7
 [v0.1.6]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.6
 [v0.1.5]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.4
