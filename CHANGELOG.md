@@ -8,7 +8,7 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [v0.1.6]
 
-**Check [the v0.1.6 announcement blog post](http://brioche.dev/blog/announcing-brioche-v0-1-5) for an overview of the new features in this release**
+**Check [the v0.1.6 announcement blog post](https://brioche.dev/blog/brioche-v0-1-6/) for an overview of the new features in this release**
 
 ### Added
 
