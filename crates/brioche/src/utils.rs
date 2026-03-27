@@ -133,7 +133,9 @@ impl clap::builder::TypedValueParser for ProjectRefsParser {
         // First check if it's a local path, then a registry name
         let source = if project_part.is_empty() {
             ProjectSource::Local(PathBuf::from("."))
-        } else if project_part.starts_with("./")
+        } else if project_part == "."
+            || project_part == ".."
+            || project_part.starts_with("./")
             || project_part.starts_with("../")
             || project_part.starts_with('/')
         {
