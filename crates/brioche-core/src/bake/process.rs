@@ -1940,6 +1940,9 @@ async fn set_up_rootfs(
         .await
         .context("failed to create etc")?;
 
+    let etc_hosts_contents = "127.0.0.1 localhost\n::1 localhost\n";
+    tokio::fs::write(etc_dir.join("hosts"), etc_hosts_contents).await?;
+
     let etc_passwd_contents = format!(
         "{guest_username}:!x:{GUEST_UID_HINT}:{GUEST_GID_HINT}::{guest_home_dir}:/bin/sh\n",
     );
