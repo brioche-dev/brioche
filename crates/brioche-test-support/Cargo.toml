@@ -12,7 +12,7 @@ directories = "6.0.0"
 futures = "0.3.32"
 hex = "0.4.3"
 mockito = "1.7.2"
-object_store = "0.13.1"
+object_store = "0.13.2"
 reqwest = "0.13.2"
 reqwest-middleware = "0.5.1"
 serde = { version = "1.0.228", features = ["derive"] }
@@ -21,7 +21,7 @@ tempfile = "3.27.0"
 tokio = { version = "1.50.0", features = ["full", "tracing"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tokio-util = "0.7.18"
-toml = "1.0.7"
+toml = "1.1.0"
 tower-lsp = "0.20.0"
 tracing = "0.1.44"
 ulid = "1.2.1"
