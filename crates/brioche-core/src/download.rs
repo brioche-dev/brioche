@@ -1,3 +1,5 @@
+use std::{path::Path, sync::atomic::AtomicBool};
+
 use anyhow::Context as _;
 use futures::TryStreamExt as _;
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
@@ -102,6 +104,30 @@ pub async fn fetch_git_commit_for_ref(
             .try_into()
             .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
         move || {
+            // For proper authentication, we need to create a config
+            let config = gix::config::File::from_globals().unwrap_or_default();
+
+            // Get credential helpers from config
+            let (mut cascade, _action, _prompt_options) = match gix::config::credential_helpers(
+                repository.clone(),
+                &config,
+                false,
+                |_| true,
+                gix::open::permissions::Environment::all(),
+                false,
+            ) {
+                Ok(result) => result,
+                Err(error) => {
+                    let _ = tx.send(Err(error.into()));
+                    return;
+                }
+            };
+
+            // Authenticate function that uses the cascade
+            let auth = move |action: gix::credentials::helper::Action| {
+                cascade.invoke(action, gix::prompt::Options::default())
+            };
+
             // Connect to the repository by URL
             let transport = gix::protocol::transport::client::blocking_io::connect::connect(
                 repository,
@@ -115,14 +141,11 @@ pub async fn fetch_git_commit_for_ref(
                 }
             };
 
-            // Perform a handshake to get the remote's capabilities.
-            // Authentication is disabled
-            #[expect(clippy::result_large_err)]
-            let empty_auth = |_| Ok(None);
+            // Perform a handshake with authentication support
             let outcome = gix::protocol::handshake(
                 &mut transport,
                 gix::protocol::transport::Service::UploadPack,
-                empty_auth,
+                auth,
                 vec![],
                 &mut gix::progress::Discard,
             );
@@ -210,4 +233,132 @@ pub async fn fetch_git_commit_for_ref(
 
     let commit = object_id.to_string();
     Ok(commit)
+}
+
+pub async fn git_checkout(
+    repository: &url::Url,
+    reference: &str,
+    commit: &str,
+    output_dir: &Path,
+) -> anyhow::Result<()> {
+    #[derive(Clone)]
+    struct RepoObjectFinder {
+        repo: gix::Repository,
+    }
+
+    impl gix::objs::Find for RepoObjectFinder {
+        fn try_find<'a>(
+            &self,
+            id: &gix::hash::oid,
+            buffer: &'a mut Vec<u8>,
+        ) -> Result<Option<gix::objs::Data<'a>>, gix::objs::find::Error> {
+            let Some(object) = self.repo.try_find_object(id).map_err(|error| error.0)? else {
+                return Ok(None);
+            };
+
+            buffer.clear();
+            buffer.extend_from_slice(&object.data);
+
+            Ok(Some(gix::objs::Data::new(object.kind, buffer.as_slice())))
+        }
+    }
+
+    let repository = repository.clone();
+    let reference = reference.to_string();
+    let commit = commit.to_string();
+    let output_dir = output_dir.to_path_buf();
+
+    tokio::task::spawn_blocking(move || {
+        if output_dir.exists() {
+            return Ok(());
+        }
+
+        let parent_dir = output_dir
+            .parent()
+            .with_context(|| format!("checkout path {} had no parent", output_dir.display()))?;
+        std::fs::create_dir_all(parent_dir)
+            .with_context(|| format!("failed to create {}", parent_dir.display()))?;
+
+        let temp_dir = parent_dir.join(format!("checkout-tmp-{}", ulid::Ulid::new()));
+        if temp_dir.exists() {
+            std::fs::remove_dir_all(&temp_dir).with_context(|| {
+                format!(
+                    "failed to remove temporary directory {}",
+                    temp_dir.display()
+                )
+            })?;
+        }
+        std::fs::create_dir_all(&temp_dir)
+            .with_context(|| format!("failed to create {}", temp_dir.display()))?;
+
+        let repository: gix::Url = repository
+            .as_str()
+            .try_into()
+            .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
+        let mut prepare_fetch = gix::clone::PrepareFetch::new(
+            repository,
+            &temp_dir,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options::default(),
+            gix::open::Options::default(),
+        )?
+        .with_ref_name(Some(reference.as_str()))
+        .map_err(anyhow::Error::from)?;
+
+        let should_interrupt = AtomicBool::new(false);
+        let (repo, _) = prepare_fetch.fetch_only(gix::progress::Discard, &should_interrupt)?;
+
+        let commit_id = gix::hash::ObjectId::from_hex(commit.as_bytes())
+            .with_context(|| format!("invalid git commit hash {commit}"))?;
+        let commit = repo.find_commit(commit_id).with_context(|| {
+            format!("commit {commit_id} not found after fetching ref {reference}")
+        })?;
+        let tree_id = commit.tree_id()?.detach();
+        let mut index = repo.index_from_tree(&tree_id)?;
+
+        let mut checkout_options =
+            repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
+        checkout_options.destination_is_initially_empty = true;
+
+        let finder = RepoObjectFinder { repo: repo.clone() };
+        let files_progress = gix::progress::Discard;
+        let bytes_progress = gix::progress::Discard;
+        gix::worktree::state::checkout(
+            &mut index,
+            repo.workdir()
+                .with_context(|| format!("repository {} has no workdir", temp_dir.display()))?,
+            finder,
+            &files_progress,
+            &bytes_progress,
+            &should_interrupt,
+            checkout_options,
+        )?;
+        index.write(Default::default())?;
+
+        let dot_git_dir = temp_dir.join(".git");
+        if dot_git_dir.exists() {
+            std::fs::remove_dir_all(&dot_git_dir)
+                .with_context(|| format!("failed to remove {}", dot_git_dir.display()))?;
+        }
+
+        match std::fs::rename(&temp_dir, &output_dir) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                std::fs::remove_dir_all(&temp_dir).with_context(|| {
+                    format!("failed to remove {} after rename race", temp_dir.display())
+                })?;
+                Ok(())
+            }
+            Err(error) => Err(error).with_context(|| {
+                format!(
+                    "failed to move git checkout from {} to {}",
+                    temp_dir.display(),
+                    output_dir.display()
+                )
+            }),
+        }
+    })
+    .await??;
+
+    Ok(())
 }

@@ -3,6 +3,108 @@ use brioche_core::{
     script::{evaluate::evaluate, initialize_js_platform},
 };
 
+fn test_git_signature() -> gix::actor::Signature {
+    gix::actor::Signature {
+        name: "Brioche Test".into(),
+        email: "brioche@example.com".into(),
+        time: gix::date::Time {
+            seconds: 0,
+            offset: 0,
+        },
+    }
+}
+
+fn create_test_commit(
+    repo: &gix::Repository,
+    files: &[(&str, &str)],
+    parent: Option<gix::hash::ObjectId>,
+    message: &str,
+) -> anyhow::Result<gix::hash::ObjectId> {
+    let mut entries = files
+        .iter()
+        .map(|(name, content)| {
+            let blob_id = repo
+                .write_object(gix::objs::Blob {
+                    data: content.as_bytes().to_vec(),
+                })?
+                .detach();
+
+            anyhow::Ok(gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryKind::Blob.into(),
+                filename: (*name).into(),
+                oid: blob_id,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    entries.sort();
+
+    let tree_id = repo.write_object(gix::objs::Tree { entries })?.detach();
+    let signature = test_git_signature();
+    let commit_id = repo
+        .write_object(gix::objs::Commit {
+            tree: tree_id,
+            parents: parent.into_iter().collect(),
+            author: signature.clone(),
+            committer: signature,
+            encoding: None,
+            message: message.into(),
+            extra_headers: Vec::new(),
+        })?
+        .detach();
+
+    Ok(commit_id)
+}
+
+fn create_test_git_repo(
+    repo_dir: &std::path::Path,
+) -> anyhow::Result<(url::Url, String, String, String)> {
+    let repo = gix::init_bare(repo_dir)?;
+
+    let main_commit = create_test_commit(&repo, &[("shared.txt", "main\n")], None, "main")?;
+    repo.reference(
+        "refs/heads/main",
+        main_commit,
+        gix::refs::transaction::PreviousValue::Any,
+        "test main",
+    )?;
+
+    let feature1_commit = create_test_commit(
+        &repo,
+        &[("feature.txt", "feature1\n"), ("shared.txt", "main\n")],
+        Some(main_commit),
+        "feature1",
+    )?;
+    repo.reference(
+        "refs/heads/feature1",
+        feature1_commit,
+        gix::refs::transaction::PreviousValue::Any,
+        "test feature1",
+    )?;
+
+    let feature2_commit = create_test_commit(
+        &repo,
+        &[("feature.txt", "feature2\n"), ("shared.txt", "main\n")],
+        Some(main_commit),
+        "feature2",
+    )?;
+    repo.reference(
+        "refs/heads/feature2",
+        feature2_commit,
+        gix::refs::transaction::PreviousValue::Any,
+        "test feature2",
+    )?;
+
+    let repo_url = url::Url::from_directory_path(repo_dir)
+        .map_err(|()| anyhow::anyhow!("failed to create file URL for {}", repo_dir.display()))?;
+
+    Ok((
+        repo_url,
+        main_commit.to_string(),
+        feature1_commit.to_string(),
+        feature2_commit.to_string(),
+    ))
+}
+
 #[tokio::test]
 async fn test_eval_basic() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
@@ -862,76 +964,41 @@ async fn test_eval_brioche_git_ref() -> anyhow::Result<()> {
 async fn test_eval_brioche_git_checkout() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let mut mock_repo = mockito::Server::new_async().await;
-    let mock_repo_url = mock_repo.url();
+    let repo_dir = context.mkdir("repo").await;
+    let (repo_url, _, _, _) = create_test_git_repo(&repo_dir)?;
 
-    // Mock a git "handshake" server response for protocol version 2
-    let mock_git_info_refs_response = b"001e# service=git-upload-pack\n0000000eversion 2\n0000";
-    let mock_git_info_refs = mock_repo
-        .mock("GET", "/info/refs?service=git-upload-pack")
-        .with_header(
-            "Content-Type",
-            "application/x-git-upload-pack-advertisement",
-        )
-        .with_header("Cache-Control", "no-cache")
-        .with_body(mock_git_info_refs_response)
-        .expect(1)
-        .create();
-
-    // Mock a git "ls-refs" response, with one branch named "main" with a
-    // commit hash of "0123456789abcdef01234567890123456789abcd"
-    let mock_git_upload_pack_response =
-        b"003d0123456789abcdef01234567890123456789abcd refs/heads/main\n0000";
-    let mock_git_upload_pack = mock_repo
-        .mock("POST", "/git-upload-pack")
-        .with_header("Content-Type", "application/x-git-upload-pack-result")
-        .with_header("Cache-Control", "no-cache")
-        .with_body(mock_git_upload_pack_response)
-        .expect(1)
-        .create();
-
-    // From Brioche's perspective, `Brioche.gitCheckout()` is treated
-    // the same as `Brioche.gitRef()`. In practice, it will actually checkout
-    // the ref, but that's implemented at the packaging layer
     let project_dir = context.mkdir("myproject").await;
     context
         .write_file(
             "myproject/project.bri",
             r#"
+                export const project = {};
+
                 globalThis.Brioche = {
                     gitCheckout: async ({ repository, ref }) => {
-                        return await Deno.core.ops.op_brioche_get_static(
-                            import.meta.url,
-                            {
-                                type: "git_ref",
-                                repository,
-                                ref,
+                        return {
+                            briocheSerialize: async () => {
+                                return await Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "git_checkout",
+                                        repository,
+                                        ref,
+                                    },
+                                );
                             },
-                        );
+                        };
                     }
-                }
+                };
 
                 export default async () => {
-                    const gitCheckout = await Brioche.gitCheckout({
+                    return await Brioche.gitCheckout({
                         repository: "<REPO_URL>",
                         ref: "main",
                     });
-                    return {
-                        briocheSerialize: async () => {
-                            return {
-                                type: "create_file",
-                                content: JSON.stringify(gitCheckout),
-                                executable: false,
-                                resources: {
-                                    type: "directory",
-                                    entries: {},
-                                },
-                            };
-                        },
-                    };
                 };
             "#
-            .replace("<REPO_URL>", &mock_repo_url),
+            .replace("<REPO_URL>", repo_url.as_str()),
         )
         .await;
 
@@ -948,21 +1015,20 @@ async fn test_eval_brioche_git_checkout() -> anyhow::Result<()> {
     .await?
     .value;
 
-    let brioche_core::recipe::Recipe::CreateFile { content, .. } = resolved else {
-        panic!("expected create_file recipe, got {resolved:?}");
-    };
-
-    mock_git_info_refs.assert_async().await;
-    mock_git_upload_pack.assert_async().await;
-
-    let git_ref: serde_json::Value = serde_json::from_slice(&content)?;
     assert_eq!(
-        git_ref,
-        serde_json::json!({
-            "staticKind": "git_ref",
-            "repository": format!("{mock_repo_url}/"),
-            "commit": "0123456789abcdef01234567890123456789abcd",
-        }),
+        resolved,
+        brioche_test_support::dir(
+            &brioche,
+            [(
+                "shared.txt",
+                brioche_test_support::file(
+                    brioche_test_support::blob(&brioche, "main\n").await,
+                    false,
+                ),
+            )],
+        )
+        .await
+        .into(),
     );
 
     Ok(())
@@ -972,45 +1038,17 @@ async fn test_eval_brioche_git_checkout() -> anyhow::Result<()> {
 async fn test_eval_brioche_git_ref_and_git_checkout() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
-    let mut mock_repo = mockito::Server::new_async().await;
-    let mock_repo_url = mock_repo.url();
+    let repo_dir = context.mkdir("repo").await;
+    let (repo_url, main_commit, feature1_commit, feature2_commit) =
+        create_test_git_repo(&repo_dir)?;
 
-    // Mock a git "handshake" server response for protocol version 2
-    // TODO: Update code so each repo only gets evaluated once
-    let mock_git_info_refs_response = b"001e# service=git-upload-pack\n0000000eversion 2\n0000";
-    let mock_git_info_refs = mock_repo
-        .mock("GET", "/info/refs?service=git-upload-pack")
-        .with_header(
-            "Content-Type",
-            "application/x-git-upload-pack-advertisement",
-        )
-        .with_header("Cache-Control", "no-cache")
-        .with_body(mock_git_info_refs_response)
-        .expect_at_least(1)
-        .create();
-
-    // Mock a git "ls-refs" response, with three branches:
-    // - "main" with commit hash "0123456789abcdef01234567890123456789abcd"
-    // - "feature1" with commit hash "abcdef0123456789abcdef012345678901234567"
-    // - "feature2" with commit hash "0000000000111111111122222222223333333333"
-    let mock_git_upload_pack_response =
-        b"003d0123456789abcdef01234567890123456789abcd refs/heads/main\n0041abcdef0123456789abcdef012345678901234567 refs/heads/feature1\n00410000000000111111111122222222223333333333 refs/heads/feature2\n0000";
-    let mock_git_upload_pack = mock_repo
-        .mock("POST", "/git-upload-pack")
-        .with_header("Content-Type", "application/x-git-upload-pack-result")
-        .with_header("Cache-Control", "no-cache")
-        .with_body(mock_git_upload_pack_response)
-        .expect_at_least(1)
-        .create();
-
-    // From Brioche's perspective, `Brioche.gitCheckout()` is treated
-    // the same as `Brioche.gitRef()`. In practice, it will actually checkout
-    // the ref, but that's implemented at the packaging layer
     let project_dir = context.mkdir("myproject").await;
     context
         .write_file(
             "myproject/project.bri",
             r#"
+                export const project = {};
+
                 globalThis.Brioche = {
                     gitRef: async ({ repository, ref }) => {
                         return await Deno.core.ops.op_brioche_get_static(
@@ -1019,20 +1057,22 @@ async fn test_eval_brioche_git_ref_and_git_checkout() -> anyhow::Result<()> {
                                 type: "git_ref",
                                 repository,
                                 ref,
-                                callee: "Brioche.gitRef",
                             },
                         );
                     },
                     gitCheckout: async ({ repository, ref }) => {
-                        return await Deno.core.ops.op_brioche_get_static(
-                            import.meta.url,
-                            {
-                                type: "git_ref",
-                                repository,
-                                ref,
-                                callee: "Brioche.gitCheckout",
+                        return {
+                            briocheSerialize: async () => {
+                                return await Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "git_checkout",
+                                        repository,
+                                        ref,
+                                    },
+                                );
                             },
-                        );
+                        };
                     },
                 };
 
@@ -1041,15 +1081,15 @@ async fn test_eval_brioche_git_ref_and_git_checkout() -> anyhow::Result<()> {
                         repository: "<REPO_URL>",
                         ref: "main",
                     });
-                    const gitCheckoutFeature1 = await Brioche.gitCheckout({
+                    const gitCheckoutFeat1 = await Brioche.gitCheckout({
                         repository: "<REPO_URL>",
                         ref: "feature1",
                     });
-                    const gitRefFeature2 = await Brioche.gitRef({
+                    const gitRefFeat2 = await Brioche.gitRef({
                         repository: "<REPO_URL>",
                         ref: "feature2",
                     });
-                    const gitCheckoutFeature2 = await Brioche.gitCheckout({
+                    const gitCheckoutFeat2 = await Brioche.gitCheckout({
                         repository: "<REPO_URL>",
                         ref: "feature2",
                     });
@@ -1059,9 +1099,9 @@ async fn test_eval_brioche_git_ref_and_git_checkout() -> anyhow::Result<()> {
                                 type: "create_file",
                                 content: JSON.stringify({
                                     gitRefMain,
-                                    gitCheckoutFeature1,
-                                    gitRefFeature2,
-                                    gitCheckoutFeature2,
+                                    gitCheckoutFeat1,
+                                    gitRefFeat2,
+                                    gitCheckoutFeat2,
                                 }),
                                 executable: false,
                                 resources: {
@@ -1073,7 +1113,7 @@ async fn test_eval_brioche_git_ref_and_git_checkout() -> anyhow::Result<()> {
                     };
                 };
             "#
-            .replace("<REPO_URL>", &mock_repo_url),
+            .replace("<REPO_URL>", repo_url.as_str()),
         )
         .await;
 
@@ -1094,35 +1134,26 @@ async fn test_eval_brioche_git_ref_and_git_checkout() -> anyhow::Result<()> {
         panic!("expected create_file recipe, got {resolved:?}");
     };
 
-    mock_git_info_refs.assert_async().await;
-    mock_git_upload_pack.assert_async().await;
-
     let git_ref: serde_json::Value = serde_json::from_slice(&content)?;
     assert_eq!(
         git_ref,
         serde_json::json!({
             "gitRefMain": {
                 "staticKind": "git_ref",
-                "repository": format!("{mock_repo_url}/"),
-                "commit": "0123456789abcdef01234567890123456789abcd",
+                "repository": repo_url.as_str(),
+                "commit": main_commit,
             },
-            "gitCheckoutFeature1": {
+            "gitCheckoutFeat1": {},
+            "gitRefFeat2": {
                 "staticKind": "git_ref",
-                "repository": format!("{mock_repo_url}/"),
-                "commit": "abcdef0123456789abcdef012345678901234567",
+                "repository": repo_url.as_str(),
+                "commit": feature2_commit,
             },
-            "gitRefFeature2": {
-                "staticKind": "git_ref",
-                "repository": format!("{mock_repo_url}/"),
-                "commit": "0000000000111111111122222222223333333333",
-            },
-            "gitCheckoutFeature2": {
-                "staticKind": "git_ref",
-                "repository": format!("{mock_repo_url}/"),
-                "commit": "0000000000111111111122222222223333333333",
-            },
+            "gitCheckoutFeat2": {},
         }),
     );
+
+    assert_eq!(feature1_commit.len(), 40);
 
     Ok(())
 }

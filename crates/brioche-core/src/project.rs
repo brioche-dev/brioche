@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use analyze::{GitRefOptions, StaticOutput, StaticOutputKind, StaticQuery};
+use analyze::{GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery};
 use anyhow::Context as _;
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 
@@ -461,7 +461,11 @@ impl ProjectsInner {
                 project.dependencies.iter().map(|(dep_name, dep_ref)| {
                     let dep_hash = match dep_ref {
                         DependencyRef::WorkspaceMember { path: dep_path } => {
-                            ProjectHash::from_serializable(&ProjectEntry::WorkspaceMember { workspace: *workspace_hash, path: dep_path.clone() }).expect("failed to calculate ProjectHash")
+                            ProjectHash::from_project_entry(&ProjectEntry::WorkspaceMember {
+                                workspace: *workspace_hash,
+                                path: dep_path.clone(),
+                            })
+                            .expect("failed to calculate ProjectHash")
                         },
                         DependencyRef::Project(project_hash) => {
                             *project_hash
@@ -647,7 +651,12 @@ impl ProjectsInner {
         let Some(statics) = project.statics.get(&module_path) else {
             return Ok(None);
         };
-        let Some(Some(output)) = statics.get(static_query) else {
+        let output = statics.get(static_query).or_else(|| match static_query {
+            StaticQuery::GitRef(options) => statics.get(&StaticQuery::GitCheckout(options.clone())),
+            StaticQuery::GitCheckout(options) => statics.get(&StaticQuery::GitRef(options.clone())),
+            _ => None,
+        });
+        let Some(Some(output)) = output else {
             return Ok(None);
         };
         Ok(Some(output.clone()))
@@ -684,6 +693,106 @@ pub struct Project {
     #[serde_as(as = "HashMap<_, Vec<(_, _)>>")]
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub statics: HashMap<RelativePathBuf, BTreeMap<StaticQuery, Option<StaticOutput>>>,
+}
+
+#[serde_with::serde_as]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HashableProject {
+    definition: ProjectDefinition,
+    dependencies: HashMap<String, DependencyRef>,
+    modules: HashMap<RelativePathBuf, FileId>,
+    #[serde_as(as = "HashMap<_, Vec<(_, _)>>")]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    statics: HashMap<RelativePathBuf, BTreeMap<HashableStaticQuery, Option<StaticOutput>>>,
+}
+
+impl From<&Project> for HashableProject {
+    fn from(project: &Project) -> Self {
+        let statics = project
+            .statics
+            .iter()
+            .map(|(path, statics)| {
+                let statics = statics
+                    .iter()
+                    .map(|(query, output)| (HashableStaticQuery::from(query), output.clone()))
+                    .collect();
+                (path.clone(), statics)
+            })
+            .collect();
+
+        Self {
+            definition: project.definition.clone(),
+            dependencies: project.dependencies.clone(),
+            modules: project.modules.clone(),
+            statics,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum HashableStaticQuery {
+    Include(StaticInclude),
+    Glob { patterns: Vec<String> },
+    Download { url: url::Url },
+    GitRef(GitRefOptions),
+}
+
+impl From<&StaticQuery> for HashableStaticQuery {
+    fn from(query: &StaticQuery) -> Self {
+        match query {
+            StaticQuery::Include(include) => Self::Include(include.clone()),
+            StaticQuery::Glob { patterns } => Self::Glob {
+                patterns: patterns.clone(),
+            },
+            StaticQuery::Download { url } => Self::Download { url: url.clone() },
+            StaticQuery::GitRef(options) | StaticQuery::GitCheckout(options) => {
+                Self::GitRef(options.clone())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+enum HashableProjectEntry {
+    WorkspaceMember {
+        workspace: WorkspaceHash,
+        path: RelativePathBuf,
+    },
+    #[serde(untagged)]
+    Project(HashableProject),
+}
+
+impl From<&ProjectEntry> for HashableProjectEntry {
+    fn from(project_entry: &ProjectEntry) -> Self {
+        match project_entry {
+            ProjectEntry::WorkspaceMember { workspace, path } => Self::WorkspaceMember {
+                workspace: *workspace,
+                path: path.clone(),
+            },
+            ProjectEntry::Project(project) => Self::Project(HashableProject::from(&**project)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct HashableWorkspace {
+    members: BTreeMap<RelativePathBuf, HashableProject>,
+}
+
+impl From<&Workspace> for HashableWorkspace {
+    fn from(workspace: &Workspace) -> Self {
+        let members = workspace
+            .members
+            .iter()
+            .map(|(path, project)| (path.clone(), HashableProject::from(&**project)))
+            .collect();
+        Self { members }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -753,8 +862,16 @@ impl ProjectHash {
         Ok(Self(hash))
     }
 
+    pub fn from_project(project: &Project) -> anyhow::Result<Self> {
+        Self::from_serializable(&HashableProject::from(project))
+    }
+
+    pub fn from_project_entry(project_entry: &ProjectEntry) -> anyhow::Result<Self> {
+        Self::from_serializable(&HashableProjectEntry::from(project_entry))
+    }
+
     pub fn validate_matches(&self, project: &Project) -> anyhow::Result<()> {
-        let actual_hash = Self::from_serializable(project)?;
+        let actual_hash = Self::from_project(project)?;
         anyhow::ensure!(
             self == &actual_hash,
             "project hash does not match expected hash"
@@ -920,8 +1037,12 @@ impl WorkspaceHash {
         Ok(Self(hash))
     }
 
+    pub fn from_workspace(workspace: &Workspace) -> anyhow::Result<Self> {
+        Self::from_serializable(&HashableWorkspace::from(workspace))
+    }
+
     pub fn validate_matches(&self, workspace: &Workspace) -> anyhow::Result<()> {
-        let actual_hash = Self::from_serializable(workspace)?;
+        let actual_hash = Self::from_workspace(workspace)?;
         anyhow::ensure!(
             self == &actual_hash,
             "workspace hash does not match expected hash"
@@ -1032,7 +1153,8 @@ fn project_lockfile(project: &Project) -> Lockfile {
 
                 downloads.insert(url.clone(), hash.clone());
             }
-            StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
+            StaticQuery::GitRef(GitRefOptions { repository, ref_ })
+            | StaticQuery::GitCheckout(GitRefOptions { repository, ref_ }) => {
                 let Some(StaticOutput::Kind(StaticOutputKind::GitRef { commit })) = output else {
                     continue;
                 };

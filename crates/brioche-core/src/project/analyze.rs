@@ -74,6 +74,7 @@ pub enum StaticQuery {
     Glob { patterns: Vec<String> },
     Download { url: url::Url },
     GitRef(GitRefOptions),
+    GitCheckout(GitRefOptions),
 }
 
 impl StaticQuery {
@@ -106,7 +107,6 @@ impl StaticQuery {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct GitRefOptions {
     pub repository: url::Url,
-
     #[serde(rename = "ref")]
     pub ref_: String,
 }
@@ -684,11 +684,17 @@ where
                     };
 
                     // Parse the options
-                    let options = serde_json::from_value(options).with_context(|| {
+                    let options: GitRefOptions = serde_json::from_value(options).with_context(|| {
                         format!("{location}: invalid options for Brioche.{callee_member_text}, expected an object with the keys `repository` and `ref`")
                     })?;
 
-                    Ok(Some(StaticQuery::GitRef(options)))
+                    let static_query = match callee_member_text {
+                        "gitRef" => StaticQuery::GitRef(options),
+                        "gitCheckout" => StaticQuery::GitCheckout(options),
+                        _ => unreachable!("unexpected callee member text"),
+                    };
+
+                    Ok(Some(static_query))
                 }
                 _ => Ok(None),
             }

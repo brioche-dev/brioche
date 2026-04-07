@@ -168,7 +168,7 @@ pub async fn save_projects_from_artifact(
                         workspace: workspace_hash,
                         path: member_path,
                     };
-                    let project_entry_hash = ProjectHash::from_serializable(&project_entry)?;
+                    let project_entry_hash = ProjectHash::from_project_entry(&project_entry)?;
                     anyhow::ensure!(
                         project_hash == project_entry_hash,
                         "project hash {project_hash} did not match hash for workspace member for symlink {target}"
@@ -305,7 +305,9 @@ async fn project_artifact(
                     )
                     .await?;
                 }
-                StaticQuery::Download { .. } | StaticQuery::GitRef { .. } => {
+                StaticQuery::Download { .. }
+                | StaticQuery::GitRef(..)
+                | StaticQuery::GitCheckout(..) => {
                     // Nothing to add
                 }
             }
