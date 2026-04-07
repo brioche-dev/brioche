@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Context as _;
 use joinery::JoinableIterator as _;
@@ -17,12 +21,11 @@ use crate::{
 
 use super::specifier::{self, BriocheImportSpecifier, BriocheModuleSpecifier};
 
-async fn load_git_checkout_recipe(
+fn git_checkout_output_dir(
     brioche: &Brioche,
     repository: &url::Url,
-    ref_: &str,
     commit: &str,
-) -> anyhow::Result<Recipe> {
+) -> anyhow::Result<PathBuf> {
     let mut cache_key_hasher = crate::Hasher::new_sha256();
     cache_key_hasher.update(repository.as_str().as_bytes());
     cache_key_hasher.update(b"\0");
@@ -31,7 +34,16 @@ async fn load_git_checkout_recipe(
         crate::Hash::Sha256 { value } => hex::encode(value),
     };
 
-    let output_dir = brioche.data_dir.join("git-checkouts").join(cache_key);
+    Ok(brioche.data_dir.join("git-checkouts").join(cache_key))
+}
+
+async fn ensure_git_checkout(
+    brioche: &Brioche,
+    repository: &url::Url,
+    ref_: &str,
+    commit: &str,
+) -> anyhow::Result<PathBuf> {
+    let output_dir = git_checkout_output_dir(brioche, repository, commit)?;
     if !tokio::fs::try_exists(&output_dir).await? {
         crate::download::git_checkout(repository, ref_, commit, &output_dir)
             .await
@@ -40,12 +52,16 @@ async fn load_git_checkout_recipe(
             })?;
     }
 
+    Ok(output_dir)
+}
+
+async fn import_directory_recipe(brioche: &Brioche, path: &Path) -> anyhow::Result<Recipe> {
     let mut saved_paths = HashMap::default();
     let meta = Arc::default();
     let artifact = crate::input::create_input(
         brioche,
         crate::input::InputOptions {
-            input_path: &output_dir,
+            input_path: path,
             remove_input: false,
             resource_dir: None,
             input_resource_dirs: &[],
@@ -56,16 +72,23 @@ async fn load_git_checkout_recipe(
     .await?;
 
     let crate::recipe::Artifact::Directory(_) = &artifact.value else {
-        anyhow::bail!(
-            "git checkout at {} was not a directory",
-            output_dir.display()
-        );
+        anyhow::bail!("git checkout at {} was not a directory", path.display());
     };
 
     let recipe = crate::recipe::Recipe::from(artifact.value);
     crate::recipe::save_recipes(brioche, [&recipe]).await?;
 
     Ok(recipe)
+}
+
+async fn load_git_checkout_recipe(
+    brioche: &Brioche,
+    repository: &url::Url,
+    ref_: &str,
+    commit: &str,
+) -> anyhow::Result<Recipe> {
+    let output_dir = ensure_git_checkout(brioche, repository, ref_, commit).await?;
+    import_directory_recipe(brioche, &output_dir).await
 }
 
 /// A type used to call Brioche functions across Tokio runtimes. This is used

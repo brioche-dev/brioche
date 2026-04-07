@@ -9,6 +9,18 @@ use crate::{
     reporter::job::{NewJob, UpdateJob},
 };
 
+fn parse_git_repository_url(repository: &url::Url) -> anyhow::Result<gix::Url> {
+    repository
+        .as_str()
+        .try_into()
+        .with_context(|| format!("failed to parse git repository URL: {repository}"))
+}
+
+fn parse_git_commit_id(commit: &str) -> anyhow::Result<gix::hash::ObjectId> {
+    gix::hash::ObjectId::from_hex(commit.as_bytes())
+        .with_context(|| format!("invalid git commit hash {commit}"))
+}
+
 #[tracing::instrument(skip_all, fields(%url))]
 pub async fn download(
     brioche: &Brioche,
@@ -99,10 +111,7 @@ pub async fn fetch_git_commit_for_ref(
 
     // gix uses a blocking client, so spawn a separate thread to fetch
     std::thread::spawn({
-        let repository: gix::Url = repository
-            .as_str()
-            .try_into()
-            .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
+        let repository = parse_git_repository_url(repository)?;
         move || {
             // For proper authentication, we need to create a config
             let config = gix::config::File::from_globals().unwrap_or_default();
@@ -291,10 +300,7 @@ pub async fn git_checkout(
         std::fs::create_dir_all(&temp_dir)
             .with_context(|| format!("failed to create {}", temp_dir.display()))?;
 
-        let repository: gix::Url = repository
-            .as_str()
-            .try_into()
-            .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
+        let repository = parse_git_repository_url(&repository)?;
         let mut prepare_fetch = gix::clone::PrepareFetch::new(
             repository,
             &temp_dir,
@@ -308,8 +314,7 @@ pub async fn git_checkout(
         let should_interrupt = AtomicBool::new(false);
         let (repo, _) = prepare_fetch.fetch_only(gix::progress::Discard, &should_interrupt)?;
 
-        let commit_id = gix::hash::ObjectId::from_hex(commit.as_bytes())
-            .with_context(|| format!("invalid git commit hash {commit}"))?;
+        let commit_id = parse_git_commit_id(&commit)?;
         let commit = repo.find_commit(commit_id).with_context(|| {
             format!("commit {commit_id} not found after fetching ref {reference}")
         })?;

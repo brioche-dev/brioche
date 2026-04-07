@@ -926,9 +926,7 @@ async fn resolve_locked_git_ref(
                 })?
         }
         (None, ProjectLocking::Locked) => {
-            anyhow::bail!(
-                "commit for git repo '{repository}' ref '{ref_}' not found in lockfile"
-            );
+            anyhow::bail!("commit for git repo '{repository}' ref '{ref_}' not found in lockfile");
         }
     };
 
