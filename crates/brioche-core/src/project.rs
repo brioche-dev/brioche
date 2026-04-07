@@ -4,7 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use analyze::{GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery};
+use analyze::{
+    GitCheckoutQuery, GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery,
+};
 use anyhow::Context as _;
 use relative_path::{PathExt as _, RelativePath, RelativePathBuf};
 
@@ -652,8 +654,15 @@ impl ProjectsInner {
             return Ok(None);
         };
         let output = statics.get(static_query).or_else(|| match static_query {
-            StaticQuery::GitRef(options) => statics.get(&StaticQuery::GitCheckout(options.clone())),
-            StaticQuery::GitCheckout(options) => statics.get(&StaticQuery::GitRef(options.clone())),
+            StaticQuery::GitRef(options) => statics.iter().find_map(|(query, output)| {
+                let StaticQuery::GitCheckout(checkout) = query else {
+                    return None;
+                };
+                (checkout.git_ref_options() == *options).then_some(output)
+            }),
+            StaticQuery::GitCheckout(options) => {
+                statics.get(&StaticQuery::GitRef(options.git_ref_options()))
+            }
             _ => None,
         });
         let Some(Some(output)) = output else {
@@ -748,10 +757,33 @@ impl From<&StaticQuery> for HashableStaticQuery {
                 patterns: patterns.clone(),
             },
             StaticQuery::Download { url } => Self::Download { url: url.clone() },
-            StaticQuery::GitRef(options) | StaticQuery::GitCheckout(options) => {
-                Self::GitRef(options.clone())
-            }
+            StaticQuery::GitRef(options) => Self::GitRef(options.clone()),
+            StaticQuery::GitCheckout(options) => Self::GitRef(options.git_ref_options()),
         }
+    }
+}
+
+impl From<&GitCheckoutQuery> for GitRefOptions {
+    fn from(value: &GitCheckoutQuery) -> Self {
+        value.git_ref_options()
+    }
+}
+
+impl From<GitCheckoutQuery> for GitRefOptions {
+    fn from(value: GitCheckoutQuery) -> Self {
+        value.git_ref_options()
+    }
+}
+
+impl PartialEq<GitRefOptions> for GitCheckoutQuery {
+    fn eq(&self, other: &GitRefOptions) -> bool {
+        self.repository == other.repository && self.ref_ == other.ref_
+    }
+}
+
+impl PartialEq<GitCheckoutQuery> for GitRefOptions {
+    fn eq(&self, other: &GitCheckoutQuery) -> bool {
+        other == self
     }
 }
 
@@ -1153,8 +1185,20 @@ fn project_lockfile(project: &Project) -> Lockfile {
 
                 downloads.insert(url.clone(), hash.clone());
             }
-            StaticQuery::GitRef(GitRefOptions { repository, ref_ })
-            | StaticQuery::GitCheckout(GitRefOptions { repository, ref_ }) => {
+            StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
+                let Some(StaticOutput::Kind(StaticOutputKind::GitRef { commit })) = output else {
+                    continue;
+                };
+
+                let repo_refs: &mut BTreeMap<_, _> =
+                    git_refs.entry(repository.clone()).or_default();
+                repo_refs.insert(ref_.clone(), commit.clone());
+            }
+            StaticQuery::GitCheckout(GitCheckoutQuery {
+                repository,
+                ref_,
+                options: _,
+            }) => {
                 let Some(StaticOutput::Kind(StaticOutputKind::GitRef { commit })) = output else {
                     continue;
                 };

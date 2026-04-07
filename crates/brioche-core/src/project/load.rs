@@ -1201,8 +1201,9 @@ async fn resolve_static(
 
             Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }))
         }
-        StaticQuery::GitCheckout(GitRefOptions { repository, ref_ }) => {
-            let commit = resolve_locked_git_ref(locking, lockfile, repository, ref_).await?;
+        StaticQuery::GitCheckout(query) => {
+            let commit =
+                resolve_locked_git_ref(locking, lockfile, &query.repository, &query.ref_).await?;
 
             Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }))
         }

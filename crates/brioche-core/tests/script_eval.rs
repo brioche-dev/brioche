@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use brioche_core::{
     recipe::Directory,
     script::{evaluate::evaluate, initialize_js_platform},
@@ -14,26 +15,43 @@ fn test_git_signature() -> gix::actor::Signature {
     }
 }
 
-fn create_test_commit(
+enum TestCommitEntry<'a> {
+    File { name: &'a str, content: &'a str },
+    Submodule { name: &'a str, commit: gix::hash::ObjectId },
+}
+
+fn file_repo_url(repo_dir: &std::path::Path) -> anyhow::Result<url::Url> {
+    url::Url::from_directory_path(repo_dir)
+        .map_err(|()| anyhow::anyhow!("failed to create file URL for {}", repo_dir.display()))
+}
+
+fn create_test_commit_with_entries(
     repo: &gix::Repository,
-    files: &[(&str, &str)],
+    entries: &[TestCommitEntry<'_>],
     parent: Option<gix::hash::ObjectId>,
     message: &str,
 ) -> anyhow::Result<gix::hash::ObjectId> {
-    let mut entries = files
+    let mut entries = entries
         .iter()
-        .map(|(name, content)| {
-            let blob_id = repo
-                .write_object(gix::objs::Blob {
-                    data: content.as_bytes().to_vec(),
-                })?
-                .detach();
+        .map(|entry| match entry {
+            TestCommitEntry::File { name, content } => {
+                let blob_id = repo
+                    .write_object(gix::objs::Blob {
+                        data: content.as_bytes().to_vec(),
+                    })?
+                    .detach();
 
-            anyhow::Ok(gix::objs::tree::Entry {
-                mode: gix::objs::tree::EntryKind::Blob.into(),
+                anyhow::Ok(gix::objs::tree::Entry {
+                    mode: gix::objs::tree::EntryKind::Blob.into(),
+                    filename: (*name).into(),
+                    oid: blob_id,
+                })
+            }
+            TestCommitEntry::Submodule { name, commit } => anyhow::Ok(gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryKind::Commit.into(),
                 filename: (*name).into(),
-                oid: blob_id,
-            })
+                oid: *commit,
+            }),
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
     entries.sort();
@@ -53,6 +71,22 @@ fn create_test_commit(
         .detach();
 
     Ok(commit_id)
+}
+
+fn create_test_commit(
+    repo: &gix::Repository,
+    files: &[(&str, &str)],
+    parent: Option<gix::hash::ObjectId>,
+    message: &str,
+) -> anyhow::Result<gix::hash::ObjectId> {
+    let entries = files
+        .iter()
+        .map(|(name, content)| TestCommitEntry::File {
+            name,
+            content,
+        })
+        .collect::<Vec<_>>();
+    create_test_commit_with_entries(repo, &entries, parent, message)
 }
 
 fn create_test_git_repo(
@@ -94,8 +128,7 @@ fn create_test_git_repo(
         "test feature2",
     )?;
 
-    let repo_url = url::Url::from_directory_path(repo_dir)
-        .map_err(|()| anyhow::anyhow!("failed to create file URL for {}", repo_dir.display()))?;
+    let repo_url = file_repo_url(repo_dir)?;
 
     Ok((
         repo_url,
@@ -103,6 +136,109 @@ fn create_test_git_repo(
         feature1_commit.to_string(),
         feature2_commit.to_string(),
     ))
+}
+
+fn create_test_git_repo_with_recursive_submodules(
+    repo_dir: &std::path::Path,
+    submodule_repo_dir: &std::path::Path,
+    nested_repo_dir: &std::path::Path,
+) -> anyhow::Result<url::Url> {
+    let nested_repo = gix::init_bare(nested_repo_dir)?;
+    let nested_commit = create_test_commit(&nested_repo, &[("leaf.txt", "leaf\n")], None, "leaf")?;
+    nested_repo.reference(
+        "refs/heads/main",
+        nested_commit,
+        gix::refs::transaction::PreviousValue::Any,
+        "test nested main",
+    )?;
+    let nested_repo_url = file_repo_url(nested_repo_dir)?;
+
+    let submodule_repo = gix::init_bare(submodule_repo_dir)?;
+    let submodule_gitmodules = format!(
+        "[submodule \"nested\"]\n\tpath = nested\n\turl = {}\n",
+        nested_repo_url
+    );
+    let submodule_commit = create_test_commit_with_entries(
+        &submodule_repo,
+        &[
+            TestCommitEntry::File {
+                name: ".gitmodules",
+                content: &submodule_gitmodules,
+            },
+            TestCommitEntry::File {
+                name: "module.txt",
+                content: "module\n",
+            },
+            TestCommitEntry::Submodule {
+                name: "nested",
+                commit: nested_commit,
+            },
+        ],
+        None,
+        "submodule",
+    )?;
+    submodule_repo.reference(
+        "refs/heads/main",
+        submodule_commit,
+        gix::refs::transaction::PreviousValue::Any,
+        "test submodule main",
+    )?;
+    let submodule_repo_url = file_repo_url(submodule_repo_dir)?;
+
+    let repo = gix::init_bare(repo_dir)?;
+    let root_gitmodules = format!(
+        "[submodule \"submodule\"]\n\tpath = submodule\n\turl = {}\n",
+        submodule_repo_url
+    );
+    let root_commit = create_test_commit_with_entries(
+        &repo,
+        &[
+            TestCommitEntry::File {
+                name: ".gitmodules",
+                content: &root_gitmodules,
+            },
+            TestCommitEntry::File {
+                name: "root.txt",
+                content: "root\n",
+            },
+            TestCommitEntry::Submodule {
+                name: "submodule",
+                commit: submodule_commit,
+            },
+        ],
+        None,
+        "root",
+    )?;
+    repo.reference(
+        "refs/heads/main",
+        root_commit,
+        gix::refs::transaction::PreviousValue::Any,
+        "test root main",
+    )?;
+
+    file_repo_url(repo_dir)
+}
+
+async fn single_git_checkout_dir(
+    brioche: &brioche_core::Brioche,
+) -> anyhow::Result<std::path::PathBuf> {
+    let checkout_root = brioche.data_dir.join("git-checkouts");
+    let mut entries = tokio::fs::read_dir(&checkout_root)
+        .await
+        .with_context(|| format!("failed to read {}", checkout_root.display()))?;
+    let mut paths = vec![];
+    while let Some(entry) = entries.next_entry().await? {
+        paths.push(entry.path());
+    }
+
+    anyhow::ensure!(
+        paths.len() == 1,
+        "expected exactly one git checkout dir in {}, found {}",
+        checkout_root.display(),
+        paths.len()
+    );
+
+    Ok(paths.pop().expect("one path exists"))
 }
 
 #[tokio::test]
@@ -1030,6 +1166,505 @@ async fn test_eval_brioche_git_checkout() -> anyhow::Result<()> {
         .await
         .into(),
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_git_checkout_keep_git_dir() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let repo_dir = context.mkdir("repo").await;
+    let (repo_url, _, _, _) = create_test_git_repo(&repo_dir)?;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    gitCheckout: async ({ repository, ref, options }) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return await Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "git_checkout",
+                                        repository,
+                                        ref,
+                                        options,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                };
+
+                export default async () => {
+                    return await Brioche.gitCheckout({
+                        repository: "<REPO_URL>",
+                        ref: "main",
+                        options: {
+                            keepGitDir: true,
+                        },
+                    });
+                };
+            "#
+            .replace("<REPO_URL>", repo_url.as_str()),
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let _resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let checkout_dir = single_git_checkout_dir(&brioche).await?;
+    assert!(tokio::fs::try_exists(checkout_dir.join(".git/HEAD")).await?);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_git_checkout_with_tag() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let repo_dir = context.mkdir("repo").await;
+    let (repo_url, _, _, _) = create_test_git_repo(&repo_dir)?;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    gitCheckout: async ({ repository, ref, options }) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return await Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "git_checkout",
+                                        repository,
+                                        ref,
+                                        options,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                };
+
+                export default async () => {
+                    return await Brioche.gitCheckout({
+                        repository: "<REPO_URL>",
+                        ref: "main",
+                        options: {
+                            keepGitDir: true,
+                            tag: true,
+                        },
+                    });
+                };
+            "#
+            .replace("<REPO_URL>", repo_url.as_str()),
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let _resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let checkout_dir = single_git_checkout_dir(&brioche).await?;
+    let tag_ref_path = checkout_dir.join(".git/refs/tags/main");
+    assert!(tokio::fs::try_exists(&tag_ref_path).await?);
+    let tag_ref = tokio::fs::read_to_string(&tag_ref_path).await?;
+    assert!(!tag_ref.trim().is_empty());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_git_checkout_tag_requires_keep_git_dir() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let repo_dir = context.mkdir("repo").await;
+    let (repo_url, _, _, _) = create_test_git_repo(&repo_dir)?;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    gitCheckout: async ({ repository, ref, options }) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return await Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "git_checkout",
+                                        repository,
+                                        ref,
+                                        options,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                };
+
+                export default async () => {
+                    return await Brioche.gitCheckout({
+                        repository: "<REPO_URL>",
+                        ref: "main",
+                        options: {
+                            tag: "release",
+                        },
+                    });
+                };
+            "#
+            .replace("<REPO_URL>", repo_url.as_str()),
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let error = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await
+    .expect_err("git checkout tag without keepGitDir should fail");
+
+    assert!(error.to_string().contains("Cannot use 'tag' without 'keepGitDir' enabled"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_git_checkout_without_submodules() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let repo_dir = context.mkdir("repo").await;
+    let submodule_repo_dir = context.mkdir("submodule-repo").await;
+    let nested_repo_dir = context.mkdir("nested-repo").await;
+    let repo_url = create_test_git_repo_with_recursive_submodules(
+        &repo_dir,
+        &submodule_repo_dir,
+        &nested_repo_dir,
+    )?;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    gitCheckout: async ({ repository, ref, options }) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return await Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "git_checkout",
+                                        repository,
+                                        ref,
+                                        options,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                };
+
+                export default async () => {
+                    return await Brioche.gitCheckout({
+                        repository: "<REPO_URL>",
+                        ref: "main",
+                    });
+                };
+            "#
+            .replace("<REPO_URL>", repo_url.as_str()),
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let root_gitmodules_blob = brioche_test_support::blob(
+        &brioche,
+        format!(
+            "[submodule \"submodule\"]\n\tpath = submodule\n\turl = {}\n",
+            file_repo_url(&submodule_repo_dir)?
+        ),
+    )
+    .await;
+    let root_blob = brioche_test_support::blob(&brioche, "root\n").await;
+
+    assert_eq!(
+        resolved,
+        brioche_test_support::dir(
+            &brioche,
+            [
+                (
+                    ".gitmodules",
+                    brioche_test_support::file(root_gitmodules_blob, false),
+                ),
+                (
+                    "root.txt",
+                    brioche_test_support::file(root_blob, false),
+                ),
+                ("submodule", brioche_test_support::dir_empty()),
+            ],
+        )
+        .await
+        .into(),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_git_checkout_with_submodules() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let repo_dir = context.mkdir("repo").await;
+    let submodule_repo_dir = context.mkdir("submodule-repo").await;
+    let nested_repo_dir = context.mkdir("nested-repo").await;
+    let repo_url = create_test_git_repo_with_recursive_submodules(
+        &repo_dir,
+        &submodule_repo_dir,
+        &nested_repo_dir,
+    )?;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    gitCheckout: async ({ repository, ref, options }) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return await Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "git_checkout",
+                                        repository,
+                                        ref,
+                                        options,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                };
+
+                export default async () => {
+                    return await Brioche.gitCheckout({
+                        repository: "<REPO_URL>",
+                        ref: "main",
+                        options: {
+                            submodules: true,
+                        },
+                    });
+                };
+            "#
+            .replace("<REPO_URL>", repo_url.as_str()),
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let root_gitmodules_blob = brioche_test_support::blob(
+        &brioche,
+        format!(
+            "[submodule \"submodule\"]\n\tpath = submodule\n\turl = {}\n",
+            file_repo_url(&submodule_repo_dir)?
+        ),
+    )
+    .await;
+    let submodule_gitmodules_blob = brioche_test_support::blob(
+        &brioche,
+        format!(
+            "[submodule \"nested\"]\n\tpath = nested\n\turl = {}\n",
+            file_repo_url(&nested_repo_dir)?
+        ),
+    )
+    .await;
+    let root_blob = brioche_test_support::blob(&brioche, "root\n").await;
+    let module_blob = brioche_test_support::blob(&brioche, "module\n").await;
+    let leaf_blob = brioche_test_support::blob(&brioche, "leaf\n").await;
+
+    let nested_dir = brioche_test_support::dir(
+        &brioche,
+        [(
+            "leaf.txt",
+            brioche_test_support::file(leaf_blob, false),
+        )],
+    )
+    .await;
+    let submodule_dir = brioche_test_support::dir(
+        &brioche,
+        [
+            (
+                ".gitmodules",
+                brioche_test_support::file(submodule_gitmodules_blob, false),
+            ),
+            (
+                "module.txt",
+                brioche_test_support::file(module_blob, false),
+            ),
+            ("nested", nested_dir),
+        ],
+    )
+    .await;
+
+    assert_eq!(
+        resolved,
+        brioche_test_support::dir(
+            &brioche,
+            [
+                (
+                    ".gitmodules",
+                    brioche_test_support::file(root_gitmodules_blob, false),
+                ),
+                (
+                    "root.txt",
+                    brioche_test_support::file(root_blob, false),
+                ),
+                ("submodule", submodule_dir),
+            ],
+        )
+        .await
+        .into(),
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_git_checkout_with_submodules_keep_git_dir() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let repo_dir = context.mkdir("repo").await;
+    let submodule_repo_dir = context.mkdir("submodule-repo").await;
+    let nested_repo_dir = context.mkdir("nested-repo").await;
+    let repo_url = create_test_git_repo_with_recursive_submodules(
+        &repo_dir,
+        &submodule_repo_dir,
+        &nested_repo_dir,
+    )?;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {};
+
+                globalThis.Brioche = {
+                    gitCheckout: async ({ repository, ref, options }) => {
+                        return {
+                            briocheSerialize: async () => {
+                                return await Deno.core.ops.op_brioche_get_static(
+                                    import.meta.url,
+                                    {
+                                        type: "git_checkout",
+                                        repository,
+                                        ref,
+                                        options,
+                                    },
+                                );
+                            },
+                        };
+                    }
+                };
+
+                export default async () => {
+                    return await Brioche.gitCheckout({
+                        repository: "<REPO_URL>",
+                        ref: "main",
+                        options: {
+                            keepGitDir: true,
+                            submodules: true,
+                        },
+                    });
+                };
+            "#
+            .replace("<REPO_URL>", repo_url.as_str()),
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let _resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let checkout_dir = single_git_checkout_dir(&brioche).await?;
+    assert!(tokio::fs::try_exists(checkout_dir.join(".git/HEAD")).await?);
+    assert!(tokio::fs::try_exists(checkout_dir.join("submodule/.git/HEAD")).await?);
+    assert!(tokio::fs::try_exists(checkout_dir.join("submodule/nested/.git/HEAD")).await?);
 
     Ok(())
 }

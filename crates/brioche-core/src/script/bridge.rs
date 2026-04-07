@@ -14,22 +14,51 @@ use crate::{
     blob::BlobHash,
     project::{
         ProjectHash, ProjectLocking, ProjectValidation, Projects,
-        analyze::{GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind, StaticQuery},
+        analyze::{
+            GitCheckoutQuery, GitRefOptions, StaticInclude, StaticOutput, StaticOutputKind,
+            StaticQuery,
+        },
     },
     recipe::{Artifact, DownloadRecipe, Recipe, WithMeta},
 };
 
 use super::specifier::{self, BriocheImportSpecifier, BriocheModuleSpecifier};
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct ResolvedGitCheckoutOptions {
+    keep_git_dir: bool,
+    submodules: bool,
+    tag: Option<String>,
+}
+
+fn resolve_git_checkout_options(
+    query: &GitCheckoutQuery,
+) -> anyhow::Result<ResolvedGitCheckoutOptions> {
+    let tag = query.options.normalized_tag(&query.ref_);
+    anyhow::ensure!(
+        query.options.keep_git_dir || tag.is_none(),
+        "Cannot use 'tag' without 'keepGitDir' enabled"
+    );
+
+    Ok(ResolvedGitCheckoutOptions {
+        keep_git_dir: query.options.keep_git_dir,
+        submodules: query.options.submodules,
+        tag,
+    })
+}
+
 fn git_checkout_output_dir(
     brioche: &Brioche,
-    repository: &url::Url,
+    query: &GitCheckoutQuery,
     commit: &str,
 ) -> anyhow::Result<PathBuf> {
+    let options = resolve_git_checkout_options(query)?;
     let mut cache_key_hasher = crate::Hasher::new_sha256();
-    cache_key_hasher.update(repository.as_str().as_bytes());
+    cache_key_hasher.update(query.repository.as_str().as_bytes());
     cache_key_hasher.update(b"\0");
     cache_key_hasher.update(commit.as_bytes());
+    cache_key_hasher.update(b"\0");
+    cache_key_hasher.update(&serde_json::to_vec(&options)?);
     let cache_key = match cache_key_hasher.finish()? {
         crate::Hash::Sha256 { value } => hex::encode(value),
     };
@@ -39,17 +68,28 @@ fn git_checkout_output_dir(
 
 async fn ensure_git_checkout(
     brioche: &Brioche,
-    repository: &url::Url,
-    ref_: &str,
+    query: &GitCheckoutQuery,
     commit: &str,
 ) -> anyhow::Result<PathBuf> {
-    let output_dir = git_checkout_output_dir(brioche, repository, commit)?;
+    let options = resolve_git_checkout_options(query)?;
+    let output_dir = git_checkout_output_dir(brioche, query, commit)?;
     if !tokio::fs::try_exists(&output_dir).await? {
-        crate::download::git_checkout(repository, ref_, commit, &output_dir)
-            .await
-            .with_context(|| {
-                format!("failed to checkout ref '{ref_}' ({commit}) from git repo '{repository}'")
-            })?;
+        crate::download::git_checkout(
+            &query.repository,
+            &query.ref_,
+            commit,
+            &output_dir,
+            options.submodules,
+            options.keep_git_dir,
+            options.tag.as_deref(),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "failed to checkout ref '{}' ({commit}) from git repo '{}'",
+                query.ref_, query.repository
+            )
+        })?;
     }
 
     Ok(output_dir)
@@ -83,11 +123,10 @@ async fn import_directory_recipe(brioche: &Brioche, path: &Path) -> anyhow::Resu
 
 async fn load_git_checkout_recipe(
     brioche: &Brioche,
-    repository: &url::Url,
-    ref_: &str,
+    query: &GitCheckoutQuery,
     commit: &str,
 ) -> anyhow::Result<Recipe> {
-    let output_dir = ensure_git_checkout(brioche, repository, ref_, commit).await?;
+    let output_dir = ensure_git_checkout(brioche, query, commit).await?;
     import_directory_recipe(brioche, &output_dir).await
 }
 
@@ -323,7 +362,7 @@ impl RuntimeBridge {
                                         StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
                                             anyhow::anyhow!("failed to resolve {callee}({{ repository: \"{repository}\", ref: {ref_:?} }}) from {specifier}, were the repository and ref values passed in as string literals?")
                                         }
-                                        StaticQuery::GitCheckout(GitRefOptions { repository, ref_ }) => {
+                                        StaticQuery::GitCheckout(GitCheckoutQuery { repository, ref_, options: _ }) => {
                                             anyhow::anyhow!("failed to resolve {callee}({{ repository: \"{repository}\", ref: {ref_:?} }}) from {specifier}, were the repository and ref values passed in as string literals?")
                                         }
                                     };
@@ -367,13 +406,8 @@ impl RuntimeBridge {
                                             repository: git_ref.repository,
                                             commit,
                                         },
-                                        StaticQuery::GitCheckout(git_ref) => {
-                                            let recipe = load_git_checkout_recipe(
-                                                &brioche,
-                                                &git_ref.repository,
-                                                &git_ref.ref_,
-                                                &commit,
-                                            )
+                                        StaticQuery::GitCheckout(git_checkout) => {
+                                            let recipe = load_git_checkout_recipe(&brioche, &git_checkout, &commit)
                                             .await;
                                             let recipe = match recipe {
                                                 Ok(recipe) => recipe,
