@@ -2206,9 +2206,9 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.397.0"
+version = "0.398.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58f7d1f9e7e66160164ea5ec379d58b56446afc568dff83fb9d7ef1fd3fb4a21"
+checksum = "b75cca01372f2c47ef715908c68019d07f15bce3aad4a420444c16069a4e0791"
 dependencies = [
  "anyhow",
  "az",
@@ -2237,11 +2237,13 @@ dependencies = [
  "smallvec",
  "sourcemap",
  "static_assertions",
+ "sys_traits",
  "thiserror 2.0.18",
  "tokio",
  "url",
  "v8",
  "wasm_dep_analyzer",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2288,9 +2290,9 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.273.0"
+version = "0.274.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f7c28530a506ec61d8065fd772669961e3df56c418bee9ea5df3eab29e64b1d"
+checksum = "b9560662cdbffa3428ebac40f3ea5fb46ef8b557c41b04f62af045e56defd487"
 dependencies = [
  "indexmap 2.13.0",
  "proc-macro2",
@@ -2642,9 +2644,9 @@ dependencies = [
 
 [[package]]
 name = "fastcdc"
-version = "3.2.1"
+version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf51ceb43e96afbfe4dd5c6f6082af5dfd60e220820b8123792d61963f2ce6bc"
+checksum = "b2613fe3f26b5958b5cd1cb2a07b58c1f3411adaa16abd6b0882279b1eb08c37"
 dependencies = [
  "async-stream",
  "tokio",
@@ -6893,9 +6895,9 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.306.0"
+version = "0.307.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9741cf5a91953f46cd49d5d20152d49e0cc4eddc4ce4c6d964a855f30254c642"
+checksum = "5804c1a650326aed05a374a062d4bd9c169bde371330b3e82659ac3ed8463ecd"
 dependencies = [
  "deno_error",
  "num-bigint",
@@ -8005,9 +8007,9 @@ dependencies = [
 
 [[package]]
 name = "sys_traits"
-version = "0.1.26"
+version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe719c6bb50991671073b1469be68ccbcb5a2a2730873eab49b88c35a908037e"
+checksum = "5a79feaa49de4a6c8191bdbd5fb3eada50671e9367d874d1c12e3d36db131414"
 dependencies = [
  "sys_traits_macros",
 ]
@@ -8328,9 +8330,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.51.0"
+version = "1.51.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bd1c4c0fc4a7ab90fc15ef6daaa3ec3b893f004f915f2392557ed23237820cd"
+checksum = "f66bf9585cda4b724d3e78ab34b73fb2bbaba9011b9bfdf69dc836382ea13b8c"
 dependencies = [
  "bytes",
  "libc",
@@ -9913,9 +9915,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "8.5.0"
+version = "8.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2726508a48f38dceb22b35ecbbd2430efe34ff05c62bd3285f965d7911b33464"
+checksum = "dcab981e19633ebcf0b001ddd37dd802996098bc1864f90b7c5d970ce76c1d59"
 dependencies = [
  "bzip2",
  "crc32fast",

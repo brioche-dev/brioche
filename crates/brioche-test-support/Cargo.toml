@@ -18,7 +18,7 @@ reqwest-middleware = "0.5.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 tempfile = "3.27.0"
-tokio = { version = "1.51.0", features = ["full", "tracing"] }
+tokio = { version = "1.51.1", features = ["full", "tracing"] }
 tokio-stream = { version = "0.1.18", features = ["sync"] }
 tokio-util = "0.7.18"
 toml = "1.1.2"
