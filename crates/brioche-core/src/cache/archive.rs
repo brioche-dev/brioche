@@ -33,9 +33,9 @@ use crate::{
 const MARKER: &[u8; 32] = b"brioche_artifact_archive_v0     ";
 
 const BLOBS_CHUNKING_THRESHOLD: u64 = 2_097_152;
-const CDC_MIN_CHUNK_SIZE: u32 = 524_288;
-const CDC_AVG_CHUNK_SIZE: u32 = 1_048_576;
-const CDC_MAX_CHUNK_SIZE: u32 = 8_388_608;
+const CDC_MIN_CHUNK_SIZE: usize = 524_288;
+const CDC_AVG_CHUNK_SIZE: usize = 1_048_576;
+const CDC_MAX_CHUNK_SIZE: usize = 8_388_608;
 
 #[expect(clippy::similar_names)]
 pub async fn write_artifact_archive(
@@ -152,8 +152,7 @@ pub async fn write_artifact_archive(
         // Write a "start chunk" tag. Following this will be a list of chunks
         writer.write_all(b"C").await?;
 
-        let (blobs_reader, mut blobs_writer) =
-            tokio::io::simplex(CDC_MAX_CHUNK_SIZE.try_into().unwrap());
+        let (blobs_reader, mut blobs_writer) = tokio::io::simplex(CDC_MAX_CHUNK_SIZE);
 
         let read_blobs_task = tokio::spawn({
             let brioche = brioche.clone();
