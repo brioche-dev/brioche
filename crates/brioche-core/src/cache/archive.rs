@@ -152,8 +152,7 @@ pub async fn write_artifact_archive(
         // Write a "start chunk" tag. Following this will be a list of chunks
         writer.write_all(b"C").await?;
 
-        let (blobs_reader, mut blobs_writer) =
-            tokio::io::simplex(CDC_MAX_CHUNK_SIZE);
+        let (blobs_reader, mut blobs_writer) = tokio::io::simplex(CDC_MAX_CHUNK_SIZE);
 
         let read_blobs_task = tokio::spawn({
             let brioche = brioche.clone();
