@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use brioche_core::{
     Brioche,
     path::AbsolutePath,
-    projects::{ProjectRef, ProjectSpecifier},
+    projects::{ProjectRef, ProjectSpecifier, hash::ProjectHash},
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -29,7 +29,9 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
         .await
         .expect("failed to create brioche data dir");
 
-    let brioche = Brioche::default();
+    let brioche = Brioche::builder()
+        .registry_url(registry_server.url().parse().unwrap())
+        .build();
     let context = TestContext {
         temp,
         registry_server,
@@ -135,67 +137,73 @@ impl TestContext {
             .await
     }
 
-    // pub async fn temp_project(
-    //     &self,
-    //     f: impl AsyncFnOnce(PathBuf),
-    // ) -> (Projects, ProjectHash, PathBuf) {
-    //     let temp_project_path = self
-    //         .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
-    //         .await;
+    fn temp_brioche(&self) -> Brioche {
+        Brioche::builder()
+            .registry_url(self.registry_server.url().parse().unwrap())
+            .build()
+    }
 
-    //     f(temp_project_path.clone()).await;
+    pub async fn temp_project(
+        &self,
+        brioche: &Brioche,
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> (ProjectRef, PathBuf) {
+        let temp_project_path = self
+            .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
+            .await;
 
-    //     let projects = Projects::default();
-    //     let project_hash = projects
-    //         .load(
-    //             &self.brioche,
-    //             &temp_project_path,
-    //             ProjectValidation::Standard,
-    //             ProjectLocking::Unlocked,
-    //         )
-    //         .await
-    //         .expect("failed to load temp project");
-    //     projects.commit_dirty_lockfiles().await.unwrap();
+        f(temp_project_path.clone()).await;
 
-    //     (projects, project_hash, temp_project_path)
-    // }
+        let project_dir = brioche_core::path::canonicalize_system_path(&temp_project_path)
+            .await
+            .unwrap();
+        let specifier = ProjectSpecifier::Path(project_dir);
+        let mut refs = brioche_core::projects::load::load_projects(brioche, [specifier.clone()])
+            .await
+            .unwrap();
+        let project_ref = refs.remove(&specifier).unwrap();
 
-    // pub async fn temp_project_by_path(
-    //     &self,
-    //     f: impl AsyncFnOnce(&Self) -> PathBuf,
-    // ) -> (Projects, ProjectHash, PathBuf) {
-    //     let temp_project_path = f(self).await;
+        (project_ref, temp_project_path)
+    }
 
-    //     let projects = Projects::default();
-    //     let project_hash = projects
-    //         .load(
-    //             &self.brioche,
-    //             &temp_project_path,
-    //             ProjectValidation::Standard,
-    //             ProjectLocking::Unlocked,
-    //         )
-    //         .await
-    //         .expect("failed to load temp project");
-    //     projects.commit_dirty_lockfiles().await.unwrap();
+    pub async fn temp_project_by_path(
+        &self,
+        f: impl AsyncFnOnce(&Self) -> PathBuf,
+    ) -> (ProjectRef, PathBuf) {
+        let temp_project_path = f(self).await;
 
-    //     (projects, project_hash, temp_project_path)
-    // }
+        let project_dir = brioche_core::path::canonicalize_system_path(&temp_project_path)
+            .await
+            .unwrap();
+        let specifier = ProjectSpecifier::Path(project_dir);
+        let mut refs =
+            brioche_core::projects::load::load_projects(&self.temp_brioche(), [specifier.clone()])
+                .await
+                .unwrap();
+        let project_ref = refs.remove(&specifier).unwrap();
 
-    // pub async fn local_registry_project(
-    //     &self,
-    //     f: impl AsyncFnOnce(PathBuf),
-    // ) -> (ProjectHash, PathBuf) {
-    //     let (_, project_hash, temp_project_path) = self.temp_project(f).await;
+        (project_ref, temp_project_path)
+    }
 
-    //     let project_path = self
-    //         .mkdir(format!("brioche-data/projects/{project_hash}"))
-    //         .await;
-    //     tokio::fs::rename(&temp_project_path, &project_path)
-    //         .await
-    //         .expect("failed to rename temp project to final location");
+    pub async fn local_registry_project(
+        &self,
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> (ProjectHash, PathBuf) {
+        let brioche = self.temp_brioche();
+        let (project_ref, temp_project_path) = self.temp_project(&brioche, f).await;
+        let project_hash = brioche_core::projects::hash::hash_project(&brioche, project_ref)
+            .await
+            .unwrap();
 
-    //     (project_hash, project_path)
-    // }
+        let project_path = self
+            .mkdir(format!("brioche-data/projects/{project_hash}"))
+            .await;
+        tokio::fs::rename(&temp_project_path, &project_path)
+            .await
+            .expect("failed to rename temp project to final location");
+
+        (project_hash, project_path)
+    }
 
     // pub async fn cached_registry_project(
     //     &mut self,
@@ -259,29 +267,29 @@ impl TestContext {
     //     project_hash
     // }
 
-    // #[must_use]
-    // pub fn mock_registry_publish_tag(
-    //     &mut self,
-    //     project_name: &str,
-    //     tag: &str,
-    //     project_hash: ProjectHash,
-    // ) -> mockito::Mock {
-    //     self.registry_server
-    //         .mock(
-    //             "GET",
-    //             &*format!(
-    //                 "/v0/project-tags/{project_name}/{tag}?brioche={}",
-    //                 brioche_core::VERSION
-    //             ),
-    //         )
-    //         .with_header("Content-Type", "application/json")
-    //         .with_body(
-    //             serde_json::to_string(&brioche_core::registry::GetProjectTagResponse {
-    //                 project_hash,
-    //             })
-    //             .unwrap(),
-    //         )
-    // }
+    #[must_use]
+    pub fn mock_registry_publish_tag(
+        &mut self,
+        project_name: &str,
+        tag: &str,
+        project_hash: ProjectHash,
+    ) -> mockito::Mock {
+        self.registry_server
+            .mock(
+                "GET",
+                &*format!(
+                    "/v0/project-tags/{project_name}/{tag}?brioche={}",
+                    brioche_core::VERSION
+                ),
+            )
+            .with_header("Content-Type", "application/json")
+            .with_body(
+                serde_json::to_string(&brioche_core::registry::GetProjectTagResponse {
+                    project_hash,
+                })
+                .unwrap(),
+            )
+    }
 
     // #[must_use]
     // pub async fn mock_registry_listing(

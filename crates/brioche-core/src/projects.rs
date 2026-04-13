@@ -5,6 +5,7 @@ use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
 use crate::{
     Brioche,
     path::{AbsolutePath, AnyPath, RelativePath},
+    registry::RegistryError,
     script::specifier::ImportSpecifier,
 };
 
@@ -275,8 +276,16 @@ pub enum ProjectIssue {
         location: ProjectIssueLocation,
     },
 
+    #[error("registry error: {error}")]
+    RegistryError {
+        #[source]
+        error: RegistryError,
+        location: ProjectIssueLocation,
+    },
+
     #[error("invalid path '{path}': {error}")]
     ToSystemPathError {
+        #[source]
         error: crate::path::ToSystemPathError,
         path: AnyPath,
         location: ProjectIssueLocation,
@@ -295,6 +304,7 @@ impl ProjectIssue {
         match self {
             Self::InvalidProjectDefinition { location, .. }
             | Self::IoError { location, .. }
+            | Self::RegistryError { location, .. }
             | Self::ToSystemPathError { location, .. } => Some(location.clone()),
             Self::LoadModuleError { location, .. } => location.clone(),
             Self::ScriptParseError { error, path } => Some(ProjectIssueLocation {

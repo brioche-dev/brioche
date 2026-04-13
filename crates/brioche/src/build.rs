@@ -64,7 +64,7 @@ pub struct BuildArgs {
 }
 
 pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
-    let brioche = brioche_core::Brioche::default();
+    let brioche = brioche_core::Brioche::new();
 
     let project_refs = resolve_project_refs(args.targets, args.project, args.registry, args.export);
 

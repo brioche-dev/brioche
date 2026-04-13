@@ -168,12 +168,7 @@ async fn test_project_load_path_dep() {
         )
         .await;
 
-    let project_ref = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        brioche_test_support::load_project(&brioche, &project_dir),
-    )
-    .await
-    .unwrap();
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
@@ -224,6 +219,73 @@ async fn test_project_load_path_dep() {
         0,
         "expected to get 0 dependencies for baz, got: {baz_deps:#?}"
     );
+}
+
+#[tokio::test]
+async fn test_project_load_local_registry_dep() -> anyhow::Result<()> {
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+
+    let (foo_hash, foo_path) = context
+        .local_registry_project(async |path| {
+            tokio::fs::write(
+                path.join("project.bri"),
+                r"
+                    export const project = {};
+                ",
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    let mock_foo_latest = context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
+        .await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+
+    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    assert_matches!(&issues[..], []);
+
+    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    assert_eq!(
+        project_deps.len(),
+        2,
+        "expected to get 2 project dependencies, got: {project_deps:#?}"
+    );
+
+    let foo_ref = project_deps["foo"];
+    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
+    assert_eq!(
+        foo_specifier,
+        brioche_test_support::project_specifier_for_path(&foo_path)
+    );
+    assert_eq!(
+        foo_deps.len(),
+        0,
+        "expected to get 0 dependencies for foo, got: {foo_deps:#?}"
+    );
+
+    mock_foo_latest.assert_async().await;
+
+    todo!();
+
+    Ok(())
 }
 
 #[tokio::test]

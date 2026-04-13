@@ -4,9 +4,10 @@ use crate::{
     Brioche,
     path::{AbsolutePath, RelativePath},
     projects::{
-        DependencyDefinition, Module, ModuleRef, ModuleReferrer, Project, ProjectDefinition,
-        ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode, ProjectRef, ProjectReferrer,
-        ProjectSpecifier, Version, Workspace, WorkspaceDefinition, WorkspaceMember, WorkspaceRef,
+        DependencyDefinition, Lockfile, Module, ModuleRef, ModuleReferrer, Project,
+        ProjectDefinition, ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode,
+        ProjectRef, ProjectReferrer, ProjectSpecifier, Version, Workspace, WorkspaceDefinition,
+        WorkspaceMember, WorkspaceRef,
     },
     script::specifier::{ImportSpecifier, LocalImportSpecifier},
 };
@@ -112,6 +113,31 @@ pub async fn load_projects(
         } else {
             None
         };
+
+        let lockfile_subpath = RelativePath::one("brioche.lock");
+        let lockfile_path = project_path.join_subpath(lockfile_subpath.clone()).unwrap();
+        let lockfile_system_path = lockfile_path.to_system_path()?;
+        let lockfile_content = tokio::fs::read(&lockfile_system_path).await;
+        let lockfile_content = match lockfile_content {
+            Ok(content) => Some(content),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(LoadProjectError::IoError {
+                    error,
+                    path: lockfile_path,
+                });
+            }
+        };
+        let lockfile = lockfile_content.as_deref().map_or_else(
+            || Err(LockfileIssue::NotFound),
+            |content| {
+                let content = std::str::from_utf8(content).map_err(LockfileIssue::Utf8Error)?;
+                let lockfile: Lockfile =
+                    serde_json::from_str(content).map_err(LockfileIssue::DeserializeError)?;
+                Ok(lockfile)
+            },
+        );
+        let mut new_lockfile = Lockfile::default();
 
         let root_module_subpath = RelativePath::one("project.bri");
         let root_module_path = project_path
@@ -283,6 +309,8 @@ pub async fn load_projects(
                                         workspace,
                                         external_deps: &mut external_deps,
                                         issues,
+                                        lockfile: lockfile.as_ref().ok(),
+                                        new_lockfile: &mut new_lockfile,
                                     },
                                     specifier,
                                     location.clone(),
@@ -376,6 +404,8 @@ pub async fn load_projects(
                     workspace,
                     external_deps: &mut external_deps,
                     issues,
+                    lockfile: lockfile.as_ref().ok(),
+                    new_lockfile: &mut new_lockfile,
                 },
                 specifier,
                 project_definition_location.clone(),
@@ -422,6 +452,9 @@ pub enum LoadProjectError {
 
     #[error(transparent)]
     CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
+
+    #[error(transparent)]
+    RegistryError(#[from] crate::registry::RegistryError),
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -455,6 +488,16 @@ pub enum WorkspaceMemberParseError {
 
     #[error(transparent)]
     SubpathError(#[from] crate::path::SubpathError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LockfileIssue {
+    #[error("lockfile not found")]
+    NotFound,
+    #[error(transparent)]
+    Utf8Error(std::str::Utf8Error),
+    #[error(transparent)]
+    DeserializeError(serde_json::Error),
 }
 
 async fn find_workspace_root(
@@ -535,10 +578,12 @@ struct ResolveProjectContext<'a> {
     workspace: Option<&'a Workspace>,
     external_deps: &'a mut HashMap<String, Option<ProjectSpecifier>>,
     issues: &'a mut Vec<ProjectIssue>,
+    lockfile: Option<&'a Lockfile>,
+    new_lockfile: &'a mut Lockfile,
 }
 
 async fn resolve_project(
-    _brioche: &Brioche,
+    brioche: &Brioche,
     ctx: &mut ResolveProjectContext<'_>,
     specifier: &str,
     location: ProjectIssueLocation,
@@ -563,19 +608,54 @@ async fn resolve_project(
         None => Version::Any,
     };
 
-    if let Some(resolved) = resolve_project_from_workspace(ctx, specifier, location).await {
+    if let Some(resolved) = resolve_project_from_workspace(ctx, specifier, &location).await {
         ctx.external_deps
             .insert(specifier.to_string(), Some(resolved.clone()));
         return Some(resolved);
     }
 
-    todo!("resolve from registry: {specifier}");
+    if let Some(lockfile) = ctx.lockfile
+        && let Some(project_hash) = lockfile.dependencies.get(specifier)
+    {
+        ctx.new_lockfile
+            .dependencies
+            .insert(specifier.to_string(), *project_hash);
+
+        let resolved = ProjectSpecifier::Hash(*project_hash);
+        ctx.external_deps
+            .insert(specifier.to_string(), Some(resolved.clone()));
+        return Some(resolved);
+    }
+
+    let registry_response = crate::registry::get_project_tag(brioche, specifier, "latest").await;
+
+    match registry_response {
+        Ok(Some(registry_response)) => {
+            ctx.new_lockfile
+                .dependencies
+                .insert(specifier.to_string(), registry_response.project_hash);
+
+            let resolved = ProjectSpecifier::Hash(registry_response.project_hash);
+            ctx.external_deps
+                .insert(specifier.to_string(), Some(resolved.clone()));
+            return Some(resolved);
+        }
+        Ok(None) => {}
+        Err(error) => {
+            ctx.issues.push(ProjectIssue::RegistryError {
+                error,
+                location: location.clone(),
+            });
+        }
+    }
+
+    None
 }
 
 async fn resolve_project_from_workspace(
     ctx: &mut ResolveProjectContext<'_>,
     specifier: &str,
-    location: ProjectIssueLocation,
+    location: &ProjectIssueLocation,
 ) -> Option<ProjectSpecifier> {
     let workspace = ctx.workspace?;
     for member in &workspace.definition.members {
