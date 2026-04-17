@@ -240,7 +240,7 @@ pub fn set_directory_rwx_recursive_sync(path: &Path) -> anyhow::Result<()> {
 /// beyond that is arbitrary.
 #[must_use]
 pub fn brioche_epoch() -> std::time::SystemTime {
-    std::time::UNIX_EPOCH + std::time::Duration::from_secs(946_684_800)
+    std::time::UNIX_EPOCH + std::time::Duration::from_hours(262_968)
 }
 
 pub async fn set_mtime_to_brioche_epoch(path: &Path) -> anyhow::Result<()> {

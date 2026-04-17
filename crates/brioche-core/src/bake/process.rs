@@ -1251,7 +1251,6 @@ async fn append_dependency_envs(
                                     &**env_var,
                                     &*env_value_target,
                                 ]
-                                .into_iter(),
                             );
                             let dependency_subpath =
                                 crate::fs_utils::logical_path_bytes(&dependency_subpath)?;
@@ -1292,7 +1291,6 @@ async fn append_dependency_envs(
                                 "env".as_bytes(),
                                 &*env_value_target,
                             ]
-                            .into_iter(),
                         );
                         let dependency_subpath =
                             crate::fs_utils::logical_path_bytes(&dependency_subpath)?;

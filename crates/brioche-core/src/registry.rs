@@ -4,9 +4,9 @@ use anyhow::Context as _;
 
 use crate::project::ProjectHash;
 
-const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
 
 #[derive(Clone)]
 pub enum RegistryClient {
@@ -24,7 +24,7 @@ impl RegistryClient {
         let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
             .retry_bounds(
                 std::time::Duration::from_millis(500),
-                std::time::Duration::from_millis(3000),
+                std::time::Duration::from_secs(3),
             )
             .build_with_max_retries(5);
         let retry_middleware =
