@@ -146,19 +146,27 @@ pub async fn load_projects(
                 module_ref.0,
                 module_referrer.edge(),
             );
-            project_modules.insert(module_subpath, module_ref);
+            project_modules.insert(module_subpath.clone(), module_ref);
 
             let module_system_path = module_path.to_system_path()?;
-            let module = load_module(&module_system_path).await;
+            let module_ast = load_module_ast(&module_system_path).await;
+            let module = Module {
+                ast: module_ast,
+                project: project_ref,
+                subpath: module_subpath,
+            };
 
             let module_entry = projects.modules.entry(module_ref).insert_entry(module);
             let module = module_entry.get();
 
             match module {
-                Ok(module) => {
+                Module {
+                    ast: Ok(module_ast),
+                    ..
+                } => {
                     if let ModuleReferrer::ProjectRoot { .. } = module_referrer {
                         let project_definition_value =
-                            crate::script::parse::get_export_value(&module.ast, "project");
+                            crate::script::parse::get_export_value(module_ast, "project");
                         let project_definition_value = match project_definition_value {
                             Ok(value) => value,
                             Err(error) => {
@@ -198,7 +206,7 @@ pub async fn load_projects(
                             .unwrap_or_default();
                     }
 
-                    let imports = crate::script::parse::find_imports(&module.ast);
+                    let imports = crate::script::parse::find_imports(module_ast);
                     for import in imports {
                         let import = match import {
                             Ok(import) => import,
@@ -282,7 +290,9 @@ pub async fn load_projects(
                         }
                     }
                 }
-                Err(error) => {
+                Module {
+                    ast: Err(error), ..
+                } => {
                     let location = match module_referrer {
                         ModuleReferrer::ProjectRoot { .. } => match &referrer {
                             ProjectReferrer::Project { location, .. } => Some(location.clone()),
@@ -304,9 +314,9 @@ pub async fn load_projects(
         let root_module_ref = &project_modules[&root_module_subpath];
         let root_module = &projects.modules[root_module_ref];
 
-        let project_definition_value = root_module.as_ref().map_or_else(
+        let project_definition_value = root_module.ast.as_ref().map_or_else(
             |_| Ok(None),
-            |root_module| crate::script::parse::get_export_value(&root_module.ast, "project"),
+            |ast| crate::script::parse::get_export_value(ast, "project"),
         );
         let project_definition_value = match project_definition_value {
             Ok(value) => value,
@@ -462,7 +472,9 @@ async fn find_workspace_root(
     Ok(None)
 }
 
-async fn load_module(path: &std::path::Path) -> Result<Module, LoadModuleError> {
+async fn load_module_ast(
+    path: &std::path::Path,
+) -> Result<crate::script::parse::ScriptAst, LoadModuleError> {
     let source = tokio::fs::read(path)
         .await
         .map_err(|error| LoadModuleError::IoError {
@@ -470,9 +482,7 @@ async fn load_module(path: &std::path::Path) -> Result<Module, LoadModuleError> 
         })?;
     let source = String::from_utf8(source)
         .map_err(|error| LoadModuleError::Utf8Error(error.utf8_error()))?;
-    let ast = crate::script::parse::parse_script(source);
-
-    Ok(Module { ast })
+    Ok(crate::script::parse::parse_script(source))
 }
 
 async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceError> {

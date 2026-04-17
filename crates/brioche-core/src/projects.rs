@@ -15,7 +15,7 @@ pub mod load;
 pub struct Projects {
     graph: petgraph::stable_graph::StableDiGraph<ProjectNode, ProjectEdge>,
     projects: HashMap<ProjectRef, Project>,
-    modules: HashMap<ModuleRef, Result<Module, load::LoadModuleError>>,
+    modules: HashMap<ModuleRef, Module>,
     workspaces: HashMap<WorkspaceRef, Result<Workspace, load::LoadWorkspaceError>>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
     modules_by_project: HashMap<ProjectRef, HashMap<RelativePath, ModuleRef>>,
@@ -45,7 +45,9 @@ pub struct Project {
 }
 
 pub(crate) struct Module {
-    ast: crate::script::parse::ScriptAst,
+    project: ProjectRef,
+    subpath: RelativePath,
+    ast: Result<crate::script::parse::ScriptAst, load::LoadModuleError>,
 }
 
 pub(crate) struct Workspace {
