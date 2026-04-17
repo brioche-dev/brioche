@@ -17,7 +17,7 @@ deno_core::extension!(
     ],
 );
 
-#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConsoleLevel {
     Log,
