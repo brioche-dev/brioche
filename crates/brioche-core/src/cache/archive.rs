@@ -55,7 +55,7 @@ pub async fn write_artifact_archive(
     while let Some((path, artifact)) = queue.pop_front() {
         match artifact {
             Artifact::File(file) => {
-                // Save the file's content as as blob we need to write
+                // Save the file's content as a blob we need to write
                 artifact_blobs.insert(file.content_blob);
 
                 // Write the file entry: tag, path, executable bit, blob hash
