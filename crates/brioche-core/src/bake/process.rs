@@ -1250,7 +1250,7 @@ async fn append_dependency_envs(
                                     "env".as_bytes(),
                                     &**env_var,
                                     &*env_value_target,
-                                ]
+                                ],
                             );
                             let dependency_subpath =
                                 crate::fs_utils::logical_path_bytes(&dependency_subpath)?;
@@ -1290,7 +1290,7 @@ async fn append_dependency_envs(
                                 "brioche-env.d".as_bytes(),
                                 "env".as_bytes(),
                                 &*env_value_target,
-                            ]
+                            ],
                         );
                         let dependency_subpath =
                             crate::fs_utils::logical_path_bytes(&dependency_subpath)?;
