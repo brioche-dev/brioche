@@ -1,5 +1,6 @@
 use anyhow::Context as _;
 use deno_core::v8;
+use std::borrow::Cow;
 
 use crate::recipe::StackFrame;
 
@@ -28,9 +29,9 @@ pub enum ConsoleLevel {
 }
 
 #[deno_core::op2]
-#[string]
-fn op_brioche_version() -> String {
-    crate::VERSION.to_string()
+#[string(onebyte)]
+const fn op_brioche_version() -> Cow<'static, [u8]> {
+    Cow::Borrowed(crate::VERSION.as_bytes())
 }
 
 #[deno_core::op2]
