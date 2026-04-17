@@ -33,7 +33,7 @@ pub async fn load_projects(
                     results.insert(specifier, *project);
                 }
                 ProjectReferrer::Project { referrer, edge, .. } => {
-                    projects.graph.add_edge(referrer.0, project.0, edge);
+                    projects.graph.update_edge(referrer.0, project.0, edge);
                 }
             }
 
@@ -69,7 +69,7 @@ pub async fn load_projects(
             ProjectReferrer::Project { referrer, edge, .. } => {
                 projects
                     .graph
-                    .add_edge(referrer.0, project_ref.0, edge.clone());
+                    .update_edge(referrer.0, project_ref.0, edge.clone());
             }
         }
 
@@ -84,7 +84,7 @@ pub async fn load_projects(
                     let workspace_ref = projects.graph.add_node(ProjectNode::Workspace);
                     let workspace_ref = WorkspaceRef(workspace_ref);
 
-                    projects.graph.add_edge(
+                    projects.graph.update_edge(
                         workspace_ref.0,
                         project_ref.0,
                         ProjectEdge::ProjectWithinWorkspace,
@@ -122,7 +122,7 @@ pub async fn load_projects(
         )]);
         while let Some((module_subpath, module_referrer)) = module_queue.pop_front() {
             if let Some(module_ref) = project_modules.get(&module_subpath) {
-                projects.graph.add_edge(
+                projects.graph.update_edge(
                     module_referrer.node_index(),
                     module_ref.0,
                     module_referrer.edge(),
@@ -141,7 +141,7 @@ pub async fn load_projects(
 
             let module_ref = projects.graph.add_node(ProjectNode::Module);
             let module_ref = ModuleRef(module_ref);
-            projects.graph.add_edge(
+            projects.graph.update_edge(
                 module_referrer.node_index(),
                 module_ref.0,
                 module_referrer.edge(),
