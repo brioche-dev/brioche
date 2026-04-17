@@ -1,8 +1,7 @@
 import * as ts from "typescript";
-import type * as eslint from "eslint";
-import { extname } from "path";
+import * as eslint from "eslint";
 import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./ts-common.ts";
-import { buildLinter, buildEslintConfig } from "./eslint-common.ts";
+import { buildEslintConfig } from "./eslint-common.ts";
 
 export function check(files: string[]): Diagnostic[] {
   const firstFile = files.at(0);
@@ -15,7 +14,7 @@ export function check(files: string[]): Diagnostic[] {
   const tsDiagnostics = program.getSemanticDiagnostics();
   const serializedTsDiagnostics = serializeDiagnostics(tsDiagnostics);
 
-  const linter = buildLinter();
+  const linter = new eslint.Linter();
   const linterConfig = buildEslintConfig([program]);
   const serializedEslintDiagnostics = files.flatMap((file) => {
     const tsUrl = toTsUrl(file);

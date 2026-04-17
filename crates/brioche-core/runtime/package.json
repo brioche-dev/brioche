@@ -7,16 +7,16 @@
     "check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/eslint": "^8.56.12",
+    "@types/eslint": "^9.6.1",
     "esbuild": "^0.27.1",
     "esbuild-plugin-alias-path": "^2.0.2"
   },
   "dependencies": {
-    "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "@typescript-eslint/parser": "^6.21.0",
+    "@typescript-eslint/eslint-plugin": "^8.50.0",
+    "@typescript-eslint/parser": "^8.50.0",
     "buffer": "^6.0.3",
     "crypto-browserify": "^3.12.1",
-    "eslint": "^8.57.1",
+    "eslint": "^9.39.2",
     "events": "^3.3.0",
     "os-browserify": "^0.3.0",
     "stream-browserify": "^3.0.0",

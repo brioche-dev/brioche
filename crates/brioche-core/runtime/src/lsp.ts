@@ -1,8 +1,8 @@
 import * as ts from "typescript";
 import * as lsp from "vscode-languageserver";
-import type * as eslint from "eslint";
+import * as eslint from "eslint";
 import * as brioche from "./ts-common";
-import { buildLinter, buildEslintConfig } from "./eslint-common.ts";
+import { buildEslintConfig } from "./eslint-common.ts";
 
 export function buildLsp(): Lsp {
   return new Lsp();
@@ -93,7 +93,7 @@ class Lsp {
     this.host = new BriocheLanguageServiceHost();
     const servicesHost: ts.LanguageServiceHost = this.host;
     this.languageService = ts.createLanguageService(servicesHost);
-    this.linter = buildLinter();
+    this.linter = new eslint.Linter();
   }
 
   completion(params: lsp.TextDocumentPositionParams): lsp.CompletionItem[] {
