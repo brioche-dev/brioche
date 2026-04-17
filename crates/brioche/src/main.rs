@@ -5,6 +5,7 @@ use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _
 
 mod build;
 mod run_sandbox;
+mod utils;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 

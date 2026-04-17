@@ -2,48 +2,60 @@ use std::{path::PathBuf, process::ExitCode};
 
 use brioche_core::projects::ProjectSpecifier;
 use clap::Parser;
+use futures::{StreamExt as _, TryStreamExt as _};
+
+use crate::utils::{ProjectRefs, ProjectRefsParser, ProjectSource, resolve_project_refs};
 
 #[derive(Debug, Parser)]
 pub struct BuildArgs {
-    #[command(flatten)]
-    project: super::ProjectArgs,
+    /// Projects to build (e.g., `./pkg`, `curl`, `./pkg^test`, `^test`, `curl^test,default`).
+    #[arg(value_parser = ProjectRefsParser, conflicts_with_all = ["project", "registry", "export"])]
+    targets: Vec<ProjectRefs>,
 
-    /// Which TypeScript export to build
-    #[arg(short, long, default_value = "default")]
-    export: String,
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true, conflicts_with = "registry")]
+    project: Option<PathBuf>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    registry: Option<String>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    export: Option<String>,
 
     /// The path to write the output to. The build result will not be
-    /// saved if not specified
+    /// saved if not specified.
     #[arg(short, long)]
     output: Option<PathBuf>,
 
-    /// Check the project before building
+    /// Check the project before building.
     #[arg(long)]
     check: bool,
 
-    /// Validate that the lockfile is up-to-date
+    /// Validate that the lockfile is up-to-date.
     #[arg(long)]
     locked: bool,
 
-    /// Replace the output path if it already exists
+    /// Replace the output path if it already exists.
     #[arg(long)]
     replace: bool,
 
-    /// Merge the output path if it already exists
+    /// Merge the output path if it already exists.
     #[arg(long)]
     merge: bool,
 
-    /// Keep temporary build files. Useful for debugging build failures
+    /// Keep temporary build files. Useful for debugging build failures.
     #[arg(long)]
     keep_temps: bool,
 
-    /// Sync / cache baked recipes to the registry during the build
+    /// Sync / cache baked recipes to the registry during the build.
     #[arg(long)]
     sync: bool,
 
     /// (Experimental!) If the build result is found in the remote cache, exit
-    /// early without fetching the build result. Conflicts with `--output`
-    #[arg(long)]
+    /// early without fetching the build result. Conflicts with `--output`.
+    #[arg(long, conflicts_with = "output")]
     experimental_lazy: bool,
 
     /// The output display format.
@@ -54,21 +66,26 @@ pub struct BuildArgs {
 pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
     let brioche = brioche_core::Brioche::default();
 
-    if args.project.registry.is_some() {
-        todo!("registry projects");
-    }
-    let Some(path) = args.project.project else {
-        todo!("no project arg specified");
-    };
-    let path = brioche_core::path::canonicalize_system_path(&path).await?;
-    let specifier = ProjectSpecifier::Path(path);
-    let mut projects =
-        brioche_core::projects::load::load_projects(&brioche, [specifier.clone()]).await?;
-    let project_ref = projects
-        .remove(&specifier)
-        .expect("project not found in result");
+    let project_refs = resolve_project_refs(args.targets, args.project, args.registry, args.export);
 
-    dbg!(project_ref);
+    let specifiers = futures::stream::iter(project_refs)
+        .then(async |project_ref| {
+            let specifier = match project_ref.source {
+                ProjectSource::Local(path) => {
+                    let path = brioche_core::path::canonicalize_system_path(&path).await?;
+                    ProjectSpecifier::Path(path)
+                }
+                ProjectSource::Registry(registry) => {
+                    anyhow::bail!("todo: registry project: {registry}");
+                }
+            };
+            Ok(specifier)
+        })
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    let _projects =
+        brioche_core::projects::load::load_projects(&brioche, specifiers.iter().cloned()).await?;
 
     Ok(ExitCode::SUCCESS)
 
