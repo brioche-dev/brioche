@@ -1239,6 +1239,7 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "url",
+ "weird-client",
  "zstd-framed",
 ]
 
@@ -8969,6 +8970,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2878ef029c47c6e8cf779119f20fcf52bde7ad42a731b2a304bc221df17571e"
 dependencies = [
  "rustls-pki-types",
+]
+
+[[package]]
+name = "weird-client"
+version = "0.1.0"
+source = "git+https://github.com/kylewlacy/weird.git?branch=main#39791b32a3f5fe6b222e753019dc0f38c9c82e5f"
+dependencies = [
+ "crossbeam-channel",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "weird-core",
+]
+
+[[package]]
+name = "weird-core"
+version = "0.1.0"
+source = "git+https://github.com/kylewlacy/weird.git?branch=main#39791b32a3f5fe6b222e753019dc0f38c9c82e5f"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

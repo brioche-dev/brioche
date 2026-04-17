@@ -8,6 +8,7 @@ default-run = "brioche"
 [features]
 default = ["self-update"]
 self-update = []
+weird-ui = ["dep:weird-client"]
 
 [dependencies]
 anyhow = { version = "1.0.101", features = ["backtrace"] }
@@ -49,6 +50,7 @@ tracing-subscriber = { version = "0.3.22", features = [
 ] }
 ulid = "1.2.1"
 url = { version = "2.5.8", features = ["serde"] }
+weird-client = { git = "https://github.com/kylewlacy/weird.git", branch = "main", optional = true }
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
 
 [lints]

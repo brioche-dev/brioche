@@ -8,12 +8,15 @@ use crate::{
     script::specifier::ImportSpecifier,
 };
 
+pub mod debug;
 pub mod hash;
 pub mod load;
 
+type ProjectGraph = petgraph::stable_graph::StableDiGraph<ProjectNode, ProjectEdge>;
+
 #[derive(Default)]
 pub struct Projects {
-    graph: petgraph::stable_graph::StableDiGraph<ProjectNode, ProjectEdge>,
+    graph: ProjectGraph,
     projects: HashMap<ProjectRef, Project>,
     modules: HashMap<ModuleRef, Module>,
     workspaces: HashMap<WorkspaceRef, Result<Workspace, load::LoadWorkspaceError>>,
@@ -45,7 +48,6 @@ pub struct Project {
 }
 
 pub(crate) struct Module {
-    project: ProjectRef,
     subpath: RelativePath,
     ast: Result<crate::script::parse::ScriptAst, load::LoadModuleError>,
 }

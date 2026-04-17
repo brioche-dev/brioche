@@ -84,7 +84,7 @@ pub struct ProjectRefs {
     pub exports: Vec<String>,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProjectRef {
     pub source: ProjectSource,
     pub export: String,

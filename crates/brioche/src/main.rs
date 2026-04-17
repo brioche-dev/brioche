@@ -3,9 +3,12 @@ use std::{path::PathBuf, process::ExitCode};
 use clap::Parser;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
+use crate::utils::{ProjectRefs, ProjectRefsParser};
+
 mod build;
 mod run_sandbox;
 mod utils;
+mod weird_ui;
 
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -14,6 +17,10 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 enum Args {
     /// Build a project
     Build(build::BuildArgs),
+
+    /// Start a Weird UI to interactively explore and debug a project
+    #[cfg_attr(not(feature = "weird-ui"), command(hide = true))]
+    WeirdUi(WeirdUiArgs),
 
     /// Used by Brioche itself to run a sandboxed process
     #[command(hide = true)]
@@ -48,6 +55,20 @@ fn main() -> anyhow::Result<ExitCode> {
             let exit_code = rt.block_on(build::build(args))?;
 
             Ok(exit_code)
+        }
+        Args::WeirdUi(args) => {
+            cfg_select! {
+                feature = "weird-ui" => {
+                    let rt = tokio::runtime::Builder::new_multi_thread()
+                        .enable_all()
+                        .build()?;
+                    rt.block_on(weird_ui::launch_weird_ui(args))?;
+                    Ok(ExitCode::SUCCESS)
+                }
+                _ => {
+                    anyhow::bail!("Brioche weird-ui feature was disabled at compile-time");
+                }
+            }
         }
         Args::RunSandbox(args) => {
             let exit_code = run_sandbox::run_sandbox(&args);
@@ -95,4 +116,31 @@ enum DisplayMode {
 
     /// Plaintext output with less stuff, e.g. by hiding process outputs.
     PlainReduced,
+}
+
+#[derive(Debug, Parser)]
+pub struct WeirdUiArgs {
+    /// Projects to build (e.g., `./pkg`, `curl`, `./pkg^test`, `^test`, `curl^test,default`).
+    #[arg(value_parser = ProjectRefsParser, conflicts_with_all = ["project", "registry", "export"])]
+    targets: Vec<ProjectRefs>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true, conflicts_with = "registry")]
+    project: Option<PathBuf>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    registry: Option<String>,
+
+    /// Deprecated: use positional arguments instead.
+    #[arg(short, long, hide = true)]
+    export: Option<String>,
+
+    /// Check the project before building.
+    #[arg(long)]
+    check: bool,
+
+    /// Validate that the lockfile is up-to-date.
+    #[arg(long)]
+    locked: bool,
 }

@@ -158,7 +158,6 @@ pub async fn load_projects(
             let module_ast = load_module_ast(&module_system_path).await;
             let module = Module {
                 ast: module_ast,
-                project: project_ref,
                 subpath: module_subpath,
             };
 
