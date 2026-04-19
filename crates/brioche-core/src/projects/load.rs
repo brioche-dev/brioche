@@ -77,6 +77,12 @@ pub async fn load_projects(
         let workspace = if let Some(workspace_root) = workspace_root {
             match projects.workspaces_by_path.entry(workspace_root) {
                 std::collections::hash_map::Entry::Occupied(entry) => {
+                    projects.graph.update_edge(
+                        entry.get().0,
+                        project_ref.0,
+                        ProjectEdge::ProjectWithinWorkspace,
+                    );
+
                     let workspace_ref = *entry.get();
                     projects.workspaces[&workspace_ref].as_ref().ok()
                 }
