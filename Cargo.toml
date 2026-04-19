@@ -7,7 +7,8 @@ members = [
     "crates/brioche",
     "crates/brioche-core",
     "crates/brioche-pack",
-    "crates/brioche-sandbox", "crates/brioche-test",
+    "crates/brioche-sandbox",
+    "crates/brioche-test-support",
 ]
 resolver = "3"
 

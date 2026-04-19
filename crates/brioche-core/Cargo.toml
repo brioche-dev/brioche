@@ -147,7 +147,9 @@ humantime-serde = "1.1.1"
 humantime = "2.3.0"
 
 [dev-dependencies]
+assert_matches = "1.5.0"
 aws-runtime = "1.5.18"
+brioche-test-support = { path = "../brioche-test-support" }
 deno_core = { version = "0.385.0", features = [
     # For tests, this feature should be enabled to resolve a segfault that
     # can occur if V8 detects the `pki` CPU flag. See this issue:
@@ -155,6 +157,8 @@ deno_core = { version = "0.385.0", features = [
     "unsafe_use_unprotected_platform",
 ] }
 divan = "0.1.21"
+indoc = "2.0.7"
+pretty_assertions = "1.4.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libmount = "0.1.15"

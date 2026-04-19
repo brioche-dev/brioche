@@ -1,6 +1,6 @@
 #[tokio::test]
 async fn test_project_hash_stable_simple() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -12,7 +12,7 @@ async fn test_project_hash_stable_simple() -> anyhow::Result<()> {
         )
         .await;
 
-    let project_ref = brioche_test::load_project(&brioche, &project_dir).await;
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
     let project_hash = brioche_core::projects::hash::hash_project(&brioche, project_ref)
         .await
         .unwrap();
@@ -27,12 +27,12 @@ async fn test_project_hash_stable_simple() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_hash_stable_simple_no_definition() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context.write_file("myproject/project.bri", r"").await;
 
-    let project_ref = brioche_test::load_project(&brioche, &project_dir).await;
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
     let project_hash = brioche_core::projects::hash::hash_project(&brioche, project_ref)
         .await
         .unwrap();
@@ -47,7 +47,7 @@ async fn test_project_hash_stable_simple_no_definition() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_project_hash_stable_with_path_dep() -> anyhow::Result<()> {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
     context
@@ -75,7 +75,7 @@ async fn test_project_hash_stable_with_path_dep() -> anyhow::Result<()> {
         )
         .await;
 
-    let project_ref = brioche_test::load_project(&brioche, &main_project_dir).await;
+    let project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
     let project_hash = brioche_core::projects::hash::hash_project(&brioche, project_ref)
         .await
         .unwrap();

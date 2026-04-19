@@ -6,7 +6,7 @@ use pretty_assertions::assert_eq;
 
 #[tokio::test]
 async fn test_project_load_simple() {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -18,7 +18,7 @@ async fn test_project_load_simple() {
         )
         .await;
 
-    let project_ref = brioche_test::load_project(&brioche, &project_dir).await;
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], &[]);
@@ -29,12 +29,12 @@ async fn test_project_load_simple() {
 
 #[tokio::test]
 async fn test_project_load_simple_no_definition() {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context.write_file("myproject/project.bri", r"").await;
 
-    let project_ref = brioche_test::load_project(&brioche, &project_dir).await;
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], &[]);
@@ -45,7 +45,7 @@ async fn test_project_load_simple_no_definition() {
 
 #[tokio::test]
 async fn test_project_load_workspace_dep() {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     context
         .write_toml(
@@ -80,7 +80,7 @@ async fn test_project_load_workspace_dep() {
         )
         .await;
 
-    let project_ref = brioche_test::load_project(&brioche, &project_dir).await;
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], &[]);
@@ -90,7 +90,7 @@ async fn test_project_load_workspace_dep() {
     let foo_specifier = brioche_core::projects::get_specifier(&brioche, dependencies["foo"]).await;
     assert_eq!(
         foo_specifier,
-        brioche_test::project_specifier_for_path(&workspace_foo_dir)
+        brioche_test_support::project_specifier_for_path(&workspace_foo_dir)
     );
 
     let foo_dependencies =
@@ -100,7 +100,7 @@ async fn test_project_load_workspace_dep() {
 
 #[tokio::test]
 async fn test_project_load_path_dep() {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -170,7 +170,7 @@ async fn test_project_load_path_dep() {
 
     let project_ref = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        brioche_test::load_project(&brioche, &project_dir),
+        brioche_test_support::load_project(&brioche, &project_dir),
     )
     .await
     .unwrap();
@@ -190,7 +190,7 @@ async fn test_project_load_path_dep() {
     let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
     assert_eq!(
         foo_specifier,
-        brioche_test::project_specifier_for_path(&foo_dir)
+        brioche_test_support::project_specifier_for_path(&foo_dir)
     );
     assert_eq!(
         foo_deps.len(),
@@ -203,7 +203,7 @@ async fn test_project_load_path_dep() {
     let bar_deps = brioche_core::projects::get_dependencies(&brioche, bar_ref).await;
     assert_eq!(
         bar_specifier,
-        brioche_test::project_specifier_for_path(&bar_dir)
+        brioche_test_support::project_specifier_for_path(&bar_dir)
     );
     assert_eq!(
         bar_deps.len(),
@@ -217,7 +217,7 @@ async fn test_project_load_path_dep() {
     let baz_deps = brioche_core::projects::get_dependencies(&brioche, baz_ref).await;
     assert_eq!(
         baz_specifier,
-        brioche_test::project_specifier_for_path(&baz_dir)
+        brioche_test_support::project_specifier_for_path(&baz_dir)
     );
     assert_eq!(
         baz_deps.len(),
@@ -228,7 +228,7 @@ async fn test_project_load_path_dep() {
 
 #[tokio::test]
 async fn test_project_load_path_dep_not_found() {
-    let (brioche, context) = brioche_test::brioche_test().await;
+    let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     let project_root_module = context
@@ -270,20 +270,20 @@ async fn test_project_load_path_dep_not_found() {
     // The directory `not_found_1` exists, but does not contain a root
     // module. The directory `not_found_2` does not exist
 
-    brioche_test::load_project(&brioche, &project_dir).await;
+    brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let mut issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_eq!(issues.len(), 2, "expected 2 issues, got: {issues:#?}");
 
-    let project_issue = brioche_test::take_where(&mut issues, |issue| {
+    let project_issue = brioche_test_support::take_where(&mut issues, |issue| {
         issue.location().is_some_and(|location| {
-            location.path == brioche_test::absolute_path(&project_root_module)
+            location.path == brioche_test_support::absolute_path(&project_root_module)
         })
     });
-    let foo_issue = brioche_test::take_where(&mut issues, |issue| {
-        issue
-            .location()
-            .is_some_and(|location| location.path == brioche_test::absolute_path(&foo_root_module))
+    let foo_issue = brioche_test_support::take_where(&mut issues, |issue| {
+        issue.location().is_some_and(|location| {
+            location.path == brioche_test_support::absolute_path(&foo_root_module)
+        })
     });
     assert!(issues.is_empty());
 
@@ -306,10 +306,10 @@ async fn test_project_load_path_dep_not_found() {
 
     assert_eq!(
         project_issue_path,
-        brioche_test::absolute_path(&not_found_1_dir).join_one("project.bri")
+        brioche_test_support::absolute_path(&not_found_1_dir).join_one("project.bri")
     );
     assert_eq!(
         foo_issue_path,
-        brioche_test::absolute_path_nonexistent(&not_found_2_dir).join_one("project.bri")
+        brioche_test_support::absolute_path_nonexistent(&not_found_2_dir).join_one("project.bri")
     );
 }

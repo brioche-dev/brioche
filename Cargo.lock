@@ -1247,6 +1247,7 @@ name = "brioche-core"
 version = "0.1.6"
 dependencies = [
  "anyhow",
+ "assert_matches",
  "async-compression",
  "async-recursion",
  "async-trait",
@@ -1276,6 +1277,7 @@ dependencies = [
  "biome_unicode_table",
  "blake3",
  "brioche-pack",
+ "brioche-test-support",
  "bstr",
  "bytesize",
  "cfg-if 1.0.4",
@@ -1294,6 +1296,7 @@ dependencies = [
  "http 1.4.0",
  "humantime",
  "humantime-serde",
+ "indoc",
  "jiff",
  "joinery",
  "json-canon",
@@ -1311,6 +1314,7 @@ dependencies = [
  "pem-rfc7468 1.0.0",
  "petgraph",
  "pin-project-lite",
+ "pretty_assertions",
  "regex",
  "relative-path",
  "reqwest 0.13.2",
@@ -1375,16 +1379,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "brioche-test"
+name = "brioche-test-support"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "assert_matches",
  "brioche-core",
  "futures",
- "indoc",
  "mockito",
- "pretty_assertions",
  "serde",
  "serde_json",
  "tempfile",
