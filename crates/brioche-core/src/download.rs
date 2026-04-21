@@ -93,121 +93,155 @@ pub async fn fetch_git_commit_for_ref(
     repository: &url::Url,
     reference: &str,
 ) -> anyhow::Result<String> {
-    let (tx, rx) = tokio::sync::oneshot::channel::<anyhow::Result<_>>();
+    let repository: gix::Url = repository
+        .as_str()
+        .try_into()
+        .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
+    let reference = reference.to_owned();
 
-    // gix uses a blocking client, so spawn a separate thread to fetch
-    std::thread::spawn({
-        let repository: gix::Url = repository
-            .as_str()
-            .try_into()
-            .with_context(|| format!("failed to parse git repository URL: {repository}"))?;
-        move || {
-            // Connect to the repository by URL
-            let transport = gix::protocol::transport::client::blocking_io::connect::connect(
-                repository,
-                gix::protocol::transport::client::blocking_io::connect::Options::default(),
-            );
-            let mut transport = match transport {
-                Ok(transport) => transport,
-                Err(error) => {
-                    let _ = tx.send(Err(error.into()));
-                    return;
-                }
-            };
+    // gix uses a blocking client, so run the resolver on the blocking pool
+    tokio::task::spawn_blocking(move || resolve_git_ref(&repository, &reference)).await?
+}
 
-            // Perform a handshake to get the remote's capabilities.
-            // Authentication is disabled
-            #[expect(clippy::result_large_err)]
-            let empty_auth = |_| Ok(None);
-            let outcome = gix::protocol::handshake(
-                &mut transport,
-                gix::protocol::transport::Service::UploadPack,
-                empty_auth,
-                vec![],
-                &mut gix::progress::Discard,
-            );
-            let outcome = match outcome {
-                Ok(outcome) => outcome,
-                Err(error) => {
-                    let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
-                    let _ = tx.send(Err(error.into()));
-                    return;
-                }
-            };
+fn resolve_git_ref(repository: &gix::Url, reference: &str) -> anyhow::Result<String> {
+    let mut transport = gix::protocol::transport::client::blocking_io::connect::connect(
+        repository.clone(),
+        gix::protocol::transport::client::blocking_io::connect::Options::default(),
+    )?;
 
-            let refs = if let Some(refs) = outcome.refs {
-                // The handshake will sometimes return the refs directly,
-                // depending on protocol version. If that happens, we're
-                // done
-                refs
-            } else {
-                // Fetch the refs
-                let refs =
-                    gix::protocol::LsRefsCommand::new(None, &outcome.capabilities, ("agent", None))
-                        .invoke_blocking(&mut transport, &mut gix::progress::Discard, false);
-                match refs {
-                    Ok(refs) => refs,
-                    Err(error) => {
-                        let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
-                        let _ = tx.send(Err(error.into()));
-                        return;
-                    }
-                }
-            };
-
-            // End the interaction with the remote
-            let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
-
-            let _ = tx.send(Ok(refs));
-        }
-    });
-
-    let remote_refs = rx.await?;
-    let remote_refs = match remote_refs {
-        Ok(remote_refs) => remote_refs,
+    #[expect(clippy::result_large_err)]
+    let empty_auth = |_| Ok(None);
+    let outcome = match gix::protocol::handshake(
+        &mut transport,
+        gix::protocol::transport::Service::UploadPack,
+        empty_auth,
+        vec![],
+        &mut gix::progress::Discard,
+    ) {
+        Ok(outcome) => outcome,
         Err(error) => {
-            anyhow::bail!("{error}");
+            let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+            return Err(error.into());
         }
     };
 
-    // Find the ref that matches the requested ref name
-    let object_id = remote_refs
-        .iter()
-        .find_map(|remote_ref| {
-            let (name, object) = match remote_ref {
-                gix::protocol::handshake::Ref::Peeled {
-                    full_ref_name,
-                    object,
-                    ..
-                }
-                | gix::protocol::handshake::Ref::Direct {
-                    full_ref_name,
-                    object,
-                }
-                | gix::protocol::handshake::Ref::Symbolic {
-                    full_ref_name,
-                    object,
-                    ..
-                } => (full_ref_name, object),
-                gix::protocol::handshake::Ref::Unborn { .. } => {
-                    return None;
-                }
-            };
+    let refs = if let Some(refs) = outcome.refs {
+        refs
+    } else {
+        match gix::protocol::LsRefsCommand::new(None, &outcome.capabilities, ("agent", None))
+            .invoke_blocking(&mut transport, &mut gix::progress::Discard, false)
+        {
+            Ok(refs) => refs,
+            Err(error) => {
+                let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+                return Err(error.into());
+            }
+        }
+    };
 
-            if let Some(tag_name) = name.strip_prefix(b"refs/tags/") {
-                if tag_name == reference.as_bytes() {
-                    return Some(object);
-                }
-            } else if let Some(head_name) = name.strip_prefix(b"refs/heads/")
-                && head_name == reference.as_bytes()
-            {
+    // Prefer a name match so a branch or tag shaped like a commit hash still
+    // wins over the commit-hash fallback below.
+    let named_match = refs.iter().find_map(|remote_ref| {
+        let (name, object) = match remote_ref {
+            gix::protocol::handshake::Ref::Peeled {
+                full_ref_name,
+                object,
+                ..
+            }
+            | gix::protocol::handshake::Ref::Direct {
+                full_ref_name,
+                object,
+            }
+            | gix::protocol::handshake::Ref::Symbolic {
+                full_ref_name,
+                object,
+                ..
+            } => (full_ref_name, object),
+            gix::protocol::handshake::Ref::Unborn { .. } => {
+                return None;
+            }
+        };
+
+        if let Some(tag_name) = name.strip_prefix(b"refs/tags/") {
+            if tag_name == reference.as_bytes() {
                 return Some(object);
             }
+        } else if let Some(head_name) = name.strip_prefix(b"refs/heads/")
+            && head_name == reference.as_bytes()
+        {
+            return Some(object);
+        }
 
-            None
-        })
-        .with_context(|| format!("git ref '{reference}' not found in repo {repository}"))?;
+        None
+    });
 
-    let commit = object_id.to_string();
-    Ok(commit)
+    if let Some(object) = named_match {
+        let object_id = object.to_string();
+        let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+        return Ok(object_id);
+    }
+
+    // No name match, so fall back to treating the reference as a full commit
+    // hash and validating it via a minimal fetch.
+    if let Ok(target_oid) = gix::ObjectId::from_hex(reference.as_bytes()) {
+        let result = validate_commit_via_fetch(
+            &mut transport,
+            &outcome.capabilities,
+            outcome.server_protocol_version,
+            &target_oid,
+        );
+        let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+
+        return match result {
+            Ok(()) => Ok(reference.to_owned()),
+            Err(error) => Err(error.context(format!(
+                "git commit '{reference}' not found or unreachable in repo {repository}"
+            ))),
+        };
+    }
+
+    let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
+    anyhow::bail!("git ref '{reference}' not found in repo {repository}");
+}
+
+fn validate_commit_via_fetch(
+    transport: &mut Box<dyn gix::protocol::transport::client::blocking_io::Transport + Send>,
+    capabilities: &gix::protocol::transport::client::Capabilities,
+    protocol_version: gix::protocol::transport::Protocol,
+    oid: &gix::ObjectId,
+) -> anyhow::Result<()> {
+    let fetch_features =
+        gix::protocol::Command::Fetch.default_features(protocol_version, capabilities);
+
+    let mut arguments =
+        gix::protocol::fetch::Arguments::new(protocol_version, fetch_features, false);
+    arguments.want(oid);
+
+    // Bound the response to roughly a single commit: shallow depth 1, and a
+    // blob-less filter when the server supports it. Without these, the server
+    // streams the full history reachable from the want.
+    if arguments.can_use_deepen() {
+        arguments.deepen(1);
+    }
+    if arguments.can_use_filter() {
+        arguments.filter("blob:none");
+    }
+
+    let mut reader = arguments.send(transport, true)?;
+
+    // Parse the response to check whether the server accepted the want.
+    // An unknown OID causes a server-side error surfaced here.
+    let response = gix::protocol::fetch::Response::from_line_reader(
+        protocol_version,
+        &mut reader,
+        true,
+        false,
+    )?;
+
+    // Drain any pack data so the transport is left in a clean state
+    if response.has_pack() {
+        std::io::copy(&mut reader, &mut std::io::sink())?;
+    }
+
+    Ok(())
 }
