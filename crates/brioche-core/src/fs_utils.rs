@@ -248,8 +248,8 @@ pub async fn set_mtime_to_brioche_epoch(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(unix)] {
+cfg_select! {
+    unix => {
         #[must_use] pub fn is_executable(permissions: &std::fs::Permissions) -> bool {
             use std::os::unix::fs::PermissionsExt as _;
 
@@ -274,6 +274,7 @@ cfg_if::cfg_if! {
             Ok(())
         }
     }
+    _ => {}
 }
 
 #[derive(Debug, Clone, Copy)]
