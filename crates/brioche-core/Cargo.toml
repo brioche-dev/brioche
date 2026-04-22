@@ -42,7 +42,6 @@ blake3 = "1.8.4"
 brioche-pack = { path = "../brioche-pack" }
 bstr = { version = "1.12.1", features = ["serde"] }
 bytesize = "2.3.1"
-cfg-if = "1.0.4"
 console-subscriber = "0.5.0"
 debug-ignore = "1.0.5"
 deno_ast = { version = "0.53.1", features = ["transpiling"] }
