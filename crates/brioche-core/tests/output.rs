@@ -1004,8 +1004,8 @@ struct Mode {
     execute: Option<bool>,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(unix)] {
+cfg_select! {
+    unix => {
         async fn assert_linked(a: impl AsRef<Path>, b: impl AsRef<Path>) {
             use std::os::unix::fs::MetadataExt as _;
             let a = a.as_ref();
@@ -1053,4 +1053,5 @@ cfg_if::cfg_if! {
             }
         }
     }
+    _ => {}
 }

@@ -509,8 +509,8 @@ struct SetDirectoryPermissions {
     readonly: bool,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(unix)] {
+cfg_select! {
+    unix => {
         async fn set_file_permissions(path: &Path, permissions: SetFilePermissions) -> anyhow::Result<()> {
             use std::os::unix::fs::PermissionsExt as _;
 
@@ -538,6 +538,7 @@ cfg_if::cfg_if! {
             Ok(())
         }
     }
+    _ => {}
 }
 
 /// Ensures the locals directory exists.

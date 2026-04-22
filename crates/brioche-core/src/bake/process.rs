@@ -1541,8 +1541,8 @@ async fn select_sandbox_backend(
 async fn auto_select_sandbox_backend(
     backend_selector: &mut SandboxBackendSelector,
 ) -> anyhow::Result<SandboxBackend> {
-    cfg_if::cfg_if! {
-        if #[cfg(target_os = "linux")] {
+    cfg_select! {
+        target_os = "linux" => {
             let backend =
                 SandboxBackend::LinuxNamespace(crate::sandbox::linux_namespace::LinuxNamespaceSandbox {
                     mount_style: crate::sandbox::linux_namespace::MountStyle::Namespace,
@@ -1566,6 +1566,7 @@ async fn auto_select_sandbox_backend(
                 }
             }
         }
+        _ => {}
     }
 
     anyhow::bail!(

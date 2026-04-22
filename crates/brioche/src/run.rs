@@ -227,11 +227,12 @@ pub async fn run(
         command.env("BRIOCHE_RESOURCE_DIR", resource_dir);
     }
 
-    cfg_if::cfg_if! {
-        if #[cfg(unix)] {
+    cfg_select! {
+        unix => {
             let error = command.exec();
             Err(error.into())
-        } else {
+        }
+        _ => {
             let result = command.status().context("failed to run process")?;
             if result.success() {
                 Ok(ExitCode::SUCCESS)
