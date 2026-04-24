@@ -6,6 +6,12 @@ import ts from "typescript";
 export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config {
   return {
     files: ["**/*.ts"],
+    linterOptions: {
+      // Allowing unused eslint-disable directives makes it much easier for us
+      // to handle ESLint upgrades. Mainly, this comes from wanting to support
+      // Brioche stable and nightly releases in brioche-packages.
+      reportUnusedDisableDirectives: "off",
+    },
     languageOptions: {
       parser: typescriptEslintParser as eslint.Linter.Parser,
       parserOptions: {
