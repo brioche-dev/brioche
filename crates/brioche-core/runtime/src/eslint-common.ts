@@ -3,31 +3,37 @@ import * as typescriptEslintParser from "@typescript-eslint/parser";
 import * as typescriptEslintPlugin from "@typescript-eslint/eslint-plugin";
 import ts from "typescript";
 
-export function buildLinter(): eslint.Linter {
-  const linter = new eslint.Linter();
-
-  linter.defineParser("@typescript-eslint/parser", typescriptEslintParser as eslint.Linter.ParserModule);
-
-  for (let [name, rule] of Object.entries(typescriptEslintPlugin.rules)) {
-    linter.defineRule(
-      `@typescript-eslint/${name}`,
-      rule as unknown as eslint.Rule.RuleModule,
-    );
-  }
-
-  return linter;
-}
-
 export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config {
   return {
+    files: ["**/*.ts"],
+    linterOptions: {
+      // Allowing unused eslint-disable directives makes it much easier for us
+      // to handle ESLint upgrades. Mainly, this comes from wanting to support
+      // Brioche stable and nightly releases in brioche-packages.
+      reportUnusedDisableDirectives: "off",
+    },
+    languageOptions: {
+      parser: typescriptEslintParser as eslint.Linter.Parser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: "module",
+        programs,
+      },
+    },
+    plugins: {
+      "@typescript-eslint": {
+        rules: typescriptEslintPlugin.rules as unknown as Record<string, eslint.Rule.RuleModule>,
+      },
+    },
     rules: {
       "eqeqeq": ["warn", "always", { null: "ignore" }],
       "no-console": ["warn", { allow: ["debug", "info", "warn", "error"] }],
       "no-debugger": "error",
       "no-delete-var": "warn",
       "no-invalid-regexp": "warn",
+      "no-loss-of-precision": "warn",
       "no-misleading-character-class": "warn",
-      "no-new-symbol": "warn",
+      "no-new-native-nonconstructor": "warn",
       "no-obj-calls": "warn",
       "no-octal": "warn",
       "no-octal-escape": "warn",
@@ -44,7 +50,9 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       "@typescript-eslint/adjacent-overload-signatures": "warn",
       "@typescript-eslint/array-type": "warn",
       "@typescript-eslint/await-thenable": "warn",
-      "@typescript-eslint/ban-types": "warn",
+      "@typescript-eslint/no-restricted-types": "warn",
+      "@typescript-eslint/no-unsafe-function-type": "warn",
+      "@typescript-eslint/no-wrapper-object-types": "warn",
       "@typescript-eslint/consistent-type-assertions": ["warn", {
         assertionStyle: "as",
         objectLiteralTypeAssertions: "allow-as-parameter",
@@ -61,7 +69,6 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       "@typescript-eslint/no-for-in-array": "warn",
       "@typescript-eslint/no-implied-eval": "warn",
       "@typescript-eslint/no-invalid-void-type": "warn",
-      "@typescript-eslint/no-loss-of-precision": "warn",
       "@typescript-eslint/no-meaningless-void-operator": "warn",
       "@typescript-eslint/no-misused-new": "warn",
       "@typescript-eslint/no-misused-promises": "warn",
@@ -71,7 +78,7 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       "@typescript-eslint/no-non-null-asserted-optional-chain": "warn",
       "@typescript-eslint/no-non-null-assertion": "warn",
       "@typescript-eslint/no-redundant-type-constituents": "warn",
-      "@typescript-eslint/no-throw-literal": ["warn", {
+      "@typescript-eslint/only-throw-error": ["warn", {
         allowThrowingAny: true,
         allowThrowingUnknown: true,
       }],
@@ -108,11 +115,5 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       }],
       "@typescript-eslint/triple-slash-reference": "error",
     },
-    parser: "@typescript-eslint/parser",
-    parserOptions: {
-      ecmaVersion: 2022,
-      sourceType: "module",
-      programs,
-    },
   };
-};
+}
