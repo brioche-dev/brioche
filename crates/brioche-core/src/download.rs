@@ -93,6 +93,17 @@ pub async fn fetch_git_commit_for_ref(
     repository: &url::Url,
     reference: &str,
 ) -> anyhow::Result<String> {
+    if is_sha1_hex(reference) {
+        return Ok(reference.to_ascii_lowercase());
+    }
+
+    // See https://github.com/GitoxideLabs/gitoxide/issues/281.
+    if is_sha256_hex(reference) {
+        anyhow::bail!(
+            "git ref '{reference}' looks like a SHA-256 commit hash, which is not yet supported"
+        );
+    }
+
     let repository: gix::Url = repository
         .as_str()
         .try_into()
@@ -100,10 +111,18 @@ pub async fn fetch_git_commit_for_ref(
     let reference = reference.to_owned();
 
     // gix uses a blocking client, so run the resolver on the blocking pool
-    tokio::task::spawn_blocking(move || resolve_git_ref(&repository, &reference)).await?
+    tokio::task::spawn_blocking(move || resolve_named_git_ref(&repository, &reference)).await?
 }
 
-fn resolve_git_ref(repository: &gix::Url, reference: &str) -> anyhow::Result<String> {
+fn is_sha1_hex(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn resolve_named_git_ref(repository: &gix::Url, reference: &str) -> anyhow::Result<String> {
     let mut transport = gix::protocol::transport::client::blocking_io::connect::connect(
         repository.clone(),
         gix::protocol::transport::client::blocking_io::connect::Options::default(),
@@ -139,109 +158,44 @@ fn resolve_git_ref(repository: &gix::Url, reference: &str) -> anyhow::Result<Str
         }
     };
 
-    // Prefer a name match so a branch or tag shaped like a commit hash still
-    // wins over the commit-hash fallback below.
-    let named_match = refs.iter().find_map(|remote_ref| {
-        let (name, object) = match remote_ref {
-            gix::protocol::handshake::Ref::Peeled {
-                full_ref_name,
-                object,
-                ..
-            }
-            | gix::protocol::handshake::Ref::Direct {
-                full_ref_name,
-                object,
-            }
-            | gix::protocol::handshake::Ref::Symbolic {
-                full_ref_name,
-                object,
-                ..
-            } => (full_ref_name, object),
-            gix::protocol::handshake::Ref::Unborn { .. } => {
-                return None;
-            }
-        };
+    let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
 
-        if let Some(tag_name) = name.strip_prefix(b"refs/tags/") {
-            if tag_name == reference.as_bytes() {
+    let object_id = refs
+        .iter()
+        .find_map(|remote_ref| {
+            let (name, object) = match remote_ref {
+                gix::protocol::handshake::Ref::Peeled {
+                    full_ref_name,
+                    object,
+                    ..
+                }
+                | gix::protocol::handshake::Ref::Direct {
+                    full_ref_name,
+                    object,
+                }
+                | gix::protocol::handshake::Ref::Symbolic {
+                    full_ref_name,
+                    object,
+                    ..
+                } => (full_ref_name, object),
+                gix::protocol::handshake::Ref::Unborn { .. } => {
+                    return None;
+                }
+            };
+
+            if let Some(tag_name) = name.strip_prefix(b"refs/tags/") {
+                if tag_name == reference.as_bytes() {
+                    return Some(object);
+                }
+            } else if let Some(head_name) = name.strip_prefix(b"refs/heads/")
+                && head_name == reference.as_bytes()
+            {
                 return Some(object);
             }
-        } else if let Some(head_name) = name.strip_prefix(b"refs/heads/")
-            && head_name == reference.as_bytes()
-        {
-            return Some(object);
-        }
 
-        None
-    });
+            None
+        })
+        .with_context(|| format!("git ref '{reference}' not found in repo {repository}"))?;
 
-    if let Some(object) = named_match {
-        let object_id = object.to_string();
-        let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
-        return Ok(object_id);
-    }
-
-    // No name match, so fall back to treating the reference as a full commit
-    // hash and validating it via a minimal fetch.
-    if let Ok(target_oid) = gix::ObjectId::from_hex(reference.as_bytes()) {
-        let result = validate_commit_via_fetch(
-            &mut transport,
-            &outcome.capabilities,
-            outcome.server_protocol_version,
-            &target_oid,
-        );
-        let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
-
-        return match result {
-            Ok(()) => Ok(reference.to_owned()),
-            Err(error) => Err(error.context(format!(
-                "git commit '{reference}' not found or unreachable in repo {repository}"
-            ))),
-        };
-    }
-
-    let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
-    anyhow::bail!("git ref '{reference}' not found in repo {repository}");
-}
-
-fn validate_commit_via_fetch(
-    transport: &mut Box<dyn gix::protocol::transport::client::blocking_io::Transport + Send>,
-    capabilities: &gix::protocol::transport::client::Capabilities,
-    protocol_version: gix::protocol::transport::Protocol,
-    oid: &gix::ObjectId,
-) -> anyhow::Result<()> {
-    let fetch_features =
-        gix::protocol::Command::Fetch.default_features(protocol_version, capabilities);
-
-    let mut arguments =
-        gix::protocol::fetch::Arguments::new(protocol_version, fetch_features, false);
-    arguments.want(oid);
-
-    // Bound the response to roughly a single commit: shallow depth 1, and a
-    // blob-less filter when the server supports it. Without these, the server
-    // streams the full history reachable from the want.
-    if arguments.can_use_deepen() {
-        arguments.deepen(1);
-    }
-    if arguments.can_use_filter() {
-        arguments.filter("blob:none");
-    }
-
-    let mut reader = arguments.send(transport, true)?;
-
-    // Parse the response to check whether the server accepted the want.
-    // An unknown OID causes a server-side error surfaced here.
-    let response = gix::protocol::fetch::Response::from_line_reader(
-        protocol_version,
-        &mut reader,
-        true,
-        false,
-    )?;
-
-    // Drain any pack data so the transport is left in a clean state
-    if response.has_pack() {
-        std::io::copy(&mut reader, &mut std::io::sink())?;
-    }
-
-    Ok(())
+    Ok(object_id.to_string())
 }
