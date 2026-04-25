@@ -969,45 +969,19 @@ async fn test_eval_brioche_git_checkout() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_eval_brioche_git_checkout_with_commit_hash() -> anyhow::Result<()> {
+async fn test_eval_brioche_git_checkout_with_commit_sha1_hash() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let mut mock_repo = mockito::Server::new_async().await;
     let mock_repo_url = mock_repo.url();
 
-    let mock_git_info_refs_response = b"001e# service=git-upload-pack\n0000000eversion 2\n0000";
     let mock_git_info_refs = mock_repo
         .mock("GET", "/info/refs?service=git-upload-pack")
-        .with_header(
-            "Content-Type",
-            "application/x-git-upload-pack-advertisement",
-        )
-        .with_header("Cache-Control", "no-cache")
-        .with_body(mock_git_info_refs_response)
-        .expect(1)
+        .expect(0)
         .create();
-
-    // ls-refs response with one branch pointing to a different OID, so the
-    // code falls through to commit-hash validation.
-    let mock_git_upload_pack_response =
-        b"003daaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa refs/heads/main\n0000";
     let mock_git_upload_pack = mock_repo
         .mock("POST", "/git-upload-pack")
-        .with_header("Content-Type", "application/x-git-upload-pack-result")
-        .with_header("Cache-Control", "no-cache")
-        .with_body(mock_git_upload_pack_response)
-        .expect(1)
-        .create();
-
-    // Fetch validation response: the server accepts the want and returns a
-    // minimal packfile section followed by a flush.
-    let mock_git_fetch_response = b"000dpackfile\n0000";
-    let mock_git_fetch = mock_repo
-        .mock("POST", "/git-upload-pack")
-        .with_header("Content-Type", "application/x-git-upload-pack-result")
-        .with_header("Cache-Control", "no-cache")
-        .with_body(mock_git_fetch_response)
-        .expect(1)
+        .expect(0)
         .create();
 
     let project_dir = context.mkdir("myproject").await;
@@ -1071,7 +1045,6 @@ async fn test_eval_brioche_git_checkout_with_commit_hash() -> anyhow::Result<()>
 
     mock_git_info_refs.assert_async().await;
     mock_git_upload_pack.assert_async().await;
-    mock_git_fetch.assert_async().await;
 
     let git_ref: serde_json::Value = serde_json::from_slice(&content)?;
     assert_eq!(
@@ -1082,6 +1055,80 @@ async fn test_eval_brioche_git_checkout_with_commit_hash() -> anyhow::Result<()>
             "commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         }),
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_brioche_git_checkout_with_commit_sha256_hash() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let mut mock_repo = mockito::Server::new_async().await;
+    let mock_repo_url = mock_repo.url();
+
+    let mock_git_info_refs = mock_repo
+        .mock("GET", "/info/refs?service=git-upload-pack")
+        .expect(0)
+        .create();
+    let mock_git_upload_pack = mock_repo
+        .mock("POST", "/git-upload-pack")
+        .expect(0)
+        .create();
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                globalThis.Brioche = {
+                    gitCheckout: async ({ repository, ref }) => {
+                        return await Deno.core.ops.op_brioche_get_static(
+                            import.meta.url,
+                            {
+                                type: "git_ref",
+                                repository,
+                                ref,
+                            },
+                        );
+                    }
+                }
+
+                export default async () => {
+                    const gitCheckout = await Brioche.gitCheckout({
+                        repository: "<REPO_URL>",
+                        ref: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    });
+                    return {
+                        briocheSerialize: async () => {
+                            return {
+                                type: "create_file",
+                                content: JSON.stringify(gitCheckout),
+                                executable: false,
+                                resources: {
+                                    type: "directory",
+                                    entries: {},
+                                },
+                            };
+                        },
+                    };
+                };
+            "#
+            .replace("<REPO_URL>", &mock_repo_url),
+        )
+        .await;
+
+    let error = brioche_test_support::load_project(&brioche, &project_dir)
+        .await
+        .err()
+        .expect("expected loading to fail for SHA-256 commit hash");
+    let error_message = format!("{error:#}");
+    assert!(
+        error_message.contains("SHA-256"),
+        "unexpected error: {error_message}"
+    );
+
+    mock_git_info_refs.assert_async().await;
+    mock_git_upload_pack.assert_async().await;
 
     Ok(())
 }
