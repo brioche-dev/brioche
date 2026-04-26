@@ -519,7 +519,7 @@ async fn load_project_inner(
         if group_projects.len() == 1 {
             let (node, project) = group_projects.into_iter().next().unwrap();
             let project_entry = ProjectEntry::Project(project);
-            let project_hash = ProjectHash::from_serializable(&project_entry)?;
+            let project_hash = ProjectHash::from_project_entry(&project_entry)?;
 
             group_project_entries.push((node, project_entry, project_hash));
         } else {
@@ -542,7 +542,7 @@ async fn load_project_inner(
                     })
                     .collect(),
             };
-            let workspace_hash = WorkspaceHash::from_serializable(&group_workspace)?;
+            let workspace_hash = WorkspaceHash::from_workspace(&group_workspace)?;
 
             workspaces.push((workspace_hash, Arc::new(group_workspace)));
             for node in group_projects.keys() {
@@ -552,7 +552,7 @@ async fn load_project_inner(
                     workspace: workspace_hash,
                     path: member_path.clone(),
                 };
-                let project_hash = ProjectHash::from_serializable(&project_entry)?;
+                let project_hash = ProjectHash::from_project_entry(&project_entry)?;
 
                 group_project_entries.push((*node, project_entry, project_hash));
             }
@@ -903,6 +903,43 @@ struct WorkspaceInfo {
     path: PathBuf,
 }
 
+async fn resolve_locked_git_ref(
+    locking: ProjectLocking,
+    lockfile: &mut LockfileState,
+    repository: &url::Url,
+    ref_: &str,
+) -> anyhow::Result<String> {
+    let current_commit = lockfile.current_lockfile.as_ref().and_then(|lockfile| {
+        lockfile
+            .git_refs
+            .get(repository)
+            .and_then(|repo_refs| repo_refs.get(ref_))
+    });
+
+    let commit = match (current_commit, locking) {
+        (Some(commit), _) => commit.clone(),
+        (None, ProjectLocking::Unlocked) => {
+            crate::download::fetch_git_commit_for_ref(repository, ref_)
+                .await
+                .with_context(|| {
+                    format!("failed to fetch ref '{ref_}' from git repo '{repository}'")
+                })?
+        }
+        (None, ProjectLocking::Locked) => {
+            anyhow::bail!("commit for git repo '{repository}' ref '{ref_}' not found in lockfile");
+        }
+    };
+
+    let repo_refs = lockfile
+        .fresh_lockfile
+        .git_refs
+        .entry(repository.clone())
+        .or_default();
+    repo_refs.insert(ref_.to_string(), commit.clone());
+
+    Ok(commit)
+}
+
 async fn resolve_static(
     brioche: &Brioche,
     project_root: &Path,
@@ -1160,39 +1197,13 @@ async fn resolve_static(
             }))
         }
         StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
-            let current_commit = lockfile.current_lockfile.as_ref().and_then(|lockfile| {
-                lockfile
-                    .git_refs
-                    .get(repository)
-                    .and_then(|repo_refs| repo_refs.get(ref_))
-            });
+            let commit = resolve_locked_git_ref(locking, lockfile, repository, ref_).await?;
 
-            let commit = match (current_commit, locking) {
-                (Some(commit), _) => commit.clone(),
-                (None, ProjectLocking::Unlocked) => {
-                    // Fetch the current commit hash of the git ref from the repo
-                    crate::download::fetch_git_commit_for_ref(repository, ref_)
-                        .await
-                        .with_context(|| {
-                            format!("failed to fetch ref '{ref_}' from git repo '{repository}'")
-                        })?
-                }
-                (None, ProjectLocking::Locked) => {
-                    // Error out if the git ref isn't in the lockfile but where
-                    // updating the lockfile is disabled
-                    anyhow::bail!(
-                        "commit for git repo '{repository}' ref '{ref_}' not found in lockfile"
-                    );
-                }
-            };
-
-            // Update the new lockfile with the commit
-            let repo_refs = lockfile
-                .fresh_lockfile
-                .git_refs
-                .entry(repository.clone())
-                .or_default();
-            repo_refs.insert(ref_.clone(), commit.clone());
+            Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }))
+        }
+        StaticQuery::GitCheckout(query) => {
+            let commit =
+                resolve_locked_git_ref(locking, lockfile, &query.repository, &query.ref_).await?;
 
             Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }))
         }

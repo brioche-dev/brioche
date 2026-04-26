@@ -74,6 +74,7 @@ pub enum StaticQuery {
     Glob { patterns: Vec<String> },
     Download { url: url::Url },
     GitRef(GitRefOptions),
+    GitCheckout(GitCheckoutQuery),
 }
 
 impl StaticQuery {
@@ -106,9 +107,59 @@ impl StaticQuery {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub struct GitRefOptions {
     pub repository: url::Url,
-
     #[serde(rename = "ref")]
     pub ref_: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCheckoutQuery {
+    pub repository: url::Url,
+    #[serde(rename = "ref")]
+    pub ref_: String,
+    #[serde(default)]
+    pub options: GitCheckoutOptions,
+}
+
+impl GitCheckoutQuery {
+    #[must_use]
+    pub fn git_ref_options(&self) -> GitRefOptions {
+        GitRefOptions {
+            repository: self.repository.clone(),
+            ref_: self.ref_.clone(),
+        }
+    }
+}
+
+#[derive(
+    Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCheckoutOptions {
+    #[serde(default)]
+    pub keep_git_dir: bool,
+    #[serde(default)]
+    pub submodules: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<GitCheckoutTag>,
+}
+
+impl GitCheckoutOptions {
+    pub fn normalized_tag(&self, ref_: &str) -> Option<String> {
+        match &self.tag {
+            None => None,
+            Some(GitCheckoutTag::Name(tag)) => Some(tag.clone()),
+            Some(GitCheckoutTag::UseRef(true)) => Some(ref_.to_string()),
+            Some(GitCheckoutTag::UseRef(false)) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum GitCheckoutTag {
+    UseRef(bool),
+    Name(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -684,11 +735,27 @@ where
                     };
 
                     // Parse the options
-                    let options = serde_json::from_value(options).with_context(|| {
-                        format!("{location}: invalid options for Brioche.{callee_member_text}, expected an object with the keys `repository` and `ref`")
-                    })?;
+                    let static_query = match callee_member_text {
+                        "gitRef" => {
+                            let options: GitRefOptions =
+                                serde_json::from_value(options).with_context(|| {
+                                    format!("{location}: invalid options for Brioche.{callee_member_text}, expected an object with the keys `repository` and `ref`")
+                                })?;
 
-                    Ok(Some(StaticQuery::GitRef(options)))
+                            StaticQuery::GitRef(options)
+                        }
+                        "gitCheckout" => {
+                            let options: GitCheckoutQuery =
+                                serde_json::from_value(options).with_context(|| {
+                                    format!("{location}: invalid options for Brioche.{callee_member_text}, expected an object with the keys `repository`, `ref`, and optional `options`")
+                                })?;
+
+                            StaticQuery::GitCheckout(options)
+                        }
+                        _ => unreachable!("unexpected callee member text"),
+                    };
+
+                    Ok(Some(static_query))
                 }
                 _ => Ok(None),
             }
