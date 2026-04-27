@@ -1056,6 +1056,13 @@ async fn test_eval_brioche_git_checkout_with_commit_sha1_hash() -> anyhow::Resul
         }),
     );
 
+    // Commit hashes are self-pinning, so they must not appear in the lockfile.
+    projects.commit_dirty_lockfiles().await?;
+    let lockfile_path = project_dir.join("brioche.lock");
+    let lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await?;
+    let lockfile: brioche_core::project::Lockfile = serde_json::from_str(&lockfile_contents)?;
+    assert!(lockfile.git_refs.is_empty());
+
     Ok(())
 }
 

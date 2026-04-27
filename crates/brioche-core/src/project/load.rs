@@ -1160,6 +1160,17 @@ async fn resolve_static(
             }))
         }
         StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
+            // Commit hashes are self-pinning: they bypass the lockfile entirely
+            // so the lockfile only ever tracks mutable refs (branches, tags).
+            if crate::git::is_commit_hash(ref_) {
+                let commit = crate::git::resolve_ref_to_commit(repository, ref_)
+                    .await
+                    .with_context(|| {
+                        format!("failed to resolve ref '{ref_}' for git repo '{repository}'")
+                    })?;
+                return Ok(StaticOutput::Kind(StaticOutputKind::GitRef { commit }));
+            }
+
             let current_commit = lockfile.current_lockfile.as_ref().and_then(|lockfile| {
                 lockfile
                     .git_refs
