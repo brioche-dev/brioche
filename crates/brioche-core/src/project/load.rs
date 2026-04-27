@@ -1171,7 +1171,7 @@ async fn resolve_static(
                 (Some(commit), _) => commit.clone(),
                 (None, ProjectLocking::Unlocked) => {
                     // Fetch the current commit hash of the git ref from the repo
-                    crate::download::fetch_git_commit_for_ref(repository, ref_)
+                    crate::git::resolve_ref_to_commit(repository, ref_)
                         .await
                         .with_context(|| {
                             format!("failed to fetch ref '{ref_}' from git repo '{repository}'")

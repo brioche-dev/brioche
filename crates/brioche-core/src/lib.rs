@@ -17,6 +17,7 @@ pub mod config;
 pub mod download;
 pub mod encoding;
 pub mod fs_utils;
+pub mod git;
 pub mod input;
 pub mod lazy_bake;
 pub mod object_store_utils;
