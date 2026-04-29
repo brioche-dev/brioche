@@ -1033,6 +1033,12 @@ fn project_lockfile(project: &Project) -> Lockfile {
                 downloads.insert(url.clone(), hash.clone());
             }
             StaticQuery::GitRef(GitRefOptions { repository, ref_ }) => {
+                // Commit hashes are self-pinning, so they don't belong in the
+                // lockfile.
+                if crate::git::is_commit_hash(ref_) {
+                    continue;
+                }
+
                 let Some(StaticOutput::Kind(StaticOutputKind::GitRef { commit })) = output else {
                     continue;
                 };
