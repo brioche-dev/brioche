@@ -10,8 +10,6 @@ mod run_sandbox;
 mod utils;
 mod weird_ui;
 
-const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-
 #[derive(Debug, Parser)]
 #[command(version)]
 enum Args {
@@ -27,7 +25,6 @@ enum Args {
     RunSandbox(run_sandbox::RunSandboxArgs),
 }
 
-#[expect(clippy::print_stdout)]
 fn main() -> anyhow::Result<ExitCode> {
     let args = Args::parse();
 
@@ -66,6 +63,7 @@ fn main() -> anyhow::Result<ExitCode> {
                     Ok(ExitCode::SUCCESS)
                 }
                 _ => {
+                    let _ = args;
                     anyhow::bail!("Brioche weird-ui feature was disabled at compile-time");
                 }
             }

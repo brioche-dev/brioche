@@ -9,6 +9,7 @@ const DEFAULT_EXPORT: &str = "default";
 /// then deduplicates them. Only project directories are accepted -- individual files are rejected.
 ///
 /// Returns the current directory as a default when no paths are provided.
+#[cfg_attr(not(test), expect(unused))]
 pub fn resolve_project_paths(
     projects: Vec<PathBuf>,
     project: Vec<PathBuf>,
@@ -231,6 +232,7 @@ pub fn resolve_project_refs(
 ///
 /// - `count == 0`: `[]`
 /// - `count > 1`: `[base, base-1, base-2]`
+#[expect(unused)]
 pub fn numbered_output_paths(base: &Path, count: usize) -> Vec<PathBuf> {
     if count == 0 {
         return vec![];

@@ -82,7 +82,7 @@ pub async fn hash_project(
             })
             .collect();
 
-        let mut statics = HashMap::new(); // TODO: statics
+        let statics = HashMap::new(); // TODO: statics
 
         let project = ContentAddressedProject {
             definition: project.definition.clone(),

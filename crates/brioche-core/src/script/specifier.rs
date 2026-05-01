@@ -60,6 +60,7 @@ impl std::fmt::Display for LocalImportSpecifier {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
+#[expect(unused)]
 pub enum StaticSpecifier {
     Include(StaticInclude),
     Glob { patterns: Vec<String> },
