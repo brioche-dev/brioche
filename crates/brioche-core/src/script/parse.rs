@@ -95,7 +95,7 @@ fn find_top_level_imports(
                     let export_clause = export_item.export_clause().map_err(|error| {
                         ScriptParseError::SyntaxError {
                             error,
-                            range: export_item.syntax().text_range().into(),
+                            range: export_item.syntax().text_range_with_trivia().into(),
                         }
                     })?;
                     match export_clause {
@@ -121,10 +121,10 @@ fn find_top_level_imports(
                     let import_clause = import_item.import_clause().map_err(|error| {
                         ScriptParseError::SyntaxError {
                             error,
-                            range: import_item.syntax().text_range().into(),
+                            range: import_item.syntax().text_range_with_trivia().into(),
                         }
                     })?;
-                    import_clause.source()
+                    import_clause.source().map(Into::into)
                 }
                 biome_js_syntax::AnyJsModuleItem::AnyJsStatement(_) => {
                     // Not an import or export statement
@@ -134,9 +134,16 @@ fn find_top_level_imports(
 
             let import_source = import_source.map_err(|error| ScriptParseError::SyntaxError {
                 error,
-                range: item.syntax().text_range().into(),
+                range: item.syntax().text_range_with_trivia().into(),
             })?;
-            let range = import_source.syntax().text_range().into();
+            let import_source = match import_source {
+                biome_js_syntax::AnyJsModuleSource::JsModuleSource(import_source) => import_source,
+                biome_js_syntax::AnyJsModuleSource::JsMetavariable(_) => {
+                    // Ignore metavariables
+                    return Ok(None);
+                }
+            };
+            let range = import_source.syntax().text_range_with_trivia().into();
             let specifier = import_source
                 .inner_string_text()
                 .map_err(|error| ScriptParseError::SyntaxError { error, range })?;
@@ -154,7 +161,7 @@ fn find_dynamic_imports(
         .syntax()
         .descendants()
         .map(move |node| {
-            let range = TextRange::from(node.text_range());
+            let range = TextRange::from(node.text_range_with_trivia());
             if let Some(import_call_expr) = biome_js_syntax::JsImportCallExpression::cast(node) {
                 // Get the arguments
                 let args = import_call_expr
@@ -327,6 +334,12 @@ fn expression_to_json(
                                     })?;
                                     key.text().to_string()
                                 }
+                                biome_js_syntax::AnyJsObjectMemberName::JsMetavariable(member) => {
+                                    return Err(ScriptParseError::UnsupportedStaticExpression {
+                                        range: member.range().into(),
+                                        reason: "object member name is a metavariable".to_string(),
+                                    });
+                                }
                             };
 
                                 let value = member.value().map_err(|error| {
@@ -374,7 +387,13 @@ fn expression_to_json(
                 .map(|element| {
                     let value = match element {
                         biome_js_syntax::AnyJsTemplateElement::JsTemplateChunkElement(chunk) => {
-                            let string = chunk.text();
+                            let chunk_token = chunk.template_chunk_token().map_err(|error| {
+                                ScriptParseError::SyntaxError {
+                                    error,
+                                    range: chunk.range().into(),
+                                }
+                            })?;
+                            let string = chunk_token.text();
 
                             if string.contains('\\') {
                                 return Err(ScriptParseError::UnsupportedStaticExpression {
@@ -384,7 +403,7 @@ fn expression_to_json(
                                 });
                             }
 
-                            string
+                            string.to_string()
                         }
                         biome_js_syntax::AnyJsTemplateElement::JsTemplateElement(element) => {
                             let expr = element.expression().map_err(|error| {
@@ -402,7 +421,7 @@ fn expression_to_json(
                                 }
                             })?;
 
-                            string.to_owned()
+                            string.to_string()
                         }
                     };
 
@@ -419,8 +438,12 @@ fn expression_to_json(
                     error,
                     range: ident.range().into(),
                 })?;
+            let name = name.name().map_err(|error| ScriptParseError::SyntaxError {
+                error,
+                range: name.range().into(),
+            })?;
             let name = name.text();
-            let value = env.and_then(|env| env.get(&name)).ok_or_else(|| {
+            let value = env.and_then(|env| env.get(name)).ok_or_else(|| {
                 ScriptParseError::UnsupportedStaticExpression {
                     range: ident.range().into(),
                     reason: format!("identifier {name:?} is not recognized in this context"),
@@ -449,9 +472,30 @@ fn expression_to_json(
                     error,
                     range: expr.range().into(),
                 })?;
+            let member = match member {
+                biome_js_syntax::AnyJsName::JsName(member) => member,
+                biome_js_syntax::AnyJsName::JsMetavariable(member) => {
+                    return Err(ScriptParseError::UnsupportedStaticExpression {
+                        range: member.range().into(),
+                        reason: format!("invalid metavariable object member name {member:?}"),
+                    });
+                }
+                biome_js_syntax::AnyJsName::JsPrivateName(member) => {
+                    return Err(ScriptParseError::UnsupportedStaticExpression {
+                        range: member.range().into(),
+                        reason: format!("private member name {member:?} not supported"),
+                    });
+                }
+            };
+            let member = member
+                .value_token()
+                .map_err(|error| ScriptParseError::SyntaxError {
+                    error,
+                    range: expr.range().into(),
+                })?;
             let member = member.text();
 
-            let value = object.get(&member).ok_or_else(|| {
+            let value = object.get(member).ok_or_else(|| {
                 ScriptParseError::UnsupportedStaticExpression {
                     range: object_expr.range().into(),
                     reason: format!("member {member:?} not found in object"),
