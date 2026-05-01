@@ -1,3 +1,5 @@
+use sha2::Digest as _;
+
 const HASH_LEN: usize = 32;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -77,5 +79,23 @@ impl std::fmt::Display for Sha256HashString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s: &str = self;
         write!(f, "{s}")
+    }
+}
+
+pub struct Sha256Hasher(sha2::Sha256);
+
+impl Sha256Hasher {
+    pub fn new() -> Self {
+        Self(sha2::Sha256::new())
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    pub fn finish(self) -> Sha256Hash {
+        let hash = self.0.finalize();
+        let hash = hash.as_array().expect("SHA-256 hash was wrong size");
+        Sha256Hash(*hash)
     }
 }

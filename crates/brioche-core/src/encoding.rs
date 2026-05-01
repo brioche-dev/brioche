@@ -1,16 +1,36 @@
 use std::borrow::Cow;
 
+use bstr::BString;
+
 pub trait ToTickBytes<'a> {
-    type Bytes: AsRef<[u8]>;
+    type Bytes: AsRef<[u8]> + 'a;
     type Error;
 
-    fn to_bytes(&self) -> Result<Self::Bytes, Self::Error>;
+    fn to_bytes(&'a self) -> Result<Self::Bytes, Self::Error>;
 }
 
 pub trait FromTickBytes: Sized {
     type Error;
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, Self::Error>;
+}
+
+impl<'a> ToTickBytes<'a> for BString {
+    type Bytes = &'a [u8];
+
+    type Error = std::convert::Infallible;
+
+    fn to_bytes(&'a self) -> Result<Self::Bytes, Self::Error> {
+        Ok(self)
+    }
+}
+
+impl FromTickBytes for BString {
+    type Error = std::convert::Infallible;
+
+    fn from_bytes(bytes: Cow<'_, [u8]>) -> Result<Self, Self::Error> {
+        Ok(Self::new(bytes.into_owned()))
+    }
 }
 
 pub enum TickEncoded {}

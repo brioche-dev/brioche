@@ -9,6 +9,10 @@ impl Blake3Hash {
         hex::encode_to_slice(self.0, &mut hex_bytes).expect("failed to encode hash as hex");
         Blake3HashString(hex_bytes)
     }
+
+    pub const fn as_bytes(&self) -> &[u8; HASH_LEN] {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for Blake3Hash {

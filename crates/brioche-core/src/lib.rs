@@ -1,13 +1,19 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use tokio::sync::RwLock;
 
+mod blob;
+mod cache;
+mod config;
 mod encoding;
+mod fs_utils;
 mod hash;
+mod object_store_utils;
 pub mod path;
 pub mod projects;
 mod recipe;
 pub mod registry;
+mod reporter;
 mod script;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -20,6 +26,13 @@ static DEFAULT_REGISTRY_URL: std::sync::LazyLock<url::Url> =
 pub struct Brioche {
     projects: Arc<RwLock<projects::Projects>>,
     registry: registry::RegistryClient,
+
+    /// The directory where all of Brioche's data is stored. Usually configured
+    /// to follow the platform's conventions for storing application data, such
+    /// as `~/.local/share/brioche` on Linux.
+    pub data_dir: PathBuf,
+
+    pub cache_client: cache::CacheClient,
 }
 
 impl Brioche {
@@ -55,6 +68,8 @@ impl BriocheBuilder {
         Brioche {
             projects: Arc::new(RwLock::new(projects::Projects::default())),
             registry,
+            cache_client: todo!(),
+            data_dir: todo!(),
         }
     }
 }
