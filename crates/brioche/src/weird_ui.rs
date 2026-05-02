@@ -61,6 +61,7 @@ pub async fn launch_weird_ui(args: WeirdUiArgs) -> anyhow::Result<()> {
                 .attr("graph", project_graph)
                 .attr("pan", true)
                 .attr("zoom", true)
+                .attr("maxZoom", 64)
                 .attr("autoSize", true),
         ]);
 
