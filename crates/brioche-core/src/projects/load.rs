@@ -121,6 +121,7 @@ pub async fn load_projects(
         let mut project_definition = ProjectDefinition::default();
         let mut project_modules = HashMap::<RelativePath, ModuleRef>::new();
         let mut external_deps = HashMap::<String, Option<ProjectSpecifier>>::new();
+        let mut module_asts = HashMap::<ModuleRef, crate::script::parse::ScriptAst>::new();
 
         let mut module_queue = VecDeque::from_iter([(
             root_module_subpath.clone(),
@@ -155,20 +156,27 @@ pub async fn load_projects(
             project_modules.insert(module_subpath.clone(), module_ref);
 
             let module_system_path = module_path.to_system_path()?;
-            let module_ast = load_module_ast(&module_system_path).await;
+            let module_source = load_module_source(&module_system_path).await;
             let module = Module {
-                ast: module_ast,
+                source: module_source,
                 subpath: module_subpath,
             };
 
             let module_entry = projects.modules.entry(module_ref).insert_entry(module);
             let module = module_entry.get();
 
-            match module {
-                Module {
-                    ast: Ok(module_ast),
-                    ..
-                } => {
+            let module_ast = module
+                .source
+                .as_deref()
+                .map(crate::script::parse::parse_script);
+            let module_ast_entry =
+                module_ast.map(|ast| module_asts.entry(module_ref).insert_entry(ast));
+            let module_ast = module_ast_entry
+                .as_ref()
+                .map(std::collections::hash_map::OccupiedEntry::get);
+
+            match module_ast {
+                Ok(module_ast) => {
                     if let ModuleReferrer::ProjectRoot { .. } = module_referrer {
                         let project_definition_value =
                             crate::script::parse::get_export_value(module_ast, "project");
@@ -295,9 +303,7 @@ pub async fn load_projects(
                         }
                     }
                 }
-                Module {
-                    ast: Err(error), ..
-                } => {
+                Err(error) => {
                     let location = match module_referrer {
                         ModuleReferrer::ProjectRoot { .. } => match &referrer {
                             ProjectReferrer::Project { location, .. } => Some(location.clone()),
@@ -307,7 +313,7 @@ pub async fn load_projects(
                     };
                     projects.issues.entry(project_ref.0).or_default().push(
                         ProjectIssue::LoadModuleError {
-                            error: error.clone(),
+                            error: (*error).clone(),
                             path: module_path,
                             location,
                         },
@@ -317,10 +323,10 @@ pub async fn load_projects(
         }
 
         let root_module_ref = &project_modules[&root_module_subpath];
-        let root_module = &projects.modules[root_module_ref];
+        let root_module_ast = module_asts.get(root_module_ref);
 
-        let project_definition_value = root_module.ast.as_ref().map_or_else(
-            |_| Ok(None),
+        let project_definition_value = root_module_ast.map_or_else(
+            || Ok(None),
             |ast| crate::script::parse::get_export_value(ast, "project"),
         );
         let project_definition_value = match project_definition_value {
@@ -477,9 +483,7 @@ async fn find_workspace_root(
     Ok(None)
 }
 
-async fn load_module_ast(
-    path: &std::path::Path,
-) -> Result<crate::script::parse::ScriptAst, LoadModuleError> {
+async fn load_module_source(path: &std::path::Path) -> Result<String, LoadModuleError> {
     let source = tokio::fs::read(path)
         .await
         .map_err(|error| LoadModuleError::IoError {
@@ -487,7 +491,7 @@ async fn load_module_ast(
         })?;
     let source = String::from_utf8(source)
         .map_err(|error| LoadModuleError::Utf8Error(error.utf8_error()))?;
-    Ok(crate::script::parse::parse_script(source))
+    Ok(source)
 }
 
 async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceError> {

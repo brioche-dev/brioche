@@ -73,11 +73,11 @@ pub async fn hash_project(
         let modules = projects.modules_by_project[&project_ref]
             .iter()
             .map(|(path, module_ref)| {
-                let module_ast = projects.modules[module_ref]
-                    .ast
-                    .as_ref()
-                    .expect("todo: handle module error");
-                let source_hash = blake3::hash(module_ast.source.as_bytes());
+                let module_source = projects.modules[module_ref]
+                    .source
+                    .as_deref()
+                    .expect("todo: handle module load error");
+                let source_hash = blake3::hash(module_source.as_bytes());
                 (path.clone(), crate::hash::Blake3Hash::from(source_hash))
             })
             .collect();

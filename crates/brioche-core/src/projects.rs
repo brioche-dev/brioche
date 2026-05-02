@@ -49,7 +49,7 @@ pub struct Project {
 
 pub(crate) struct Module {
     subpath: RelativePath,
-    ast: Result<crate::script::parse::ScriptAst, load::LoadModuleError>,
+    source: Result<String, load::LoadModuleError>,
 }
 
 pub(crate) struct Workspace {

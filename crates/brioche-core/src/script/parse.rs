@@ -4,14 +4,12 @@ use biome_rowan::{AstNode as _, AstNodeList as _, AstSeparatedList as _};
 
 pub struct ScriptAst {
     module: biome_js_syntax::JsModule,
-    pub(crate) source: String,
 }
 
-pub fn parse_script(source: String) -> ScriptAst {
-    let module =
-        biome_js_parser::parse_module(&source, biome_js_parser::JsParserOptions::default());
+pub fn parse_script(source: &str) -> ScriptAst {
+    let module = biome_js_parser::parse_module(source, biome_js_parser::JsParserOptions::default());
     let module = module.tree();
-    ScriptAst { module, source }
+    ScriptAst { module }
 }
 
 #[derive(Debug, Clone)]
