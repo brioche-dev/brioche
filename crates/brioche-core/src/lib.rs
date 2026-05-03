@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tokio::sync::RwLock;
 
+mod encoding;
 mod hash;
 pub mod path;
 pub mod projects;

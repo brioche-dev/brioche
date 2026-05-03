@@ -111,17 +111,7 @@ impl From<RootPath> for AnyPath {
 /// `/` is often used as a path separator when displaying or parsing a
 /// relative path by convention, but [`RelativePath`] itself is agnostic
 /// to the path separator.
-#[derive(
-    Default,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    serde_with::SerializeDisplay,
-    serde_with::DeserializeFromStr,
-)]
+#[derive(Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RelativePath {
     components: Vec<RelativePathComponent>,
 }
@@ -269,6 +259,33 @@ impl std::str::FromStr for RelativePath {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self::new(s))
+    }
+}
+
+impl crate::encoding::FromTickBytes for RelativePath {
+    type Error = std::convert::Infallible;
+
+    fn from_bytes(bytes: std::borrow::Cow<'_, [u8]>) -> Result<Self, Self::Error> {
+        Ok(Self::new(bytes))
+    }
+}
+
+impl crate::encoding::ToTickBytes<'_> for RelativePath {
+    type Bytes = Vec<u8>;
+    type Error = std::convert::Infallible;
+
+    fn to_bytes(&self) -> Result<Self::Bytes, Self::Error> {
+        // TODO: Allow customizing the separator with validation, infer
+        // an appropriate default separator
+        let bytes = self
+            .components
+            .iter()
+            .map(std::convert::AsRef::as_ref)
+            .iter_join_with(&b"/"[..])
+            .flat_map(joinery::JoinItem::into::<&[u8]>)
+            .copied()
+            .collect();
+        Ok(bytes)
     }
 }
 

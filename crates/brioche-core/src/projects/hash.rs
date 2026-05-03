@@ -4,6 +4,7 @@ use petgraph::visit::EdgeRef as _;
 
 use crate::{
     Brioche,
+    encoding::TickEncoded,
     path::RelativePath,
     projects::{ProjectDefinition, ProjectRef},
 };
@@ -109,6 +110,7 @@ pub async fn hash_project(
 enum ContentAddressedProjectEntry {
     WorkspaceMember {
         workspace: WorkspaceHash,
+        #[serde_as(as = "TickEncoded")]
         path: RelativePath,
     },
     #[serde(untagged)]
@@ -133,17 +135,20 @@ impl std::fmt::Display for WorkspaceHash {
 struct ContentAddressedProject {
     definition: ProjectDefinition,
     dependencies: HashMap<String, DependencyRef>,
+    #[serde_as(as = "HashMap<TickEncoded, _>")]
     modules: HashMap<RelativePath, crate::hash::Blake3Hash>,
-    #[serde_as(as = "HashMap<_, Vec<(_, _)>>")]
+    #[serde_as(as = "HashMap<TickEncoded, Vec<(_, _)>>")]
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     statics: HashMap<RelativePath, BTreeMap<StaticQuery, Option<StaticOutput>>>,
 }
 
+#[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 enum DependencyRef {
     WorkspaceMember {
+        #[serde_as(as = "TickEncoded")]
         path: RelativePath,
     },
     #[serde(untagged)]
