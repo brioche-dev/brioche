@@ -44,7 +44,7 @@ bstr = { version = "1.12.1", features = ["serde"] }
 bytesize = "2.3.1"
 console-subscriber = "0.5.0"
 debug-ignore = "1.0.5"
-deno_ast = { version = "0.53.1", features = ["transpiling"] }
+deno_ast = { version = "0.53.2", features = ["transpiling"] }
 deno_core = "0.400.0"
 deno_error = "0.7.1"
 directories = "6.0.0"
@@ -103,7 +103,7 @@ rustls-native-certs = "0.8.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_v8 = "0.309.0"
-serde_with = { version = "3.18.0", features = ["hex"] }
+serde_with = { version = "3.19.0", features = ["hex"] }
 sha2 = "0.11.0"
 sqlx = { version = "0.8.6", features = [
     "runtime-tokio-rustls",
