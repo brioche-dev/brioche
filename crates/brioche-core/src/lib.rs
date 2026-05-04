@@ -10,11 +10,13 @@ mod fs_utils;
 mod hash;
 mod object_store_utils;
 pub mod path;
+pub mod platform;
 pub mod projects;
 mod recipe;
 pub mod registry;
 mod reporter;
 mod script;
+mod utils;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USER_AGENT: &str = concat!("brioche/", env!("CARGO_PKG_VERSION"));

@@ -1,99 +1,209 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bstr::BString;
 
-use crate::{blob::BlobHash, encoding::TickEncoded};
+use crate::{blob::BlobHash, hash::AnyHash, platform::Platform};
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
-#[serde(transparent)]
-pub struct RecipeHash(crate::hash::Blake3Hash);
+mod graph;
+pub mod hash;
 
-impl std::fmt::Display for RecipeHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
+pub use graph::RecipeRef;
+
+#[derive(Default)]
+pub struct Recipes {
+    graph: graph::RecipeGraph,
 }
 
-#[serde_with::serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Artifact {
-    #[serde(rename_all = "camelCase")]
     File(File),
-    #[serde(rename_all = "camelCase")]
-    Symlink {
-        #[serde_as(as = "TickEncoded")]
-        target: BString,
-    },
-    #[serde(rename_all = "camelCase")]
     Directory(Directory),
+    Symlink(Symlink),
 }
 
-impl Artifact {
-    pub fn hash(&self) -> RecipeHash {
-        let mut hasher = blake3::Hasher::new();
-
-        json_canon::to_writer(&mut hasher, self)
-            .expect("Failed to serialize artifact while hashing");
-
-        let hash = hasher.finalize();
-        RecipeHash(hash.into())
-    }
-}
-
-#[serde_with::serde_as]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct File {
     pub content_blob: BlobHash,
-
     pub executable: bool,
-
-    #[serde_as(as = "serde_with::TryFromInto<Artifact>")]
-    pub resources: Directory,
+    pub resources: Option<RecipeRef>,
 }
 
-#[serde_with::serde_as]
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Directory {
-    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
-    entries: BTreeMap<BString, RecipeHash>,
+    pub entries: BTreeMap<BString, RecipeRef>,
 }
 
-impl Directory {
-    #[must_use]
-    pub const fn from_entries(entries: BTreeMap<BString, RecipeHash>) -> Self {
-        Self { entries }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Symlink {
+    pub target: BString,
 }
 
-impl From<Directory> for Artifact {
-    fn from(value: Directory) -> Self {
-        Self::Directory(value)
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Recipe {
+    File(File),
+    Directory(Directory),
+    Symlink(Symlink),
+    Download(DownloadRecipe),
+    Unarchive(UnarchiveRecipe),
+    Process(ProcessRecipe),
+    CompleteProcess(CompleteProcessRecipe),
+    CreateFile {
+        content: BString,
+        executable: bool,
+        resources: Option<RecipeRef>,
+    },
+    CreateDirectory {
+        entries: BTreeMap<BString, RecipeRef>,
+    },
+    Cast {
+        recipe: RecipeRef,
+        to: ArtifactKind,
+    },
+    Merge {
+        directories: Vec<RecipeRef>,
+    },
+    Peel {
+        directory: RecipeRef,
+        depth: u32,
+    },
+    Get {
+        directory: RecipeRef,
+        path: BString,
+    },
+    Insert {
+        directory: RecipeRef,
+        path: BString,
+        recipe: Option<RecipeRef>,
+    },
+    Glob {
+        directory: RecipeRef,
+        patterns: BTreeSet<BString>,
+    },
+    SetPermissions {
+        file: RecipeRef,
+        executable: Option<bool>,
+    },
+    CollectReferences {
+        recipe: RecipeRef,
+    },
+    AttachResources {
+        recipe: RecipeRef,
+    },
+    Proxy {
+        recipe: RecipeRef,
+    },
+    Sync {
+        recipe: RecipeRef,
+    },
 }
 
-impl TryFrom<Artifact> for Directory {
-    type Error = DirectoryFromArtifactError;
-
-    fn try_from(value: Artifact) -> Result<Self, Self::Error> {
-        match value {
-            Artifact::Directory(directory) => Ok(directory),
-            Artifact::File(_) | Artifact::Symlink { .. } => {
-                Err(DirectoryFromArtifactError::ExpectedDirectoryArtifact)
-            }
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadRecipe {
+    pub url: url::Url,
+    pub hash: AnyHash,
 }
 
-#[derive(Debug, thiserror::Error)]
-enum DirectoryFromArtifactError {
-    #[error("expected directory artifact")]
-    ExpectedDirectoryArtifact,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnarchiveRecipe {
+    pub file: RecipeRef,
+    pub archive: ArchiveFormat,
+    pub compression: CompressionFormat,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessRecipe {
+    pub command: ProcessTemplate,
+    pub args: Vec<ProcessTemplate>,
+    pub env: BTreeMap<BString, ProcessTemplate>,
+    pub current_dir: ProcessTemplate,
+    pub dependencies: Vec<RecipeRef>,
+    pub work_dir: RecipeRef,
+    pub output_scaffold: Option<RecipeRef>,
+    pub platform: Platform,
+    pub is_unsafe: bool,
+    pub networking: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompleteProcessRecipe {
+    pub command: ProcessTemplate,
+    pub args: Vec<ProcessTemplate>,
+    pub env: BTreeMap<BString, ProcessTemplate>,
+    pub current_dir: ProcessTemplate,
+    pub work_dir: RecipeRef,
+    pub output_scaffold: Option<RecipeRef>,
+    pub platform: Platform,
+    pub is_unsafe: bool,
+    pub networking: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcessTemplate {
+    pub components: Vec<ProcessTemplateComponent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProcessTemplateComponent {
+    Literal { value: BString },
+    Input { recipe: RecipeRef },
+    OutputPath,
+    ResourceDir,
+    InputResourceDirs,
+    HomeDir,
+    WorkDir,
+    TempDir,
+    CaCertificateBundlePath,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactKind {
+    File,
+    Directory,
+    Symlink,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RecipeKind {
+    File,
+    Directory,
+    Symlink,
+    Download,
+    Unarchive,
+    Process,
+    CompleteProcess,
+    CreateFile,
+    CreateDirectory,
+    Cast,
+    Merge,
+    Peel,
+    Get,
+    Insert,
+    Glob,
+    SetPermissions,
+    CollectReferences,
+    AttachResources,
+    Proxy,
+    Sync,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveFormat {
+    Tar,
+    Zip,
+}
+
+#[derive(
+    Debug, Default, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CompressionFormat {
+    #[default]
+    None,
+    Bzip2,
+    Gzip,
+    Xz,
+    Zstd,
 }

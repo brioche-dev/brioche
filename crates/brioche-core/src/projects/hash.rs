@@ -184,7 +184,7 @@ struct GitRefOptions {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 enum StaticOutput {
-    RecipeHash(crate::recipe::RecipeHash),
+    RecipeHash(crate::recipe::hash::RecipeHash),
     Kind(StaticOutputKind),
 }
 
