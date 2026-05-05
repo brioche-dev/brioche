@@ -1962,6 +1962,73 @@ fn test_bake_process_etc_group_resolves_gid() -> anyhow::Result<()> {
 }
 
 #[test]
+fn test_bake_process_etc_services_resolves_known_ports() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -eu
+
+                    grep -qE '^http[[:space:]]+80/tcp([[:space:]]|$)' /etc/services
+                    grep -qE '^ssh[[:space:]]+22/tcp([[:space:]]|$)' /etc/services
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_etc_protocols_resolves_known_protocols() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -eu
+
+                    grep -qE '^tcp[[:space:]]+6([[:space:]]|$)' /etc/protocols
+                    grep -qE '^udp[[:space:]]+17([[:space:]]|$)' /etc/protocols
+                    grep -qE '^icmp[[:space:]]+1([[:space:]]|$)' /etc/protocols
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
 fn test_bake_process_dependencies() -> anyhow::Result<()> {
     brioche_test(|brioche| async move {
         let dep1 = brioche_test_support::dir(

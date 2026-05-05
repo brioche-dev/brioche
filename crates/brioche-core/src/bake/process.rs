@@ -1951,6 +1951,15 @@ async fn set_up_rootfs(
     let etc_group_contents = format!("root:x:0:\n{guest_username}:x:{GUEST_GID_HINT}:\n");
     tokio::fs::write(etc_dir.join("group"), &etc_group_contents).await?;
 
+    // glibc has no compiled-in fallback for getservbyname / getprotobyname.
+    // Source: https://github.com/Mic92/iana-etc
+    tokio::fs::write(etc_dir.join("services"), include_str!("data/etc-services")).await?;
+    tokio::fs::write(
+        etc_dir.join("protocols"),
+        include_str!("data/etc-protocols"),
+    )
+    .await?;
+
     tracing::debug!("built rootfs");
 
     Ok(())
