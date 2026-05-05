@@ -1857,6 +1857,39 @@ fn test_bake_process_networking_enabled_with_ca_certs() -> anyhow::Result<()> {
 }
 
 #[test]
+fn test_bake_process_localhost_resolves() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -eu
+
+                    out=$(wget --timeout=2 -O /dev/null http://localhost:1/ 2>&1 || true)
+                    test "${out#*127.0.0.1}" != "$out"
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
 fn test_bake_process_dependencies() -> anyhow::Result<()> {
     brioche_test(|brioche| async move {
         let dep1 = brioche_test_support::dir(
