@@ -14,6 +14,7 @@ use brioche_core::{
         ArchiveFormat, Artifact, CompressionFormat, Directory, DownloadRecipe, File, ProcessRecipe,
         Recipe, Unarchive, WithMeta,
     },
+    sandbox::linux_namespace::SANDBOX_HOSTNAME,
 };
 use brioche_test_support::{
     bake_without_meta, ca_certificate_bundle_path, default_process, home_dir, input_resource_dirs,
@@ -1873,6 +1874,41 @@ fn test_bake_process_localhost_resolves() -> anyhow::Result<()> {
 
                     touch "$BRIOCHE_OUTPUT"
                 "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_etc_hosts_has_hostname() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(format!(
+                    r#"
+                    set -eu
+
+                    grep -qw '{hostname}' /etc/hosts
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#,
+                    hostname = SANDBOX_HOSTNAME
+                )),
             ],
             env: BTreeMap::from_iter([
                 ("BRIOCHE_OUTPUT".into(), output_path()),
