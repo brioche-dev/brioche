@@ -63,12 +63,8 @@ fn brioche_test<Fut, T>(f: impl FnOnce(brioche_core::Brioche) -> Fut) -> T
 where
     Fut: Future<Output = T>,
 {
-    static LOCK: std::sync::Mutex<Option<brioche_core::config::SandboxConfig>> =
-        std::sync::Mutex::new(None);
-    let mut lock = LOCK.lock().expect("failed to lock mutex for process tests");
-
-    let sandbox_config = lock
-        .get_or_insert_with(|| match std::env::var("BRIOCHE_TEST_SANDBOX").as_deref() {
+    static SANDBOX_CONFIG: std::sync::LazyLock<brioche_core::config::SandboxConfig> =
+        std::sync::LazyLock::new(|| match std::env::var("BRIOCHE_TEST_SANDBOX").as_deref() {
             Ok("linux_namespace") => {
                 let proot = match std::env::var("BRIOCHE_TEST_SANDBOX_PROOT").as_deref() {
                     Ok("true") => Some(brioche_core::config::PRootConfig::Value(true)),
@@ -83,8 +79,11 @@ where
                 )
             }
             _ => brioche_core::config::SandboxConfig::default(),
-        })
-        .clone();
+        });
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    let _serial_guard = SERIAL.lock().unwrap_or_else(|err| err.into_inner());
+    let sandbox_config = SANDBOX_CONFIG.clone();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
