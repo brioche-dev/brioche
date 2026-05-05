@@ -1796,7 +1796,7 @@ fn test_bake_process_networking_enabled_dns() -> anyhow::Result<()> {
                     wget \
                         --timeout=1 \
                         -O "$BRIOCHE_OUTPUT" \
-                        "https://gist.githubusercontent.com/kylewlacy/c0f1a43e2641686f377178880fcce6ae/raw/f48155695445aa218e558fba824b61cf718d5e55/lorem-ipsum.txt" \
+                        "http://example.com/" \
                         > /dev/null 2> /dev/null
                 "#),
             ],
