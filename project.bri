@@ -30,6 +30,9 @@ export default function (): std.Recipe<std.Directory> {
     "crates/brioche-core/runtime/tslib",
     "crates/brioche-core/runtime/dist",
 
+    // Static data
+    "crates/brioche-core/src/bake/data",
+
     // Makefiles for miscellaneous tasks
     "**/Makefile",
   );
