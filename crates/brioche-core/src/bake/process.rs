@@ -31,8 +31,9 @@ use crate::{
     },
 };
 
-const GUEST_UID_HINT: u32 = 1099;
-const GUEST_GID_HINT: u32 = 1099;
+pub const GUEST_UID_HINT: u32 = 1099;
+pub const GUEST_GID_HINT: u32 = 1099;
+pub const GUEST_USERNAME_PREFIX: &str = "brioche-runner-";
 
 pub async fn bake_lazy_process_to_process(
     brioche: &Brioche,
@@ -333,7 +334,7 @@ pub async fn bake_process(
         // the process's hash. This is done so processes can't make assumptions
         // about what folder they run in, while also ensuring the home directory
         // path is fully deterministic.
-        let guest_username = format!("brioche-runner-{hash}");
+        let guest_username = format!("{GUEST_USERNAME_PREFIX}{hash}");
         let guest_home_dir = format!("/home/{guest_username}");
         set_up_rootfs(
             brioche,
@@ -1946,6 +1947,18 @@ async fn set_up_rootfs(
         "{guest_username}:!x:{GUEST_UID_HINT}:{GUEST_GID_HINT}::{guest_home_dir}:/bin/sh\n",
     );
     tokio::fs::write(etc_dir.join("passwd"), &etc_passwd_contents).await?;
+
+    let etc_group_contents = format!("root:x:0:\n{guest_username}:x:{GUEST_GID_HINT}:\n");
+    tokio::fs::write(etc_dir.join("group"), &etc_group_contents).await?;
+
+    // glibc has no compiled-in fallback for getservbyname / getprotobyname.
+    // Source: https://github.com/Mic92/iana-etc
+    tokio::fs::write(etc_dir.join("services"), include_str!("data/etc-services")).await?;
+    tokio::fs::write(
+        etc_dir.join("protocols"),
+        include_str!("data/etc-protocols"),
+    )
+    .await?;
 
     tracing::debug!("built rootfs");
 

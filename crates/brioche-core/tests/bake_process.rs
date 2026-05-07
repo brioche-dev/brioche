@@ -8,11 +8,13 @@ use pretty_assertions::assert_eq;
 
 use brioche_core::{
     Hash,
+    bake::process::GUEST_USERNAME_PREFIX,
     platform::current_platform,
     recipe::{
         ArchiveFormat, Artifact, CompressionFormat, Directory, DownloadRecipe, File, ProcessRecipe,
         Recipe, Unarchive, WithMeta,
     },
+    sandbox::linux_namespace::SANDBOX_HOSTNAME,
 };
 use brioche_test_support::{
     bake_without_meta, ca_certificate_bundle_path, default_process, home_dir, input_resource_dirs,
@@ -61,12 +63,8 @@ fn brioche_test<Fut, T>(f: impl FnOnce(brioche_core::Brioche) -> Fut) -> T
 where
     Fut: Future<Output = T>,
 {
-    static LOCK: std::sync::Mutex<Option<brioche_core::config::SandboxConfig>> =
-        std::sync::Mutex::new(None);
-    let mut lock = LOCK.lock().expect("failed to lock mutex for process tests");
-
-    let sandbox_config = lock
-        .get_or_insert_with(|| match std::env::var("BRIOCHE_TEST_SANDBOX").as_deref() {
+    static SANDBOX_CONFIG: std::sync::LazyLock<brioche_core::config::SandboxConfig> =
+        std::sync::LazyLock::new(|| match std::env::var("BRIOCHE_TEST_SANDBOX").as_deref() {
             Ok("linux_namespace") => {
                 let proot = match std::env::var("BRIOCHE_TEST_SANDBOX_PROOT").as_deref() {
                     Ok("true") => Some(brioche_core::config::PRootConfig::Value(true)),
@@ -81,8 +79,11 @@ where
                 )
             }
             _ => brioche_core::config::SandboxConfig::default(),
-        })
-        .clone();
+        });
+    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    let _serial_guard = SERIAL.lock().unwrap_or_else(|err| err.into_inner());
+    let sandbox_config = SANDBOX_CONFIG.clone();
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -1794,7 +1795,7 @@ fn test_bake_process_networking_enabled_dns() -> anyhow::Result<()> {
                     wget \
                         --timeout=1 \
                         -O "$BRIOCHE_OUTPUT" \
-                        "https://gist.githubusercontent.com/kylewlacy/c0f1a43e2641686f377178880fcce6ae/raw/f48155695445aa218e558fba824b61cf718d5e55/lorem-ipsum.txt" \
+                        "http://example.com/" \
                         > /dev/null 2> /dev/null
                 "#),
             ],
@@ -1847,6 +1848,177 @@ fn test_bake_process_networking_enabled_with_ca_certs() -> anyhow::Result<()> {
             ]),
             is_unsafe: true,
             networking: true,
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_localhost_resolves() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -eu
+
+                    out=$(wget --timeout=2 -O /dev/null http://localhost:1/ 2>&1 || true)
+                    test "${out#*127.0.0.1}" != "$out"
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_etc_hosts_has_hostname() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(format!(
+                    r#"
+                    set -eu
+
+                    grep -qw '{hostname}' /etc/hosts
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#,
+                    hostname = SANDBOX_HOSTNAME
+                )),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_etc_group_resolves_gid() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(format!(
+                    r#"
+                    set -eu
+
+                    out=$(id -gn)
+                    test "${{out#{prefix}}}" != "$out"
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#,
+                    prefix = GUEST_USERNAME_PREFIX
+                )),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_etc_services_resolves_known_ports() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -eu
+
+                    grep -qE '^http[[:space:]]+80/tcp([[:space:]]|$)' /etc/services
+                    grep -qE '^ssh[[:space:]]+22/tcp([[:space:]]|$)' /etc/services
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
+            ..default_process()
+        });
+
+        assert_matches!(bake_without_meta(&brioche, process).await, Ok(_));
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_bake_process_etc_protocols_resolves_known_protocols() -> anyhow::Result<()> {
+    brioche_test(|brioche| async move {
+        let process = Recipe::Process(ProcessRecipe {
+            command: tpl("/usr/bin/env"),
+            args: vec![
+                tpl("sh"),
+                tpl("-c"),
+                tpl(r#"
+                    set -eu
+
+                    grep -qE '^tcp[[:space:]]+6([[:space:]]|$)' /etc/protocols
+                    grep -qE '^udp[[:space:]]+17([[:space:]]|$)' /etc/protocols
+                    grep -qE '^icmp[[:space:]]+1([[:space:]]|$)' /etc/protocols
+
+                    touch "$BRIOCHE_OUTPUT"
+                "#),
+            ],
+            env: BTreeMap::from_iter([
+                ("BRIOCHE_OUTPUT".into(), output_path()),
+                (
+                    "PATH".into(),
+                    tpl_join([template_input(utils()), tpl("/bin")]),
+                ),
+            ]),
             ..default_process()
         });
 

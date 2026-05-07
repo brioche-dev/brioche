@@ -8,6 +8,9 @@ use bstr::ByteSlice as _;
 #[cfg(target_os = "linux")]
 use super::{SandboxPath, SandboxPathOptions, SandboxTemplate, SandboxTemplateComponent};
 
+#[cfg(target_os = "linux")]
+pub const SANDBOX_HOSTNAME: &str = "localhost";
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MountStyle {
     Namespace,
@@ -45,7 +48,7 @@ pub fn run_sandbox(
 
     let current_dir = build_template(&exec.current_dir, &mut host_paths)?;
 
-    let mut unshare_namespaces = vec![unshare::Namespace::User];
+    let mut unshare_namespaces = vec![unshare::Namespace::User, unshare::Namespace::Uts];
 
     // Unshare the network namespace if networking is disabled
     if !exec.networking {
@@ -89,6 +92,11 @@ pub fn run_sandbox(
             command.before_chroot({
                 let sandbox_root = exec.sandbox_root.clone();
                 move || {
+                    // It may fail on systems with restricted user namespaces.
+                    if let Err(error) = set_sandbox_hostname() {
+                        tracing::warn!(?error, "failed to set sandbox hostname");
+                    }
+
                     for (path, options) in &host_paths {
                         let path_metadata = path.metadata().map_err(|error| {
                             std::io::Error::new(
@@ -214,6 +222,15 @@ pub fn run_sandbox(
             command.gid(exec.gid_hint);
             command.deny_setgroups(true);
             command.unshare(&unshare_namespaces);
+
+            command.before_chroot(move || {
+                // It may fail on systems with restricted user namespaces.
+                if let Err(error) = set_sandbox_hostname() {
+                    tracing::warn!(?error, "failed to set sandbox hostname");
+                }
+
+                Ok(())
+            });
         }
     }
 
@@ -260,4 +277,9 @@ fn build_template(
 
     let result = result.to_os_str()?;
     Ok(result.to_owned())
+}
+
+#[cfg(target_os = "linux")]
+fn set_sandbox_hostname() -> std::io::Result<()> {
+    nix::unistd::sethostname(SANDBOX_HOSTNAME).map_err(std::io::Error::from)
 }
