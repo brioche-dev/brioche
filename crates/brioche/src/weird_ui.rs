@@ -10,7 +10,7 @@ use crate::utils::{ProjectSource, resolve_project_refs};
 
 #[cfg(feature = "weird-ui")]
 pub async fn launch_weird_ui(args: WeirdUiArgs) -> anyhow::Result<()> {
-    let brioche = brioche_core::Brioche::new();
+    let brioche = brioche_core::Brioche::new().await;
 
     let project_refs = resolve_project_refs(args.targets, args.project, args.registry, args.export);
 

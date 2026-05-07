@@ -1,27 +1,18 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    sync::Arc,
+};
 
 use bstr::BString;
-use petgraph::visit::EdgeRef;
 
 use crate::{
+    Brioche,
     blob::BlobHash,
     encoding::TickEncoded,
     hash::AnyHash,
     platform::Platform,
-    recipe::{
-        ArchiveFormat, ArtifactKind, CompressionFormat,
-        graph::{
-            AttachResourcesEdge, AttachResourcesNode, CastEdge, CastNode, CollectReferencesEdge,
-            CollectReferencesNode, CreateDirectoryNode, CreateFileNode, DirectoryEdge,
-            DirectoryNode, DownloadNode, FileEdge, FileNode, GetEdge, GetNode, GlobEdge, GlobNode,
-            InsertEdge, InsertNode, MergeEdge, MergeNode, PeelEdge, PeelNode, ProxyEdge, ProxyNode,
-            RecipeEdge, RecipeGraphEdge, RecipeGraphNode, RecipeRef, SetPermissionsEdge,
-            SetPermissionsNode, SymlinkNode, SyncEdge, SyncNode, UnarchiveEdge, UnarchiveNode,
-        },
-    },
+    recipe::{ArchiveFormat, ArtifactKind, CompressionFormat, Recipe, RecipeRef},
 };
-
-use super::graph::RecipeNode;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
@@ -29,465 +20,393 @@ use super::graph::RecipeNode;
 #[serde(transparent)]
 pub struct RecipeHash(crate::hash::Blake3Hash);
 
-pub(crate) fn hash_recipes_within(
-    recipes: &super::Recipes,
-    recipe_refs: HashSet<RecipeRef>,
+pub async fn hash_recipe(brioche: &Brioche, recipe_ref: RecipeRef) -> RecipeHash {
+    let mut recipes = brioche.recipes.write().await;
+    let hashes = hash_recipes_within(&mut recipes, [recipe_ref]);
+    hashes[&recipe_ref]
+}
+
+pub async fn hash_recipes(
+    brioche: &Brioche,
+    recipe_refs: impl IntoIterator<Item = RecipeRef>,
 ) -> HashMap<RecipeRef, RecipeHash> {
-    // Create a copy of the graph, but keeping only nodes that are reachable
-    // from the recipes we're hashing
-    let mut graph = recipes.graph.clone();
-    let mut dfs_space = petgraph::algo::DfsSpace::default();
-    graph.retain_nodes(|graph, index| {
-        recipe_refs.contains(&RecipeRef(index))
-            || recipe_refs.iter().any(|recipe_ref| {
-                petgraph::algo::has_path_connecting(
-                    &*graph,
-                    recipe_ref.0,
-                    index,
-                    Some(&mut dfs_space),
-                )
-            })
+    let mut recipes = brioche.recipes.write().await;
+    let hashes = hash_recipes_within(&mut recipes, recipe_refs);
+    hashes
+}
+
+pub fn hash_recipes_within(
+    recipes: &mut super::Recipes,
+    recipe_refs: impl IntoIterator<Item = RecipeRef>,
+) -> HashMap<RecipeRef, RecipeHash> {
+    let empty_dir = std::sync::LazyLock::new(|| {
+        Arc::new(ContentAddressedRecipe::Directory {
+            entries: BTreeMap::new(),
+        })
     });
 
-    let node_indices = petgraph::algo::toposort(&graph, Some(&mut dfs_space)).unwrap_or_else(|error| {
-        panic!("Encountered cycle (which includes {:?}) in recipe graph while trying to hash recipes", error.node_id())
-    });
+    let mut dfs = petgraph::visit::DfsPostOrder::empty(&recipes.graph);
 
-    let mut recipes = HashMap::<RecipeRef, ContentAddressedRecipe>::new();
-    let mut recipe_hashes = HashMap::new();
-
-    for node_index in node_indices {
-        let node = &graph[node_index];
-        let RecipeGraphNode::Recipe(node) = node else {
-            continue;
-        };
-        let recipe_ref = RecipeRef(node_index);
-
-        let recipe = match node {
-            RecipeNode::File(FileNode {
-                content_blob,
-                executable,
-            }) => {
-                let mut resources = None;
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::File(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        FileEdge::Resources => {
-                            resources = Some(recipes[&RecipeRef(edge.target())].clone());
-                        }
-                    }
-                }
-
-                let resources = resources.unwrap_or_else(|| ContentAddressedRecipe::Directory {
-                    entries: BTreeMap::new(),
-                });
-
-                ContentAddressedRecipe::File {
-                    content_blob: *content_blob,
-                    executable: *executable,
-                    resources: Box::new(resources),
-                }
-            }
-            RecipeNode::Directory(DirectoryNode {}) => {
-                let mut entries = BTreeMap::new();
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Directory(weight)) = edge.weight()
-                    else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        DirectoryEdge::Entry { name } => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_hash =
-                                recipe_hashes.entry(target_ref).or_insert_with(|| {
-                                    content_addressed_recipe_hash(&recipes[&target_ref])
-                                });
-                            entries.insert(name.clone(), *target_hash);
-                        }
-                    }
-                }
-
-                ContentAddressedRecipe::Directory { entries }
-            }
-            RecipeNode::Symlink(SymlinkNode { target }) => ContentAddressedRecipe::Symlink {
-                target: target.clone(),
-            },
-            RecipeNode::Download(DownloadNode { url, hash }) => ContentAddressedRecipe::Download {
-                url: url.clone(),
-                hash: hash.clone(),
-            },
-            RecipeNode::Unarchive(UnarchiveNode {
-                archive,
-                compression,
-            }) => {
-                let mut file = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Unarchive(weight)) = edge.weight()
-                    else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        UnarchiveEdge::File => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            file = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let file = file.expect("Missing edge for Unarchive recipe");
-
-                ContentAddressedRecipe::Unarchive {
-                    file: Box::new(file),
-                    archive: *archive,
-                    compression: *compression,
-                }
-            }
-            RecipeNode::Process(_) => {
-                todo!()
-            }
-            RecipeNode::CompleteProcess(_) => {
-                todo!()
-            }
-            RecipeNode::CreateFile(CreateFileNode {
-                content,
-                executable,
-            }) => {
-                let mut resources = None;
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::File(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        FileEdge::Resources => {
-                            resources = Some(recipes[&RecipeRef(edge.target())].clone());
-                        }
-                    }
-                }
-
-                let resources = resources.unwrap_or_else(|| ContentAddressedRecipe::Directory {
-                    entries: BTreeMap::new(),
-                });
-
-                ContentAddressedRecipe::CreateFile {
-                    content: content.clone(),
-                    executable: *executable,
-                    resources: Box::new(resources),
-                }
-            }
-            RecipeNode::CreateDirectory(CreateDirectoryNode {}) => {
-                let mut entries = BTreeMap::new();
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Directory(weight)) = edge.weight()
-                    else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        DirectoryEdge::Entry { name } => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            entries.insert(name.clone(), target_recipe);
-                        }
-                    }
-                }
-
-                ContentAddressedRecipe::CreateDirectory { entries }
-            }
-            RecipeNode::Cast(CastNode { to }) => {
-                let mut recipe = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Cast(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        CastEdge::Recipe => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            recipe = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let recipe = recipe.expect("Missing edge for Cast recipe");
-
-                ContentAddressedRecipe::Cast {
-                    recipe: Box::new(recipe),
-                    to: *to,
-                }
-            }
-            RecipeNode::Merge(MergeNode {}) => {
-                let mut directories = BTreeMap::new();
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Merge(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        MergeEdge::Directory { index } => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            directories.insert(index, target_recipe);
-                        }
-                    }
-                }
-
-                let directories = directories.into_values().collect();
-
-                ContentAddressedRecipe::Merge { directories }
-            }
-            RecipeNode::Peel(PeelNode { depth }) => {
-                let mut directory = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Peel(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        PeelEdge::Directory => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            directory = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let directory = directory.expect("Missing edge for Peel recipe");
-
-                ContentAddressedRecipe::Peel {
-                    directory: Box::new(directory),
-                    depth: *depth,
-                }
-            }
-            RecipeNode::Get(GetNode { path }) => {
-                let mut directory = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Get(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        GetEdge::Directory => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            directory = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let directory = directory.expect("Missing edge for Get recipe");
-
-                ContentAddressedRecipe::Get {
-                    directory: Box::new(directory),
-                    path: path.clone(),
-                }
-            }
-            RecipeNode::Insert(InsertNode { path }) => {
-                let mut directory = None;
-                let mut recipe = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Insert(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        InsertEdge::Directory => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            directory = Some(target_recipe);
-                        }
-                        InsertEdge::Recipe => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            recipe = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let directory = directory.expect("Missing edge for Insert recipe");
-
-                ContentAddressedRecipe::Insert {
-                    directory: Box::new(directory),
-                    path: path.clone(),
-                    recipe: recipe.map(Box::new),
-                }
-            }
-            RecipeNode::Glob(GlobNode { patterns }) => {
-                let mut directory = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Glob(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        GlobEdge::Directory => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            directory = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let directory = directory.expect("Missing edge for Glob recipe");
-
-                ContentAddressedRecipe::Glob {
-                    directory: Box::new(directory),
-                    patterns: patterns.clone(),
-                }
-            }
-            RecipeNode::SetPermissions(SetPermissionsNode { executable }) => {
-                let mut file = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::SetPermissions(weight)) = edge.weight()
-                    else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        SetPermissionsEdge::File => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            file = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let file = file.expect("Missing edge for SetPermissions recipe");
-
-                ContentAddressedRecipe::SetPermissions {
-                    file: Box::new(file),
-                    executable: *executable,
-                }
-            }
-            RecipeNode::CollectReferences(CollectReferencesNode {}) => {
-                let mut recipe = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::CollectReferences(weight)) =
-                        edge.weight()
-                    else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        CollectReferencesEdge::Recipe => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            recipe = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let recipe = recipe.expect("Missing edge for CollectReferences recipe");
-
-                ContentAddressedRecipe::CollectReferences {
-                    recipe: Box::new(recipe),
-                }
-            }
-            RecipeNode::AttachResources(AttachResourcesNode {}) => {
-                let mut recipe = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::AttachResources(weight)) =
-                        edge.weight()
-                    else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        AttachResourcesEdge::Recipe => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            recipe = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let recipe = recipe.expect("Missing edge for AttachResources recipe");
-
-                ContentAddressedRecipe::AttachResources {
-                    recipe: Box::new(recipe),
-                }
-            }
-            RecipeNode::Proxy(ProxyNode {}) => {
-                let mut recipe_hash = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Proxy(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        ProxyEdge::Recipe => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe_hash =
-                                recipe_hashes.entry(target_ref).or_insert_with(|| {
-                                    content_addressed_recipe_hash(&recipes[&target_ref])
-                                });
-                            recipe_hash = Some(*target_recipe_hash);
-                        }
-                    }
-                }
-
-                let recipe_hash = recipe_hash.expect("Missing edge for Proxy recipe");
-
-                ContentAddressedRecipe::Proxy {
-                    recipe: recipe_hash,
-                }
-            }
-            RecipeNode::Sync(SyncNode {}) => {
-                let mut recipe = None;
-
-                for edge in graph.edges(node_index) {
-                    let RecipeGraphEdge::Recipe(RecipeEdge::Sync(weight)) = edge.weight() else {
-                        unreachable!("Invalid edge type");
-                    };
-
-                    match weight {
-                        SyncEdge::Recipe => {
-                            let target_ref = RecipeRef(edge.target());
-                            let target_recipe = recipes[&target_ref].clone();
-                            recipe = Some(target_recipe);
-                        }
-                    }
-                }
-
-                let recipe = recipe.expect("Missing edge for Sync recipe");
-
-                ContentAddressedRecipe::Sync {
-                    recipe: Box::new(recipe),
-                }
-            }
-        };
-
-        recipes.insert(recipe_ref, recipe);
-    }
+    let mut result_recipe_hashes = HashMap::new();
+    let mut need_recipe_hashes = HashSet::new();
 
     for recipe_ref in recipe_refs {
-        recipe_hashes.entry(recipe_ref).or_insert_with(|| {
-            let recipe = &recipes[&recipe_ref];
-            content_addressed_recipe_hash(recipe)
-        });
+        let recipe_hash_entry = recipes.recipe_hashes.entry(recipe_ref);
+        match recipe_hash_entry {
+            std::collections::hash_map::Entry::Occupied(entry) => {
+                result_recipe_hashes.insert(recipe_ref, *entry.get());
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                if let Some(content_addressed_recipe) =
+                    recipes.content_addressed_recipes.get(&recipe_ref)
+                {
+                    let recipe_hash = content_addressed_recipe_hash(content_addressed_recipe);
+                    entry.insert(recipe_hash);
+
+                    result_recipe_hashes.insert(recipe_ref, recipe_hash);
+                } else if need_recipe_hashes.insert(recipe_ref) {
+                    dfs.stack.push(recipe_ref.0);
+                }
+            }
+        }
     }
 
-    todo!();
+    while let Some(node_index) = dfs.next(&recipes.graph) {
+        let recipe_ref = RecipeRef(node_index);
+        let recipe = &recipes.recipes[&recipe_ref];
+        if recipes.content_addressed_recipes.contains_key(&recipe_ref) {
+            continue;
+        }
+
+        let content_addressed_recipe = match &**recipe {
+            Recipe::File(crate::recipe::File {
+                content_blob,
+                executable,
+                resources,
+            }) => {
+                let resources = resources.map_or_else(
+                    || empty_dir.clone(),
+                    |resources| recipes.content_addressed_recipes[&resources].clone(),
+                );
+                Arc::new(ContentAddressedRecipe::File {
+                    content_blob: *content_blob,
+                    executable: *executable,
+                    resources,
+                })
+            }
+            Recipe::Directory(crate::recipe::Directory { entries }) => {
+                if entries.is_empty() {
+                    empty_dir.clone()
+                } else {
+                    let entries = entries
+                        .iter()
+                        .map(|(name, entry)| {
+                            let recipe_hash =
+                                recipes.recipe_hashes.entry(*entry).or_insert_with(|| {
+                                    content_addressed_recipe_hash(
+                                        &recipes.content_addressed_recipes[entry],
+                                    )
+                                });
+                            (name.clone(), *recipe_hash)
+                        })
+                        .collect();
+                    Arc::new(ContentAddressedRecipe::Directory { entries })
+                }
+            }
+            Recipe::Symlink(crate::recipe::Symlink { target }) => {
+                Arc::new(ContentAddressedRecipe::Symlink {
+                    target: target.clone(),
+                })
+            }
+            Recipe::Download(crate::recipe::DownloadRecipe { url, hash }) => {
+                Arc::new(ContentAddressedRecipe::Download {
+                    url: url.clone(),
+                    hash: hash.clone(),
+                })
+            }
+            Recipe::Unarchive(crate::recipe::UnarchiveRecipe {
+                archive,
+                compression,
+                file,
+            }) => {
+                let file = recipes.content_addressed_recipes[file].clone();
+                Arc::new(ContentAddressedRecipe::Unarchive {
+                    file,
+                    archive: *archive,
+                    compression: *compression,
+                })
+            }
+            Recipe::Process(process) => {
+                let complete = false;
+                let crate::recipe::ProcessRecipe {
+                    command,
+                    args,
+                    env,
+                    current_dir,
+                    dependencies,
+                    work_dir,
+                    output_scaffold,
+                    platform,
+                    is_unsafe,
+                    networking,
+                } = process;
+                Arc::new(ContentAddressedRecipe::Process(
+                    ContentAddressedProcessRecipe {
+                        command: build_process_template(
+                            command,
+                            &recipes.content_addressed_recipes,
+                            complete,
+                        ),
+                        args: args
+                            .iter()
+                            .map(|arg| {
+                                build_process_template(
+                                    arg,
+                                    &recipes.content_addressed_recipes,
+                                    complete,
+                                )
+                            })
+                            .collect(),
+                        env: env
+                            .iter()
+                            .map(|(key, value)| {
+                                (
+                                    key.clone(),
+                                    build_process_template(
+                                        value,
+                                        &recipes.content_addressed_recipes,
+                                        complete,
+                                    ),
+                                )
+                            })
+                            .collect(),
+                        current_dir: build_process_template(
+                            current_dir,
+                            &recipes.content_addressed_recipes,
+                            complete,
+                        ),
+                        dependencies: dependencies
+                            .iter()
+                            .map(|dependency| recipes.content_addressed_recipes[dependency].clone())
+                            .collect(),
+                        work_dir: recipes.content_addressed_recipes[work_dir].clone(),
+                        output_scaffold: output_scaffold.map(|output_scaffold| {
+                            recipes.content_addressed_recipes[&output_scaffold].clone()
+                        }),
+                        platform: *platform,
+                        is_unsafe: *is_unsafe,
+                        networking: *networking,
+                    },
+                ))
+            }
+            Recipe::CompleteProcess(complete_process) => {
+                let complete = true;
+                let crate::recipe::CompleteProcessRecipe {
+                    command,
+                    args,
+                    env,
+                    current_dir,
+                    work_dir,
+                    output_scaffold,
+                    platform,
+                    is_unsafe,
+                    networking,
+                } = complete_process;
+                Arc::new(ContentAddressedRecipe::CompleteProcess(
+                    ContentAddressedProcessRecipe {
+                        command: build_process_template(
+                            command,
+                            &recipes.content_addressed_recipes,
+                            complete,
+                        ),
+                        args: args
+                            .iter()
+                            .map(|arg| {
+                                build_process_template(
+                                    arg,
+                                    &recipes.content_addressed_recipes,
+                                    complete,
+                                )
+                            })
+                            .collect(),
+                        env: env
+                            .iter()
+                            .map(|(key, value)| {
+                                (
+                                    key.clone(),
+                                    build_process_template(
+                                        value,
+                                        &recipes.content_addressed_recipes,
+                                        complete,
+                                    ),
+                                )
+                            })
+                            .collect(),
+                        current_dir: build_process_template(
+                            current_dir,
+                            &recipes.content_addressed_recipes,
+                            complete,
+                        ),
+                        dependencies: vec![],
+                        work_dir: recipes.content_addressed_recipes[work_dir].clone(),
+                        output_scaffold: output_scaffold.map(|output_scaffold| {
+                            recipes.content_addressed_recipes[&output_scaffold].clone()
+                        }),
+                        platform: *platform,
+                        is_unsafe: *is_unsafe,
+                        networking: *networking,
+                    },
+                ))
+            }
+            Recipe::CreateFile {
+                content,
+                executable,
+                resources,
+            } => {
+                let resources = resources.map_or_else(
+                    || empty_dir.clone(),
+                    |resources| recipes.content_addressed_recipes[&resources].clone(),
+                );
+                Arc::new(ContentAddressedRecipe::CreateFile {
+                    content: content.clone(),
+                    executable: *executable,
+                    resources,
+                })
+            }
+            Recipe::CreateDirectory { entries } => {
+                let entries = entries
+                    .iter()
+                    .map(|(name, entry)| {
+                        let entry = recipes.content_addressed_recipes[entry].clone();
+                        (name.clone(), entry)
+                    })
+                    .collect();
+                Arc::new(ContentAddressedRecipe::CreateDirectory { entries })
+            }
+            Recipe::Cast { recipe, to } => Arc::new(ContentAddressedRecipe::Cast {
+                recipe: recipes.content_addressed_recipes[recipe].clone(),
+                to: *to,
+            }),
+            Recipe::Merge { directories } => {
+                let directories = directories
+                    .iter()
+                    .map(|directory| recipes.content_addressed_recipes[directory].clone())
+                    .collect();
+                Arc::new(ContentAddressedRecipe::Merge { directories })
+            }
+            Recipe::Peel { directory, depth } => Arc::new(ContentAddressedRecipe::Peel {
+                directory: recipes.content_addressed_recipes[directory].clone(),
+                depth: *depth,
+            }),
+            Recipe::Get { directory, path } => Arc::new(ContentAddressedRecipe::Get {
+                directory: recipes.content_addressed_recipes[directory].clone(),
+                path: path.clone(),
+            }),
+            Recipe::Insert {
+                directory,
+                path,
+                recipe,
+            } => Arc::new(ContentAddressedRecipe::Insert {
+                directory: recipes.content_addressed_recipes[directory].clone(),
+                path: path.clone(),
+                recipe: recipe.map(|recipe| recipes.content_addressed_recipes[&recipe].clone()),
+            }),
+            Recipe::Glob {
+                directory,
+                patterns,
+            } => Arc::new(ContentAddressedRecipe::Glob {
+                directory: recipes.content_addressed_recipes[directory].clone(),
+                patterns: patterns.clone(),
+            }),
+            Recipe::SetPermissions { file, executable } => {
+                Arc::new(ContentAddressedRecipe::SetPermissions {
+                    file: recipes.content_addressed_recipes[file].clone(),
+                    executable: *executable,
+                })
+            }
+            Recipe::CollectReferences { recipe } => {
+                Arc::new(ContentAddressedRecipe::CollectReferences {
+                    recipe: recipes.content_addressed_recipes[recipe].clone(),
+                })
+            }
+            Recipe::AttachResources { recipe } => {
+                Arc::new(ContentAddressedRecipe::AttachResources {
+                    recipe: recipes.content_addressed_recipes[recipe].clone(),
+                })
+            }
+            Recipe::Proxy { recipe } => {
+                let recipe_hash = *recipes.recipe_hashes.entry(*recipe).or_insert_with(|| {
+                    content_addressed_recipe_hash(&recipes.content_addressed_recipes[recipe])
+                });
+                Arc::new(ContentAddressedRecipe::Proxy {
+                    recipe: recipe_hash,
+                })
+            }
+            Recipe::Sync { recipe } => Arc::new(ContentAddressedRecipe::Sync {
+                recipe: recipes.content_addressed_recipes[recipe].clone(),
+            }),
+        };
+
+        recipes
+            .content_addressed_recipes
+            .insert(recipe_ref, content_addressed_recipe);
+    }
+
+    for recipe_ref in need_recipe_hashes {
+        result_recipe_hashes.insert(recipe_ref, recipes.recipe_hashes[&recipe_ref]);
+    }
+
+    result_recipe_hashes
+}
+
+fn build_process_template(
+    process_template: &crate::recipe::ProcessTemplate,
+    content_addressed_recipes: &HashMap<RecipeRef, Arc<ContentAddressedRecipe>>,
+    complete: bool,
+) -> ContentAddressedProcessTemplate {
+    let components = process_template
+        .components
+        .iter()
+        .map(|component| match component {
+            crate::recipe::ProcessTemplateComponent::Literal { value } => {
+                ContentAddressedProcessTemplateComponent::Literal {
+                    value: value.clone(),
+                }
+            }
+            crate::recipe::ProcessTemplateComponent::Input { recipe } => {
+                let recipe = content_addressed_recipes[recipe].clone();
+                let input = if complete {
+                    ContentAddressedProcessTemplateInputComponent::Artifact { artifact: recipe }
+                } else {
+                    ContentAddressedProcessTemplateInputComponent::Recipe { recipe }
+                };
+                ContentAddressedProcessTemplateComponent::Input(input)
+            }
+            crate::recipe::ProcessTemplateComponent::OutputPath => {
+                ContentAddressedProcessTemplateComponent::OutputPath
+            }
+            crate::recipe::ProcessTemplateComponent::ResourceDir => {
+                ContentAddressedProcessTemplateComponent::ResourceDir
+            }
+            crate::recipe::ProcessTemplateComponent::InputResourceDirs => {
+                ContentAddressedProcessTemplateComponent::InputResourceDirs
+            }
+            crate::recipe::ProcessTemplateComponent::HomeDir => {
+                ContentAddressedProcessTemplateComponent::HomeDir
+            }
+            crate::recipe::ProcessTemplateComponent::WorkDir => {
+                ContentAddressedProcessTemplateComponent::WorkDir
+            }
+            crate::recipe::ProcessTemplateComponent::TempDir => {
+                ContentAddressedProcessTemplateComponent::TempDir
+            }
+            crate::recipe::ProcessTemplateComponent::CaCertificateBundlePath => {
+                ContentAddressedProcessTemplateComponent::CaCertificateBundlePath
+            }
+        })
+        .collect();
+
+    ContentAddressedProcessTemplate { components }
 }
 
 fn content_addressed_recipe_hash(recipe: &ContentAddressedRecipe) -> RecipeHash {
@@ -505,12 +424,12 @@ impl std::fmt::Display for RecipeHash {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-enum ContentAddressedRecipe {
+pub(super) enum ContentAddressedRecipe {
     #[serde(rename_all = "camelCase")]
     File {
         content_blob: BlobHash,
         executable: bool,
-        resources: Box<Self>,
+        resources: Arc<Self>,
     },
     #[serde(rename_all = "camelCase")]
     Directory {
@@ -529,7 +448,7 @@ enum ContentAddressedRecipe {
     },
     #[serde(rename_all = "camelCase")]
     Unarchive {
-        file: Box<Self>,
+        file: Arc<Self>,
         archive: ArchiveFormat,
         #[serde(default)]
         compression: CompressionFormat,
@@ -541,55 +460,55 @@ enum ContentAddressedRecipe {
         #[serde_as(as = "TickEncoded")]
         content: BString,
         executable: bool,
-        resources: Box<Self>,
+        resources: Arc<Self>,
     },
     #[serde(rename_all = "camelCase")]
     CreateDirectory {
-        entries: BTreeMap<BString, Self>,
+        entries: BTreeMap<BString, Arc<Self>>,
     },
     #[serde(rename_all = "camelCase")]
     Cast {
-        recipe: Box<Self>,
+        recipe: Arc<Self>,
         to: ArtifactKind,
     },
     #[serde(rename_all = "camelCase")]
     Merge {
-        directories: Vec<Self>,
+        directories: Vec<Arc<Self>>,
     },
     #[serde(rename_all = "camelCase")]
     Peel {
-        directory: Box<Self>,
+        directory: Arc<Self>,
         depth: u32,
     },
     #[serde(rename_all = "camelCase")]
     Get {
-        directory: Box<Self>,
+        directory: Arc<Self>,
         #[serde_as(as = "TickEncoded")]
         path: BString,
     },
     #[serde(rename_all = "camelCase")]
     Insert {
-        directory: Box<Self>,
+        directory: Arc<Self>,
         #[serde_as(as = "TickEncoded")]
         path: BString,
-        recipe: Option<Box<Self>>,
+        recipe: Option<Arc<Self>>,
     },
     Glob {
-        directory: Box<Self>,
+        directory: Arc<Self>,
         patterns: BTreeSet<BString>,
     },
     #[serde(rename_all = "camelCase")]
     SetPermissions {
-        file: Box<Self>,
+        file: Arc<Self>,
         executable: Option<bool>,
     },
     #[serde(rename_all = "camelCase")]
     CollectReferences {
-        recipe: Box<Self>,
+        recipe: Arc<Self>,
     },
     #[serde(rename_all = "camelCase")]
     AttachResources {
-        recipe: Box<Self>,
+        recipe: Arc<Self>,
     },
     #[serde(rename_all = "camelCase")]
     Proxy {
@@ -597,7 +516,7 @@ enum ContentAddressedRecipe {
     },
     #[serde(rename_all = "camelCase")]
     Sync {
-        recipe: Box<Self>,
+        recipe: Arc<Self>,
     },
 }
 
@@ -619,12 +538,12 @@ struct ContentAddressedProcessRecipe {
     pub current_dir: ContentAddressedProcessTemplate,
 
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub dependencies: Vec<ContentAddressedRecipe>,
+    pub dependencies: Vec<Arc<ContentAddressedRecipe>>,
 
-    pub work_dir: Box<ContentAddressedRecipe>,
+    pub work_dir: Arc<ContentAddressedRecipe>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub output_scaffold: Option<Box<ContentAddressedRecipe>>,
+    pub output_scaffold: Option<Arc<ContentAddressedRecipe>>,
 
     pub platform: Platform,
 
@@ -682,8 +601,12 @@ pub enum ContentAddressedProcessTemplateComponent {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum ContentAddressedProcessTemplateInputComponent {
-    Recipe { recipe: ContentAddressedRecipe },
-    Artifact { artifact: ContentAddressedRecipe },
+    Recipe {
+        recipe: Arc<ContentAddressedRecipe>,
+    },
+    Artifact {
+        artifact: Arc<ContentAddressedRecipe>,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

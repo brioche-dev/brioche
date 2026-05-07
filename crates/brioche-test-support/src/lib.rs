@@ -20,6 +20,7 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("brioche=info,warn")),
         )
         .init();
+    let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
 
     let temp = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let registry_server = mockito::Server::new_async().await;
@@ -30,11 +31,18 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
         .expect("failed to create brioche data dir");
 
     let brioche = Brioche::builder()
+        .reporter(reporter)
+        .config(brioche_core::config::BriocheConfig::default())
+        .cache_client(brioche_core::cache::CacheClient::default())
+        .data_dir(&brioche_data_dir)
         .registry_url(registry_server.url().parse().unwrap())
-        .build();
+        .build()
+        .await
+        .unwrap();
     let context = TestContext {
         temp,
         registry_server,
+        _reporter_guard: reporter_guard,
     };
     (brioche, context)
 }
@@ -78,6 +86,7 @@ pub fn take_where<T>(items: &mut Vec<T>, mut predicate: impl FnMut(&T) -> bool) 
 pub struct TestContext {
     temp: tempfile::TempDir,
     pub registry_server: mockito::ServerGuard,
+    _reporter_guard: brioche_core::reporter::ReporterGuard,
 }
 
 impl TestContext {
@@ -137,12 +146,6 @@ impl TestContext {
             .await
     }
 
-    fn temp_brioche(&self) -> Brioche {
-        Brioche::builder()
-            .registry_url(self.registry_server.url().parse().unwrap())
-            .build()
-    }
-
     pub async fn temp_project(
         &self,
         brioche: &Brioche,
@@ -176,8 +179,10 @@ impl TestContext {
             .await
             .unwrap();
         let specifier = ProjectSpecifier::Path(project_dir);
+
+        let (temp_brioche, _temp_context) = brioche_test().await;
         let mut refs =
-            brioche_core::projects::load::load_projects(&self.temp_brioche(), [specifier.clone()])
+            brioche_core::projects::load::load_projects(&temp_brioche, [specifier.clone()])
                 .await
                 .unwrap();
         let project_ref = refs.remove(&specifier).unwrap();
@@ -189,9 +194,9 @@ impl TestContext {
         &self,
         f: impl AsyncFnOnce(PathBuf),
     ) -> (ProjectHash, PathBuf) {
-        let brioche = self.temp_brioche();
-        let (project_ref, temp_project_path) = self.temp_project(&brioche, f).await;
-        let project_hash = brioche_core::projects::hash::hash_project(&brioche, project_ref)
+        let (temp_brioche, _temp_context) = brioche_test().await;
+        let (project_ref, temp_project_path) = self.temp_project(&temp_brioche, f).await;
+        let project_hash = brioche_core::projects::hash::hash_project(&temp_brioche, project_ref)
             .await
             .unwrap();
 
