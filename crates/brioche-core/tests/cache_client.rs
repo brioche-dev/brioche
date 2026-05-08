@@ -476,6 +476,81 @@ async fn build_directory(
     .await
 }
 
+#[tokio::test]
+async fn test_cache_client_save_and_load_artifact_with_shared_subtrees() -> anyhow::Result<()> {
+    let cache = brioche_test_support::new_cache();
+    let artifact_hash;
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), true).await;
+
+        let artifact = build_artifact_with_shared_subtrees(&brioche).await;
+        artifact_hash = artifact.hash();
+
+        brioche_core::cache::save_artifact(&brioche, artifact).await?;
+    }
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
+
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await?;
+
+        let expected_artifact = build_artifact_with_shared_subtrees(&brioche).await;
+        assert_eq!(loaded_artifact, Some(expected_artifact));
+    }
+
+    Ok(())
+}
+
+#[expect(clippy::similar_names)]
+async fn build_artifact_with_shared_subtrees(brioche: &Brioche) -> Artifact {
+    let foo_blob = brioche_test_support::blob(brioche, b"foo").await;
+    let bar_blob = brioche_test_support::blob(brioche, b"bar").await;
+    let baz_blob = brioche_test_support::blob(brioche, b"baz").await;
+    let qux_blob = brioche_test_support::blob(brioche, b"qux").await;
+
+    // One Directory value shared by two files' resources and a sibling subtree
+    let shared_resources = brioche_test_support::dir_value(
+        brioche,
+        [
+            ("foo.so", brioche_test_support::file(foo_blob, false)),
+            ("bar.so", brioche_test_support::file(bar_blob, false)),
+        ],
+    )
+    .await;
+
+    Artifact::Directory(
+        brioche_test_support::dir_value(
+            brioche,
+            [
+                (
+                    "bin/baz",
+                    brioche_test_support::file_with_resources(
+                        baz_blob,
+                        true,
+                        shared_resources.clone(),
+                    ),
+                ),
+                (
+                    "bin/qux",
+                    brioche_test_support::file_with_resources(
+                        qux_blob,
+                        true,
+                        shared_resources.clone(),
+                    ),
+                ),
+                ("lib", Artifact::Directory(shared_resources)),
+            ],
+        )
+        .await,
+    )
+}
+
 async fn list_chunks(
     cache: &dyn object_store::ObjectStore,
 ) -> anyhow::Result<Vec<object_store::path::Path>> {
