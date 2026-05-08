@@ -368,6 +368,7 @@ pub async fn read_artifact_archive(
     }
 
     let mut entries = vec![];
+    let mut references = vec![];
     let mut artifact_blobs = BTreeSet::new();
     let mut blobs = BTreeMap::new();
     let mut blob_offset = 0;
@@ -516,6 +517,15 @@ pub async fn read_artifact_archive(
                 );
 
                 chunk_offset += length;
+            }
+            b"R" => {
+                // Reference tag: read the target path and the source path
+
+                let target_path = read_path(reader).await?;
+                let source_path = read_path(reader).await?;
+
+                // Store the reference to process after all entries are read
+                references.push((target_path, source_path));
             }
             tag => {
                 // Unknown tag
@@ -726,6 +736,11 @@ pub async fn read_artifact_archive(
     let mut result: Option<ArtifactBuilder> = None;
     for entry in entries {
         insert_into_artifact(&mut result, &entry.path, &entry.path.components, entry.node)?;
+    }
+
+    // Process directory references: copy subtrees from source paths to target paths
+    for (target_path, source_path) in references {
+        copy_artifact_subtree(&mut result, &target_path, &source_path)?;
     }
 
     let mut new_recipes = HashMap::new();
@@ -943,6 +958,88 @@ fn insert_into_artifact(
     Ok(())
 }
 
+/// Copy a subtree from `source_path` to `target_path` within the artifact builder.
+fn copy_artifact_subtree(
+    root: &mut Option<ArtifactBuilder>,
+    target_path: &ArtifactPath,
+    source_path: &ArtifactPath,
+) -> anyhow::Result<()> {
+    // First, find and clone the source subtree
+    let source_subtree = get_subtree(root.as_ref(), &source_path.components)
+        .with_context(|| {
+            format!(
+                "reference source path {:?} not found",
+                source_path.display_pretty()
+            )
+        })?
+        .clone();
+
+    // Then, insert the cloned subtree at the target path
+    set_subtree(root, &target_path.components, source_subtree).with_context(|| {
+        format!(
+            "failed to set reference target path {:?}",
+            target_path.display_pretty()
+        )
+    })?;
+
+    Ok(())
+}
+
+/// Get a reference to a subtree at the given path components.
+fn get_subtree<'a>(
+    container: Option<&'a ArtifactBuilder>,
+    components: &[ArtifactPathComponent],
+) -> Option<&'a ArtifactBuilder> {
+    match components {
+        [] => container,
+        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
+            let ArtifactBuilder::Directory { entries } = container.as_ref()? else {
+                return None;
+            };
+            let entry = entries.get(name)?;
+            get_subtree(entry.as_ref(), rest)
+        }
+        [ArtifactPathComponent::FileResources, rest @ ..] => {
+            let ArtifactBuilder::File { resources, .. } = container.as_ref()? else {
+                return None;
+            };
+            get_subtree(resources.as_ref().as_ref(), rest)
+        }
+    }
+}
+
+/// Set a subtree at the given path components.
+fn set_subtree(
+    container: &mut Option<ArtifactBuilder>,
+    components: &[ArtifactPathComponent],
+    subtree: ArtifactBuilder,
+) -> anyhow::Result<()> {
+    match components {
+        [] => {
+            *container = Some(subtree);
+            Ok(())
+        }
+        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
+            let container = container.get_or_insert_with(ArtifactBuilder::empty_dir);
+            let ArtifactBuilder::Directory { entries } = container else {
+                anyhow::bail!("tried to descend into non-directory");
+            };
+            let entry = entries.entry(name.to_owned()).or_default();
+            set_subtree(entry, rest, subtree)
+        }
+        [ArtifactPathComponent::FileResources, rest @ ..] => {
+            let Some(container) = container else {
+                anyhow::bail!("tried to set resources on non-existent file");
+            };
+            let ArtifactBuilder::File { resources, .. } = container else {
+                anyhow::bail!("tried to set resources on non-file");
+            };
+            set_subtree(resources.as_mut(), rest, subtree)
+        }
+    }
+}
+
+#[derive(Clone)]
 enum ArtifactBuilder {
     File {
         executable: bool,
