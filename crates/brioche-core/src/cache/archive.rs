@@ -738,8 +738,9 @@ pub async fn read_artifact_archive(
         insert_into_artifact(&mut result, &entry.path, &entry.path.components, entry.node)?;
     }
 
-    // Process directory references: copy subtrees from source paths to target paths
-    for (target_path, source_path) in references {
+    // Resolve references deepest-first so source subtrees are fully populated
+    // before being copied
+    for (target_path, source_path) in references.into_iter().rev() {
         copy_artifact_subtree(&mut result, &target_path, &source_path)?;
     }
 
