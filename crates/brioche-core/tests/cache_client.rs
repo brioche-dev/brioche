@@ -513,13 +513,27 @@ async fn build_artifact_with_shared_subtrees(brioche: &Brioche) -> Artifact {
     let bar_blob = brioche_test_support::blob(brioche, b"bar").await;
     let baz_blob = brioche_test_support::blob(brioche, b"baz").await;
     let qux_blob = brioche_test_support::blob(brioche, b"qux").await;
+    let inner_blob = brioche_test_support::blob(brioche, b"inner").await;
+
+    // Inner shared Directory nested inside `shared_resources`
+    let inner_shared = brioche_test_support::dir_value(
+        brioche,
+        [("inner.so", brioche_test_support::file(inner_blob, false))],
+    )
+    .await;
 
     // One Directory value shared by two files' resources and a sibling subtree
     let shared_resources = brioche_test_support::dir_value(
         brioche,
         [
-            ("foo.so", brioche_test_support::file(foo_blob, false)),
-            ("bar.so", brioche_test_support::file(bar_blob, false)),
+            (
+                "foo.so",
+                brioche_test_support::file_with_resources(foo_blob, false, inner_shared.clone()),
+            ),
+            (
+                "bar.so",
+                brioche_test_support::file_with_resources(bar_blob, false, inner_shared),
+            ),
         ],
     )
     .await;
