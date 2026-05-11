@@ -738,15 +738,20 @@ pub async fn read_artifact_archive(
         insert_into_artifact(&mut result, &entry.path, &entry.path.components, entry.node)?;
     }
 
-    // Resolve references deepest-first so source subtrees are fully populated
-    // before being copied
-    for (target_path, source_path) in references.into_iter().rev() {
-        copy_artifact_subtree(&mut result, &target_path, &source_path)?;
+    // Record each reference as a placeholder in the tree. Sources are
+    // resolved lazily during artifact construction, so insertion order
+    // doesn't matter.
+    for (target_path, source_path) in references {
+        set_subtree(
+            &mut result,
+            &target_path.components,
+            ArtifactBuilder::Reference { source_path },
+        )?;
     }
 
+    let result_root = result.context("no artifact entries in archive")?;
     let mut new_recipes = HashMap::new();
-    let result = result.context("no artifact entries in archive")?;
-    let result = result.build(&mut new_recipes);
+    let result = build_artifact(&result_root, &mut new_recipes)?;
 
     brioche.reporter.update_job(
         job_id,
@@ -959,33 +964,6 @@ fn insert_into_artifact(
     Ok(())
 }
 
-/// Copy a subtree from `source_path` to `target_path` within the artifact builder.
-fn copy_artifact_subtree(
-    root: &mut Option<ArtifactBuilder>,
-    target_path: &ArtifactPath,
-    source_path: &ArtifactPath,
-) -> anyhow::Result<()> {
-    // First, find and clone the source subtree
-    let source_subtree = get_subtree(root.as_ref(), &source_path.components)
-        .with_context(|| {
-            format!(
-                "reference source path {:?} not found",
-                source_path.display_pretty()
-            )
-        })?
-        .clone();
-
-    // Then, insert the cloned subtree at the target path
-    set_subtree(root, &target_path.components, source_subtree).with_context(|| {
-        format!(
-            "failed to set reference target path {:?}",
-            target_path.display_pretty()
-        )
-    })?;
-
-    Ok(())
-}
-
 /// Get a reference to a subtree at the given path components.
 fn get_subtree<'a>(
     container: Option<&'a ArtifactBuilder>,
@@ -1040,7 +1018,6 @@ fn set_subtree(
     }
 }
 
-#[derive(Clone)]
 enum ArtifactBuilder {
     File {
         executable: bool,
@@ -1052,6 +1029,9 @@ enum ArtifactBuilder {
     },
     Directory {
         entries: HashMap<bstr::BString, Option<Self>>,
+    },
+    Reference {
+        source_path: ArtifactPath,
     },
 }
 
@@ -1080,48 +1060,85 @@ impl ArtifactBuilder {
             entries: HashMap::new(),
         }
     }
+}
 
-    fn build(self, new_recipes: &mut HashMap<RecipeHash, Recipe>) -> Artifact {
-        match self {
-            Self::File {
-                executable,
-                content_blob,
-                resources,
-            } => {
-                let resources = resources.unwrap_or_else(Self::empty_dir);
-                let resources = resources.build(new_recipes);
-                let Artifact::Directory(resources) = resources else {
-                    panic!("file resources builder did not return a directory");
-                };
+/// Build the final `Artifact` from the partial builder tree, resolving
+/// `Reference` placeholders against the same tree.
+fn build_artifact(
+    root: &ArtifactBuilder,
+    new_recipes: &mut HashMap<RecipeHash, Recipe>,
+) -> anyhow::Result<Artifact> {
+    // Identity-keyed memo so each unique subtree converts to an `Artifact`
+    // exactly once, regardless of how many references resolve to it.
+    let mut memo = HashMap::new();
+    build_artifact_node(root, root, &mut memo, new_recipes)
+}
 
-                Artifact::File(crate::recipe::File {
-                    content_blob,
-                    executable,
-                    resources,
-                })
-            }
-            Self::Symlink { target } => Artifact::Symlink { target },
-            Self::Directory { entries } => {
-                let mut entry_artifact_hashes = BTreeMap::new();
-                let entries = entries
-                    .into_iter()
-                    .filter_map(|(name, entry)| Some((name, entry?)));
-                for (name, entry) in entries {
-                    let entry = entry.build(new_recipes);
-                    let entry_hash = entry.hash();
-
-                    entry_artifact_hashes.insert(name, entry_hash);
-                    new_recipes
-                        .entry(entry_hash)
-                        .or_insert_with(|| Recipe::from(entry));
-                }
-
-                Artifact::Directory(crate::recipe::Directory::from_entries(
-                    entry_artifact_hashes,
-                ))
-            }
-        }
+fn build_artifact_node(
+    node: &ArtifactBuilder,
+    root: &ArtifactBuilder,
+    memo: &mut HashMap<usize, Artifact>,
+    new_recipes: &mut HashMap<RecipeHash, Recipe>,
+) -> anyhow::Result<Artifact> {
+    let key = std::ptr::from_ref(node).addr();
+    if let Some(cached) = memo.get(&key) {
+        return Ok(cached.clone());
     }
+
+    let artifact = match node {
+        ArtifactBuilder::File {
+            executable,
+            content_blob,
+            resources,
+        } => {
+            let resources = match resources.as_ref().as_ref() {
+                Some(resources) => {
+                    let resources = build_artifact_node(resources, root, memo, new_recipes)?;
+                    let Artifact::Directory(resources) = resources else {
+                        anyhow::bail!("file resources builder did not return a directory");
+                    };
+                    resources
+                }
+                None => crate::recipe::Directory::default(),
+            };
+            Artifact::File(crate::recipe::File {
+                content_blob: *content_blob,
+                executable: *executable,
+                resources,
+            })
+        }
+        ArtifactBuilder::Symlink { target } => Artifact::Symlink {
+            target: target.clone(),
+        },
+        ArtifactBuilder::Directory { entries } => {
+            let entries = entries
+                .iter()
+                .filter_map(|(name, entry)| Some((name, entry.as_ref()?)))
+                .map(|(name, entry)| {
+                    let artifact = build_artifact_node(entry, root, memo, new_recipes)?;
+                    let hash = artifact.hash();
+                    new_recipes
+                        .entry(hash)
+                        .or_insert_with(|| Recipe::from(artifact));
+                    Ok((name.clone(), hash))
+                })
+                .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
+            Artifact::Directory(crate::recipe::Directory::from_entries(entries))
+        }
+        ArtifactBuilder::Reference { source_path } => {
+            let source_node =
+                get_subtree(Some(root), &source_path.components).with_context(|| {
+                    format!(
+                        "reference source path {:?} not found",
+                        source_path.display_pretty()
+                    )
+                })?;
+            build_artifact_node(source_node, root, memo, new_recipes)?
+        }
+    };
+
+    memo.insert(key, artifact.clone());
+    Ok(artifact)
 }
 
 enum BlobsFetch {
