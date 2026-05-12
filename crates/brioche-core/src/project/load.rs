@@ -1078,30 +1078,51 @@ async fn resolve_static(
                     blob_hash = None;
                 }
                 (None, ProjectLocking::Unlocked) => {
-                    // Download the URL as a blob
-                    let new_blob_hash = crate::download::download(brioche, url, None).await?;
-                    let blob_path = crate::blob::local_blob_path(brioche, new_blob_hash);
-                    let mut blob = tokio::fs::File::open(&blob_path).await?;
+                    // Get or create the per-URL OnceCell from the shared cache so
+                    // the same URL is downloaded at most once per Brioche instance
+                    let once_cell = {
+                        let mut cache = brioche.active_static_downloads.write().await;
+                        cache.downloads.entry(url.clone()).or_default().clone()
+                    };
 
-                    // Compute a hash to store in the lockfile
-                    let mut hasher = crate::Hasher::new_sha256();
-                    let mut buffer = vec![0u8; 1024 * 1024];
-                    loop {
-                        let length = blob
-                            .read(&mut buffer)
-                            .await
-                            .context("failed to read blob")?;
-                        if length == 0 {
-                            break;
-                        }
+                    let already_cached = once_cell.get().is_some();
 
-                        hasher.update(&buffer[..length]);
-                    }
+                    // Download the URL as a blob and compute a lockfile hash.
+                    // If another call already did this, get_or_try_init returns
+                    // immediately with the stored Hash.
+                    let cached_hash = once_cell
+                        .get_or_try_init(|| async {
+                            let new_blob_hash =
+                                crate::download::download(brioche, url, None).await?;
+                            let blob_path = crate::blob::local_blob_path(brioche, new_blob_hash);
+                            let mut blob = tokio::fs::File::open(&blob_path).await?;
 
-                    // Record both the hash for the recipe plus the output
-                    // blob hash
-                    download_hash = hasher.finish()?;
-                    blob_hash = Some(new_blob_hash);
+                            let mut hasher = crate::Hasher::new_sha256();
+                            let mut buffer = vec![0u8; 1024 * 1024];
+                            loop {
+                                let length = blob
+                                    .read(&mut buffer)
+                                    .await
+                                    .context("failed to read blob")?;
+                                if length == 0 {
+                                    break;
+                                }
+                                hasher.update(&buffer[..length]);
+                            }
+
+                            anyhow::Ok((hasher.finish()?, new_blob_hash))
+                        })
+                        .await?;
+
+                    download_hash = cached_hash.0.clone();
+                    // Only pass the blob hash through when this call ran the
+                    // actual download; for cache hits we skip re-saving the
+                    // bake result (already saved by the first call).
+                    blob_hash = if already_cached {
+                        None
+                    } else {
+                        Some(cached_hash.1)
+                    };
                 }
                 (None, ProjectLocking::Locked) => {
                     // Error out if the download isn't in the lockfile but where

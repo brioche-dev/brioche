@@ -15,6 +15,14 @@ pub mod artifact;
 pub mod edit;
 mod load;
 
+#[derive(Debug, Default)]
+pub struct ActiveStaticDownloads {
+    downloads: std::collections::HashMap<
+        url::Url,
+        std::sync::Arc<tokio::sync::OnceCell<(crate::Hash, crate::blob::BlobHash)>>,
+    >,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum ProjectValidation {
     /// Fully validate the project, ensuring all modules and dependencies
