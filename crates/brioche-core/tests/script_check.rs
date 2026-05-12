@@ -33,7 +33,7 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
         r#"
             export const project = {};
             export const foo: number = 123;
-            export default () => {
+            export default function (): object {
                 return {
                     briocheSerialize: () => {
                         return {
@@ -42,7 +42,7 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
                         }
                     },
                 };
-            };
+            }
         "#,
     )
     .await;
@@ -73,7 +73,7 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
         r#"
             export const project = {};
             export const foo: number = "123";
-            export default () => {
+            export default function (): object {
                 return {
                     briocheSerialize: () => {
                         return {
@@ -82,7 +82,7 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
                         }
                     },
                 };
-            };
+            }
         "#,
     )
     .await;
@@ -118,7 +118,7 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
                 },
             };
             function ignore(_value: unknown): void {}
-            export default () => {
+            export default function (): object {
                 ignore(foo);
                 return {
                     briocheSerialize: () => {
@@ -128,7 +128,7 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
                         }
                     },
                 };
-            };
+            }
         "#,
     )
     .await;
@@ -178,7 +178,7 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
         r#"
             import { foo } from "foo";
             export const project = {};
-            export default () => {
+            export default function (): object {
                 return {
                     briocheSerialize: () => {
                         return {
@@ -187,7 +187,7 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
                         }
                     },
                 };
-            };
+            }
         "#,
     )
     .await;

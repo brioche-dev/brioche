@@ -27,6 +27,7 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
     },
     rules: {
       "eqeqeq": ["warn", "always", { null: "ignore" }],
+      "func-style": ["warn", "declaration", { allowArrowFunctions: false }],
       "no-console": ["warn", { allow: ["debug", "info", "warn", "error"] }],
       "no-debugger": "error",
       "no-delete-var": "warn",
@@ -50,6 +51,7 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       "@typescript-eslint/adjacent-overload-signatures": "warn",
       "@typescript-eslint/array-type": "warn",
       "@typescript-eslint/await-thenable": "warn",
+      "@typescript-eslint/explicit-module-boundary-types": "warn",
       "@typescript-eslint/no-restricted-types": "warn",
       "@typescript-eslint/no-unsafe-function-type": "warn",
       "@typescript-eslint/no-wrapper-object-types": "warn",
@@ -78,6 +80,7 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       "@typescript-eslint/no-non-null-asserted-optional-chain": "warn",
       "@typescript-eslint/no-non-null-assertion": "warn",
       "@typescript-eslint/no-redundant-type-constituents": "warn",
+      "@typescript-eslint/no-unnecessary-template-expression": "warn",
       "@typescript-eslint/only-throw-error": ["warn", {
         allowThrowingAny: true,
         allowThrowingUnknown: true,
