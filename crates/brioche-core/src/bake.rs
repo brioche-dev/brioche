@@ -11,6 +11,7 @@ use tracing::Instrument as _;
 use crate::{
     project::ProjectHash,
     recipe::{ArtifactDiscriminants, ProxyRecipe},
+    reporter::job::{CacheFetchKind, JobContext},
 };
 
 use super::{
@@ -232,19 +233,21 @@ async fn bake_inner(
     } else {
         None
     };
-    let artifact_from_cache = match artifact_hash_from_cache {
-        Some(artifact_hash) => crate::cache::load_artifact(
+    let artifact_from_cache = if let Some(artifact_hash) = artifact_hash_from_cache {
+        crate::cache::load_artifact(
             brioche,
             artifact_hash,
-            crate::reporter::job::CacheFetchKind::Bake,
+            CacheFetchKind::Bake,
+            JobContext::default(),
         )
         .await
         .inspect_err(|error| {
             tracing::warn!("failed to load artifact from cache: {error:#}");
         })
         .ok()
-        .flatten(),
-        None => None,
+        .flatten()
+    } else {
+        None
     };
 
     let result_artifact = if let Some(artifact) = artifact_from_cache {

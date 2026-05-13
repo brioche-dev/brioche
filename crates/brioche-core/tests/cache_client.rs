@@ -63,6 +63,7 @@ async fn test_cache_client_save_and_load_artifact() -> anyhow::Result<()> {
             &brioche,
             artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await?;
 
@@ -109,6 +110,7 @@ async fn test_cache_client_save_and_load_artifact_with_some_small_files() -> any
             &brioche,
             artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await?;
 
@@ -155,6 +157,7 @@ async fn test_cache_client_save_and_load_big_artifact() -> anyhow::Result<()> {
             &brioche,
             artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await?;
 
@@ -203,6 +206,7 @@ async fn test_cache_client_save_and_load_big_artifact_with_some_small_files() ->
             &brioche,
             artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await?;
 
@@ -267,6 +271,7 @@ async fn test_cache_client_load_artifact_hash_mismatch_error() -> anyhow::Result
             &brioche,
             real_artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await;
         assert_matches!(result, Err(_));
@@ -303,6 +308,7 @@ async fn test_cache_client_load_artifact_missing_chunks_error() -> anyhow::Resul
             &brioche,
             artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await;
         assert_matches!(loaded_artifact, Err(_));
@@ -339,6 +345,7 @@ async fn test_cache_client_load_artifact_chunk_mismatch_error() -> anyhow::Resul
             &brioche,
             artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await;
         assert_matches!(loaded_artifact, Err(_));

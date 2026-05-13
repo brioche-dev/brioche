@@ -13,7 +13,7 @@ use crate::utils::{DisplayDuration, output_buffer::OutputBuffer};
 
 use super::{
     JobId, ReportEvent, Reporter, ReporterGuard,
-    job::{Job, NewJob, ProcessStatus, ProcessStream, UpdateJob},
+    job::{Job, JobContext, NewJob, ProcessStatus, ProcessStream, UpdateJob},
     otel::OtelProvider,
     tracing_debug_filter, tracing_output_filter, tracing_root_filter,
 };
@@ -61,12 +61,14 @@ pub fn start_console_reporter(
         };
 
         let jobs = HashMap::new();
+        let contexts = HashMap::new();
         let job_outputs = OutputBuffer::with_max_capacity(1024 * 1024);
         let mut console = match (superconsole, kind) {
             (Some(console), _) => {
                 let root = JobsComponent {
                     start,
                     jobs,
+                    contexts,
                     job_outputs,
                 };
                 ConsoleReporter::SuperConsole { console, root }
@@ -76,10 +78,12 @@ pub fn start_console_reporter(
             }
             (_, ConsoleReporterKind::Auto | ConsoleReporterKind::Plain) => ConsoleReporter::Plain {
                 jobs,
+                contexts,
                 job_outputs: Some(job_outputs),
             },
             (_, ConsoleReporterKind::PlainReduced) => ConsoleReporter::Plain {
                 jobs,
+                contexts,
                 job_outputs: None,
             },
         };
@@ -106,8 +110,8 @@ pub fn start_console_reporter(
                     ReportEvent::Emit { lines } => {
                         console.emit(lines);
                     }
-                    ReportEvent::AddJob { id, job } => {
-                        console.add_job(id, job);
+                    ReportEvent::AddJob { id, job, context } => {
+                        console.add_job(id, job, context);
                     }
                     ReportEvent::UpdateJobState { id, update } => {
                         console.update_job(id, update);
@@ -194,6 +198,7 @@ enum ConsoleReporter {
     },
     Plain {
         jobs: HashMap<JobId, Job>,
+        contexts: HashMap<JobId, JobContext>,
         job_outputs: Option<OutputBuffer<JobOutputStream>>,
     },
 }
@@ -213,16 +218,19 @@ impl ConsoleReporter {
         }
     }
 
-    fn add_job(&mut self, id: JobId, job: NewJob) {
+    fn add_job(&mut self, id: JobId, job: NewJob, context: JobContext) {
         match self {
             Self::SuperConsole { root, .. } => {
                 let new_job = Job::new(job);
                 root.jobs.insert(id, new_job);
+                root.contexts.insert(id, context);
             }
-            Self::Plain { jobs, .. } => {
+            Self::Plain {
+                jobs, contexts, ..
+            } => {
                 match &job {
                     NewJob::Download { url, started_at: _ } => {
-                        eprintln!("Downloading {url}");
+                        eprintln!("{}", with_label(&format!("Downloading {url}"), &context));
                     }
                     NewJob::Unarchive {
                         started_at: _,
@@ -231,24 +239,24 @@ impl ConsoleReporter {
                     | NewJob::Process { status: _ } => {}
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Bake,
-                        downloaded_bytes: _,
-                        total_bytes: _,
-                        started_at: _,
+                        ..
                     } => {
-                        eprintln!("Fetching artifact from cache");
+                        eprintln!(
+                            "{}",
+                            with_label("Fetching artifact from cache", &context)
+                        );
                     }
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Project,
-                        downloaded_bytes: _,
-                        total_bytes: _,
-                        started_at: _,
+                        ..
                     } => {
-                        eprintln!("Fetching project from cache");
+                        eprintln!("{}", with_label("Fetching project from cache", &context));
                     }
                 }
 
                 let new_job = Job::new(job);
                 jobs.insert(id, new_job);
+                contexts.insert(id, context);
             }
         }
     }
@@ -279,10 +287,15 @@ impl ConsoleReporter {
                 };
                 let _ = job.update(update);
             }
-            Self::Plain { jobs, job_outputs } => {
+            Self::Plain {
+                jobs,
+                contexts,
+                job_outputs,
+            } => {
                 let Some(job) = jobs.get(&id) else {
                     return;
                 };
+                let context = contexts.get(&id).cloned().unwrap_or_default();
 
                 match &update {
                     UpdateJob::Download {
@@ -303,7 +316,13 @@ impl ConsoleReporter {
                             let elapsed_duration = DisplayDuration(elapsed);
 
                             eprintln!(
-                                "Finished downloading {url} ({downloaded_size}) in {elapsed_duration}"
+                                "{}",
+                                with_label(
+                                    &format!(
+                                        "Finished downloading {url} ({downloaded_size}) in {elapsed_duration}"
+                                    ),
+                                    &context,
+                                )
                             );
                         }
                     }
@@ -318,7 +337,13 @@ impl ConsoleReporter {
                             let read_size = bytesize::ByteSize(*read_bytes);
                             let elapsed_duration = DisplayDuration(elapsed);
 
-                            eprintln!("Finished unarchiving {read_size} in {elapsed_duration}");
+                            eprintln!(
+                                "{}",
+                                with_label(
+                                    &format!("Finished unarchiving {read_size} in {elapsed_duration}"),
+                                    &context,
+                                )
+                            );
                         }
                     }
                     UpdateJob::ProcessUpdateStatus { status } => {
@@ -348,7 +373,13 @@ impl ConsoleReporter {
                                     );
                                 }
 
-                                eprintln!("Launched process {child_id_label}");
+                                eprintln!(
+                                    "{}",
+                                    with_label(
+                                        &format!("Launched process {child_id_label}"),
+                                        &context,
+                                    )
+                                );
                             }
                             ProcessStatus::Ran {
                                 started_at,
@@ -433,7 +464,13 @@ impl ConsoleReporter {
                         let elapsed_duration = DisplayDuration(elapsed);
 
                         eprintln!(
-                            "Fetched {downloaded_size} for {fetch_kind} from cache in {elapsed_duration}",
+                            "{}",
+                            with_label(
+                                &format!(
+                                    "Fetched {downloaded_size} for {fetch_kind} from cache in {elapsed_duration}"
+                                ),
+                                &context,
+                            )
                         );
                     }
                 }
@@ -501,6 +538,7 @@ const JOB_LABEL_WIDTH: usize = 7;
 struct JobsComponent {
     start: std::time::Instant,
     jobs: HashMap<JobId, Job>,
+    contexts: HashMap<JobId, JobContext>,
     job_outputs: OutputBuffer<JobOutputStream>,
 }
 
@@ -962,6 +1000,13 @@ fn cmp_job_entries(
                 })
         }
     }
+}
+
+fn with_label(message: &str, context: &JobContext) -> String {
+    context.source_label.as_ref().map_or_else(
+        || message.to_string(),
+        |label| format!("{message} ({label})"),
+    )
 }
 
 fn string_with_width<'a>(s: &'a str, num_chars: usize, replacement: &str) -> Cow<'a, str> {

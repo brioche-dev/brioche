@@ -225,6 +225,7 @@ async fn cached_download(
                 brioche,
                 &download.url,
                 Some(download.hash.clone()),
+                brioche_core::reporter::job::JobContext::default(),
             )
             .await;
             let blob_hash = match blob_hash {

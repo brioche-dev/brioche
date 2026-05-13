@@ -9,7 +9,7 @@ use crate::{
     Brioche,
     project::ProjectHash,
     recipe::{Artifact, RecipeHash},
-    reporter::job::CacheFetchKind,
+    reporter::job::{CacheFetchKind, JobContext},
 };
 
 mod archive;
@@ -280,6 +280,7 @@ pub async fn load_artifact(
     brioche: &Brioche,
     artifact_hash: RecipeHash,
     fetch_kind: CacheFetchKind,
+    context: JobContext,
 ) -> anyhow::Result<Option<Artifact>> {
     // Check if this artifact should be skipped
     if SKIP_CACHE_ARTIFACTS.contains(&artifact_hash.to_string()) {
@@ -310,7 +311,8 @@ pub async fn load_artifact(
         async_compression::tokio::bufread::ZstdDecoder::new(archive_reader_buffered);
 
     let artifact =
-        archive::read_artifact_archive(brioche, &store, fetch_kind, &mut archive_reader).await?;
+        archive::read_artifact_archive(brioche, &store, fetch_kind, context, &mut archive_reader)
+            .await?;
 
     let actual_hash = artifact.hash();
     anyhow::ensure!(

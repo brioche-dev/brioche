@@ -183,13 +183,13 @@ impl Reporter {
     }
 
     #[must_use]
-    pub fn add_job(&self, job: job::NewJob) -> JobId {
+    pub fn add_job(&self, job: job::NewJob, context: job::JobContext) -> JobId {
         let id = self
             .num_jobs
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let id = JobId(id);
 
-        let _ = self.tx.send(ReportEvent::AddJob { id, job });
+        let _ = self.tx.send(ReportEvent::AddJob { id, job, context });
 
         id
     }
@@ -238,9 +238,18 @@ impl std::io::Write for ReporterWriter {
 }
 
 enum ReportEvent {
-    Emit { lines: superconsole::Lines },
-    AddJob { id: JobId, job: job::NewJob },
-    UpdateJobState { id: JobId, update: job::UpdateJob },
+    Emit {
+        lines: superconsole::Lines,
+    },
+    AddJob {
+        id: JobId,
+        job: job::NewJob,
+        context: job::JobContext,
+    },
+    UpdateJobState {
+        id: JobId,
+        update: job::UpdateJob,
+    },
     Shutdown,
 }
 

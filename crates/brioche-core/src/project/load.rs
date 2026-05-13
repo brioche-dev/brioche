@@ -15,6 +15,7 @@ use crate::{
     Brioche,
     project::{DependencyRef, ProjectEntry, Workspace, WorkspaceHash},
     recipe::{Artifact, Directory},
+    reporter::job::{CacheFetchKind, JobContext},
 };
 
 use super::{
@@ -792,7 +793,8 @@ pub async fn fetch_project_from_cache(
     let project_artifact = crate::cache::load_artifact(
         brioche,
         project_artifact_hash,
-        crate::reporter::job::CacheFetchKind::Project,
+        CacheFetchKind::Project,
+        JobContext::default(),
     )
     .await?
     .with_context(|| {
@@ -1079,7 +1081,9 @@ async fn resolve_static(
                 }
                 (None, ProjectLocking::Unlocked) => {
                     // Download the URL as a blob
-                    let new_blob_hash = crate::download::download(brioche, url, None).await?;
+                    let new_blob_hash =
+                        crate::download::download(brioche, url, None, JobContext::default())
+                            .await?;
                     let blob_path = crate::blob::local_blob_path(brioche, new_blob_hash);
                     let mut blob = tokio::fs::File::open(&blob_path).await?;
 
