@@ -46,6 +46,7 @@ pub enum BakeScope {
     },
     Child {
         parent_hash: RecipeHash,
+        parent_meta: Arc<Meta>,
     },
     Anonymous,
 }
@@ -55,6 +56,7 @@ pub async fn bake(
     recipe: WithMeta<Recipe>,
     scope: &BakeScope,
 ) -> anyhow::Result<WithMeta<Artifact>> {
+    let recipe = inherit_source_from_scope(recipe, scope);
     let recipe_hash = recipe.hash();
     let result = bake_inner(brioche, recipe).await?;
 
@@ -87,7 +89,7 @@ pub async fn bake(
 
                 db_transaction.commit().await?;
             }
-            BakeScope::Child { parent_hash } => {
+            BakeScope::Child { parent_hash, .. } => {
                 let mut db_conn = brioche.db_conn.lock().await;
                 let mut db_transaction = db_conn.begin().await?;
 
@@ -325,9 +327,23 @@ async fn bake_inner(
     }
 }
 
+fn inherit_source_from_scope(recipe: WithMeta<Recipe>, scope: &BakeScope) -> WithMeta<Recipe> {
+    if recipe.meta.source.is_some() {
+        return recipe;
+    }
+    let BakeScope::Child { parent_meta, .. } = scope else {
+        return recipe;
+    };
+    if parent_meta.source.is_none() {
+        return recipe;
+    }
+    WithMeta::new(recipe.value, parent_meta.clone())
+}
+
 async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow::Result<Artifact> {
     let scope = BakeScope::Child {
         parent_hash: recipe.hash(),
+        parent_meta: meta.clone(),
     };
 
     match recipe {
