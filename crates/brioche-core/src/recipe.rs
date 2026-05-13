@@ -354,6 +354,13 @@ pub struct Meta {
     pub source: Option<Vec<StackFrame>>,
 }
 
+impl Meta {
+    #[must_use]
+    pub fn source_frame(&self) -> Option<&StackFrame> {
+        self.source.as_ref().and_then(|frames| frames.first())
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WithMeta<T> {
     #[serde(default, skip_serializing)]
@@ -390,7 +397,7 @@ impl<T> WithMeta<T> {
     }
 
     pub fn source_frame(&self) -> Option<&StackFrame> {
-        self.meta.source.as_ref().and_then(|frames| frames.first())
+        self.meta.source_frame()
     }
 }
 
