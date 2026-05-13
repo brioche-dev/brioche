@@ -455,21 +455,26 @@ pub struct StackFrame {
     pub file_name: Option<String>,
     pub line_number: Option<i64>,
     pub column_number: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
 }
 
 impl std::fmt::Display for StackFrame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let file_name = self.file_name.as_deref().unwrap_or("<unknown>");
+        let path: std::borrow::Cow<'_, str> = match (&self.project_name, &self.module_path) {
+            (Some(project), Some(module)) => std::borrow::Cow::Owned(format!("{project}/{module}")),
+            (None, Some(module)) => std::borrow::Cow::Borrowed(module),
+            _ => self.file_name.as_deref().map_or(
+                std::borrow::Cow::Borrowed("<unknown>"),
+                std::borrow::Cow::Borrowed,
+            ),
+        };
         match (self.line_number, self.column_number) {
-            (Some(line), Some(column)) => {
-                write!(f, "{file_name}:{line}:{column}")
-            }
-            (Some(line), None) => {
-                write!(f, "{file_name}:{line}")
-            }
-            (None, _) => {
-                write!(f, "{file_name}")
-            }
+            (Some(line), Some(column)) => write!(f, "{path}:{line}:{column}"),
+            (Some(line), None) => write!(f, "{path}:{line}"),
+            (None, _) => write!(f, "{path}"),
         }
     }
 }
@@ -1462,7 +1467,7 @@ impl CompressionFormat {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompleteProcessTemplate, CompleteProcessTemplateComponent};
+    use super::{CompleteProcessTemplate, CompleteProcessTemplateComponent, StackFrame};
 
     fn tpl(
         components: impl IntoIterator<Item = CompleteProcessTemplateComponent>,
@@ -1608,5 +1613,60 @@ mod tests {
                 tpl([]),
             ]
         );
+    }
+
+    #[test]
+    fn test_stack_frame_display() {
+        let cases: &[(_, _, _, _, _, &str)] = &[
+            // project+module wins over file_name
+            (
+                Some("file:///abs/path/myproj/build.bri"),
+                Some("myproj"),
+                Some("build.bri"),
+                Some(7),
+                Some(25),
+                "myproj/build.bri:7:25",
+            ),
+            // module_path alone is used when project_name is absent
+            (
+                Some("file:///abs/path/myproj/sub/build.bri"),
+                None,
+                Some("sub/build.bri"),
+                Some(3),
+                None,
+                "sub/build.bri:3",
+            ),
+            // file_name is the final fallback when neither field is set
+            (
+                Some("briocheruntime:///dist/std/process.js"),
+                None,
+                None,
+                Some(42),
+                Some(1),
+                "briocheruntime:///dist/std/process.js:42:1",
+            ),
+            // entirely-empty frame renders the placeholder
+            (None, None, None, None, None, "<unknown>"),
+            // line-only (no column) still produces `:line`
+            (
+                None,
+                Some("myproj"),
+                Some("main.bri"),
+                Some(10),
+                None,
+                "myproj/main.bri:10",
+            ),
+        ];
+
+        for (file_name, project_name, module_path, line, col, expected) in cases {
+            let frame = StackFrame {
+                file_name: file_name.map(str::to_owned),
+                line_number: *line,
+                column_number: *col,
+                project_name: project_name.map(str::to_owned),
+                module_path: module_path.map(str::to_owned),
+            };
+            assert_eq!(frame.to_string(), *expected);
+        }
     }
 }

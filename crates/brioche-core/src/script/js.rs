@@ -65,6 +65,8 @@ fn op_brioche_stack_frames_from_exception<'a>(
             file_name: frame.file_name,
             line_number: frame.line_number,
             column_number: frame.column_number,
+            project_name: None,
+            module_path: None,
         })
         .collect()
 }
