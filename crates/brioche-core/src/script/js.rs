@@ -2,15 +2,12 @@ use anyhow::Context as _;
 use deno_core::v8;
 use std::borrow::Cow;
 
-use crate::recipe::StackFrame;
-
 deno_core::extension!(
     brioche_js,
     ops = [
         op_brioche_version,
         op_brioche_current_platform,
         op_brioche_console,
-        op_brioche_stack_frames_from_exception,
         op_brioche_utf8_encode,
         op_brioche_utf8_decode,
         op_brioche_tick_encode,
@@ -49,26 +46,6 @@ fn op_brioche_console(#[serde] level: ConsoleLevel, #[string] message: &str) {
         ConsoleLevel::Warn => tracing::warn!("{message}"),
         ConsoleLevel::Error => tracing::error!("{message}"),
     }
-}
-
-#[deno_core::op2(reentrant)]
-#[serde]
-fn op_brioche_stack_frames_from_exception<'a>(
-    scope: &mut v8::PinScope<'a, 'a>,
-    exception: v8::Local<'a, v8::Value>,
-) -> Vec<StackFrame> {
-    let error = deno_core::error::JsError::from_v8_exception(scope, exception);
-    error
-        .frames
-        .into_iter()
-        .map(|frame| StackFrame {
-            file_name: frame.file_name,
-            line_number: frame.line_number,
-            column_number: frame.column_number,
-            project_name: None,
-            module_path: None,
-        })
-        .collect()
 }
 
 #[deno_core::op2]

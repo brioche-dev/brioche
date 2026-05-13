@@ -28,6 +28,7 @@ pub async fn evaluate(
         export.to_string(),
         main_module,
         bridge,
+        projects.clone(),
     )
     .await?;
     Ok(result)
@@ -39,6 +40,7 @@ async fn evaluate_with_deno(
     export: String,
     main_module: super::specifier::BriocheModuleSpecifier,
     bridge: RuntimeBridge,
+    projects: Projects,
 ) -> anyhow::Result<WithMeta<Recipe>> {
     // Create a channel to get the result from the other Tokio runtime
     let (result_tx, result_rx) =
@@ -72,7 +74,7 @@ async fn evaluate_with_deno(
             let mut js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
                 module_loader: Some(Rc::new(module_loader)),
                 extensions: vec![
-                    super::brioche_rt::init(bridge, bake_scope),
+                    super::brioche_rt::init(bridge, bake_scope, projects),
                     super::js::brioche_js::init(),
                 ],
                 ..Default::default()
