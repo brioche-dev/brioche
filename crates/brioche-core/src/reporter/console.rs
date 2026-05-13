@@ -18,6 +18,22 @@ use super::{
     tracing_debug_filter, tracing_output_filter, tracing_root_filter,
 };
 
+// Render at 30 fps
+const RENDER_RATE: std::time::Duration = std::time::Duration::from_nanos(1_000_000_000 / 30);
+
+// Minimum amount of time to sleep before rendering next frame, even if
+// the next frame will be late
+const MIN_RENDER_WAIT: std::time::Duration = std::time::Duration::from_millis(1);
+
+/// Pads every job-kind keyword to the same width so kinds line up in a
+/// right-aligned column across rows.
+const JOB_KIND_WIDTH: usize = 9;
+
+/// Visual separator between independent sections of the details column.
+/// Leading and trailing spaces are baked in so callers don't add their own
+/// and risk doubling them up.
+const SECTION_SEPARATOR: &str = " · ";
+
 #[derive(Debug, Clone, Copy)]
 pub enum ConsoleReporterKind {
     Auto,
@@ -25,13 +41,6 @@ pub enum ConsoleReporterKind {
     Plain,
     PlainReduced,
 }
-
-// Render at 30 fps
-const RENDER_RATE: std::time::Duration = std::time::Duration::from_nanos(1_000_000_000 / 30);
-
-// Minimum amount of time to sleep before rendering next frame, even if
-// the next frame will be late
-const MIN_RENDER_WAIT: std::time::Duration = std::time::Duration::from_millis(1);
 
 pub fn start_console_reporter(
     kind: ConsoleReporterKind,
@@ -225,9 +234,7 @@ impl ConsoleReporter {
                 root.jobs.insert(id, new_job);
                 root.contexts.insert(id, context);
             }
-            Self::Plain {
-                jobs, contexts, ..
-            } => {
+            Self::Plain { jobs, contexts, .. } => {
                 match &job {
                     NewJob::Download { url, started_at: _ } => {
                         eprintln!("{}", with_label(&format!("Downloading {url}"), &context));
@@ -235,16 +242,17 @@ impl ConsoleReporter {
                     NewJob::Unarchive {
                         started_at: _,
                         total_bytes: _,
+                    } => {}
+                    NewJob::Process { status: _ } => {
+                        if context.source_label.is_some() {
+                            eprintln!("{}", with_label("Preparing process", &context));
+                        }
                     }
-                    | NewJob::Process { status: _ } => {}
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Bake,
                         ..
                     } => {
-                        eprintln!(
-                            "{}",
-                            with_label("Fetching artifact from cache", &context)
-                        );
+                        eprintln!("{}", with_label("Fetching artifact from cache", &context));
                     }
                     NewJob::CacheFetch {
                         kind: super::job::CacheFetchKind::Project,
@@ -340,7 +348,9 @@ impl ConsoleReporter {
                             eprintln!(
                                 "{}",
                                 with_label(
-                                    &format!("Finished unarchiving {read_size} in {elapsed_duration}"),
+                                    &format!(
+                                        "Finished unarchiving {read_size} in {elapsed_duration}"
+                                    ),
                                     &context,
                                 )
                             );
@@ -767,7 +777,8 @@ impl superconsole::Component for JobComponent<'_> {
                     elapsed_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                     indicator_span(indicator),
-                    superconsole::Span::new_unstyled_lossy(" Download  "),
+                    job_kind_span("Download"),
+                    superconsole::Span::new_unstyled_lossy(" "),
                     percentage_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
@@ -781,25 +792,27 @@ impl superconsole::Component for JobComponent<'_> {
 
                 let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
                 let total_size = total_bytes.map(bytesize::ByteSize);
-                let mut download_message = total_size.map_or_else(
-                    || downloaded_size.to_string(),
-                    |total_size| format!("{downloaded_size} / {total_size}"),
-                );
-                let truncated_url = string_with_width(
-                    url.as_str(),
-                    remaining_width
-                        .saturating_sub(download_message.len())
-                        .saturating_sub(2),
-                    "…",
-                );
+                let size_text = match (job.is_complete(), total_size) {
+                    (false, Some(total)) => format!("{downloaded_size} / {total}"),
+                    (true, _) | (false, None) => downloaded_size.to_string(),
+                };
 
-                download_message += "  ";
-                download_message += &truncated_url;
+                let url_budget = remaining_width
+                    .saturating_sub(size_text.chars().count())
+                    .saturating_sub(SECTION_SEPARATOR.chars().count());
+                let url_str = url.as_str();
+                let url_text = if url_str.chars().count() > url_budget {
+                    string_with_width_keep_end(url_str, url_budget, "…")
+                } else {
+                    Cow::Borrowed(url_str)
+                };
+                let details = format!("{url_text}{SECTION_SEPARATOR}{size_text}");
 
-                line.extend(progress_bar_spans(
-                    &download_message,
+                line.extend(details_spans(
+                    &details,
                     remaining_width,
                     progress_fraction.unwrap_or(0.0),
+                    job.is_complete(),
                 ));
 
                 append_source_label(&mut line, source_label, dimensions);
@@ -828,7 +841,8 @@ impl superconsole::Component for JobComponent<'_> {
                     elapsed_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                     indicator_span(indicator),
-                    superconsole::Span::new_unstyled_lossy(" Unarchive "),
+                    job_kind_span("Unarchive"),
+                    superconsole::Span::new_unstyled_lossy(" "),
                     percentage_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
@@ -843,15 +857,16 @@ impl superconsole::Component for JobComponent<'_> {
                 let read_size = bytesize::ByteSize(*read_bytes);
                 let total_size = bytesize::ByteSize(*total_bytes);
                 let unarchive_message = if job.is_complete() {
-                    format!("Unarchive: {read_size}")
+                    read_size.to_string()
                 } else {
-                    format!("Unarchive: {read_size} / {total_size}")
+                    format!("{read_size} / {total_size}")
                 };
 
-                line.extend(progress_bar_spans(
+                line.extend(details_spans(
                     &unarchive_message,
                     remaining_width,
                     progress_fraction,
+                    job.is_complete(),
                 ));
 
                 append_source_label(&mut line, source_label, dimensions);
@@ -917,7 +932,8 @@ impl superconsole::Component for JobComponent<'_> {
                     elapsed_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                     indicator_span(indicator),
-                    superconsole::Span::new_unstyled_lossy(" Process "),
+                    job_kind_span("Process"),
+                    superconsole::Span::new_unstyled_lossy(" "),
                     child_id_span,
                 ]
                 .into_iter()
@@ -955,7 +971,8 @@ impl superconsole::Component for JobComponent<'_> {
                     elapsed_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                     indicator_span(indicator),
-                    superconsole::Span::new_unstyled_lossy(" Cache     "),
+                    job_kind_span("Cache"),
+                    superconsole::Span::new_unstyled_lossy(" "),
                     percentage_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
@@ -968,11 +985,11 @@ impl superconsole::Component for JobComponent<'_> {
                     super::job::CacheFetchKind::Project => "project",
                 };
                 let fetching_message = if job.is_complete() {
-                    format!("Fetch {fetch_kind}: {downloaded_size}")
+                    format!("{fetch_kind}{SECTION_SEPARATOR}{downloaded_size}")
                 } else if let Some(total_size) = total_size {
-                    format!("Fetch {fetch_kind}: {downloaded_size} / {total_size}")
+                    format!("{fetch_kind}{SECTION_SEPARATOR}{downloaded_size} / {total_size}")
                 } else {
-                    format!("Fetch {fetch_kind}")
+                    fetch_kind.to_string()
                 };
 
                 let label_reserved = source_label_reserved_width(source_label);
@@ -981,10 +998,11 @@ impl superconsole::Component for JobComponent<'_> {
                     .saturating_sub(1)
                     .saturating_sub(line.len())
                     .saturating_sub(label_reserved);
-                line.extend(progress_bar_spans(
+                line.extend(details_spans(
                     &fetching_message,
                     remaining_width,
                     progress_fraction,
+                    job.is_complete(),
                 ));
 
                 append_source_label(&mut line, source_label, dimensions);
@@ -1029,6 +1047,55 @@ fn cmp_job_entries(
                 })
         }
     }
+}
+
+/// Plain padded text for completed jobs and the progress-bar background
+/// for active ones. Splitting the two visually so completed rows feel
+/// quieter than active ones, otherwise a screen full of finished jobs
+/// reads the same as a screen full of running ones.
+fn details_spans(
+    message: &str,
+    width: usize,
+    progress_fraction: f32,
+    is_complete: bool,
+) -> Vec<superconsole::Span> {
+    if is_complete {
+        let padded = format!("{message:width$.width$}");
+        vec![superconsole::Span::new_unstyled_lossy(padded)]
+    } else {
+        progress_bar_spans(message, width, progress_fraction).to_vec()
+    }
+}
+
+/// Truncates from the LEFT so the tail of `s` survives. URLs have their
+/// identifying portion at the end, so middle-truncation cuts through the
+/// most useful chars.
+fn string_with_width_keep_end<'a>(s: &'a str, num_chars: usize, replacement: &str) -> Cow<'a, str> {
+    if num_chars == 0 {
+        return Cow::Borrowed("");
+    }
+
+    let s_chars = s.chars().count();
+
+    match s_chars.cmp(&num_chars) {
+        std::cmp::Ordering::Equal => Cow::Borrowed(s),
+        std::cmp::Ordering::Less => Cow::Owned(format!("{s:num_chars$}")),
+        std::cmp::Ordering::Greater => {
+            let replacement_chars = replacement.chars().count();
+            if num_chars <= replacement_chars {
+                return Cow::Owned(replacement.chars().take(num_chars).collect());
+            }
+            let keep_chars = num_chars - replacement_chars;
+            let skip_chars = s_chars - keep_chars;
+            let kept: String = s.chars().skip(skip_chars).collect();
+            Cow::Owned(format!("{replacement}{kept}"))
+        }
+    }
+}
+
+fn job_kind_span(name: &str) -> superconsole::Span {
+    let padded = format!(" {name:>JOB_KIND_WIDTH$}");
+    superconsole::Span::new_styled_lossy(padded.with(superconsole::style::Color::Green).bold())
 }
 
 /// Width the caller must reserve for the trailing source label so the
