@@ -314,7 +314,7 @@ pub async fn bake_process(
         NewJob::Process {
             status: job_status.clone(),
         },
-        JobContext::default(),
+        JobContext::from_meta(meta),
     );
 
     tracing::Span::current().record("recipe_hash", tracing::field::display(hash));

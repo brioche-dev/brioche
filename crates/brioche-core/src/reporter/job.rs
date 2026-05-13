@@ -2,9 +2,20 @@ use std::sync::{Arc, RwLock};
 
 use debug_ignore::DebugIgnore;
 
+use crate::recipe::{Meta, StackFrame};
+
 #[derive(Debug, Clone, Default)]
 pub struct JobContext {
     pub source_label: Option<String>,
+}
+
+impl JobContext {
+    #[must_use]
+    pub fn from_meta(meta: &Meta) -> Self {
+        Self {
+            source_label: meta.source_frame().map(StackFrame::to_string),
+        }
+    }
 }
 
 #[derive(Debug)]

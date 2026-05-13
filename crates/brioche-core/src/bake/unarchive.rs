@@ -41,7 +41,7 @@ pub async fn bake_unarchive(
             started_at: std::time::Instant::now(),
             total_bytes: uncompressed_archive_size,
         },
-        JobContext::default(),
+        JobContext::from_meta(meta),
     );
 
     let (entry_tx, mut entry_rx) = tokio::sync::mpsc::channel(16);

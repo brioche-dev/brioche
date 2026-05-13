@@ -238,7 +238,7 @@ async fn bake_inner(
             brioche,
             artifact_hash,
             CacheFetchKind::Bake,
-            JobContext::default(),
+            JobContext::from_meta(&meta),
         )
         .await
         .inspect_err(|error| {
@@ -349,7 +349,7 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
         Recipe::Directory(directory) => Ok(Artifact::Directory(directory)),
         Recipe::Symlink { target } => Ok(Artifact::Symlink { target }),
         Recipe::Download(download) => {
-            let downloaded = download::bake_download(brioche, download).await?;
+            let downloaded = download::bake_download(brioche, meta, download).await?;
             Ok(Artifact::File(downloaded))
         }
         Recipe::Unarchive(unarchive) => {
