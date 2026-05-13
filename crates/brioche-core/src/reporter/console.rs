@@ -571,7 +571,13 @@ impl superconsole::Component for JobsComponent {
 
         let jobs_lines = job_list
             .map(|(job_id, job)| {
-                JobComponent(**job_id, job).draw(
+                let context = self.contexts.get(job_id);
+                JobComponent {
+                    id: **job_id,
+                    job,
+                    context,
+                }
+                .draw(
                     superconsole::Dimensions {
                         width: dimensions.width,
                         height: 1,
@@ -687,7 +693,11 @@ impl superconsole::Component for JobsComponent {
     }
 }
 
-struct JobComponent<'a>(JobId, &'a Job);
+struct JobComponent<'a> {
+    id: JobId,
+    job: &'a Job,
+    context: Option<&'a JobContext>,
+}
 
 impl superconsole::Component for JobComponent<'_> {
     #[expect(
@@ -700,7 +710,9 @@ impl superconsole::Component for JobComponent<'_> {
         dimensions: superconsole::Dimensions,
         _mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
-        let &JobComponent(job_id, job) = self;
+        let job_id = self.id;
+        let job = self.job;
+        let source_label = self.context.and_then(|c| c.source_label.as_deref());
 
         let elapsed_span = match (job.started_at(), job.finished_at()) {
             (Some(started_at), Some(finished_at)) => {
@@ -760,10 +772,12 @@ impl superconsole::Component for JobComponent<'_> {
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
+                let label_reserved = source_label_reserved_width(source_label);
                 let remaining_width = dimensions
                     .width
                     .saturating_sub(1)
-                    .saturating_sub(line.len());
+                    .saturating_sub(line.len())
+                    .saturating_sub(label_reserved);
 
                 let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
                 let total_size = total_bytes.map(bytesize::ByteSize);
@@ -787,6 +801,8 @@ impl superconsole::Component for JobComponent<'_> {
                     remaining_width,
                     progress_fraction.unwrap_or(0.0),
                 ));
+
+                append_source_label(&mut line, source_label, dimensions);
 
                 superconsole::Lines::from_iter([line])
             }
@@ -817,10 +833,12 @@ impl superconsole::Component for JobComponent<'_> {
                     superconsole::Span::new_unstyled_lossy(" "),
                 ]);
 
+                let label_reserved = source_label_reserved_width(source_label);
                 let remaining_width = dimensions
                     .width
                     .saturating_sub(1)
-                    .saturating_sub(line.len());
+                    .saturating_sub(line.len())
+                    .saturating_sub(label_reserved);
 
                 let read_size = bytesize::ByteSize(*read_bytes);
                 let total_size = bytesize::ByteSize(*total_bytes);
@@ -835,6 +853,8 @@ impl superconsole::Component for JobComponent<'_> {
                     remaining_width,
                     progress_fraction,
                 ));
+
+                append_source_label(&mut line, source_label, dimensions);
 
                 superconsole::Lines::from_iter([line])
             }
@@ -893,7 +913,7 @@ impl superconsole::Component for JobComponent<'_> {
                 let child_id_span =
                     superconsole::Span::new_colored_lossy(&child_id, job_color(job_id));
 
-                superconsole::Lines::from_iter([[
+                let mut line: superconsole::Line = [
                     elapsed_span,
                     superconsole::Span::new_unstyled_lossy(" "),
                     indicator_span(indicator),
@@ -901,8 +921,13 @@ impl superconsole::Component for JobComponent<'_> {
                     child_id_span,
                 ]
                 .into_iter()
-                .chain(note_span)
-                .collect::<superconsole::Line>()])
+                .collect();
+
+                append_source_label(&mut line, source_label, dimensions);
+
+                line.extend(note_span);
+
+                superconsole::Lines::from_iter([line])
             }
             Job::CacheFetch {
                 kind,
@@ -950,15 +975,19 @@ impl superconsole::Component for JobComponent<'_> {
                     format!("Fetch {fetch_kind}")
                 };
 
+                let label_reserved = source_label_reserved_width(source_label);
                 let remaining_width = dimensions
                     .width
                     .saturating_sub(1)
-                    .saturating_sub(line.len());
+                    .saturating_sub(line.len())
+                    .saturating_sub(label_reserved);
                 line.extend(progress_bar_spans(
                     &fetching_message,
                     remaining_width,
                     progress_fraction,
                 ));
+
+                append_source_label(&mut line, source_label, dimensions);
 
                 superconsole::Lines::from_iter([line])
             }
@@ -1000,6 +1029,36 @@ fn cmp_job_entries(
                 })
         }
     }
+}
+
+/// Width the caller must reserve for the trailing source label so the
+/// progress bar doesn't consume the space and squeeze the label out
+/// entirely. Accounts for the leading space and the parens.
+fn source_label_reserved_width(label: Option<&str>) -> usize {
+    label.map_or(0, |label| label.chars().count() + 3)
+}
+
+/// Shared across every job kind so the label position and styling stay
+/// consistent.
+fn append_source_label(
+    line: &mut superconsole::Line,
+    label: Option<&str>,
+    dimensions: superconsole::Dimensions,
+) {
+    let Some(label) = label else { return };
+    let remaining_width = dimensions
+        .width
+        .saturating_sub(1)
+        .saturating_sub(line.len());
+    if remaining_width == 0 {
+        return;
+    }
+    let label_with_parens = format!(" ({label})");
+    let truncated = string_with_width(&label_with_parens, remaining_width, "...");
+    line.push(superconsole::Span::new_colored_lossy(
+        &truncated,
+        superconsole::style::Color::DarkGrey,
+    ));
 }
 
 fn with_label(message: &str, context: &JobContext) -> String {
