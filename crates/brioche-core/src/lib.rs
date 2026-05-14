@@ -74,6 +74,8 @@ pub struct Brioche {
 
     pub active_bakes: Arc<RwLock<bake::ActiveBakes>>,
 
+    pub active_static_downloads: Arc<RwLock<project::ActiveStaticDownloads>>,
+
     pub process_semaphore: Arc<tokio::sync::Semaphore>,
 
     pub download_semaphore: Arc<tokio::sync::Semaphore>,
@@ -422,6 +424,9 @@ impl BriocheBuilder {
             sync_tx: Arc::new(sync_tx),
             cached_recipes: Arc::new(RwLock::new(bake::CachedRecipes::default())),
             active_bakes: Arc::new(RwLock::new(bake::ActiveBakes::default())),
+            active_static_downloads: Arc::new(RwLock::new(
+                project::ActiveStaticDownloads::default(),
+            )),
             process_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_PROCESSES)),
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,

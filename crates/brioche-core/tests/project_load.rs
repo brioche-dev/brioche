@@ -931,6 +931,74 @@ async fn test_project_load_with_remote_registry_dep_with_brioche_download() -> a
 }
 
 #[tokio::test]
+async fn test_project_load_shared_download_url_across_path_deps_fetched_once() -> anyhow::Result<()>
+{
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let mut server = mockito::Server::new_async().await;
+    let server_url = server.url();
+
+    let hello = "hello";
+    let hello_endpoint = server
+        .mock("GET", "/file.txt")
+        .with_body(hello)
+        .expect(1)
+        .create();
+
+    let download_url = format!("{server_url}/file.txt");
+
+    context.mkdir("foodep").await;
+    context
+        .write_file(
+            "foodep/project.bri",
+            r#"
+                export const project = {};
+                export const hello = Brioche.download("<DOWNLOAD_URL>");
+            "#
+            .replace("<DOWNLOAD_URL>", &download_url),
+        )
+        .await;
+
+    context.mkdir("bardep").await;
+    context
+        .write_file(
+            "bardep/project.bri",
+            r#"
+                export const project = {};
+                export const hello = Brioche.download("<DOWNLOAD_URL>");
+            "#
+            .replace("<DOWNLOAD_URL>", &download_url),
+        )
+        .await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foodep: {
+                            path: "../foodep",
+                        },
+                        bardep: {
+                            path: "../bardep",
+                        },
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let (_projects, _project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    hello_endpoint.assert_async().await;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_project_load_with_remote_registry_deps_with_common_children() -> anyhow::Result<()> {
     let cache = brioche_test_support::new_cache();
     let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
