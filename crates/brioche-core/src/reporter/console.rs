@@ -751,8 +751,7 @@ impl superconsole::Component for JobComponent<'_> {
                 url,
                 downloaded_bytes,
                 total_bytes,
-                started_at: _,
-                finished_at: _,
+                ..
             } => {
                 let progress_fraction = total_bytes
                     .map(|total_bytes| fraction_of(*downloaded_bytes as f32, total_bytes as f32));
@@ -822,8 +821,7 @@ impl superconsole::Component for JobComponent<'_> {
             Job::Unarchive {
                 read_bytes,
                 total_bytes,
-                started_at: _,
-                finished_at: _,
+                ..
             } => {
                 let progress_fraction = fraction_of(*read_bytes as f32, *total_bytes as f32);
                 let progress_percent = (progress_fraction * 100.0).floor() as u8;
@@ -873,10 +871,7 @@ impl superconsole::Component for JobComponent<'_> {
 
                 superconsole::Lines::from_iter([line])
             }
-            Job::Process {
-                packet_queue: _,
-                status,
-            } => {
+            Job::Process { status, .. } => {
                 let child_id = status
                     .child_id()
                     .map_or_else(|| "?".to_string(), |id| id.to_string());
@@ -946,11 +941,9 @@ impl superconsole::Component for JobComponent<'_> {
                 superconsole::Lines::from_iter([line])
             }
             Job::CacheFetch {
-                kind,
                 downloaded_bytes,
                 total_bytes,
-                started_at: _,
-                finished_at: _,
+                ..
             } => {
                 let progress_fraction = total_bytes.map_or(0.0, |total_bytes| {
                     fraction_of(*downloaded_bytes as f32, total_bytes as f32)
@@ -980,17 +973,10 @@ impl superconsole::Component for JobComponent<'_> {
                 let downloaded_size = bytesize::ByteSize(*downloaded_bytes);
                 let total_size = total_bytes.map(bytesize::ByteSize);
 
-                let fetch_kind = match kind {
-                    super::job::CacheFetchKind::Bake => "artifact",
-                    super::job::CacheFetchKind::Project => "project",
-                };
-                let fetching_message = if job.is_complete() {
-                    format!("{fetch_kind}{SECTION_SEPARATOR}{downloaded_size}")
-                } else if let Some(total_size) = total_size {
-                    format!("{fetch_kind}{SECTION_SEPARATOR}{downloaded_size} / {total_size}")
-                } else {
-                    fetch_kind.to_string()
-                };
+                let fetching_message = total_size.map_or_else(
+                    || downloaded_size.to_string(),
+                    |total_size| format!("{downloaded_size} / {total_size}"),
+                );
 
                 let label_reserved = source_label_reserved_width(source_label);
                 let remaining_width = dimensions
