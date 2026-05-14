@@ -1094,9 +1094,13 @@ async fn resolve_static(
                     // immediately with the stored Hash.
                     let cached_hash = once_cell
                         .get_or_try_init(|| async {
-                            let new_blob_hash =
-                                crate::download::download(brioche, url, None, JobContext::default())
-                                    .await?;
+                            let new_blob_hash = crate::download::download(
+                                brioche,
+                                url,
+                                None,
+                                JobContext::default(),
+                            )
+                            .await?;
                             let blob_path = crate::blob::local_blob_path(brioche, new_blob_hash);
                             let mut blob = tokio::fs::File::open(&blob_path).await?;
 
