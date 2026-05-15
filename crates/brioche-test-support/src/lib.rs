@@ -8,7 +8,7 @@ use brioche_core::{
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
-    tracing_subscriber::registry()
+    let _ = tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
                 .compact()
@@ -19,8 +19,8 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("brioche=info,warn")),
         )
-        .init();
-    let (reporter, reporter_guard) = brioche_core::reporter::start_test_reporter();
+        .try_init();
+    let (reporter, reporter_guard) = brioche_core::reporter::start_null_reporter();
 
     let temp = tempfile::TempDir::with_prefix("brioche-test").unwrap();
     let registry_server = mockito::Server::new_async().await;
