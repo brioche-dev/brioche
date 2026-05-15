@@ -12,14 +12,8 @@
   "dependencies": {
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
-    "buffer": "^6.0.3",
-    "crypto-browserify": "^3.12.1",
     "eslint": "^10.4.0",
-    "events": "^3.3.0",
-    "os-browserify": "^0.3.0",
-    "stream-browserify": "^3.0.0",
     "typescript": "^5.9.3",
-    "url": "^0.11.4",
     "vscode-languageserver": "^9.0.1"
   }
 }
