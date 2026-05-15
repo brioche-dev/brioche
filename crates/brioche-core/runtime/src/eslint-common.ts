@@ -123,6 +123,8 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
         allowAny: false,
       }],
       "@typescript-eslint/triple-slash-reference": "error",
+      "@typescript-eslint/no-useless-default-assignment": "warn",
+      "@typescript-eslint/strict-void-return": "warn",
     },
   };
 }
