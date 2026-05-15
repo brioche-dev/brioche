@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "node --loader=ts-node/esm build.ts",
+    "build": "node build.ts",
     "check": "tsc --noEmit"
   },
   "devDependencies": {
@@ -18,7 +18,6 @@
     "events": "^3.3.0",
     "os-browserify": "^0.3.0",
     "stream-browserify": "^3.0.0",
-    "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "url": "^0.11.4",
     "vscode-languageserver": "^9.0.1"
