@@ -414,7 +414,6 @@ function lspSeverityFromEslint(severity: eslint.Linter.Severity): lsp.Diagnostic
     case 1:
       return lsp.DiagnosticSeverity.Warning;
     case 2:
-    default:
       return lsp.DiagnosticSeverity.Error;
   }
 }

@@ -114,7 +114,6 @@ function eslintLevel(severity: eslint.Linter.Severity): DiagnosticLevel | undefi
     case 1:
       return "warning";
     case 2:
-    default:
       return "error";
   }
 }

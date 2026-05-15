@@ -14,18 +14,17 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       reportUnusedDisableDirectives: "off",
     },
     languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
       parser: typescriptEslintParser as eslint.Linter.Parser,
       parserOptions: {
-        ecmaVersion: 2022,
-        sourceType: "module",
         programs,
       },
     },
     plugins: {
-      "@typescript-eslint": {
-        rules: typescriptEslintPlugin.rules as unknown as Record<string, eslint.Rule.RuleModule>,
-      },
+      "@typescript-eslint": typescriptEslintPlugin as unknown as eslint.ESLint.Plugin,
       "brioche": {
+        meta: { name: "brioche" },
         rules: {
           "project-name-matches-dir": projectNameMatchesDir,
         },
@@ -46,9 +45,11 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       "no-self-assign": "warn",
       "no-self-compare": "warn",
       "no-shadow-restricted-names": "error",
+      "no-unassigned-vars": "warn",
       "no-unreachable": "warn",
       "no-unreachable-loop": "warn",
       "no-unused-labels": "warn",
+      "no-useless-assignment": "warn",
       "no-var": "warn",
       "no-with": "warn",
       "prefer-const": "warn",
@@ -63,6 +64,7 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
         assertionStyle: "as",
         objectLiteralTypeAssertions: "allow-as-parameter",
       }],
+      "@typescript-eslint/consistent-type-imports": "warn",
       "@typescript-eslint/no-array-constructor": "warn",
       "@typescript-eslint/no-array-delete": "warn",
       "@typescript-eslint/no-confusing-non-null-assertion": "warn",
