@@ -43,6 +43,10 @@ jobs:
         run: make check-db-schema
       - name: Check Clippy
         run: cargo clippy --all -- -Dwarnings
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: crates/brioche-core/runtime/.nvmrc
       - name: Install runtime distribution packages
         run: |
           cd crates/brioche-core/runtime
