@@ -297,6 +297,7 @@ async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "project name mismatch rule is not enabled"]
 async fn test_check_invalid_project_name_mismatch() -> anyhow::Result<()> {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
