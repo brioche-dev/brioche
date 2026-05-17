@@ -23,7 +23,7 @@ use crate::{
     },
     reporter::{
         JobId,
-        job::{NewJob, ProcessPacket, ProcessStatus, ProcessStream, UpdateJob},
+        job::{JobContext, NewJob, ProcessPacket, ProcessStatus, ProcessStream, UpdateJob},
     },
     sandbox::{
         HostPathMode, SandboxBackend, SandboxExecutionConfig, SandboxPath, SandboxPathOptions,
@@ -310,9 +310,12 @@ pub async fn bake_process(
     let hash = Recipe::CompleteProcess(process.clone()).hash();
     let created_at = std::time::Instant::now();
     let mut job_status = ProcessStatus::Preparing { created_at };
-    let job_id = brioche.reporter.add_job(NewJob::Process {
-        status: job_status.clone(),
-    });
+    let job_id = brioche.reporter.add_job(
+        NewJob::Process {
+            status: job_status.clone(),
+        },
+        JobContext::from_meta(meta),
+    );
 
     tracing::Span::current().record("recipe_hash", tracing::field::display(hash));
 

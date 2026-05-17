@@ -10,7 +10,7 @@ use crate::{
     recipe::{
         ArchiveFormat, Artifact, CompressionFormat, Directory, File, Meta, Unarchive, WithMeta,
     },
-    reporter::job::{NewJob, UpdateJob},
+    reporter::job::{JobContext, NewJob, UpdateJob},
 };
 
 pub async fn bake_unarchive(
@@ -36,10 +36,13 @@ pub async fn bake_unarchive(
     let archive_file = tokio::io::BufReader::new(archive_file);
     let archive_file = crate::utils::io::ReadTracker::new(archive_file);
 
-    let job_id = brioche.reporter.add_job(NewJob::Unarchive {
-        started_at: std::time::Instant::now(),
-        total_bytes: uncompressed_archive_size,
-    });
+    let job_id = brioche.reporter.add_job(
+        NewJob::Unarchive {
+            started_at: std::time::Instant::now(),
+            total_bytes: uncompressed_archive_size,
+        },
+        JobContext::from_meta(meta),
+    );
 
     let (entry_tx, mut entry_rx) = tokio::sync::mpsc::channel(16);
 

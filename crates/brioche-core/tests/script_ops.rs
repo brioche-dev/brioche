@@ -55,6 +55,10 @@ async fn test_script_ops_version() -> anyhow::Result<()> {
 struct TestStackFrame {
     file_name: String,
     line_number: i32,
+    #[serde(default)]
+    project_name: Option<String>,
+    #[serde(default)]
+    module_path: Option<String>,
 }
 
 #[tokio::test]
@@ -117,14 +121,14 @@ async fn test_script_osp_stack_frames_from_exception() -> anyhow::Result<()> {
                     const error = new Error();
                     const frames = (globalThis as any).Deno.core.ops.op_brioche_stack_frames_from_exception(error);
 
-                    // Get just the filename and line number
                     return frames.map((frame: any) => {
                         return {
                             fileName: frame.fileName.split("/").at(-1),
                             lineNumber: frame.lineNumber,
+                            projectName: frame.projectName ?? null,
+                            modulePath: frame.modulePath ?? null,
                         };
                     });
-                    return frames;
                 }
             "#,
         )
@@ -158,18 +162,26 @@ async fn test_script_osp_stack_frames_from_exception() -> anyhow::Result<()> {
             TestStackFrame {
                 file_name: "stack_frames.bri".to_string(),
                 line_number: 3,
+                project_name: Some("myproject".to_string()),
+                module_path: Some("stack_frames.bri".to_string()),
             },
             TestStackFrame {
                 file_name: "bar.bri".to_string(),
                 line_number: 4,
+                project_name: Some("myproject".to_string()),
+                module_path: Some("bar.bri".to_string()),
             },
             TestStackFrame {
                 file_name: "foo.bri".to_string(),
                 line_number: 4,
+                project_name: Some("myproject".to_string()),
+                module_path: Some("foo.bri".to_string()),
             },
             TestStackFrame {
                 file_name: "project.bri".to_string(),
                 line_number: 9,
+                project_name: Some("myproject".to_string()),
+                module_path: Some("project.bri".to_string()),
             },
         ]
     );

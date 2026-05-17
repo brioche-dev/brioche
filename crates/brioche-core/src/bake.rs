@@ -11,6 +11,7 @@ use tracing::Instrument as _;
 use crate::{
     project::ProjectHash,
     recipe::{ArtifactDiscriminants, ProxyRecipe},
+    reporter::job::{CacheFetchKind, JobContext},
 };
 
 use super::{
@@ -45,6 +46,7 @@ pub enum BakeScope {
     },
     Child {
         parent_hash: RecipeHash,
+        parent_meta: Arc<Meta>,
     },
     Anonymous,
 }
@@ -54,6 +56,7 @@ pub async fn bake(
     recipe: WithMeta<Recipe>,
     scope: &BakeScope,
 ) -> anyhow::Result<WithMeta<Artifact>> {
+    let recipe = inherit_source_from_scope(recipe, scope);
     let recipe_hash = recipe.hash();
     let result = bake_inner(brioche, recipe).await?;
 
@@ -86,7 +89,7 @@ pub async fn bake(
 
                 db_transaction.commit().await?;
             }
-            BakeScope::Child { parent_hash } => {
+            BakeScope::Child { parent_hash, .. } => {
                 let mut db_conn = brioche.db_conn.lock().await;
                 let mut db_transaction = db_conn.begin().await?;
 
@@ -232,19 +235,21 @@ async fn bake_inner(
     } else {
         None
     };
-    let artifact_from_cache = match artifact_hash_from_cache {
-        Some(artifact_hash) => crate::cache::load_artifact(
+    let artifact_from_cache = if let Some(artifact_hash) = artifact_hash_from_cache {
+        crate::cache::load_artifact(
             brioche,
             artifact_hash,
-            crate::reporter::job::CacheFetchKind::Bake,
+            CacheFetchKind::Bake,
+            JobContext::from_meta(&meta),
         )
         .await
         .inspect_err(|error| {
             tracing::warn!("failed to load artifact from cache: {error:#}");
         })
         .ok()
-        .flatten(),
-        None => None,
+        .flatten()
+    } else {
+        None
     };
 
     let result_artifact = if let Some(artifact) = artifact_from_cache {
@@ -322,9 +327,23 @@ async fn bake_inner(
     }
 }
 
+fn inherit_source_from_scope(recipe: WithMeta<Recipe>, scope: &BakeScope) -> WithMeta<Recipe> {
+    if recipe.meta.source.is_some() {
+        return recipe;
+    }
+    let BakeScope::Child { parent_meta, .. } = scope else {
+        return recipe;
+    };
+    if parent_meta.source.is_none() {
+        return recipe;
+    }
+    WithMeta::new(recipe.value, parent_meta.clone())
+}
+
 async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow::Result<Artifact> {
     let scope = BakeScope::Child {
         parent_hash: recipe.hash(),
+        parent_meta: meta.clone(),
     };
 
     match recipe {
@@ -346,7 +365,7 @@ async fn run_bake(brioche: &Brioche, recipe: Recipe, meta: &Arc<Meta>) -> anyhow
         Recipe::Directory(directory) => Ok(Artifact::Directory(directory)),
         Recipe::Symlink { target } => Ok(Artifact::Symlink { target }),
         Recipe::Download(download) => {
-            let downloaded = download::bake_download(brioche, download).await?;
+            let downloaded = download::bake_download(brioche, meta, download).await?;
             Ok(Artifact::File(downloaded))
         }
         Recipe::Unarchive(unarchive) => {

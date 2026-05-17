@@ -116,22 +116,11 @@ where
                 let stack_frames = description.meta.source.as_deref().unwrap_or_default();
 
                 for stack_frame in stack_frames {
-                    let Some(file_name) = &stack_frame.file_name else {
+                    if stack_frame.file_name.is_none() {
                         println!("- [unknown]");
-                        continue;
-                    };
-
-                    let Some(line_number) = stack_frame.line_number else {
-                        println!("- {file_name}");
-                        continue;
-                    };
-
-                    let Some(column_number) = stack_frame.column_number else {
-                        println!("- {file_name}:{line_number}");
-                        continue;
-                    };
-
-                    println!("- {file_name}:{line_number}:{column_number}");
+                    } else {
+                        println!("- {stack_frame}");
+                    }
                 }
 
                 if stack_frames.is_empty() {

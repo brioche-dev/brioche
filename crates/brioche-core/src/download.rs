@@ -4,7 +4,7 @@ use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
 use crate::{
     Brioche,
-    reporter::job::{NewJob, UpdateJob},
+    reporter::job::{JobContext, NewJob, UpdateJob},
 };
 
 #[tracing::instrument(skip_all, fields(%url))]
@@ -12,6 +12,7 @@ pub async fn download(
     brioche: &Brioche,
     url: &url::Url,
     expected_hash: Option<crate::Hash>,
+    context: JobContext,
 ) -> anyhow::Result<crate::blob::BlobHash> {
     // Acquire a permit to save the blob
     let mut save_blob_permit = crate::blob::get_save_blob_permit().await?;
@@ -23,10 +24,13 @@ pub async fn download(
 
     tracing::debug!(%url, "starting download");
 
-    let job_id = brioche.reporter.add_job(NewJob::Download {
-        url: url.clone(),
-        started_at: std::time::Instant::now(),
-    });
+    let job_id = brioche.reporter.add_job(
+        NewJob::Download {
+            url: url.clone(),
+            started_at: std::time::Instant::now(),
+        },
+        context,
+    );
 
     let response = brioche.download_client.get(url.clone()).send().await?;
     let response = response.error_for_status()?;

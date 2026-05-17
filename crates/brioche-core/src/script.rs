@@ -9,10 +9,11 @@ use std::{
 
 use anyhow::Context as _;
 use bridge::{GetStaticOptions, RuntimeBridge};
-use deno_core::OpState;
+use deno_core::{OpState, v8};
+use relative_path::PathExt as _;
 use specifier::BriocheModuleSpecifier;
 
-use crate::bake::BakeScope;
+use crate::{bake::BakeScope, project::Projects, recipe::StackFrame};
 
 use super::{
     blob::BlobHash,
@@ -225,14 +226,17 @@ deno_core::extension!(brioche_rt,
         op_brioche_create_proxy,
         op_brioche_read_blob,
         op_brioche_get_static,
+        op_brioche_stack_frames_from_exception,
     ],
     options = {
         bridge: RuntimeBridge,
         bake_scope: BakeScope,
+        projects: Projects,
     },
     state = |state, options| {
         state.put(options.bridge);
         state.put(options.bake_scope);
+        state.put(options.projects);
     },
 );
 
@@ -319,6 +323,69 @@ pub async fn op_brioche_get_static(
 
     let recipe = bridge.get_static(specifier, options).await?;
     Ok(recipe)
+}
+
+#[deno_core::op2(reentrant)]
+#[serde]
+fn op_brioche_stack_frames_from_exception<'a>(
+    state: Rc<RefCell<OpState>>,
+    scope: &mut v8::PinScope<'a, 'a>,
+    exception: v8::Local<'a, v8::Value>,
+) -> Vec<StackFrame> {
+    let projects = state.borrow().try_borrow::<Projects>().cloned();
+    drop(state);
+
+    let error = deno_core::error::JsError::from_v8_exception(scope, exception);
+    error
+        .frames
+        .into_iter()
+        .map(|frame| enrich_stack_frame(projects.as_ref(), frame))
+        .collect()
+}
+
+fn enrich_stack_frame(
+    projects: Option<&Projects>,
+    frame: deno_core::error::JsStackFrame,
+) -> StackFrame {
+    let (project_name, module_path) = projects
+        .and_then(|p| resolve_frame_project_context(p, frame.file_name.as_deref()))
+        .unzip();
+    StackFrame {
+        file_name: frame.file_name,
+        line_number: frame.line_number,
+        column_number: frame.column_number,
+        project_name,
+        module_path,
+    }
+}
+
+fn resolve_frame_project_context(
+    projects: &Projects,
+    file_name: Option<&str>,
+) -> Option<(String, String)> {
+    let file_name = file_name?;
+    let url: url::Url = file_name.parse().ok()?;
+    let specifier = BriocheModuleSpecifier::try_from(&url).ok()?;
+    let path = match specifier {
+        BriocheModuleSpecifier::File { path } => path,
+        BriocheModuleSpecifier::Runtime { .. } => return None,
+    };
+
+    let project_hash = projects.find_containing_project(&path).ok().flatten()?;
+    let project_root = projects
+        .find_containing_project_root(&path, project_hash)
+        .ok()?;
+    let project = projects.project(project_hash).ok()?;
+
+    let project_name = project.definition.name.clone().or_else(|| {
+        project_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(str::to_owned)
+    })?;
+    let module_path = path.relative_to(&project_root).ok()?.to_string();
+
+    Some((project_name, module_path))
 }
 
 #[derive(Debug, thiserror::Error)]
