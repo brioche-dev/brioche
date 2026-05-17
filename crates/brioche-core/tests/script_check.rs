@@ -33,7 +33,7 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
         r#"
             export const project = {};
             export const foo: number = 123;
-            export default () => {
+            export default function (): object {
                 return {
                     briocheSerialize: () => {
                         return {
@@ -42,7 +42,7 @@ async fn test_check_basic_valid() -> anyhow::Result<()> {
                         }
                     },
                 };
-            };
+            }
         "#,
     )
     .await;
@@ -73,7 +73,7 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
         r#"
             export const project = {};
             export const foo: number = "123";
-            export default () => {
+            export default function (): object {
                 return {
                     briocheSerialize: () => {
                         return {
@@ -82,7 +82,7 @@ async fn test_check_basic_invalid() -> anyhow::Result<()> {
                         }
                     },
                 };
-            };
+            }
         "#,
     )
     .await;
@@ -118,7 +118,7 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
                 },
             };
             function ignore(_value: unknown): void {}
-            export default () => {
+            export default function (): object {
                 ignore(foo);
                 return {
                     briocheSerialize: () => {
@@ -128,7 +128,7 @@ async fn test_check_import_valid() -> anyhow::Result<()> {
                         }
                     },
                 };
-            };
+            }
         "#,
     )
     .await;
@@ -178,7 +178,7 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
         r#"
             import { foo } from "foo";
             export const project = {};
-            export default () => {
+            export default function (): object {
                 return {
                     briocheSerialize: () => {
                         return {
@@ -187,7 +187,7 @@ async fn test_check_import_nonexistent() -> anyhow::Result<()> {
                         }
                     },
                 };
-            };
+            }
         "#,
     )
     .await;
@@ -275,6 +275,39 @@ async fn test_check_invalid_missing_await() -> anyhow::Result<()> {
                         }
                     },
                 };
+            };
+        "#,
+    )
+    .await;
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+    let project_hashes = HashSet::from_iter([project_hash]);
+
+    let result = brioche_core::script::check::check(
+        &brioche,
+        brioche_core::script::initialize_js_platform(),
+        &projects,
+        &project_hashes,
+    )
+    .await?;
+
+    assert_matches!(worst_level(&result), Some(DiagnosticLevel::Warning));
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "project name mismatch rule is not enabled"]
+async fn test_check_invalid_project_name_mismatch() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = write_project(
+        &context,
+        "myproject",
+        r#"
+            export const project = {
+                name: "wrong",
+                version: "0.0.1",
             };
         "#,
     )

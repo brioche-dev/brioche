@@ -2,6 +2,7 @@ import * as eslint from "eslint";
 import * as typescriptEslintParser from "@typescript-eslint/parser";
 import * as typescriptEslintPlugin from "@typescript-eslint/eslint-plugin";
 import ts from "typescript";
+import projectNameMatchesDir from "./rules/project-name-matches-dir.ts";
 
 export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config {
   return {
@@ -23,6 +24,11 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
     plugins: {
       "@typescript-eslint": {
         rules: typescriptEslintPlugin.rules as unknown as Record<string, eslint.Rule.RuleModule>,
+      },
+      "brioche": {
+        rules: {
+          "project-name-matches-dir": projectNameMatchesDir,
+        },
       },
     },
     rules: {
@@ -78,6 +84,7 @@ export function buildEslintConfig(programs: ts.Program[]): eslint.Linter.Config 
       "@typescript-eslint/no-non-null-asserted-optional-chain": "warn",
       "@typescript-eslint/no-non-null-assertion": "warn",
       "@typescript-eslint/no-redundant-type-constituents": "warn",
+      "@typescript-eslint/no-unnecessary-template-expression": "warn",
       "@typescript-eslint/only-throw-error": ["warn", {
         allowThrowingAny: true,
         allowThrowingUnknown: true,
