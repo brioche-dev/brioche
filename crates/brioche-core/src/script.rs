@@ -30,6 +30,9 @@ mod js;
 pub mod lsp;
 pub mod specifier;
 
+/// Cap on stack frames retained per recipe meta.
+pub const MAX_STACK_FRAMES: usize = 6;
+
 /// A type representing a global JavaScript runtime platform, which is required
 /// to create a JavaScript runtime.
 ///
@@ -339,6 +342,7 @@ fn op_brioche_stack_frames_from_exception<'a>(
     error
         .frames
         .into_iter()
+        .take(MAX_STACK_FRAMES)
         .map(|frame| enrich_stack_frame(projects.as_ref(), frame))
         .collect()
 }

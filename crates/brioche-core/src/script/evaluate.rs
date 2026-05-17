@@ -80,6 +80,12 @@ async fn evaluate_with_deno(
                 ..Default::default()
             });
 
+            // Match V8's stack trace capture to the op cap.
+            js_runtime.execute_script(
+                "[brioche:stack_trace_limit]",
+                format!("Error.stackTraceLimit = {};", super::MAX_STACK_FRAMES),
+            )?;
+
             let main_module: deno_core::ModuleSpecifier = main_module.into();
 
             tracing::debug!(%main_module, "evaluating module");
