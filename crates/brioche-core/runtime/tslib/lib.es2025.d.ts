@@ -14,13 +14,10 @@ and limitations under the License.
 ***************************************************************************** */
 
 
-/// <reference lib="es5" />
-/// <reference lib="es2015.core" />
-/// <reference lib="es2015.collection" />
-/// <reference lib="es2015.iterable" />
-/// <reference lib="es2015.generator" />
-/// <reference lib="es2015.promise" />
-/// <reference lib="es2015.proxy" />
-/// <reference lib="es2015.reflect" />
-/// <reference lib="es2015.symbol" />
-/// <reference lib="es2015.symbol.wellknown" />
+/// <reference lib="es2024" />
+/// <reference lib="es2025.collection" />
+/// <reference lib="es2025.float16" />
+/// <reference lib="es2025.intl" />
+/// <reference lib="es2025.iterator" />
+/// <reference lib="es2025.promise" />
+/// <reference lib="es2025.regexp" />

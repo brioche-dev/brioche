@@ -1,4 +1,4 @@
-import * as ts from "typescript";
+import ts from "typescript";
 
 export const TS_CONFIG = {
   strict: true,
@@ -6,8 +6,8 @@ export const TS_CONFIG = {
   noImplicitOverride: true,
   noImplicitReturns: true,
   noUncheckedIndexedAccess: true,
-  module: ts.ModuleKind.ES2022,
-  target: ts.ScriptTarget.ES2022,
+  module: ts.ModuleKind.ESNext,
+  target: ts.ScriptTarget.ES2025,
 } satisfies ts.CompilerOptions;
 
 export const DEFAULT_LIB_URL = "briocheruntime:///tslib/lib.esnext.d.ts";

@@ -1,4 +1,4 @@
-import * as ts from "typescript";
+import ts from "typescript";
 import * as lsp from "vscode-languageserver-protocol";
 import * as eslint from "eslint";
 import * as brioche from "./ts-common";

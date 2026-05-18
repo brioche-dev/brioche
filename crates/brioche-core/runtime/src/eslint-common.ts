@@ -1,6 +1,6 @@
 import * as eslint from "eslint";
 import * as typescriptEslintParser from "@typescript-eslint/parser";
-import * as typescriptEslintPlugin from "@typescript-eslint/eslint-plugin";
+import typescriptEslintPlugin from "@typescript-eslint/eslint-plugin";
 import ts from "typescript";
 import projectNameMatchesDir from "./rules/project-name-matches-dir.ts";
 

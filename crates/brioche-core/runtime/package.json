@@ -13,7 +13,7 @@
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
     "eslint": "^10.4.0",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "vscode-languageserver-protocol": "^3.17.5"
   }
 }
