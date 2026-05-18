@@ -483,6 +483,179 @@ async fn build_directory(
     .await
 }
 
+#[tokio::test]
+async fn test_cache_client_save_and_load_artifact_with_shared_subtrees_simple() -> anyhow::Result<()>
+{
+    let cache = brioche_test_support::new_cache();
+    let artifact_hash;
+
+    let build_artifact = async |brioche: &Brioche| -> Artifact {
+        let lib_foo_blob = brioche_test_support::blob(brioche, b"foo").await;
+        let lib_bar_blob = brioche_test_support::blob(brioche, b"bar").await;
+        let bin_baz_blob = brioche_test_support::blob(brioche, b"baz").await;
+        let bin_qux_blob = brioche_test_support::blob(brioche, b"qux").await;
+        let inner_blob = brioche_test_support::blob(brioche, b"inner").await;
+
+        let inner_shared = brioche_test_support::dir_value(
+            brioche,
+            [("inner.so", brioche_test_support::file(inner_blob, false))],
+        )
+        .await;
+
+        let shared_resources = brioche_test_support::dir_value(
+            brioche,
+            [
+                (
+                    "foo.so",
+                    brioche_test_support::file_with_resources(
+                        lib_foo_blob,
+                        false,
+                        inner_shared.clone(),
+                    ),
+                ),
+                (
+                    "bar.so",
+                    brioche_test_support::file_with_resources(lib_bar_blob, false, inner_shared),
+                ),
+            ],
+        )
+        .await;
+
+        Artifact::Directory(
+            brioche_test_support::dir_value(
+                brioche,
+                [
+                    (
+                        "bin/baz",
+                        brioche_test_support::file_with_resources(
+                            bin_baz_blob,
+                            true,
+                            shared_resources.clone(),
+                        ),
+                    ),
+                    (
+                        "bin/qux",
+                        brioche_test_support::file_with_resources(
+                            bin_qux_blob,
+                            true,
+                            shared_resources.clone(),
+                        ),
+                    ),
+                    ("lib", Artifact::Directory(shared_resources)),
+                ],
+            )
+            .await,
+        )
+    };
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), true).await;
+
+        let artifact = build_artifact(&brioche).await;
+        artifact_hash = artifact.hash();
+
+        brioche_core::cache::save_artifact(&brioche, artifact).await?;
+    }
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
+
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await?;
+
+        let expected_artifact = build_artifact(&brioche).await;
+        assert_eq!(loaded_artifact, Some(expected_artifact));
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_cache_client_save_and_load_artifact_with_shared_subtrees_advanced()
+-> anyhow::Result<()> {
+    let cache = brioche_test_support::new_cache();
+    let artifact_hash;
+
+    let build_artifact = async |brioche: &Brioche| -> Artifact {
+        let k_z_blob = brioche_test_support::blob(brioche, b"z").await;
+        let m_w_blob = brioche_test_support::blob(brioche, b"w").await;
+        let top_file_blob = brioche_test_support::blob(brioche, b"top").await;
+        let deep_file_blob = brioche_test_support::blob(brioche, b"deep").await;
+
+        let k = brioche_test_support::dir_value(
+            brioche,
+            [("z", brioche_test_support::file(k_z_blob, false))],
+        )
+        .await;
+
+        let m = brioche_test_support::dir_value(
+            brioche,
+            [("w", brioche_test_support::file(m_w_blob, false))],
+        )
+        .await;
+
+        let shared_x = brioche_test_support::dir_value(
+            brioche,
+            [
+                ("p", Artifact::Directory(k.clone())),
+                ("q", Artifact::Directory(m)),
+            ],
+        )
+        .await;
+
+        Artifact::Directory(
+            brioche_test_support::dir_value(
+                brioche,
+                [
+                    (
+                        "F_top",
+                        brioche_test_support::file_with_resources(
+                            top_file_blob,
+                            false,
+                            shared_x.clone(),
+                        ),
+                    ),
+                    ("K_dir", Artifact::Directory(k)),
+                    (
+                        "big_dir/l/ll",
+                        brioche_test_support::file_with_resources(deep_file_blob, false, shared_x),
+                    ),
+                ],
+            )
+            .await,
+        )
+    };
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), true).await;
+
+        let artifact = build_artifact(&brioche).await;
+        artifact_hash = artifact.hash();
+
+        brioche_core::cache::save_artifact(&brioche, artifact).await?;
+    }
+
+    {
+        let (brioche, _) = brioche_test_with_cache(cache.clone(), false).await;
+
+        let loaded_artifact = brioche_core::cache::load_artifact(
+            &brioche,
+            artifact_hash,
+            brioche_core::reporter::job::CacheFetchKind::Bake,
+        )
+        .await?;
+
+        let expected_artifact = build_artifact(&brioche).await;
+        assert_eq!(loaded_artifact, Some(expected_artifact));
+    }
+
+    Ok(())
+}
+
 async fn list_chunks(
     cache: &dyn object_store::ObjectStore,
 ) -> anyhow::Result<Vec<object_store::path::Path>> {
