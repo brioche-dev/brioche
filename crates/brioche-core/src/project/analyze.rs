@@ -18,6 +18,7 @@ use super::{DependencyDefinition, ProjectDefinition, Version};
 pub struct ProjectAnalysis {
     pub definition: super::ProjectDefinition,
     pub local_modules: HashMap<BriocheModuleSpecifier, ModuleAnalysis>,
+    pub local_assets: HashMap<BriocheModuleSpecifier, AssetAnalysis>,
     pub root_module: BriocheModuleSpecifier,
 }
 
@@ -61,9 +62,33 @@ pub struct ModuleAnalysis {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetAnalysis {
+    pub file_id: FileId,
+    pub project_subpath: RelativePathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportAnalysis {
     ExternalProject(String),
     LocalModule(BriocheModuleSpecifier),
+    LocalAsset(BriocheModuleSpecifier),
+}
+
+/// An import found while analyzing a module, along with the type from its
+/// import attribute if one was given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnalyzedImport {
+    pub specifier: BriocheImportSpecifier,
+    pub attribute_type: Option<ImportAttributeType>,
+}
+
+/// The `type` value from an import attribute. This is what tells us a local
+/// import is an asset rather than another module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportAttributeType {
+    Json,
+    Text,
+    Bytes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -226,6 +251,7 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
         .collect::<HashMap<_, _>>();
 
     let mut local_modules = HashMap::new();
+    let mut local_assets = HashMap::new();
     let root_module = analyze_module(
         vfs,
         &root_module_path,
@@ -233,12 +259,14 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
         Some(&module),
         &root_module_env,
         &mut local_modules,
+        &mut local_assets,
     )
     .await?;
 
     Ok(ProjectAnalysis {
         definition: project_definition,
         local_modules,
+        local_assets,
         root_module,
     })
 }
@@ -251,6 +279,7 @@ pub async fn analyze_module(
     module: Option<&'async_recursion biome_js_syntax::JsModule>,
     env: &HashMap<String, serde_json::Value>,
     local_modules: &mut HashMap<BriocheModuleSpecifier, ModuleAnalysis>,
+    local_assets: &mut HashMap<BriocheModuleSpecifier, AssetAnalysis>,
 ) -> anyhow::Result<BriocheModuleSpecifier> {
     let module_path = if module_path == project_path {
         module_path.join("project.bri")
@@ -333,9 +362,12 @@ pub async fn analyze_module(
 
     let mut imports = HashMap::new();
 
-    let import_specifiers = find_imports(module, display_location);
-    for import_specifier in import_specifiers {
-        let import_specifier = import_specifier?;
+    let imported = find_imports(module, display_location);
+    for import in imported {
+        let AnalyzedImport {
+            specifier: import_specifier,
+            attribute_type,
+        } = import?;
 
         let import_analysis = match &import_specifier {
             BriocheImportSpecifier::Local(local_import) => {
@@ -355,20 +387,39 @@ pub async fn analyze_module(
                     "invalid import path: must be within project root",
                 );
 
-                let env = HashMap::default();
+                // An import is an asset when it carries a type attribute, which
+                // loads a file regardless of its extension.
+                if attribute_type.is_some() {
+                    let asset_specifier =
+                        analyze_asset(vfs, &import_module_path, project_path, local_assets).await?;
+                    ImportAnalysis::LocalAsset(asset_specifier)
+                } else {
+                    // Without an attribute we treat the import as another module,
+                    // which only makes sense for Brioche source files.
+                    anyhow::ensure!(
+                        import_module_path
+                            .extension()
+                            .is_none_or(|ext| ext == "bri"),
+                        "{}: non-module imports require a type attribute",
+                        import_module_path.display(),
+                    );
 
-                // Analyze the imported module, but start with a separate
-                // environment
-                let import_module_specifier = analyze_module(
-                    vfs,
-                    &import_module_path,
-                    project_path,
-                    None,
-                    &env,
-                    local_modules,
-                )
-                .await?;
-                ImportAnalysis::LocalModule(import_module_specifier)
+                    let env = HashMap::default();
+
+                    // Analyze the imported module, but start with a separate
+                    // environment
+                    let import_module_specifier = analyze_module(
+                        vfs,
+                        &import_module_path,
+                        project_path,
+                        None,
+                        &env,
+                        local_modules,
+                        local_assets,
+                    )
+                    .await?;
+                    ImportAnalysis::LocalModule(import_module_specifier)
+                }
             }
             BriocheImportSpecifier::External(dependency) => {
                 ImportAnalysis::ExternalProject(dependency.clone())
@@ -389,10 +440,54 @@ pub async fn analyze_module(
     Ok(module_specifier)
 }
 
+async fn analyze_asset(
+    vfs: &Vfs,
+    asset_path: &Path,
+    project_path: &Path,
+    local_assets: &mut HashMap<BriocheModuleSpecifier, AssetAnalysis>,
+) -> anyhow::Result<BriocheModuleSpecifier> {
+    let asset_specifier = BriocheModuleSpecifier::File {
+        path: asset_path.to_owned(),
+    };
+
+    if local_assets.contains_key(&asset_specifier) {
+        return Ok(asset_specifier);
+    }
+
+    let display_path = asset_path.display();
+
+    let project_subpath = asset_path.relative_to(project_path).with_context(|| {
+        format!(
+            "{display_path}: failed to resolve relative to project root {}",
+            project_path.display(),
+        )
+    })?;
+    let project_subpath = project_subpath.normalize();
+    anyhow::ensure!(
+        crate::fs_utils::is_subpath(&project_subpath),
+        "{display_path}: asset escapes project root"
+    );
+
+    let (file_id, _) = vfs
+        .load(asset_path)
+        .await
+        .with_context(|| format!("{display_path}: failed to read asset"))?;
+
+    local_assets.insert(
+        asset_specifier.clone(),
+        AssetAnalysis {
+            file_id,
+            project_subpath,
+        },
+    );
+
+    Ok(asset_specifier)
+}
+
 pub fn find_imports<'a, D>(
     module: &'a biome_js_syntax::JsModule,
     display_location: impl FnMut(usize) -> D + Clone + 'a,
-) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
+) -> impl Iterator<Item = anyhow::Result<AnalyzedImport>> + 'a
 where
     D: std::fmt::Display,
 {
@@ -403,7 +498,7 @@ where
 fn find_top_level_imports<'a, D>(
     module: &'a biome_js_syntax::JsModule,
     mut display_location: impl FnMut(usize) -> D + 'a,
-) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
+) -> impl Iterator<Item = anyhow::Result<AnalyzedImport>> + 'a
 where
     D: std::fmt::Display,
 {
@@ -412,7 +507,7 @@ where
         .iter()
         .map(move |item| {
             let location = display_location(item.syntax().text_range().start().into());
-            let import_source = match item {
+            let import_source = match &item {
                 biome_js_syntax::AnyJsModuleItem::JsExport(export_item) => {
                     let export_clause = export_item
                         .export_clause()
@@ -454,18 +549,79 @@ where
                 .inner_string_text()
                 .with_context(|| format!("{location}: failed to get import source text"))?;
             let import_source = import_source.text();
-            let import_specifier: BriocheImportSpecifier = import_source
+            let specifier: BriocheImportSpecifier = import_source
                 .parse()
                 .with_context(|| format!("{location}: invalid import specifier"))?;
-            Ok(Some(import_specifier))
+            let attribute_type = find_import_attribute_type(item.syntax(), &location)?;
+            Ok(Some(AnalyzedImport {
+                specifier,
+                attribute_type,
+            }))
         })
         .filter_map(std::result::Result::transpose)
+}
+
+/// Read the `type` value from an import/export statement's import attribute,
+/// if present. Errors on a `type` we don't support.
+fn find_import_attribute_type<D>(
+    item: &biome_js_syntax::JsSyntaxNode,
+    location: &D,
+) -> anyhow::Result<Option<ImportAttributeType>>
+where
+    D: std::fmt::Display,
+{
+    let Some(assertion) = item
+        .descendants()
+        .find_map(biome_js_syntax::JsImportAssertion::cast)
+    else {
+        return Ok(None);
+    };
+
+    for entry in assertion.assertions().iter() {
+        let entry =
+            entry.with_context(|| format!("{location}: failed to parse import attribute"))?;
+        let Some(entry) = entry.as_js_import_assertion_entry() else {
+            continue;
+        };
+        let key = entry
+            .key()
+            .with_context(|| format!("{location}: failed to parse import attribute key"))?;
+        if unquote(key.text_trimmed()) != "type" {
+            continue;
+        }
+
+        let value = entry
+            .value_token()
+            .with_context(|| format!("{location}: failed to parse import attribute value"))?;
+        let attribute_type = match unquote(value.text_trimmed()) {
+            "json" => ImportAttributeType::Json,
+            "text" => ImportAttributeType::Text,
+            "bytes" => ImportAttributeType::Bytes,
+            other => anyhow::bail!(
+                "{location}: unsupported import attribute type {other:?}, expected \"json\", \"text\", or \"bytes\""
+            ),
+        };
+        return Ok(Some(attribute_type));
+    }
+
+    Ok(None)
+}
+
+/// Strip a single pair of matching surrounding quotes, leaving bare tokens
+/// untouched. Import attribute keys may be bare or quoted; values are quoted.
+fn unquote(text: &str) -> &str {
+    for quote in ['"', '\''] {
+        if let Some(inner) = text.strip_prefix(quote).and_then(|t| t.strip_suffix(quote)) {
+            return inner;
+        }
+    }
+    text
 }
 
 pub fn find_dynamic_imports<'a, D>(
     module: &'a biome_js_syntax::JsModule,
     mut display_location: impl FnMut(usize) -> D + 'a,
-) -> impl Iterator<Item = anyhow::Result<BriocheImportSpecifier>> + 'a
+) -> impl Iterator<Item = anyhow::Result<AnalyzedImport>> + 'a
 where
     D: std::fmt::Display,
 {
@@ -501,10 +657,16 @@ where
                         );
                     }
                 };
-                let import_specifier: BriocheImportSpecifier = specifier
+                let specifier: BriocheImportSpecifier = specifier
                     .parse()
                     .with_context(|| format!("{location}: invalid import specifier"))?;
-                Ok(Some(import_specifier))
+
+                // Dynamic imports don't carry a type attribute, since they
+                // currently only accept a single argument.
+                Ok(Some(AnalyzedImport {
+                    specifier,
+                    attribute_type: None,
+                }))
             } else {
                 Ok(None)
             }

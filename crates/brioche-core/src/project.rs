@@ -689,6 +689,8 @@ pub struct Project {
     pub definition: ProjectDefinition,
     pub dependencies: HashMap<String, DependencyRef>,
     pub modules: HashMap<RelativePathBuf, FileId>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub assets: HashMap<RelativePathBuf, FileId>,
     #[serde_as(as = "HashMap<_, Vec<(_, _)>>")]
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub statics: HashMap<RelativePathBuf, BTreeMap<StaticQuery, Option<StaticOutput>>>,

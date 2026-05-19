@@ -451,10 +451,17 @@ async fn load_project_inner(
                 .values()
                 .map(|module| (module.project_subpath.clone(), module.file_id))
                 .collect();
+            let assets = details
+                .project_analysis
+                .local_assets
+                .values()
+                .map(|asset| (asset.project_subpath.clone(), asset.file_id))
+                .collect();
             let project = Arc::new(Project {
                 definition: details.project_analysis.definition,
                 dependencies,
                 modules,
+                assets,
                 statics,
             });
 

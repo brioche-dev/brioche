@@ -43,10 +43,18 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
   }
 
   fileExists(fileName: string): boolean {
+    if (brioche.attributeModuleSource(fileName) != null) {
+      return true;
+    }
     return brioche.fileExists(brioche.fromTsUrl(fileName));
   }
 
   readFile(fileName: string): string | undefined {
+    const attributeSource = brioche.attributeModuleSource(fileName);
+    if (attributeSource != null) {
+      return attributeSource;
+    }
+
     const uri = brioche.fromTsUrl(fileName);
     if (fileName.startsWith("file://")) {
       this.files.add(uri);
@@ -67,19 +75,26 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
   resolveModuleNameLiterals(moduleLiterals: readonly ts.StringLiteralLike[], containingFile: string): readonly ts.ResolvedModuleWithFailedLookupLocations[] {
     return moduleLiterals.map(moduleLiteral => {
       const resolvedName = brioche.resolveModule(moduleLiteral.text, brioche.fromTsUrl(containingFile));
+      if (resolvedName == null) {
+        return { resolvedModule: undefined };
+      }
 
-      if (resolvedName != null) {
+      // Imports carrying a type attribute are typed from that attribute.
+      const attributeModule = brioche.resolveAttributeModule(brioche.importAttributeType(moduleLiteral) ?? "", resolvedName);
+      if (attributeModule != null) {
+        return { resolvedModule: attributeModule };
+      }
+
+      if (resolvedName.endsWith(".bri")) {
         return {
           resolvedModule: {
             extension: ".ts",
             resolvedFileName: brioche.toTsUrl(resolvedName),
           }
-        }
-      } else {
-        return {
-          resolvedModule: undefined,
         };
       }
+
+      return { resolvedModule: undefined };
     });
   }
 }

@@ -79,6 +79,7 @@ pub async fn project_references(
             definition: _,
             dependencies,
             modules,
+            assets,
             statics,
         } = &*project;
 
@@ -97,6 +98,17 @@ pub async fn project_references(
                 .vfs
                 .read(*module_file_id)?
                 .with_context(|| format!("failed to read module file {module_path}"))?;
+
+            references.loaded_blobs.insert(blob_hash, contents);
+        }
+
+        for (asset_path, asset_file_id) in assets {
+            let blob_hash = asset_file_id.as_blob_hash()?;
+
+            let contents = brioche
+                .vfs
+                .read(*asset_file_id)?
+                .with_context(|| format!("failed to read asset file {asset_path}"))?;
 
             references.loaded_blobs.insert(blob_hash, contents);
         }

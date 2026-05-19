@@ -1,6 +1,6 @@
 import ts from "typescript";
 import * as eslint from "eslint";
-import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./ts-common.ts";
+import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule, importAttributeType, resolveAttributeModule, attributeModuleSource } from "./ts-common.ts";
 import { buildEslintConfig } from "./eslint-common.ts";
 
 export function check(files: string[]): Diagnostic[] {
@@ -145,7 +145,8 @@ class BriocheCompilerHost implements ts.CompilerHost {
     if (sourceText == null) {
       return undefined;
     }
-    return ts.createSourceFile(fileName, sourceText, languageVersionOrOptions, false, ts.ScriptKind.TS);
+    const scriptKind = fileName.endsWith(".json") ? ts.ScriptKind.JSON : ts.ScriptKind.TS;
+    return ts.createSourceFile(fileName, sourceText, languageVersionOrOptions, false, scriptKind);
   }
   getDefaultLibFileName(options: ts.CompilerOptions): string {
     return DEFAULT_LIB_URL;
@@ -166,28 +167,41 @@ class BriocheCompilerHost implements ts.CompilerHost {
     return "\n";
   }
   fileExists(fileName: string): boolean {
+    if (attributeModuleSource(fileName) != null) {
+      return true;
+    }
     return fileExists(fromTsUrl(fileName));
   }
   readFile(fileName: string): string | undefined {
+    const attributeSource = attributeModuleSource(fileName);
+    if (attributeSource != null) {
+      return attributeSource;
+    }
     return readFile(fromTsUrl(fileName));
   }
   resolveModuleNameLiterals(moduleLiterals: readonly ts.StringLiteralLike[], containingFile: string): readonly ts.ResolvedModuleWithFailedLookupLocations[] {
     return moduleLiterals.map(moduleLiteral => {
-
       const resolvedName = resolveModule(moduleLiteral.text, fromTsUrl(containingFile));
+      if (resolvedName == null) {
+        return { resolvedModule: undefined };
+      }
 
-      if (resolvedName != null) {
+      // Imports carrying a type attribute are typed from that attribute.
+      const attributeModule = resolveAttributeModule(importAttributeType(moduleLiteral) ?? "", resolvedName);
+      if (attributeModule != null) {
+        return { resolvedModule: attributeModule };
+      }
+
+      if (resolvedName.endsWith(".bri")) {
         return {
           resolvedModule: {
             extension: ".ts",
             resolvedFileName: toTsUrl(resolvedName),
           }
-        }
-      } else {
-        return {
-          resolvedModule: undefined,
         };
       }
+
+      return { resolvedModule: undefined };
     });
   }
 }
