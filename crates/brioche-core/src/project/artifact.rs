@@ -331,6 +331,25 @@ async fn project_artifact(
         .await?;
     }
 
+    // Add each asset to the artifact
+    for (asset_path, file_id) in &project.assets {
+        let content_blob = crate::vfs::commit_blob(brioche, *file_id).await?;
+
+        let asset_artifact = Artifact::File(crate::recipe::File {
+            content_blob,
+            executable: false,
+            resources: Directory::default(),
+        });
+
+        insert_non_conflicting(
+            brioche,
+            &mut project_artifact,
+            asset_path.as_str().as_bytes(),
+            &asset_artifact,
+        )
+        .await?;
+    }
+
     // Add the lockfile to the artifact
     let lockfile = super::project_lockfile(project);
     let lockfile_contents =

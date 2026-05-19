@@ -24,6 +24,7 @@ fn get_local_module(
 
     match module {
         ImportAnalysis::LocalModule(module) => module.clone(),
+        ImportAnalysis::LocalAsset(_) => panic!("module {specifier} is a local asset"),
         ImportAnalysis::ExternalProject(_) => panic!("module {specifier} is an external module"),
     }
 }

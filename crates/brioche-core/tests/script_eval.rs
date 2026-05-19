@@ -272,6 +272,182 @@ async fn test_eval_import_local() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_eval_import_attribute_json() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    context
+        .write_file("myproject/data.json", r#"{"value": 42}"#)
+        .await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import data from "./data.json" with { type: "json" };
+                export const project = {};
+                export default () => {
+                    return {
+                        briocheSerialize: () => {
+                            return {
+                                type: "create_file",
+                                content: JSON.stringify(data),
+                                executable: false,
+                                resources: {
+                                    type: "directory",
+                                    entries: {},
+                                },
+                            };
+                        },
+                    };
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let brioche_core::recipe::Recipe::CreateFile { content, .. } = resolved else {
+        panic!("expected create_file recipe, got {resolved:?}");
+    };
+
+    let parsed: serde_json::Value = serde_json::from_slice(&content)?;
+    assert_eq!(parsed, serde_json::json!({"value": 42}));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_import_attribute_text() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    context
+        .write_file("myproject/notes.txt", "hello brioche")
+        .await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import notes from "./notes.txt" with { type: "text" };
+                export const project = {};
+                export default () => {
+                    return {
+                        briocheSerialize: () => {
+                            return {
+                                type: "create_file",
+                                content: notes,
+                                executable: false,
+                                resources: {
+                                    type: "directory",
+                                    entries: {},
+                                },
+                            };
+                        },
+                    };
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let brioche_core::recipe::Recipe::CreateFile { content, .. } = resolved else {
+        panic!("expected create_file recipe, got {resolved:?}");
+    };
+
+    assert_eq!(AsRef::<[u8]>::as_ref(&content), b"hello brioche");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_eval_import_attribute_bytes() -> anyhow::Result<()> {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    context
+        .write_file("myproject/logo.bin", [0x42u8, 0x72, 0x69, 0x6f].as_slice())
+        .await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import bytes from "./logo.bin" with { type: "bytes" };
+                export const project = {};
+                export default () => {
+                    const summary = `kind=${bytes.constructor.name},len=${bytes.length},first=${bytes[0]},last=${bytes[bytes.length - 1]}`;
+                    return {
+                        briocheSerialize: () => {
+                            return {
+                                type: "create_file",
+                                content: summary,
+                                executable: false,
+                                resources: {
+                                    type: "directory",
+                                    entries: {},
+                                },
+                            };
+                        },
+                    };
+                };
+            "#,
+        )
+        .await;
+
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let brioche_core::recipe::Recipe::CreateFile { content, .. } = resolved else {
+        panic!("expected create_file recipe, got {resolved:?}");
+    };
+
+    assert_eq!(
+        AsRef::<[u8]>::as_ref(&content),
+        b"kind=Uint8Array,len=4,first=66,last=111",
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_eval_import_dep() -> anyhow::Result<()> {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 

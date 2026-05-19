@@ -177,6 +177,15 @@ class BriocheCompilerHost implements ts.CompilerHost {
       const resolvedName = resolveModule(moduleLiteral.text, fromTsUrl(containingFile));
 
       if (resolvedName != null) {
+        if (resolvedName.endsWith(".json")) {
+          return {
+            resolvedModule: {
+              extension: ".json",
+              resolvedFileName: resolvedName,
+            }
+          }
+        }
+
         return {
           resolvedModule: {
             extension: ".ts",
