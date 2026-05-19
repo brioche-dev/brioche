@@ -1,1 +1,4 @@
-module.exports = require("os-browserify/browser");
+// Stub for node:os
+module.exports.EOL = "\n";
+module.exports.platform = () => "linux";
+module.exports.availableParallelism = () => 1;

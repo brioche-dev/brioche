@@ -1,5 +1,5 @@
-import * as ts from "typescript";
-import * as lsp from "vscode-languageserver";
+import ts from "typescript";
+import * as lsp from "vscode-languageserver-protocol";
 import * as eslint from "eslint";
 import * as brioche from "./ts-common";
 import { buildEslintConfig } from "./eslint-common.ts";
@@ -414,7 +414,6 @@ function lspSeverityFromEslint(severity: eslint.Linter.Severity): lsp.Diagnostic
     case 1:
       return lsp.DiagnosticSeverity.Warning;
     case 2:
-    default:
       return lsp.DiagnosticSeverity.Error;
   }
 }

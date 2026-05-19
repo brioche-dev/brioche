@@ -12,5 +12,6 @@
         "noUncheckedIndexedAccess": true,
         "allowImportingTsExtensions": true,
         "noEmit": true
-    }
+    },
+    "include": ["src/**/*"]
 }
