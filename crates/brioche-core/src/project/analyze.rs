@@ -18,6 +18,7 @@ use super::{DependencyDefinition, ProjectDefinition, Version};
 pub struct ProjectAnalysis {
     pub definition: super::ProjectDefinition,
     pub local_modules: HashMap<BriocheModuleSpecifier, ModuleAnalysis>,
+    pub local_assets: HashMap<BriocheModuleSpecifier, AssetAnalysis>,
     pub root_module: BriocheModuleSpecifier,
 }
 
@@ -61,9 +62,17 @@ pub struct ModuleAnalysis {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetAnalysis {
+    pub file_id: FileId,
+    pub project_subpath: RelativePathBuf,
+    pub specifier: BriocheModuleSpecifier,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportAnalysis {
     ExternalProject(String),
     LocalModule(BriocheModuleSpecifier),
+    LocalAsset(BriocheModuleSpecifier),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
@@ -226,6 +235,7 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
         .collect::<HashMap<_, _>>();
 
     let mut local_modules = HashMap::new();
+    let mut local_assets = HashMap::new();
     let root_module = analyze_module(
         vfs,
         &root_module_path,
@@ -233,12 +243,14 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
         Some(&module),
         &root_module_env,
         &mut local_modules,
+        &mut local_assets,
     )
     .await?;
 
     Ok(ProjectAnalysis {
         definition: project_definition,
         local_modules,
+        local_assets,
         root_module,
     })
 }
@@ -251,6 +263,7 @@ pub async fn analyze_module(
     module: Option<&'async_recursion biome_js_syntax::JsModule>,
     env: &HashMap<String, serde_json::Value>,
     local_modules: &mut HashMap<BriocheModuleSpecifier, ModuleAnalysis>,
+    local_assets: &mut HashMap<BriocheModuleSpecifier, AssetAnalysis>,
 ) -> anyhow::Result<BriocheModuleSpecifier> {
     let module_path = if module_path == project_path {
         module_path.join("project.bri")
@@ -355,20 +368,31 @@ pub async fn analyze_module(
                     "invalid import path: must be within project root",
                 );
 
-                let env = HashMap::default();
+                let is_asset = import_module_path
+                    .extension()
+                    .is_some_and(|ext| ext != "bri");
 
-                // Analyze the imported module, but start with a separate
-                // environment
-                let import_module_specifier = analyze_module(
-                    vfs,
-                    &import_module_path,
-                    project_path,
-                    None,
-                    &env,
-                    local_modules,
-                )
-                .await?;
-                ImportAnalysis::LocalModule(import_module_specifier)
+                if is_asset {
+                    let asset_specifier =
+                        analyze_asset(vfs, &import_module_path, project_path, local_assets).await?;
+                    ImportAnalysis::LocalAsset(asset_specifier)
+                } else {
+                    let env = HashMap::default();
+
+                    // Analyze the imported module, but start with a separate
+                    // environment
+                    let import_module_specifier = analyze_module(
+                        vfs,
+                        &import_module_path,
+                        project_path,
+                        None,
+                        &env,
+                        local_modules,
+                        local_assets,
+                    )
+                    .await?;
+                    ImportAnalysis::LocalModule(import_module_specifier)
+                }
             }
             BriocheImportSpecifier::External(dependency) => {
                 ImportAnalysis::ExternalProject(dependency.clone())
@@ -387,6 +411,51 @@ pub async fn analyze_module(
     local_module.statics = statics;
 
     Ok(module_specifier)
+}
+
+async fn analyze_asset(
+    vfs: &Vfs,
+    asset_path: &Path,
+    project_path: &Path,
+    local_assets: &mut HashMap<BriocheModuleSpecifier, AssetAnalysis>,
+) -> anyhow::Result<BriocheModuleSpecifier> {
+    let asset_specifier = BriocheModuleSpecifier::File {
+        path: asset_path.to_owned(),
+    };
+
+    if local_assets.contains_key(&asset_specifier) {
+        return Ok(asset_specifier);
+    }
+
+    let display_path = asset_path.display();
+
+    let project_subpath = asset_path.relative_to(project_path).with_context(|| {
+        format!(
+            "{display_path}: failed to resolve relative to project root {}",
+            project_path.display(),
+        )
+    })?;
+    let project_subpath = project_subpath.normalize();
+    anyhow::ensure!(
+        crate::fs_utils::is_subpath(&project_subpath),
+        "{display_path}: asset escapes project root"
+    );
+
+    let (file_id, _) = vfs
+        .load(asset_path)
+        .await
+        .with_context(|| format!("{display_path}: failed to read asset"))?;
+
+    local_assets.insert(
+        asset_specifier.clone(),
+        AssetAnalysis {
+            file_id,
+            project_subpath,
+            specifier: asset_specifier.clone(),
+        },
+    );
+
+    Ok(asset_specifier)
 }
 
 pub fn find_imports<'a, D>(

@@ -69,6 +69,15 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
       const resolvedName = brioche.resolveModule(moduleLiteral.text, brioche.fromTsUrl(containingFile));
 
       if (resolvedName != null) {
+        if (resolvedName.endsWith(".json")) {
+          return {
+            resolvedModule: {
+              extension: ".json",
+              resolvedFileName: resolvedName,
+            }
+          }
+        }
+
         return {
           resolvedModule: {
             extension: ".ts",

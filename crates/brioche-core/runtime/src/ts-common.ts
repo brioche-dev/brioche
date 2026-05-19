@@ -8,6 +8,7 @@ export const TS_CONFIG = {
   noUncheckedIndexedAccess: true,
   module: ts.ModuleKind.ESNext,
   target: ts.ScriptTarget.ES2025,
+  resolveJsonModule: true,
 } satisfies ts.CompilerOptions;
 
 export const DEFAULT_LIB_URL = "briocheruntime:///tslib/lib.esnext.d.ts";
