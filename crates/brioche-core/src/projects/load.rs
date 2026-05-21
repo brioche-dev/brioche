@@ -1,4 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{BTreeMap, HashMap, VecDeque},
+    sync::Arc,
+};
 
 use crate::{
     Brioche,
@@ -7,7 +10,7 @@ use crate::{
         DependencyDefinition, Lockfile, Module, ModuleRef, ModuleReferrer, Project,
         ProjectDefinition, ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode,
         ProjectRef, ProjectReferrer, ProjectSpecifier, Version, Workspace, WorkspaceDefinition,
-        WorkspaceMember, WorkspaceRef,
+        WorkspaceMember, WorkspaceRef, hash::ProjectHash,
     },
     script::specifier::{ImportSpecifier, LocalImportSpecifier},
 };
@@ -41,6 +44,13 @@ pub async fn load_projects(
             continue;
         }
 
+        let project_ref = projects.graph.add_node(ProjectNode::Project);
+        let project_ref = ProjectRef(project_ref);
+
+        projects
+            .projects_by_specifier
+            .insert(specifier.clone(), project_ref);
+
         tracing::debug!(?specifier, ?referrer, "loading project");
 
         let (project_path, workspace_root) = match &specifier {
@@ -49,19 +59,18 @@ pub async fn load_projects(
 
                 tracing::trace!(?path, ?workspace_root, "searched for workspace root");
 
-                (path, workspace_root)
+                (path.clone(), workspace_root)
             }
-            ProjectSpecifier::Hash(_project_hash) => {
-                todo!("load project by hash")
+            ProjectSpecifier::Hash(project_hash) => {
+                match load_project_by_hash(brioche, *project_hash).await {
+                    Ok((path, workspace_root)) => (path, workspace_root),
+                    Err(error) => {
+                        todo!("add project issue");
+                        // projects.issues.entry(project_ref.0).or_default().push(ProjectIssue::IoError { error_message: (), path: (), location: () })
+                    }
+                }
             }
         };
-
-        let project_ref = projects.graph.add_node(ProjectNode::Project);
-        let project_ref = ProjectRef(project_ref);
-
-        projects
-            .projects_by_specifier
-            .insert(specifier.clone(), project_ref);
 
         match &referrer {
             ProjectReferrer::TopLevel => {
@@ -304,7 +313,7 @@ pub async fn load_projects(
                                 let resolved = resolve_project(
                                     brioche,
                                     &mut ResolveProjectContext {
-                                        project_path,
+                                        project_path: &project_path,
                                         project_definition: &project_definition,
                                         workspace,
                                         external_deps: &mut external_deps,
@@ -399,7 +408,7 @@ pub async fn load_projects(
             let resolved = resolve_project(
                 brioche,
                 &mut ResolveProjectContext {
-                    project_path,
+                    project_path: &project_path,
                     project_definition: &project_definition,
                     workspace,
                     external_deps: &mut external_deps,
@@ -557,6 +566,89 @@ async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceEr
         })?;
 
     Ok(Workspace { root, definition })
+}
+
+async fn load_project_by_hash(
+    brioche: &Brioche,
+    project_hash: ProjectHash,
+) -> Result<(AbsolutePath, Option<AbsolutePath>), ProjectIssue> {
+    // Use a mutex to ensure we don't try to fetch the same project more
+    // than once at a time
+    static FETCH_PROJECTS_MUTEX: tokio::sync::Mutex<
+        BTreeMap<ProjectHash, Arc<tokio::sync::Mutex<()>>>,
+    > = tokio::sync::Mutex::const_new(BTreeMap::new());
+    let project_mutex = {
+        let mut fetch_projects = FETCH_PROJECTS_MUTEX.lock().await;
+        fetch_projects.entry(project_hash).or_default().clone()
+    };
+    let _guard = project_mutex.lock().await;
+
+    let local_system_path = brioche
+        .data_dir
+        .join("projects")
+        .join(project_hash.to_string());
+
+    // TODO: handle error cleanly
+    let local_path = crate::path::canonicalize_system_path(&local_system_path)
+        .await
+        .unwrap();
+
+    let local_project_exists =
+        tokio::fs::try_exists(&local_system_path)
+            .await
+            .map_err(|error| ProjectIssue::IoError {
+                error_message: error.to_string(),
+                path: local_path.clone(),
+                location: ProjectIssueLocation {
+                    path: local_path.clone(),
+                    range: None,
+                },
+            })?;
+    if local_project_exists {
+        // Directory for the local project exists. No need to fetch. The
+        // hash is also validated later on
+        // TODO: workspace
+        return Ok((local_path, None));
+    }
+
+    // By this point, we know the project doesn't exist locally so we
+    // need to fetch it.
+
+    let artifact_hash = crate::cache::load_project_artifact_hash(brioche, project_hash)
+        .await
+        .map_err(|error| ProjectIssue::CacheError {
+            error_message: error.to_string(),
+        })?
+        .ok_or_else(|| ProjectIssue::CacheError {
+            error_message: "project not found in cache".to_string(),
+        })?;
+    let artifact_ref = crate::cache::load_artifact(
+        brioche,
+        artifact_hash,
+        crate::reporter::job::CacheFetchKind::Project,
+    )
+    .await
+    .map_err(|error| ProjectIssue::CacheError {
+        error_message: error.to_string(),
+    })?
+    .ok_or_else(|| ProjectIssue::CacheError {
+        error_message: "no artifact found for project in cache".to_string(),
+    })?;
+
+    let saved_projects = super::artifact::save_projects_from_artifact(brioche, artifact_ref)
+        .await
+        .map_err(|error| ProjectIssue::CacheError {
+            error_message: error.to_string(),
+        })?;
+    if !saved_projects.contains(&project_hash) {
+        return Err(ProjectIssue::CacheError {
+            error_message: format!(
+                "artifact for project found in cache, but it did not contain the project {project_hash}"
+            ),
+        });
+    }
+
+    todo!();
 }
 
 fn expand_module_subpath(subpath: RelativePath) -> RelativePath {

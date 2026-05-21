@@ -9,6 +9,7 @@ use crate::{
     script::specifier::ImportSpecifier,
 };
 
+mod artifact;
 pub mod debug;
 pub mod hash;
 pub mod load;
@@ -283,6 +284,12 @@ pub enum ProjectIssue {
         location: ProjectIssueLocation,
     },
 
+    #[error("cache error: {error_message}")]
+    CacheError {
+        // TODO: Use proper error
+        error_message: String,
+    },
+
     #[error("invalid path '{path}': {error}")]
     ToSystemPathError {
         #[source]
@@ -315,6 +322,10 @@ impl ProjectIssue {
                 path: path.clone(),
                 range: Some(import.range),
             }),
+            Self::CacheError { .. } => {
+                // TODO: Track location
+                None
+            }
         }
     }
 }

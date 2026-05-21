@@ -21,6 +21,15 @@ impl std::fmt::Display for ProjectHash {
     }
 }
 
+impl std::str::FromStr for ProjectHash {
+    type Err = crate::hash::ParseHashError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let hash = s.parse()?;
+        Ok(Self(hash))
+    }
+}
+
 pub async fn hash_project(
     brioche: &Brioche,
     project_ref: ProjectRef,
@@ -93,11 +102,7 @@ pub async fn hash_project(
         };
         let project = ContentAddressedProjectEntry::Project(project);
 
-        let mut hasher = blake3::Hasher::new();
-        json_canon::to_writer(&mut hasher, &project).expect("todo: handle serialize error");
-        let project_hash = ProjectHash(hasher.finalize().into());
-
-        project_hashes.insert(project_ref, project_hash);
+        project_hashes.insert(project_ref, project.project_hash());
     }
 
     Ok(project_hashes[&project_ref])
@@ -107,7 +112,7 @@ pub async fn hash_project(
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-enum ContentAddressedProjectEntry {
+pub(super) enum ContentAddressedProjectEntry {
     WorkspaceMember {
         workspace: WorkspaceHash,
         #[serde_as(as = "TickEncoded")]
@@ -117,11 +122,28 @@ enum ContentAddressedProjectEntry {
     Project(ContentAddressedProject),
 }
 
+impl ContentAddressedProjectEntry {
+    pub(super) fn project_hash(&self) -> ProjectHash {
+        let mut hasher = blake3::Hasher::new();
+        json_canon::to_writer(&mut hasher, self).expect("failed to serialize project");
+        ProjectHash(hasher.finalize().into())
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
 #[serde(transparent)]
-struct WorkspaceHash(crate::hash::Blake3Hash);
+pub struct WorkspaceHash(crate::hash::Blake3Hash);
+
+impl std::str::FromStr for WorkspaceHash {
+    type Err = crate::hash::ParseHashError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let hash = s.parse()?;
+        Ok(Self(hash))
+    }
+}
 
 impl std::fmt::Display for WorkspaceHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

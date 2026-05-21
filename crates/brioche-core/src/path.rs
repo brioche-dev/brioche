@@ -175,6 +175,13 @@ impl RelativePath {
         self.components.is_empty()
     }
 
+    #[must_use]
+    pub fn is_normalized_subpath(&self) -> bool {
+        self.components
+            .iter()
+            .all(|component| matches!(component, RelativePathComponent::Normal(_)))
+    }
+
     fn normalize_logical(&mut self) {
         let (logical_components, ascends) =
             logical_components(std::mem::take(&mut self.components));

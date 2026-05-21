@@ -28,6 +28,10 @@ pub struct Recipes {
 }
 
 impl Recipes {
+    pub fn get_recipe(&self, recipe_ref: RecipeRef) -> &Arc<Recipe> {
+        &self.recipes[&recipe_ref]
+    }
+
     pub fn insert_recipe(&mut self, recipe: Arc<Recipe>) -> RecipeRef {
         let recipe_ref = match self.recipe_refs_by_recipe.entry(recipe.clone()) {
             std::collections::hash_map::Entry::Occupied(entry) => {
@@ -137,6 +141,31 @@ pub enum Recipe {
 }
 
 impl Recipe {
+    pub fn kind(&self) -> RecipeKind {
+        match self {
+            Self::File(..) => RecipeKind::File,
+            Self::Directory(..) => RecipeKind::Directory,
+            Self::Symlink(..) => RecipeKind::Symlink,
+            Self::Download(..) => RecipeKind::Download,
+            Self::Unarchive(..) => RecipeKind::Unarchive,
+            Self::Process(..) => RecipeKind::Process,
+            Self::CompleteProcess(..) => RecipeKind::CompleteProcess,
+            Self::CreateFile { .. } => RecipeKind::CreateFile,
+            Self::CreateDirectory { .. } => RecipeKind::CreateDirectory,
+            Self::Cast { .. } => RecipeKind::Cast,
+            Self::Merge { .. } => RecipeKind::Merge,
+            Self::Peel { .. } => RecipeKind::Peel,
+            Self::Get { .. } => RecipeKind::Get,
+            Self::Insert { .. } => RecipeKind::Insert,
+            Self::Glob { .. } => RecipeKind::Glob,
+            Self::SetPermissions { .. } => RecipeKind::SetPermissions,
+            Self::CollectReferences { .. } => RecipeKind::CollectReferences,
+            Self::AttachResources { .. } => RecipeKind::AttachResources,
+            Self::Proxy { .. } => RecipeKind::Proxy,
+            Self::Sync { .. } => RecipeKind::Sync,
+        }
+    }
+
     fn push_recipe_refs(&self, recipe_refs: &mut Vec<RecipeRef>) {
         match self {
             Self::File(file) => {
