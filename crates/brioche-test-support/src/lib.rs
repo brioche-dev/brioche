@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use assert_matches::assert_matches;
 use brioche_core::{
     Brioche,
     path::AbsolutePath,
@@ -165,6 +166,9 @@ impl TestContext {
             .await
             .unwrap();
         let project_ref = refs.remove(&specifier).unwrap();
+
+        let issues = brioche_core::projects::get_all_issues(brioche).await;
+        assert_matches!(&issues[..], []);
 
         (project_ref, temp_project_path)
     }

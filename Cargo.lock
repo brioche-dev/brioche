@@ -1393,6 +1393,7 @@ name = "brioche-test-support"
 version = "0.1.7"
 dependencies = [
  "anyhow",
+ "assert_matches",
  "brioche-core",
  "futures",
  "mockito",

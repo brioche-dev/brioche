@@ -23,6 +23,7 @@ pub struct Projects {
     modules: HashMap<ModuleRef, Module>,
     workspaces: HashMap<WorkspaceRef, Result<Workspace, load::LoadWorkspaceError>>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
+    local_project_paths: HashMap<ProjectRef, AbsolutePath>,
     modules_by_project: HashMap<ProjectRef, HashMap<RelativePath, ModuleRef>>,
     workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
     issues: HashMap<NodeIndex, Vec<ProjectIssue>>,
@@ -209,6 +210,11 @@ impl ModuleReferrer {
             Self::ModuleImport { specifier, .. } => ProjectEdge::ModuleImport(specifier.clone()),
         }
     }
+}
+
+pub async fn local_project_path(brioche: &Brioche, project_ref: ProjectRef) -> AbsolutePath {
+    let projects = brioche.projects.read().await;
+    projects.local_project_paths[&project_ref].clone()
 }
 
 pub async fn get_dependencies(

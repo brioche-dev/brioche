@@ -72,6 +72,10 @@ pub async fn load_projects(
             }
         };
 
+        projects
+            .local_project_paths
+            .insert(project_ref, project_path.clone());
+
         match &referrer {
             ProjectReferrer::TopLevel => {
                 results.insert(specifier.clone(), project_ref);

@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 anyhow = "1.0.101"
+assert_matches = "1.5.0"
 brioche-core = { path="../brioche-core" }
 futures = "0.3.31"
 mockito = "1.7.2"

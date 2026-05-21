@@ -1,7 +1,7 @@
 #![allow(clippy::similar_names)]
 
 use assert_matches::assert_matches;
-use brioche_core::projects::{ProjectIssue, load::LoadModuleError};
+use brioche_core::projects::{ProjectIssue, ProjectSpecifier, load::LoadModuleError};
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
@@ -222,7 +222,7 @@ async fn test_project_load_path_dep() {
 }
 
 #[tokio::test]
-async fn test_project_load_local_registry_dep() -> anyhow::Result<()> {
+async fn test_project_load_local_registry_dep() {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
@@ -264,17 +264,19 @@ async fn test_project_load_local_registry_dep() -> anyhow::Result<()> {
     let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
-        2,
-        "expected to get 2 project dependencies, got: {project_deps:#?}"
+        1,
+        "expected to get 1 project dependency, got: {project_deps:#?}"
     );
 
     let foo_ref = project_deps["foo"];
     let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
     let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    assert_eq!(
-        foo_specifier,
-        brioche_test_support::project_specifier_for_path(&foo_path)
-    );
+    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+        .await
+        .to_system_path()
+        .unwrap();
+    assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
+    assert_eq!(foo_local_path, foo_path);
     assert_eq!(
         foo_deps.len(),
         0,
@@ -282,10 +284,6 @@ async fn test_project_load_local_registry_dep() -> anyhow::Result<()> {
     );
 
     mock_foo_latest.assert_async().await;
-
-    todo!();
-
-    Ok(())
 }
 
 #[tokio::test]
