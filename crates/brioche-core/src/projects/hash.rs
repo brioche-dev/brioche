@@ -56,8 +56,18 @@ pub async fn hash_project(
 
     let mut project_hashes = HashMap::<ProjectRef, ProjectHash>::new();
 
+    hash_projects_inner(&projects, &node_groups, &mut project_hashes);
+
+    Ok(project_hashes[&project_ref])
+}
+
+pub(super) fn hash_projects_inner(
+    projects: &super::Projects,
+    node_groups: &[Vec<petgraph::stable_graph::NodeIndex>],
+    project_hashes: &mut HashMap<ProjectRef, ProjectHash>,
+) {
     for group_nodes in node_groups {
-        let group_nodes: HashSet<_> = group_nodes.into_iter().collect();
+        let group_nodes: HashSet<_> = group_nodes.iter().copied().collect();
 
         if group_nodes.len() > 1 {
             unimplemented!("cyclic project");
@@ -67,7 +77,8 @@ pub async fn hash_project(
         let project_ref = ProjectRef(*project_ref);
         let project = &projects.projects[&project_ref];
 
-        let dependencies = graph
+        let dependencies = projects
+            .graph
             .edges(project_ref.0)
             .filter_map(|edge| match edge.weight() {
                 crate::projects::ProjectEdge::ProjectDependency(dep_name) => {
@@ -104,8 +115,6 @@ pub async fn hash_project(
 
         project_hashes.insert(project_ref, project.project_hash());
     }
-
-    Ok(project_hashes[&project_ref])
 }
 
 #[serde_with::serde_as]

@@ -1397,6 +1397,7 @@ dependencies = [
  "brioche-core",
  "futures",
  "mockito",
+ "object_store",
  "serde",
  "serde_json",
  "tempfile",

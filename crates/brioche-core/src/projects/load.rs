@@ -65,7 +65,7 @@ pub async fn load_projects(
                 match load_project_by_hash(brioche, *project_hash).await {
                     Ok((path, workspace_root)) => (path, workspace_root),
                     Err(error) => {
-                        todo!("add project issue");
+                        todo!("add project issue: {error:#?}");
                         // projects.issues.entry(project_ref.0).or_default().push(ProjectIssue::IoError { error_message: (), path: (), location: () })
                     }
                 }
@@ -440,6 +440,7 @@ pub async fn load_projects(
         let project = Project {
             definition: project_definition,
             specifier,
+            lockfile: new_lockfile,
         };
         projects.projects.insert(project_ref, project);
 
@@ -587,15 +588,16 @@ async fn load_project_by_hash(
     };
     let _guard = project_mutex.lock().await;
 
-    let local_system_path = brioche
-        .data_dir
-        .join("projects")
-        .join(project_hash.to_string());
-
-    // TODO: handle error cleanly
-    let local_path = crate::path::canonicalize_system_path(&local_system_path)
+    // TODO: handle errors cleanly
+    let projects_system_path = brioche.data_dir.join("projects");
+    tokio::fs::create_dir_all(&projects_system_path)
         .await
         .unwrap();
+    let projects_path = crate::path::canonicalize_system_path(&projects_system_path)
+        .await
+        .unwrap();
+    let local_path = projects_path.join_one(project_hash.to_string());
+    let local_system_path = local_path.to_system_path().unwrap();
 
     let local_project_exists =
         tokio::fs::try_exists(&local_system_path)

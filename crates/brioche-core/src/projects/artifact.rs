@@ -1,26 +1,166 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::Path,
+    sync::Arc,
 };
 
 use anyhow::Context as _;
 use bstr::ByteSlice as _;
-use relative_path::RelativePathBuf;
 
 use crate::{
     Brioche,
+    blob::SaveBlobPermit,
     path::RelativePath,
-    projects::hash::{ContentAddressedProjectEntry, WorkspaceHash},
-    recipe::{Artifact, ArtifactKind, Directory, File, Recipe, RecipeRef, Symlink},
+    projects::{
+        ProjectRef,
+        hash::{ContentAddressedProjectEntry, WorkspaceHash},
+    },
+    recipe::{
+        Artifact, ArtifactKind, Directory, File, Recipe, RecipeRef, Symlink, build::ArtifactBuilder,
+    },
 };
 
 use super::{Project, Projects, Workspace, hash::ProjectHash};
 
-pub(crate) async fn save_projects_from_artifact(
+pub async fn create_project_artifact(
+    brioche: &Brioche,
+    project_ref: ProjectRef,
+) -> anyhow::Result<RecipeRef> {
+    let projects = brioche.projects.read().await;
+    let mut recipes = brioche.recipes.write().await;
+    let mut permit = crate::blob::get_save_blob_permit().await?;
+
+    let mut directory = Directory::default();
+
+    // Create a copy of the graph, but keeping only project nodes that
+    // are reachable from the target project
+    let mut graph = projects.graph.clone();
+    let mut dfs_space = petgraph::algo::DfsSpace::default();
+    graph.retain_nodes(|graph, index| match &graph[index] {
+        crate::projects::ProjectNode::Project => {
+            petgraph::algo::has_path_connecting(&*graph, project_ref.0, index, Some(&mut dfs_space))
+        }
+        crate::projects::ProjectNode::Workspace | crate::projects::ProjectNode::Module => false,
+    });
+
+    // Group nodes by finding the strongly-connected components of the graph.
+    // This effectively finds cyclic projects in the graph that we should
+    // group together, and puts acyclic projects into a group of one element.
+    // The result is additionally topographically sorted, so every project
+    // naturally comes after all of its dependencies
+    let node_groups = petgraph::algo::tarjan_scc(&graph);
+
+    // Compute hashes for each project
+    let mut project_hashes = HashMap::new();
+    crate::projects::hash::hash_projects_inner(&projects, &node_groups, &mut project_hashes);
+
+    for group_nodes in node_groups {
+        let group_nodes: HashSet<_> = group_nodes.into_iter().collect();
+
+        if group_nodes.len() > 1 {
+            unimplemented!("cyclic project");
+        }
+
+        let project_ref = group_nodes.iter().next().unwrap();
+        let project_ref = ProjectRef(*project_ref);
+
+        let project_hash = project_hashes[&project_ref];
+        let project_path = project_hash.to_string();
+
+        let project_artifact = create_single_project_artifact(
+            brioche,
+            &mut recipes,
+            &projects,
+            project_ref,
+            &mut permit,
+        )
+        .await?;
+        directory
+            .entries
+            .insert(bstr::BString::from(project_path), project_artifact);
+    }
+
+    let artifact_ref = recipes.insert_recipe(Arc::new(Recipe::Directory(directory)));
+    Ok(artifact_ref)
+}
+
+async fn create_single_project_artifact(
+    brioche: &Brioche,
+    recipes: &mut crate::recipe::Recipes,
+    projects: &Projects,
+    project_ref: ProjectRef,
+    permit: &mut SaveBlobPermit<'_>,
+) -> anyhow::Result<RecipeRef> {
+    let mut artifact = Some(ArtifactBuilder::empty_dir());
+
+    // TODO: Add statics
+
+    // Add each module to the artifact
+    for (module_path, module_ref) in &projects.modules_by_project[&project_ref] {
+        let module = &projects.modules[module_ref];
+        let source = module
+            .source
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("error loading module: {error}"))?;
+        let content_blob = crate::blob::save_blob(
+            brioche,
+            permit,
+            source.as_bytes(),
+            crate::blob::SaveBlobOptions::default(),
+        )
+        .await?;
+
+        let module_artifact = ArtifactBuilder::File {
+            content_blob,
+            executable: false,
+            resources: Box::new(None),
+        };
+
+        let path = crate::recipe::build::ArtifactPath::try_from(module_path.clone())?;
+        crate::recipe::build::insert_into_artifact(
+            &mut artifact,
+            &path,
+            &path.components,
+            module_artifact,
+        )?;
+    }
+
+    // Add the lockfile to the artifact
+    let lockfile = &projects.projects[&project_ref].lockfile;
+    let lockfile_contents =
+        serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
+
+    let lockfile_blob = crate::blob::save_blob(
+        brioche,
+        permit,
+        lockfile_contents.as_bytes(),
+        crate::blob::SaveBlobOptions::default(),
+    )
+    .await?;
+    let lockfile_artifact = ArtifactBuilder::File {
+        content_blob: lockfile_blob,
+        executable: false,
+        resources: Box::new(None),
+    };
+
+    let lockfile_path = RelativePath::new("brioche.lock");
+    let lockfile_path = crate::recipe::build::ArtifactPath::try_from(lockfile_path)?;
+    crate::recipe::build::insert_into_artifact(
+        &mut artifact,
+        &lockfile_path,
+        &lockfile_path.components,
+        lockfile_artifact,
+    )?;
+
+    let artifact = artifact.unwrap();
+    let artifact = crate::recipe::build::build_artifact(&artifact, recipes)?;
+    Ok(artifact)
+}
+
+pub async fn save_projects_from_artifact(
     brioche: &Brioche,
     artifact_ref: RecipeRef,
 ) -> anyhow::Result<HashSet<ProjectHash>> {
-    let mut projects = brioche.projects.write().await;
     let mut recipes = brioche.recipes.write().await;
 
     let mut project_hashes = HashSet::new();

@@ -9,7 +9,7 @@ use crate::{
     script::specifier::ImportSpecifier,
 };
 
-mod artifact;
+pub mod artifact;
 pub mod debug;
 pub mod hash;
 pub mod load;
@@ -48,6 +48,7 @@ pub(crate) enum ProjectEdge {
 pub struct Project {
     pub definition: ProjectDefinition,
     pub specifier: ProjectSpecifier,
+    pub lockfile: Lockfile,
 }
 
 pub(crate) struct Module {

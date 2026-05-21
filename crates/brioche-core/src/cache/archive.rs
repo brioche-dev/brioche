@@ -24,7 +24,7 @@ use crate::{
     Brioche,
     blob::{BlobHash, SaveBlobOptions},
     recipe::{
-        Artifact, Recipe, RecipeHash, RecipeRef, Recipes, Symlink,
+        Artifact, File, Recipe, RecipeHash, RecipeRef, Recipes, Symlink,
         build::{
             ArtifactBuilder, ArtifactPath, ArtifactPathComponent, build_artifact,
             insert_into_artifact, set_subtree,
@@ -43,218 +43,257 @@ const CDC_MIN_CHUNK_SIZE: usize = 524_288;
 const CDC_AVG_CHUNK_SIZE: usize = 1_048_576;
 const CDC_MAX_CHUNK_SIZE: usize = 8_388_608;
 
-// #[expect(clippy::similar_names)]
-// pub async fn write_artifact_archive(
-//     brioche: &Brioche,
-//     artifact: Artifact,
-//     store: &Arc<dyn object_store::ObjectStore>,
-//     writer: &mut (impl tokio::io::AsyncWrite + Unpin + Send),
-// ) -> anyhow::Result<()> {
-//     // Write the marker for a valid archive
-//     writer.write_all(MARKER).await?;
+#[expect(clippy::similar_names)]
+pub async fn write_artifact_archive(
+    brioche: &Brioche,
+    artifact_ref: RecipeRef,
+    store: &Arc<dyn object_store::ObjectStore>,
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin + Send),
+) -> anyhow::Result<()> {
+    let recipes = brioche.recipes.read().await;
 
-//     // Track all the blobs we need to add in the archive
-//     let mut artifact_blobs = BTreeSet::<BlobHash>::new();
+    // Write the marker for a valid archive
+    writer.write_all(MARKER).await?;
 
-//     // Use a queue to walk through the artifact, starting from the root
-//     let mut queue = VecDeque::from_iter([(ArtifactPath::default(), artifact)]);
-//     while let Some((path, artifact)) = queue.pop_front() {
-//         match artifact {
-//             Artifact::File(file) => {
-//                 // Save the file's content as a blob we need to write
-//                 artifact_blobs.insert(file.content_blob);
+    // Track all the blobs we need to add in the archive
+    let mut artifact_blobs = BTreeSet::<BlobHash>::new();
 
-//                 // Write the file entry: tag, path, executable bit, blob hash
-//                 writer.write_all(b"f").await?;
-//                 write_path(&path, writer).await?;
-//                 let executable_tag = if file.executable { b"x+" } else { b"x-" };
-//                 writer.write_all(executable_tag).await?;
-//                 writer.write_all(file.content_blob.as_bytes()).await?;
+    // Use a queue to walk through the artifact, starting from the root
+    let mut queue = VecDeque::from_iter([(ArtifactPath::default(), artifact_ref)]);
+    while let Some((path, artifact_ref)) = queue.pop_front() {
+        let artifact = recipes.get_recipe(artifact_ref);
+        match &**artifact {
+            Recipe::File(File {
+                content_blob,
+                executable,
+                resources,
+            }) => {
+                // Save the file's content as a blob we need to write
+                artifact_blobs.insert(*content_blob);
 
-//                 // If the file has any resources, enqueue it. We only add it
-//                 // to the queue if it's non-empty to avoid writing an empty
-//                 // directory entry in the archive
-//                 if !file.resources.is_empty() {
-//                     queue.push_back((
-//                         path.child(ArtifactPathComponent::FileResources),
-//                         Artifact::Directory(file.resources),
-//                     ));
-//                 }
-//             }
-//             Artifact::Symlink { target } => {
-//                 let target_len: u32 = target.len().try_into().context("symlink target too long")?;
+                // Write the file entry: tag, path, executable bit, blob hash
+                writer.write_all(b"f").await?;
+                write_path(&path, writer).await?;
+                let executable_tag = if *executable { b"x+" } else { b"x-" };
+                writer.write_all(executable_tag).await?;
+                writer.write_all(content_blob.as_bytes()).await?;
 
-//                 // Write the symlink entry: tag, path, target path
-//                 writer.write_all(b"s").await?;
-//                 write_path(&path, writer).await?;
-//                 writer.write_u32(target_len).await?;
-//                 writer.write_all(target.as_slice()).await?;
-//             }
-//             Artifact::Directory(directory) => {
-//                 if directory.is_empty() {
-//                     // Write an empty directory entry: tag, path. Non-empty
-//                     // directories don't need an entry, since they get created
-//                     // implicitly by its sub-entries.
+                // If the file has any resources, enqueue it.
+                if let Some(resources) = resources {
+                    queue.push_back((path.child(ArtifactPathComponent::FileResources), *resources));
+                }
+            }
+            Recipe::Symlink(Symlink { target }) => {
+                let target_len: u32 = target.len().try_into().context("symlink target too long")?;
 
-//                     writer.write_all(b"d").await?;
-//                     write_path(&path, writer).await?;
-//                 } else {
-//                     // Enqueue each entry within the directory
-//                     let directory_entries = directory.entries(brioche).await?;
-//                     for (name, entry) in directory_entries {
-//                         let entry_path = path
-//                             .clone()
-//                             .child(ArtifactPathComponent::DirectoryEntry(name.clone()));
-//                         queue.push_back((entry_path, entry));
-//                     }
-//                 }
-//             }
-//         }
-//     }
+                // Write the symlink entry: tag, path, target path
+                writer.write_all(b"s").await?;
+                write_path(&path, writer).await?;
+                writer.write_u32(target_len).await?;
+                writer.write_all(target.as_slice()).await?;
+            }
+            Recipe::Directory(directory) => {
+                if directory.entries.is_empty() {
+                    // Write an empty directory entry: tag, path. Non-empty
+                    // directories don't need an entry, since they get created
+                    // implicitly by its sub-entries.
 
-//     // Get the list of blobs in the archive plus their lengths, in the
-//     // order to store them in the archive
-//     let blobs = tokio::task::spawn_blocking({
-//         let brioche = brioche.clone();
+                    writer.write_all(b"d").await?;
+                    write_path(&path, writer).await?;
+                } else {
+                    // Enqueue each entry within the directory
+                    for (name, entry_ref) in &directory.entries {
+                        let entry_path = path
+                            .clone()
+                            .child(ArtifactPathComponent::DirectoryEntry(name.clone()));
+                        queue.push_back((entry_path, *entry_ref));
+                    }
+                }
+            }
+            recipe => {
+                anyhow::bail!("expected artifact, got {:?}", recipe.kind());
+            }
+        }
+    }
 
-//         move || {
-//             let mut blobs = vec![];
+    // Get the list of blobs in the archive plus their lengths, in the
+    // order to store them in the archive
+    let blobs = tokio::task::spawn_blocking({
+        let brioche = brioche.clone();
 
-//             // Read the size of each blob from the filesystem
-//             for blob_hash in artifact_blobs {
-//                 let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
+        move || {
+            let mut blobs = vec![];
 
-//                 let metadata = std::fs::metadata(&blob_path)
-//                     .with_context(|| format!("error reading blob {blob_hash}"))?;
+            // Read the size of each blob from the filesystem
+            for blob_hash in artifact_blobs {
+                let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
 
-//                 blobs.push((blob_hash, metadata.len()));
-//             }
+                let metadata = std::fs::metadata(&blob_path)
+                    .with_context(|| format!("error reading blob {blob_hash}"))?;
 
-//             // Sort blobs by their lengths as the order to include them in
-//             // the archive. This works well with content defined chunking, as
-//             // two similar archives are more likely to have blobs grouped
-//             // together similarly. In practice, this turns out to save a lot
-//             // of space compared to sorting by blob hash alone
-//             blobs.sort_by_key(|(blob_hash, length)| (*length, *blob_hash));
+                blobs.push((blob_hash, metadata.len()));
+            }
 
-//             anyhow::Ok(blobs)
-//         }
-//     })
-//     .await??;
+            // Sort blobs by their lengths as the order to include them in
+            // the archive. This works well with content defined chunking, as
+            // two similar archives are more likely to have blobs grouped
+            // together similarly. In practice, this turns out to save a lot
+            // of space compared to sorting by blob hash alone
+            blobs.sort_by_key(|(blob_hash, length)| (*length, *blob_hash));
 
-//     let mut blobs_total_length = 0;
-//     for (blob_hash, length) in &blobs {
-//         blobs_total_length += length;
+            anyhow::Ok(blobs)
+        }
+    })
+    .await??;
 
-//         // Write an entry for the blob: tag, blob hash, blob length
-//         writer.write_all(b"b").await?;
-//         writer.write_all(blob_hash.as_bytes()).await?;
-//         writer.write_u64(*length).await?;
-//     }
+    let mut blobs_total_length = 0;
+    for (blob_hash, length) in &blobs {
+        blobs_total_length += length;
 
-//     if blobs_total_length >= BLOBS_CHUNKING_THRESHOLD {
-//         // Lots of data for the blobs, so divide the data into chunks
+        // Write an entry for the blob: tag, blob hash, blob length
+        writer.write_all(b"b").await?;
+        writer.write_all(blob_hash.as_bytes()).await?;
+        writer.write_u64(*length).await?;
+    }
 
-//         // Write a "start chunk" tag. Following this will be a list of chunks
-//         writer.write_all(b"C").await?;
+    if blobs_total_length >= BLOBS_CHUNKING_THRESHOLD {
+        // Lots of data for the blobs, so divide the data into chunks
 
-//         let (blobs_reader, mut blobs_writer) = tokio::io::simplex(CDC_MAX_CHUNK_SIZE);
+        // Write a "start chunk" tag. Following this will be a list of chunks
+        writer.write_all(b"C").await?;
 
-//         let read_blobs_task = tokio::spawn({
-//             let brioche = brioche.clone();
-//             async move {
-//                 let result = async {
-//                     // Write each blob to the writer, in order
-//                     for (blob_hash, _) in blobs {
-//                         let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
-//                         let mut blob_reader = tokio::fs::File::open(blob_path).await?;
-//                         tokio::io::copy(&mut blob_reader, &mut blobs_writer).await?;
-//                     }
+        let (blobs_reader, mut blobs_writer) = tokio::io::simplex(CDC_MAX_CHUNK_SIZE);
 
-//                     anyhow::Ok(())
-//                 }
-//                 .await;
+        let read_blobs_task = tokio::spawn({
+            let brioche = brioche.clone();
+            async move {
+                let result = async {
+                    // Write each blob to the writer, in order
+                    for (blob_hash, _) in blobs {
+                        let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
+                        let mut blob_reader = tokio::fs::File::open(blob_path).await?;
+                        tokio::io::copy(&mut blob_reader, &mut blobs_writer).await?;
+                    }
 
-//                 // Shut down the writer, even if we bail early
-//                 blobs_writer.shutdown().await?;
+                    anyhow::Ok(())
+                }
+                .await;
 
-//                 result
-//             }
-//         });
+                // Shut down the writer, even if we bail early
+                blobs_writer.shutdown().await?;
 
-//         // Use the FastCDC algorithm to divide the blob data into chunks
-//         let mut chunks = fastcdc::v2020::AsyncStreamCDC::new(
-//             blobs_reader,
-//             CDC_MIN_CHUNK_SIZE,
-//             CDC_AVG_CHUNK_SIZE,
-//             CDC_MAX_CHUNK_SIZE,
-//         );
-//         let chunks = chunks.as_stream();
-//         let mut chunks = std::pin::pin!(chunks);
+                result
+            }
+        });
 
-//         while let Some(chunk) = chunks.try_next().await? {
-//             let chunk_length: u64 = chunk.length.try_into().context("chunk too long")?;
+        // Use the FastCDC algorithm to divide the blob data into chunks
+        let mut chunks = fastcdc::v2020::AsyncStreamCDC::new(
+            blobs_reader,
+            CDC_MIN_CHUNK_SIZE,
+            CDC_AVG_CHUNK_SIZE,
+            CDC_MAX_CHUNK_SIZE,
+        );
+        let chunks = chunks.as_stream();
+        let mut chunks = std::pin::pin!(chunks);
 
-//             // Store the chunk in the cache based on its hash. Note that
-//             // we're chunking the concatenation of all the blobs together,
-//             // meaning chunks can be made of multiple blobs or parts of blobs.
-//             let chunk_hash = blake3::hash(&chunk.data);
-//             let chunk_compressed_filename = format!("{chunk_hash}.zst");
-//             let chunk_path =
-//                 object_store::path::Path::from_iter(["chunks", &chunk_compressed_filename]);
+        while let Some(chunk) = chunks.try_next().await? {
+            let chunk_length: u64 = chunk.length.try_into().context("chunk too long")?;
 
-//             // Compress the chunk data
-//             let chunk_compressed = zstd::encode_all(&chunk.data[..], 0)?;
+            // Store the chunk in the cache based on its hash. Note that
+            // we're chunking the concatenation of all the blobs together,
+            // meaning chunks can be made of multiple blobs or parts of blobs.
+            let chunk_hash = blake3::hash(&chunk.data);
+            let chunk_compressed_filename = format!("{chunk_hash}.zst");
+            let chunk_path =
+                object_store::path::Path::from_iter(["chunks", &chunk_compressed_filename]);
 
-//             // Try to write the compressed chunk to the cache
-//             let result = crate::object_store_utils::put_opts_with_retry(
-//                 store,
-//                 &chunk_path,
-//                 chunk_compressed.into(),
-//                 object_store::PutOptions {
-//                     mode: object_store::PutMode::Create,
-//                     ..Default::default()
-//                 },
-//                 crate::object_store_utils::PUT_NUM_RETRIES,
-//                 crate::object_store_utils::PUT_RETRY_DELAY,
-//             )
-//             .await;
+            // Compress the chunk data
+            let chunk_compressed = zstd::encode_all(&chunk.data[..], 0)?;
 
-//             match result {
-//                 Ok(_) | Err(object_store::Error::AlreadyExists { .. }) => {
-//                     // Chunk was created or already exists
-//                 }
-//                 Err(error) => {
-//                     return Err(error.into());
-//                 }
-//             }
+            // Try to write the compressed chunk to the cache
+            let result = crate::object_store_utils::put_opts_with_retry(
+                store,
+                &chunk_path,
+                chunk_compressed.into(),
+                object_store::PutOptions {
+                    mode: object_store::PutMode::Create,
+                    ..Default::default()
+                },
+                crate::object_store_utils::PUT_NUM_RETRIES,
+                crate::object_store_utils::PUT_RETRY_DELAY,
+            )
+            .await;
 
-//             // Write an entry for this chunk: tag, chunk hash, chunk length
-//             writer.write_all(b"c").await?;
-//             writer.write_all(chunk_hash.as_bytes()).await?;
-//             writer.write_u64(chunk_length).await?;
-//         }
+            match result {
+                Ok(_) | Err(object_store::Error::AlreadyExists { .. }) => {
+                    // Chunk was created or already exists
+                }
+                Err(error) => {
+                    return Err(error.into());
+                }
+            }
 
-//         read_blobs_task.await??;
-//     } else {
-//         // Not much data for all the blobs, so append it directly to the
-//         // archive
+            // Write an entry for this chunk: tag, chunk hash, chunk length
+            writer.write_all(b"c").await?;
+            writer.write_all(chunk_hash.as_bytes()).await?;
+            writer.write_u64(chunk_length).await?;
+        }
 
-//         // Write an "inline data" tag. Following this will be the raw
-//         // blob data.
-//         writer.write_all(b"D").await?;
+        read_blobs_task.await??;
+    } else {
+        // Not much data for all the blobs, so append it directly to the
+        // archive
 
-//         // Write each blob to the archive, in order
-//         for (blob_hash, _) in blobs {
-//             let blob_path = crate::blob::local_blob_path(brioche, blob_hash);
-//             let mut blob_reader = tokio::fs::File::open(blob_path).await?;
+        // Write an "inline data" tag. Following this will be the raw
+        // blob data.
+        writer.write_all(b"D").await?;
 
-//             tokio::io::copy(&mut blob_reader, writer).await?;
-//         }
-//     }
+        // Write each blob to the archive, in order
+        for (blob_hash, _) in blobs {
+            let blob_path = crate::blob::local_blob_path(brioche, blob_hash);
+            let mut blob_reader = tokio::fs::File::open(blob_path).await?;
 
-//     Ok(())
-// }
+            tokio::io::copy(&mut blob_reader, writer).await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn write_path(
+    path: &ArtifactPath,
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
+) -> anyhow::Result<()> {
+    // Write the number of components, followed by each component
+    let num_components: u32 = path
+        .components
+        .len()
+        .try_into()
+        .context("too many path components")?;
+    writer.write_u32(num_components).await?;
+
+    for component in &path.components {
+        match component {
+            ArtifactPathComponent::DirectoryEntry(name) => {
+                let name_len: u16 = name
+                    .len()
+                    .try_into()
+                    .context("directory entry name too long")?;
+
+                // Write a directory entry component: tag, name length, name
+                writer.write_all(b"/").await?;
+                writer.write_u16(name_len).await?;
+                writer.write_all(name.as_slice()).await?;
+            }
+            ArtifactPathComponent::FileResources => {
+                // Write a "file resource" component: just the tag
+                writer.write_all(b"r").await?;
+            }
+        }
+    }
+
+    Ok(())
+}
 
 pub enum ArtifactNode {
     File {

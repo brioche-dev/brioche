@@ -16,7 +16,7 @@ mod object_store_utils;
 pub mod path;
 pub mod platform;
 pub mod projects;
-mod recipe;
+pub mod recipe;
 pub mod registry;
 pub mod reporter;
 mod script;

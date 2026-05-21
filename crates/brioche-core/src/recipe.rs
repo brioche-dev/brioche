@@ -445,6 +445,8 @@ pub enum CompressionFormat {
     Zstd,
 }
 
-pub async fn commit_recipes(brioche: &crate::Brioche) -> anyhow::Result<()> {
-    anyhow::bail!("to-do: persist recipes!!")
+#[expect(clippy::unused_async)]
+pub async fn commit_recipes(_brioche: &crate::Brioche) -> anyhow::Result<()> {
+    // TODO: Persist recipes!!
+    Ok(())
 }

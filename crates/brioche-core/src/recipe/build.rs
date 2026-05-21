@@ -126,10 +126,10 @@ pub struct ArtifactPath {
 }
 
 impl ArtifactPath {
-    // fn child(mut self, component: ArtifactPathComponent) -> Self {
-    //     self.components.push(component);
-    //     self
-    // }
+    pub fn child(mut self, component: ArtifactPathComponent) -> Self {
+        self.components.push(component);
+        self
+    }
 
     pub fn display_pretty(&self) -> String {
         let mut display_pretty = String::new();
@@ -146,6 +146,30 @@ impl ArtifactPath {
         }
 
         display_pretty
+    }
+}
+
+impl TryFrom<crate::path::RelativePath> for ArtifactPath {
+    type Error = ToArtifactPathError;
+
+    fn try_from(value: crate::path::RelativePath) -> Result<Self, Self::Error> {
+        let mut components = vec![];
+        for component in value.into_components() {
+            match component {
+                crate::path::RelativePathComponent::CurrentDir => {}
+                crate::path::RelativePathComponent::ParentDir => {
+                    let popped = components.pop();
+                    if popped.is_none() {
+                        return Err(ToArtifactPathError::SubpathEscapesTopLevel);
+                    }
+                }
+                crate::path::RelativePathComponent::Normal(bstring) => {
+                    components.push(ArtifactPathComponent::DirectoryEntry(bstring));
+                }
+            }
+        }
+
+        Ok(Self { components })
     }
 }
 
@@ -254,4 +278,10 @@ pub fn set_subtree(
             set_subtree(resources.as_mut(), rest, subtree)
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+pub enum ToArtifactPathError {
+    #[error("subpath escapes top-level path")]
+    SubpathEscapesTopLevel,
 }

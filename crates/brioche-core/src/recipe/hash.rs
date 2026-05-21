@@ -31,8 +31,7 @@ pub async fn hash_recipes(
     recipe_refs: impl IntoIterator<Item = RecipeRef>,
 ) -> HashMap<RecipeRef, RecipeHash> {
     let mut recipes = brioche.recipes.write().await;
-    let hashes = hash_recipes_within(&mut recipes, recipe_refs);
-    hashes
+    hash_recipes_within(&mut recipes, recipe_refs)
 }
 
 pub fn hash_recipes_within(
@@ -353,7 +352,10 @@ pub fn hash_recipes_within(
     }
 
     for recipe_ref in need_recipe_hashes {
-        result_recipe_hashes.insert(recipe_ref, recipes.recipe_hashes[&recipe_ref]);
+        let recipe_hash = *recipes.recipe_hashes.entry(recipe_ref).or_insert_with(|| {
+            content_addressed_recipe_hash(&recipes.content_addressed_recipes[&recipe_ref])
+        });
+        result_recipe_hashes.insert(recipe_ref, recipe_hash);
     }
 
     result_recipe_hashes

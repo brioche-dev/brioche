@@ -322,61 +322,61 @@ pub async fn load_artifact(
     Ok(Some(artifact))
 }
 
-// #[tracing::instrument(skip_all)]
-// pub async fn save_artifact(brioche: &Brioche, artifact: RecipeRef) -> anyhow::Result<bool> {
-//     let store = brioche.cache_client.writable_store()?;
+#[tracing::instrument(skip_all)]
+pub async fn save_artifact(brioche: &Brioche, artifact: RecipeRef) -> anyhow::Result<bool> {
+    let store = brioche.cache_client.writable_store()?;
 
-//     let artifact_hash = crate::recipe::hash::hash_recipe(brioche, artifact).await;
-//     let artifact_filename = format!("{artifact_hash}.bar.zst");
-//     let artifact_path = object_store::path::Path::from_iter(["artifacts", &artifact_filename]);
+    let artifact_hash = crate::recipe::hash::hash_recipe(brioche, artifact).await;
+    let artifact_filename = format!("{artifact_hash}.bar.zst");
+    let artifact_path = object_store::path::Path::from_iter(["artifacts", &artifact_filename]);
 
-//     // Check if the artifact already exists in the cache. If it does, we
-//     // can return early. Note that another process or machine may still
-//     // end up writing the artifact before we do, but this check helps us
-//     // avoid doing extra work.
-//     let existing_object = store.head(&artifact_path).await;
-//     match existing_object {
-//         Ok(_) => {
-//             // The artifact already exists in the cache
-//             return Ok(false);
-//         }
-//         Err(object_store::Error::NotFound { .. }) => {
-//             // The artifact doesn't exist, so we can create it
-//         }
-//         Err(error) => {
-//             return Err(error.into());
-//         }
-//     }
+    // Check if the artifact already exists in the cache. If it does, we
+    // can return early. Note that another process or machine may still
+    // end up writing the artifact before we do, but this check helps us
+    // avoid doing extra work.
+    let existing_object = store.head(&artifact_path).await;
+    match existing_object {
+        Ok(_) => {
+            // The artifact already exists in the cache
+            return Ok(false);
+        }
+        Err(object_store::Error::NotFound { .. }) => {
+            // The artifact doesn't exist, so we can create it
+        }
+        Err(error) => {
+            return Err(error.into());
+        }
+    }
 
-//     let mut archive_compressed = vec![];
-//     let mut archive_writer =
-//         async_compression::tokio::write::ZstdEncoder::new(&mut archive_compressed);
-//     archive::write_artifact_archive(brioche, artifact, &store, &mut archive_writer).await?;
-//     archive_writer.shutdown().await?;
+    let mut archive_compressed = vec![];
+    let mut archive_writer =
+        async_compression::tokio::write::ZstdEncoder::new(&mut archive_compressed);
+    archive::write_artifact_archive(brioche, artifact, &store, &mut archive_writer).await?;
+    archive_writer.shutdown().await?;
 
-//     let put_result = crate::object_store_utils::put_opts_with_retry(
-//         &store,
-//         &artifact_path,
-//         archive_compressed.into(),
-//         object_store::PutOptions {
-//             mode: object_store::PutMode::Create,
-//             ..Default::default()
-//         },
-//         crate::object_store_utils::PUT_NUM_RETRIES,
-//         crate::object_store_utils::PUT_RETRY_DELAY,
-//     )
-//     .await;
+    let put_result = crate::object_store_utils::put_opts_with_retry(
+        &store,
+        &artifact_path,
+        archive_compressed.into(),
+        object_store::PutOptions {
+            mode: object_store::PutMode::Create,
+            ..Default::default()
+        },
+        crate::object_store_utils::PUT_NUM_RETRIES,
+        crate::object_store_utils::PUT_RETRY_DELAY,
+    )
+    .await;
 
-//     let did_create = match put_result {
-//         Ok(_) => true,
-//         Err(object_store::Error::AlreadyExists { .. }) => false,
-//         Err(error) => {
-//             return Err(error.into());
-//         }
-//     };
+    let did_create = match put_result {
+        Ok(_) => true,
+        Err(object_store::Error::AlreadyExists { .. }) => false,
+        Err(error) => {
+            return Err(error.into());
+        }
+    };
 
-//     Ok(did_create)
-// }
+    Ok(did_create)
+}
 
 #[tracing::instrument(skip(brioche))]
 pub async fn load_project_artifact_hash(

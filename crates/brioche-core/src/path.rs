@@ -220,6 +220,10 @@ impl RelativePath {
         self.components.iter()
     }
 
+    pub fn into_components(self) -> impl Iterator<Item = RelativePathComponent> {
+        self.components.into_iter()
+    }
+
     #[must_use]
     pub fn parent_with_last_component(&self) -> Option<(Self, RelativePathComponent)> {
         let mut parent = self.clone();

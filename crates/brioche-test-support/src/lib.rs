@@ -1,14 +1,37 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use assert_matches::assert_matches;
 use brioche_core::{
-    Brioche,
+    Brioche, BriocheBuilder,
     path::AbsolutePath,
     projects::{ProjectRef, ProjectSpecifier, hash::ProjectHash},
 };
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
+    brioche_test_with(|builder| builder).await
+}
+
+pub async fn brioche_test_with_cache(
+    cache: Arc<dyn object_store::ObjectStore>,
+    writable: bool,
+) -> (Brioche, TestContext) {
+    brioche_test_with(|builder| {
+        builder.cache_client(brioche_core::cache::CacheClient {
+            store: Some(cache),
+            writable,
+            ..Default::default()
+        })
+    })
+    .await
+}
+
+pub async fn brioche_test_with(
+    f: impl FnOnce(BriocheBuilder) -> BriocheBuilder,
+) -> (Brioche, TestContext) {
     let _ = tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
@@ -31,15 +54,14 @@ pub async fn brioche_test() -> (Brioche, TestContext) {
         .await
         .expect("failed to create brioche data dir");
 
-    let brioche = Brioche::builder()
+    let builder = Brioche::builder()
         .reporter(reporter)
         .config(brioche_core::config::BriocheConfig::default())
         .cache_client(brioche_core::cache::CacheClient::default())
         .data_dir(&brioche_data_dir)
-        .registry_url(registry_server.url().parse().unwrap())
-        .build()
-        .await
-        .unwrap();
+        .registry_url(registry_server.url().parse().unwrap());
+    let builder = f(builder);
+    let brioche = builder.build().await.unwrap();
     let context = TestContext {
         temp,
         registry_server,
@@ -82,6 +104,11 @@ pub fn take_where<T>(items: &mut Vec<T>, mut predicate: impl FnMut(&T) -> bool) 
         .find_map(|(index, item)| if predicate(item) { Some(index) } else { None })
         .expect("no item found matching predicate");
     items.remove(index)
+}
+
+#[must_use]
+pub fn new_cache() -> Arc<dyn object_store::ObjectStore> {
+    Arc::new(object_store::memory::InMemory::new())
 }
 
 pub struct TestContext {
@@ -175,6 +202,7 @@ impl TestContext {
 
     pub async fn temp_project_by_path(
         &self,
+        brioche: &Brioche,
         f: impl AsyncFnOnce(&Self) -> PathBuf,
     ) -> (ProjectRef, PathBuf) {
         let temp_project_path = f(self).await;
@@ -184,11 +212,9 @@ impl TestContext {
             .unwrap();
         let specifier = ProjectSpecifier::Path(project_dir);
 
-        let (temp_brioche, _temp_context) = brioche_test().await;
-        let mut refs =
-            brioche_core::projects::load::load_projects(&temp_brioche, [specifier.clone()])
-                .await
-                .unwrap();
+        let mut refs = brioche_core::projects::load::load_projects(&brioche, [specifier.clone()])
+            .await
+            .unwrap();
         let project_ref = refs.remove(&specifier).unwrap();
 
         (project_ref, temp_project_path)
@@ -214,67 +240,64 @@ impl TestContext {
         (project_hash, project_path)
     }
 
-    // pub async fn cached_registry_project(
-    //     &mut self,
-    //     cache: &Arc<dyn object_store::ObjectStore>,
-    //     f: impl AsyncFnOnce(PathBuf),
-    // ) -> ProjectHash {
-    //     self.cached_registry_project_by_path(cache, async |context| {
-    //         let temp_project_path = context
-    //             .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
-    //             .await;
-    //         f(temp_project_path.clone()).await;
-    //         temp_project_path
-    //     })
-    //     .await
-    // }
+    pub async fn cached_registry_project(
+        &mut self,
+        cache: &Arc<dyn object_store::ObjectStore>,
+        f: impl AsyncFnOnce(PathBuf),
+    ) -> ProjectHash {
+        self.cached_registry_project_by_path(cache, async |context| {
+            let temp_project_path = context
+                .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
+                .await;
+            f(temp_project_path.clone()).await;
+            temp_project_path
+        })
+        .await
+    }
 
-    // pub async fn cached_registry_project_by_path(
-    //     &mut self,
-    //     cache: &Arc<dyn object_store::ObjectStore>,
-    //     f: impl AsyncFnOnce(&Self) -> PathBuf,
-    // ) -> ProjectHash {
-    //     // Create a temporary test context so the project does not get
-    //     // loaded into the current context. We still use the current context
-    //     // to create the mocks
-    //     let (brioche, context) = brioche_test_with({
-    //         let cache = cache.clone();
-    //         |builder| {
-    //             builder
-    //                 .registry_client(self.brioche.registry_client.clone())
-    //                 .cache_client(brioche_core::cache::CacheClient {
-    //                     store: Some(cache),
-    //                     writable: true,
-    //                     ..Default::default()
-    //                 })
-    //         }
-    //     })
-    //     .await;
+    pub async fn cached_registry_project_by_path(
+        &mut self,
+        cache: &Arc<dyn object_store::ObjectStore>,
+        f: impl AsyncFnOnce(&Self) -> PathBuf,
+    ) -> ProjectHash {
+        // Create a temporary test context so the project does not get
+        // loaded into the current context
+        let (temp_brioche, temp_context) = brioche_test_with({
+            let cache = cache.clone();
+            |builder| {
+                builder.cache_client(brioche_core::cache::CacheClient {
+                    store: Some(cache),
+                    writable: true,
+                    ..Default::default()
+                })
+            }
+        })
+        .await;
 
-    //     let (projects, project_hash, _) = context.temp_project_by_path(f).await;
+        let (project_ref, _) = temp_context.temp_project_by_path(&temp_brioche, f).await;
 
-    //     let project_artifact = brioche_core::project::artifact::create_artifact_with_projects(
-    //         &brioche,
-    //         &projects,
-    //         &[project_hash],
-    //     )
-    //     .await
-    //     .expect("failed to create artifact for project");
-    //     let project_artifact = brioche_core::recipe::Artifact::Directory(project_artifact);
-    //     let project_artifact_hash = project_artifact.hash();
-    //     brioche_core::cache::save_artifact(&brioche, project_artifact)
-    //         .await
-    //         .expect("failed to save artifact to cache");
-    //     brioche_core::cache::save_project_artifact_hash(
-    //         &brioche,
-    //         project_hash,
-    //         project_artifact_hash,
-    //     )
-    //     .await
-    //     .expect("failed to save project artifact hash to cache");
+        let project_hash = brioche_core::projects::hash::hash_project(&temp_brioche, project_ref)
+            .await
+            .unwrap();
+        let project_artifact =
+            brioche_core::projects::artifact::create_project_artifact(&temp_brioche, project_ref)
+                .await
+                .expect("failed to create artifact for project");
+        let project_artifact_hash =
+            brioche_core::recipe::hash::hash_recipe(&temp_brioche, project_artifact).await;
+        brioche_core::cache::save_artifact(&temp_brioche, project_artifact)
+            .await
+            .expect("failed to save artifact to cache");
+        brioche_core::cache::save_project_artifact_hash(
+            &temp_brioche,
+            project_hash,
+            project_artifact_hash,
+        )
+        .await
+        .expect("failed to save project artifact hash to cache");
 
-    //     project_hash
-    // }
+        project_hash
+    }
 
     #[must_use]
     pub fn mock_registry_publish_tag(
