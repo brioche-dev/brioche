@@ -33,6 +33,13 @@ impl ArtifactBuilder {
             entries: HashMap::new(),
         }
     }
+
+    pub fn is_empty_dir(&self) -> bool {
+        match self {
+            Self::Directory { entries } => entries.values().all(Option::is_none),
+            _ => false,
+        }
+    }
 }
 
 /// Build the final `Artifact` from the partial builder tree, resolving
@@ -61,10 +68,17 @@ fn build_artifact_node(
             content_blob,
             resources,
         } => {
-            let resources = (**resources)
+            let resources = resources
                 .as_ref()
+                .as_ref()
+                .filter(|resources| resources.is_empty_dir());
+            let resources = resources
                 .map(|resources| build_artifact_node(resources, root, memo, recipes))
                 .transpose()?;
+            let resources = resources.filter(|resources| {
+                let resources = recipes.get_recipe(*resources);
+                !resources.is_empty_dir()
+            });
             let artifact = Recipe::File(crate::recipe::File {
                 content_blob: *content_blob,
                 executable: *executable,

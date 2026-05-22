@@ -167,6 +167,13 @@ impl Recipe {
         }
     }
 
+    pub fn is_empty_dir(&self) -> bool {
+        match self {
+            Self::Directory(directory) => directory.entries.is_empty(),
+            _ => false,
+        }
+    }
+
     fn push_recipe_refs(&self, recipe_refs: &mut Vec<RecipeRef>) {
         match self {
             Self::File(file) => {
