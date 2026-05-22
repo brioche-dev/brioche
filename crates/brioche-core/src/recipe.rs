@@ -12,6 +12,7 @@ use crate::{
     recipe::graph::{RecipeGraphEdge, RecipeGraphNode},
 };
 
+pub mod build;
 mod graph;
 pub mod hash;
 

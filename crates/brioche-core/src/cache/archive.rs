@@ -23,7 +23,13 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use crate::{
     Brioche,
     blob::{BlobHash, SaveBlobOptions},
-    recipe::{Artifact, Recipe, RecipeHash, RecipeRef, Recipes, Symlink},
+    recipe::{
+        Artifact, Recipe, RecipeHash, RecipeRef, Recipes, Symlink,
+        build::{
+            ArtifactBuilder, ArtifactPath, ArtifactPathComponent, build_artifact,
+            insert_into_artifact, set_subtree,
+        },
+    },
     reporter::{
         JobId,
         job::{CacheFetchKind, NewJob, UpdateJob},
@@ -250,82 +256,7 @@ const CDC_MAX_CHUNK_SIZE: usize = 8_388_608;
 //     Ok(())
 // }
 
-#[derive(Debug, Clone, Default)]
-pub struct ArtifactPath {
-    pub components: Vec<ArtifactPathComponent>,
-}
-
-impl ArtifactPath {
-    fn child(mut self, component: ArtifactPathComponent) -> Self {
-        self.components.push(component);
-        self
-    }
-
-    fn display_pretty(&self) -> String {
-        let mut display_pretty = String::new();
-        for component in &self.components {
-            match component {
-                ArtifactPathComponent::DirectoryEntry(name) => {
-                    display_pretty.push('/');
-                    display_pretty.push_str(&urlencoding::encode_binary(name));
-                }
-                ArtifactPathComponent::FileResources => {
-                    display_pretty.push('$');
-                }
-            }
-        }
-
-        display_pretty
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ArtifactPathComponent {
-    DirectoryEntry(bstr::BString),
-    FileResources,
-}
-
-async fn write_path(
-    path: &ArtifactPath,
-    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
-) -> anyhow::Result<()> {
-    // Write the number of components, followed by each component
-    let num_components: u32 = path
-        .components
-        .len()
-        .try_into()
-        .context("too many path components")?;
-    writer.write_u32(num_components).await?;
-
-    for component in &path.components {
-        match component {
-            ArtifactPathComponent::DirectoryEntry(name) => {
-                let name_len: u16 = name
-                    .len()
-                    .try_into()
-                    .context("directory entry name too long")?;
-
-                // Write a directory entry component: tag, name length, name
-                writer.write_all(b"/").await?;
-                writer.write_u16(name_len).await?;
-                writer.write_all(name.as_slice()).await?;
-            }
-            ArtifactPathComponent::FileResources => {
-                // Write a "file resource" component: just the tag
-                writer.write_all(b"r").await?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
-struct ArtifactEntry {
-    path: ArtifactPath,
-    node: ArtifactNode,
-}
-
-enum ArtifactNode {
+pub enum ArtifactNode {
     File {
         executable: bool,
         content_blob: BlobHash,
@@ -334,6 +265,11 @@ enum ArtifactNode {
         target: bstr::BString,
     },
     Directory,
+}
+
+struct ArtifactEntry {
+    path: ArtifactPath,
+    node: ArtifactNode,
 }
 
 pub enum DataEntry {
@@ -735,7 +671,12 @@ pub async fn read_artifact_archive(
 
     let mut result: Option<ArtifactBuilder> = None;
     for entry in entries {
-        insert_into_artifact(&mut result, &entry.path, &entry.path.components, entry.node)?;
+        insert_into_artifact(
+            &mut result,
+            &entry.path,
+            &entry.path.components,
+            artifact_builder_from_node(entry.node),
+        )?;
     }
 
     // Record each reference as a placeholder in the tree. Sources are
@@ -916,220 +857,23 @@ async fn fetch_blobs_from_chunks(
     Ok(())
 }
 
-fn insert_into_artifact(
-    container: &mut Option<ArtifactBuilder>,
-    full_path: &ArtifactPath,
-    components: &[ArtifactPathComponent],
-    artifact: ArtifactNode,
-) -> anyhow::Result<()> {
-    match components {
-        [] => {
-            anyhow::ensure!(
-                container.is_none(),
-                "archive entry tried to override path {:?}",
-                full_path.display_pretty()
-            );
-            *container = Some(ArtifactBuilder::from_node(artifact));
-        }
-        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
-            let container = container.get_or_insert_with(ArtifactBuilder::empty_dir);
-            let ArtifactBuilder::Directory { entries } = container else {
-                anyhow::bail!(
-                    "path {:?} descends into non-directory",
-                    full_path.display_pretty()
-                );
-            };
-            let entry = entries.entry(name.to_owned()).or_default();
-            insert_into_artifact(entry, full_path, rest, artifact)?;
-        }
-        [ArtifactPathComponent::FileResources, rest @ ..] => {
-            let Some(container) = container else {
-                anyhow::bail!(
-                    "path {:?} tried to add resource to a file that doesn't exist",
-                    full_path.display_pretty()
-                );
-            };
-            let ArtifactBuilder::File { resources, .. } = container else {
-                anyhow::bail!(
-                    "path {:?} tried to add resource to a non-file",
-                    full_path.display_pretty()
-                );
-            };
-
-            insert_into_artifact(resources.as_mut(), full_path, rest, artifact)?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Get a reference to a subtree at the given path components.
-fn get_subtree<'a>(
-    container: Option<&'a ArtifactBuilder>,
-    components: &[ArtifactPathComponent],
-) -> Option<&'a ArtifactBuilder> {
-    match components {
-        [] => container,
-        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
-            let ArtifactBuilder::Directory { entries } = container.as_ref()? else {
-                return None;
-            };
-            let entry = entries.get(name)?;
-            get_subtree(entry.as_ref(), rest)
-        }
-        [ArtifactPathComponent::FileResources, rest @ ..] => {
-            let ArtifactBuilder::File { resources, .. } = container.as_ref()? else {
-                return None;
-            };
-            get_subtree(resources.as_ref().as_ref(), rest)
-        }
-    }
-}
-
-/// Set a subtree at the given path components.
-fn set_subtree(
-    container: &mut Option<ArtifactBuilder>,
-    components: &[ArtifactPathComponent],
-    subtree: ArtifactBuilder,
-) -> anyhow::Result<()> {
-    match components {
-        [] => {
-            *container = Some(subtree);
-            Ok(())
-        }
-        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
-            let container = container.get_or_insert_with(ArtifactBuilder::empty_dir);
-            let ArtifactBuilder::Directory { entries } = container else {
-                anyhow::bail!("tried to descend into non-directory");
-            };
-            let entry = entries.entry(name.to_owned()).or_default();
-            set_subtree(entry, rest, subtree)
-        }
-        [ArtifactPathComponent::FileResources, rest @ ..] => {
-            let Some(container) = container else {
-                anyhow::bail!("tried to set resources on non-existent file");
-            };
-            let ArtifactBuilder::File { resources, .. } = container else {
-                anyhow::bail!("tried to set resources on non-file");
-            };
-            set_subtree(resources.as_mut(), rest, subtree)
-        }
-    }
-}
-
-enum ArtifactBuilder {
-    File {
-        executable: bool,
-        content_blob: BlobHash,
-        resources: Box<Option<Self>>,
-    },
-    Symlink {
-        target: bstr::BString,
-    },
-    Directory {
-        entries: HashMap<bstr::BString, Option<Self>>,
-    },
-    Reference {
-        source_path: ArtifactPath,
-    },
-}
-
-impl ArtifactBuilder {
-    fn from_node(node: ArtifactNode) -> Self {
-        match node {
-            ArtifactNode::File {
-                executable,
-                content_blob,
-            } => Self::File {
-                executable,
-                content_blob,
-                resources: Box::new(Some(Self::Directory {
-                    entries: HashMap::new(),
-                })),
-            },
-            ArtifactNode::Symlink { target } => Self::Symlink { target },
-            ArtifactNode::Directory => Self::Directory {
-                entries: HashMap::new(),
-            },
-        }
-    }
-
-    fn empty_dir() -> Self {
-        Self::Directory {
-            entries: HashMap::new(),
-        }
-    }
-}
-
-/// Build the final `Artifact` from the partial builder tree, resolving
-/// `Reference` placeholders against the same tree.
-fn build_artifact(root: &ArtifactBuilder, recipes: &mut Recipes) -> anyhow::Result<RecipeRef> {
-    // Identity-keyed memo so each unique subtree converts to an `Artifact`
-    // exactly once, regardless of how many references resolve to it.
-    let mut memo = HashMap::new();
-    build_artifact_node(root, root, &mut memo, recipes)
-}
-
-fn build_artifact_node(
-    node: &ArtifactBuilder,
-    root: &ArtifactBuilder,
-    memo: &mut HashMap<usize, RecipeRef>,
-    recipes: &mut Recipes,
-) -> anyhow::Result<RecipeRef> {
-    let key = std::ptr::from_ref(node).addr();
-    if let Some(cached) = memo.get(&key) {
-        return Ok(cached.clone());
-    }
-
-    let recipe_ref = match node {
-        ArtifactBuilder::File {
+fn artifact_builder_from_node(node: ArtifactNode) -> ArtifactBuilder {
+    match node {
+        ArtifactNode::File {
             executable,
             content_blob,
-            resources,
-        } => {
-            let resources = (**resources)
-                .as_ref()
-                .map(|resources| build_artifact_node(resources, root, memo, recipes))
-                .transpose()?;
-            let artifact = Recipe::File(crate::recipe::File {
-                content_blob: *content_blob,
-                executable: *executable,
-                resources,
-            });
-            recipes.insert_recipe(Arc::new(artifact))
-        }
-        ArtifactBuilder::Symlink { target } => {
-            let artifact = Recipe::Symlink(Symlink {
-                target: target.clone(),
-            });
-            recipes.insert_recipe(Arc::new(artifact))
-        }
-        ArtifactBuilder::Directory { entries } => {
-            let entries = entries
-                .iter()
-                .filter_map(|(name, entry)| Some((name, entry.as_ref()?)))
-                .map(|(name, entry)| {
-                    let entry = build_artifact_node(entry, root, memo, recipes)?;
-                    Ok((name.clone(), entry))
-                })
-                .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
-            let artifact = Recipe::Directory(crate::recipe::Directory { entries });
-            recipes.insert_recipe(Arc::new(artifact))
-        }
-        ArtifactBuilder::Reference { source_path } => {
-            let source_node =
-                get_subtree(Some(root), &source_path.components).with_context(|| {
-                    format!(
-                        "reference source path {:?} not found",
-                        source_path.display_pretty()
-                    )
-                })?;
-            build_artifact_node(source_node, root, memo, recipes)?
-        }
-    };
-
-    memo.insert(key, recipe_ref.clone());
-    Ok(recipe_ref)
+        } => ArtifactBuilder::File {
+            executable,
+            content_blob,
+            resources: Box::new(Some(ArtifactBuilder::Directory {
+                entries: HashMap::new(),
+            })),
+        },
+        ArtifactNode::Symlink { target } => ArtifactBuilder::Symlink { target },
+        ArtifactNode::Directory => ArtifactBuilder::Directory {
+            entries: HashMap::new(),
+        },
+    }
 }
 
 enum BlobsFetch {

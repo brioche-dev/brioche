@@ -1,0 +1,243 @@
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
+
+use anyhow::Context as _;
+
+use crate::{
+    blob::BlobHash,
+    recipe::{Recipe, RecipeRef, Recipes, Symlink},
+};
+
+pub enum ArtifactBuilder {
+    File {
+        executable: bool,
+        content_blob: BlobHash,
+        resources: Box<Option<Self>>,
+    },
+    Symlink {
+        target: bstr::BString,
+    },
+    Directory {
+        entries: HashMap<bstr::BString, Option<Self>>,
+    },
+    Reference {
+        source_path: ArtifactPath,
+    },
+}
+
+impl ArtifactBuilder {
+    pub fn empty_dir() -> Self {
+        Self::Directory {
+            entries: HashMap::new(),
+        }
+    }
+}
+
+/// Build the final `Artifact` from the partial builder tree, resolving
+/// `Reference` placeholders against the same tree.
+pub fn build_artifact(root: &ArtifactBuilder, recipes: &mut Recipes) -> anyhow::Result<RecipeRef> {
+    // Identity-keyed memo so each unique subtree converts to an `Artifact`
+    // exactly once, regardless of how many references resolve to it.
+    let mut memo = HashMap::new();
+    build_artifact_node(root, root, &mut memo, recipes)
+}
+
+fn build_artifact_node(
+    node: &ArtifactBuilder,
+    root: &ArtifactBuilder,
+    memo: &mut HashMap<usize, RecipeRef>,
+    recipes: &mut Recipes,
+) -> anyhow::Result<RecipeRef> {
+    let key = std::ptr::from_ref(node).addr();
+    if let Some(cached) = memo.get(&key) {
+        return Ok(*cached);
+    }
+
+    let recipe_ref = match node {
+        ArtifactBuilder::File {
+            executable,
+            content_blob,
+            resources,
+        } => {
+            let resources = (**resources)
+                .as_ref()
+                .map(|resources| build_artifact_node(resources, root, memo, recipes))
+                .transpose()?;
+            let artifact = Recipe::File(crate::recipe::File {
+                content_blob: *content_blob,
+                executable: *executable,
+                resources,
+            });
+            recipes.insert_recipe(Arc::new(artifact))
+        }
+        ArtifactBuilder::Symlink { target } => {
+            let artifact = Recipe::Symlink(Symlink {
+                target: target.clone(),
+            });
+            recipes.insert_recipe(Arc::new(artifact))
+        }
+        ArtifactBuilder::Directory { entries } => {
+            let entries = entries
+                .iter()
+                .filter_map(|(name, entry)| Some((name, entry.as_ref()?)))
+                .map(|(name, entry)| {
+                    let entry = build_artifact_node(entry, root, memo, recipes)?;
+                    Ok((name.clone(), entry))
+                })
+                .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
+            let artifact = Recipe::Directory(crate::recipe::Directory { entries });
+            recipes.insert_recipe(Arc::new(artifact))
+        }
+        ArtifactBuilder::Reference { source_path } => {
+            let source_node =
+                get_subtree(Some(root), &source_path.components).with_context(|| {
+                    format!(
+                        "reference source path {:?} not found",
+                        source_path.display_pretty()
+                    )
+                })?;
+            build_artifact_node(source_node, root, memo, recipes)?
+        }
+    };
+
+    memo.insert(key, recipe_ref);
+    Ok(recipe_ref)
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ArtifactPath {
+    pub components: Vec<ArtifactPathComponent>,
+}
+
+impl ArtifactPath {
+    // fn child(mut self, component: ArtifactPathComponent) -> Self {
+    //     self.components.push(component);
+    //     self
+    // }
+
+    pub fn display_pretty(&self) -> String {
+        let mut display_pretty = String::new();
+        for component in &self.components {
+            match component {
+                ArtifactPathComponent::DirectoryEntry(name) => {
+                    display_pretty.push('/');
+                    display_pretty.push_str(&urlencoding::encode_binary(name));
+                }
+                ArtifactPathComponent::FileResources => {
+                    display_pretty.push('$');
+                }
+            }
+        }
+
+        display_pretty
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ArtifactPathComponent {
+    DirectoryEntry(bstr::BString),
+    FileResources,
+}
+
+pub fn insert_into_artifact(
+    container: &mut Option<ArtifactBuilder>,
+    full_path: &ArtifactPath,
+    components: &[ArtifactPathComponent],
+    artifact: ArtifactBuilder,
+) -> anyhow::Result<()> {
+    match components {
+        [] => {
+            anyhow::ensure!(
+                container.is_none(),
+                "archive entry tried to override path {:?}",
+                full_path.display_pretty()
+            );
+            *container = Some(artifact);
+        }
+        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
+            let container = container.get_or_insert_with(ArtifactBuilder::empty_dir);
+            let ArtifactBuilder::Directory { entries } = container else {
+                anyhow::bail!(
+                    "path {:?} descends into non-directory",
+                    full_path.display_pretty()
+                );
+            };
+            let entry = entries.entry(name.to_owned()).or_default();
+            insert_into_artifact(entry, full_path, rest, artifact)?;
+        }
+        [ArtifactPathComponent::FileResources, rest @ ..] => {
+            let Some(container) = container else {
+                anyhow::bail!(
+                    "path {:?} tried to add resource to a file that doesn't exist",
+                    full_path.display_pretty()
+                );
+            };
+            let ArtifactBuilder::File { resources, .. } = container else {
+                anyhow::bail!(
+                    "path {:?} tried to add resource to a non-file",
+                    full_path.display_pretty()
+                );
+            };
+
+            insert_into_artifact(resources.as_mut(), full_path, rest, artifact)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Get a reference to a subtree at the given path components.
+fn get_subtree<'a>(
+    container: Option<&'a ArtifactBuilder>,
+    components: &[ArtifactPathComponent],
+) -> Option<&'a ArtifactBuilder> {
+    match components {
+        [] => container,
+        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
+            let ArtifactBuilder::Directory { entries } = container.as_ref()? else {
+                return None;
+            };
+            let entry = entries.get(name)?;
+            get_subtree(entry.as_ref(), rest)
+        }
+        [ArtifactPathComponent::FileResources, rest @ ..] => {
+            let ArtifactBuilder::File { resources, .. } = container.as_ref()? else {
+                return None;
+            };
+            get_subtree(resources.as_ref().as_ref(), rest)
+        }
+    }
+}
+
+/// Set a subtree at the given path components.
+pub fn set_subtree(
+    container: &mut Option<ArtifactBuilder>,
+    components: &[ArtifactPathComponent],
+    subtree: ArtifactBuilder,
+) -> anyhow::Result<()> {
+    match components {
+        [] => {
+            *container = Some(subtree);
+            Ok(())
+        }
+        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
+            let container = container.get_or_insert_with(ArtifactBuilder::empty_dir);
+            let ArtifactBuilder::Directory { entries } = container else {
+                anyhow::bail!("tried to descend into non-directory");
+            };
+            let entry = entries.entry(name.to_owned()).or_default();
+            set_subtree(entry, rest, subtree)
+        }
+        [ArtifactPathComponent::FileResources, rest @ ..] => {
+            let Some(container) = container else {
+                anyhow::bail!("tried to set resources on non-existent file");
+            };
+            let ArtifactBuilder::File { resources, .. } = container else {
+                anyhow::bail!("tried to set resources on non-file");
+            };
+            set_subtree(resources.as_mut(), rest, subtree)
+        }
+    }
+}
