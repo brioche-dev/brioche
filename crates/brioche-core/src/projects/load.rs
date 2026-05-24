@@ -314,9 +314,9 @@ pub async fn load_projects(
                                     range: Some(import.range),
                                 };
                                 let issues = projects.issues.entry(project_ref.0).or_default();
-                                let resolved = resolve_project(
+                                let resolved_dep = resolve_project_dependency(
                                     brioche,
-                                    &mut ResolveProjectContext {
+                                    &mut ResolveProjectDependencyContext {
                                         project_path: &project_path,
                                         project_definition: &project_definition,
                                         workspace,
@@ -330,9 +330,9 @@ pub async fn load_projects(
                                 )
                                 .await;
 
-                                if let Some(resolved) = resolved {
+                                if let Some(resolved_dep) = resolved_dep {
                                     queue.push_back((
-                                        resolved,
+                                        resolved_dep,
                                         ProjectReferrer::Project {
                                             referrer: project_ref,
                                             edge: ProjectEdge::ProjectDependency(specifier.clone()),
@@ -409,9 +409,9 @@ pub async fn load_projects(
 
         for specifier in project_definition.dependencies.keys() {
             let issues = projects.issues.entry(project_ref.0).or_default();
-            let resolved = resolve_project(
+            let resolved_dep = resolve_project_dependency(
                 brioche,
-                &mut ResolveProjectContext {
+                &mut ResolveProjectDependencyContext {
                     project_path: &project_path,
                     project_definition: &project_definition,
                     workspace,
@@ -425,9 +425,9 @@ pub async fn load_projects(
             )
             .await;
 
-            if let Some(resolved) = resolved {
+            if let Some(resolved_dep) = resolved_dep {
                 queue.push_back((
-                    resolved,
+                    resolved_dep,
                     ProjectReferrer::Project {
                         referrer: project_ref,
                         edge: ProjectEdge::ProjectDependency(specifier.clone()),
@@ -670,7 +670,7 @@ fn expand_module_subpath(subpath: RelativePath) -> RelativePath {
     }
 }
 
-struct ResolveProjectContext<'a> {
+struct ResolveProjectDependencyContext<'a> {
     project_path: &'a AbsolutePath,
     project_definition: &'a ProjectDefinition,
     workspace: Option<&'a Workspace>,
@@ -680,9 +680,9 @@ struct ResolveProjectContext<'a> {
     new_lockfile: &'a mut Lockfile,
 }
 
-async fn resolve_project(
+async fn resolve_project_dependency(
     brioche: &Brioche,
-    ctx: &mut ResolveProjectContext<'_>,
+    ctx: &mut ResolveProjectDependencyContext<'_>,
     specifier: &str,
     location: ProjectIssueLocation,
 ) -> Option<ProjectSpecifier> {
@@ -751,7 +751,7 @@ async fn resolve_project(
 }
 
 async fn resolve_project_from_workspace(
-    ctx: &mut ResolveProjectContext<'_>,
+    ctx: &mut ResolveProjectDependencyContext<'_>,
     specifier: &str,
     location: &ProjectIssueLocation,
 ) -> Option<ProjectSpecifier> {
