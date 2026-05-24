@@ -44,7 +44,7 @@ jobs:
       - name: Check Clippy
         run: cargo clippy --all -- -Dwarnings
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version-file: crates/brioche-core/runtime/.nvmrc
       - name: Install runtime distribution packages
