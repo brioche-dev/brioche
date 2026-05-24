@@ -135,7 +135,7 @@ impl BriocheModuleLoader {
         &self,
         specifier: &str,
         referrer: &str,
-        kind: &deno_core::ResolutionKind,
+        kind: deno_core::ResolutionKind,
     ) -> anyhow::Result<deno_core::ModuleSpecifier> {
         if matches!(kind, deno_core::ResolutionKind::MainModule) {
             let resolved = specifier.parse()?;
@@ -164,7 +164,7 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         referrer: &str,
         kind: deno_core::ResolutionKind,
     ) -> Result<deno_core::ModuleSpecifier, deno_core::error::ModuleLoaderError> {
-        self.resolve_module(specifier, referrer, &kind)
+        self.resolve_module(specifier, referrer, kind)
             .map_err(|error| AnyError(error).into())
     }
 
