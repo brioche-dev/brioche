@@ -1,4 +1,4 @@
-import * as ts from "typescript";
+import ts from "typescript";
 import * as eslint from "eslint";
 import { TS_CONFIG, DEFAULT_LIB_URL, toTsUrl, fromTsUrl, readFile, fileExists, resolveModule } from "./ts-common.ts";
 import { buildEslintConfig } from "./eslint-common.ts";
@@ -114,7 +114,6 @@ function eslintLevel(severity: eslint.Linter.Severity): DiagnosticLevel | undefi
     case 1:
       return "warning";
     case 2:
-    default:
       return "error";
   }
 }

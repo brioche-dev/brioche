@@ -3,26 +3,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "node --loader=ts-node/esm build.ts",
+    "build": "node build.ts",
     "check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/eslint": "^9.6.1",
-    "esbuild": "^0.27.1",
-    "esbuild-plugin-alias-path": "^2.0.2"
+    "esbuild": "^0.28.0"
   },
   "dependencies": {
-    "@typescript-eslint/eslint-plugin": "^8.50.0",
-    "@typescript-eslint/parser": "^8.50.0",
-    "buffer": "^6.0.3",
-    "crypto-browserify": "^3.12.1",
-    "eslint": "^9.39.2",
-    "events": "^3.3.0",
-    "os-browserify": "^0.3.0",
-    "stream-browserify": "^3.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3",
-    "url": "^0.11.4",
-    "vscode-languageserver": "^9.0.1"
+    "@typescript-eslint/eslint-plugin": "^8.59.4",
+    "@typescript-eslint/parser": "^8.59.4",
+    "eslint": "^10.4.0",
+    "typescript": "^6.0.3",
+    "vscode-languageserver-protocol": "^3.17.5"
   }
 }

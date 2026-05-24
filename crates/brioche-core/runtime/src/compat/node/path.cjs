@@ -104,8 +104,6 @@ const pathExports = {
     parse,
 };
 
-// Support both default and named exports
-pathExports.default = pathExports;
 pathExports.posix = pathExports;
 
 module.exports = pathExports;
