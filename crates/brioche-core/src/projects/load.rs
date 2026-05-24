@@ -26,6 +26,7 @@ pub async fn load_projects(
         .collect::<VecDeque<_>>();
     let mut projects = brioche.projects.write().await;
     let projects = &mut *projects;
+    let mut project_hashes_to_validate = HashMap::new();
     let mut results = HashMap::new();
 
     while let Some((specifier, referrer)) = queue.pop_front() {
@@ -62,6 +63,8 @@ pub async fn load_projects(
                 (path.clone(), workspace_root)
             }
             ProjectSpecifier::Hash(project_hash) => {
+                project_hashes_to_validate.insert(project_ref, *project_hash);
+
                 match load_project_by_hash(brioche, *project_hash).await {
                     Ok((path, workspace_root)) => (path, workspace_root),
                     Err(error) => {
@@ -449,6 +452,57 @@ pub async fn load_projects(
             .insert(project_ref, project_modules);
     }
 
+    // Skip project hash validation for any projects that already had
+    // other issues
+    project_hashes_to_validate.retain(|project_ref, _| {
+        projects
+            .issues
+            .get(&project_ref.0)
+            .is_none_or(|issues| issues.is_empty())
+    });
+
+    if !project_hashes_to_validate.is_empty() {
+        // Create a copy of the graph, but keeping only project nodes to
+        // validate
+        let mut graph = projects.graph.clone();
+        let mut dfs_space = petgraph::algo::DfsSpace::default();
+        graph.retain_nodes(|graph, index| match &graph[index] {
+            crate::projects::ProjectNode::Project => {
+                project_hashes_to_validate.keys().any(|project_ref| {
+                    petgraph::algo::has_path_connecting(
+                        &*graph,
+                        project_ref.0,
+                        index,
+                        Some(&mut dfs_space),
+                    )
+                })
+            }
+            crate::projects::ProjectNode::Workspace | crate::projects::ProjectNode::Module => false,
+        });
+
+        // Group nodes by finding the strongly-connected components of the graph.
+        // This effectively finds cyclic projects in the graph that we should
+        // group together, and puts acyclic projects into a group of one element.
+        // The result is additionally topographically sorted, so every project
+        // naturally comes after all of its dependencies
+        let node_groups = petgraph::algo::tarjan_scc(&graph);
+
+        let mut project_hashes = HashMap::new();
+        crate::projects::hash::hash_projects_inner(projects, &node_groups, &mut project_hashes);
+
+        for (project_ref, expected_hash) in project_hashes_to_validate {
+            let actual_hash = project_hashes[&project_ref];
+            if expected_hash != actual_hash {
+                projects.issues.entry(project_ref.0).or_default().push(
+                    ProjectIssue::ProjectHashMismatch {
+                        expected_hash,
+                        actual_hash,
+                    },
+                )
+            }
+        }
+    }
+
     Ok(results)
 }
 
@@ -641,20 +695,21 @@ async fn load_project_by_hash(
         error_message: "no artifact found for project in cache".to_string(),
     })?;
 
-    let saved_projects = super::artifact::save_projects_from_artifact(brioche, artifact_ref)
+    let mut saved_projects = super::artifact::save_projects_from_artifact(brioche, artifact_ref)
         .await
         .map_err(|error| ProjectIssue::CacheError {
             error_message: error.to_string(),
         })?;
-    if !saved_projects.contains(&project_hash) {
+    let Some(project_path) = saved_projects.remove(&project_hash) else {
         return Err(ProjectIssue::CacheError {
             error_message: format!(
                 "artifact for project found in cache, but it did not contain the project {project_hash}"
             ),
         });
-    }
+    };
 
-    todo!();
+    // TODO: Workspace!
+    Ok((project_path, None))
 }
 
 fn expand_module_subpath(subpath: RelativePath) -> RelativePath {

@@ -5,6 +5,7 @@ use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
 use crate::{
     Brioche,
     path::{AbsolutePath, AnyPath, RelativePath},
+    projects::hash::ProjectHash,
     registry::RegistryError,
     script::specifier::ImportSpecifier,
 };
@@ -297,6 +298,12 @@ pub enum ProjectIssue {
         error_message: String,
     },
 
+    #[error("expected project with hash {expected_hash}, but got {actual_hash}")]
+    ProjectHashMismatch {
+        expected_hash: ProjectHash,
+        actual_hash: ProjectHash,
+    },
+
     #[error("invalid path '{path}': {error}")]
     ToSystemPathError {
         #[source]
@@ -333,6 +340,7 @@ impl ProjectIssue {
                 // TODO: Track location
                 None
             }
+            Self::ProjectHashMismatch { .. } => None,
         }
     }
 }

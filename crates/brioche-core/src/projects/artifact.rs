@@ -160,7 +160,7 @@ async fn create_single_project_artifact(
 pub async fn save_projects_from_artifact(
     brioche: &Brioche,
     artifact_ref: RecipeRef,
-) -> anyhow::Result<HashSet<ProjectHash>> {
+) -> anyhow::Result<HashMap<ProjectHash, crate::path::AbsolutePath>> {
     let mut recipes = brioche.recipes.write().await;
 
     let mut project_hashes = HashSet::new();
@@ -283,12 +283,13 @@ pub async fn save_projects_from_artifact(
     // everything from the artifact is saved so that projects are created
     // atomically (e.g. so a project isn't written to disk before its
     // dependencies).
+    let mut project_paths = HashMap::new();
     for project_hash in &project_hashes {
         let project_hash_string = project_hash.to_string();
         let project_symlink = brioche.data_dir.join("projects").join(&project_hash_string);
         let project_target = Path::new("inner").join(&project_hash_string);
 
-        let result = tokio::fs::symlink(project_target, project_symlink).await;
+        let result = tokio::fs::symlink(project_target, &project_symlink).await;
         match result {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -301,29 +302,12 @@ pub async fn save_projects_from_artifact(
                 return Err(error.into());
             }
         }
+
+        let project_path = crate::path::canonicalize_system_path(&project_symlink).await?;
+        project_paths.insert(*project_hash, project_path);
     }
 
-    // Load each project and validate that the hashes match
-    todo!("validate");
-    // for project_hash in &project_hashes {
-    //     let project_hash_string = project_hash.to_string();
-    //     let project_symlink = brioche.data_dir.join("projects").join(&project_hash_string);
-
-    //     let loaded_project_hash = projects
-    //         .load(
-    //             brioche,
-    //             &project_symlink,
-    //             super::ProjectValidation::Standard,
-    //             super::ProjectLocking::Locked,
-    //         )
-    //         .await?;
-    //     anyhow::ensure!(
-    //         *project_hash == loaded_project_hash,
-    //         "saved project {project_hash} from cache, but it had unexpected hash {loaded_project_hash} after loading",
-    //     );
-    // }
-
-    Ok(project_hashes)
+    Ok(project_paths)
 }
 
 /// Write an artifact to the provided path, ensuring each file is created

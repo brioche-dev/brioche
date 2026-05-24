@@ -103,7 +103,8 @@ pub(super) fn hash_projects_inner(
             })
             .collect();
 
-        let statics = HashMap::new(); // TODO: statics
+        // TODO: statics
+        let statics = HashMap::new();
 
         let project = ContentAddressedProject {
             definition: project.definition.clone(),
