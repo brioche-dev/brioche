@@ -6,6 +6,39 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 ## [Unreleased]
 
+## [v0.1.8]
+
+**Check [the v0.1.8 announcement blog post](https://brioche.dev/blog/brioche-v0-1-8/) for an overview of the new features in this release**
+
+### Breaking
+
+> **Note**: This is a minor release, but Brioche is still pre-1.0 and not widely adopted, so we may ship minor breaking changes from time to time if we think the breakage will not affect many people
+
+The linting changes may lead to some new lint rules being triggered where there were none before, or vice versa. This may impact CI pipelines using `brioche check` or `brioche build --check`.
+
+### Added
+
+- **Show source paths during builds.** When a build job is running, the TUI view will now show file and line number of the source that triggered the build. This makes it clearer what's actually being built! ([#466](https://github.com/brioche-dev/brioche/pull/466))
+    - Some line numbers may be off (e.g. showing the path of a generic helper rather than a specific package). We may need to make some tweaks to the `std` package to improve which stack frame gets shown.
+
+### Changed
+
+- Support new `R` tag in cache archives ([#460](https://github.com/brioche-dev/brioche/pull/460))
+    - This tag is used for deduplicating directory trees in the archive. This was blocking some packages in the `brioche-packages` repo that ended up with lots of duplication that was bigger than we could handle in the cache (e.g. see [`brioche-dev/brioche-packages#2693`](https://github.com/brioche-dev/brioche-packages/pull/2693)).
+    - This release doesn't support _writing_ the new `R` tag yet. This will be added to a future nightly release and will then be used for `brioche-packages` builds soon. This will also be part of the next stable release of Brioche.
+- Upgrade to TypeScript v6 ([#467](https://github.com/brioche-dev/brioche/pull/467))
+- Upgrade to ESLint v10 ([#467](https://github.com/brioche-dev/brioche/pull/467))
+- Enable [`strict-void-return`](https://typescript-eslint.io/rules/strict-void-return/), [`no-useless-default-assignment`](https://typescript-eslint.io/rules/no-useless-default-assignment/), and [`no-unnecessary-template-expression`](https://typescript-eslint.io/rules/no-unnecessary-template-expression/) lint rules ([#465](https://github.com/brioche-dev/brioche/pull/465) [#467](https://github.com/brioche-dev/brioche/pull/467))
+- Allow `Brioche.gitCheckout` to take a commit hash, in addition to a branch/tag name ([#453](https://github.com/brioche-dev/brioche/pull/453))
+- Linux sandbox: Miscellaneous improvements ([#459](https://github.com/brioche-dev/brioche/pull/459))
+    - Add `/etc/group` to sandbox, and add the sandbox user to a group.
+    - Set up UTS namespace to isolate build from host system's hostname. (The hostname in the sandbox is set to `localhost`)
+    - Add `/etc/services` and `/etc/protocols` files to sandbox. This fixes issues with `getservbyname` and `getprotobyname` from glibc.
+
+### Fixed
+
+- Fix `Brioche.download` triggering duplicate downloads when resolving a project ([#464](https://github.com/brioche-dev/brioche/pull/464))
+
 ## [v0.1.7]
 
 **Check [the v0.1.7 announcement blog post](https://brioche.dev/blog/brioche-v0-1-7/) for an overview of the new features in this release**
@@ -195,7 +228,8 @@ Note that the individual Rust crates within this repo are not considered stable 
 
 - **Initial release!**
 
-[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/brioche-dev/brioche/compare/v0.1.8...HEAD
+[v0.1.8]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.8
 [v0.1.7]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.7
 [v0.1.6]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.6
 [v0.1.5]: https://github.com/brioche-dev/brioche/releases/tag/v0.1.5

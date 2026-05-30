@@ -1235,7 +1235,7 @@ dependencies = [
 
 [[package]]
 name = "brioche"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "brioche-core"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "brioche-pack"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "bincode 2.0.1",
  "bstr",
@@ -1389,7 +1389,7 @@ dependencies = [
 
 [[package]]
 name = "brioche-test-support"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "brioche-core",
