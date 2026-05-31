@@ -17,6 +17,8 @@ use crate::{
 
 use super::specifier::{self, BriocheImportSpecifier, BriocheModuleSpecifier};
 
+const CODE_CACHE_DIR_NAME: &str = "code-cache";
+
 /// A type used to call Brioche functions across Tokio runtimes. This is used
 /// to interact with Brioche from JavaScript code, due to restrictions that
 /// require the V8 runtime to run in its own Tokio runtime.
@@ -27,10 +29,12 @@ use super::specifier::{self, BriocheImportSpecifier, BriocheModuleSpecifier};
 #[derive(Clone)]
 pub struct RuntimeBridge {
     tx: tokio::sync::mpsc::UnboundedSender<RuntimeBridgeMessage>,
+    code_cache_dir: PathBuf,
 }
 
 impl RuntimeBridge {
     pub fn new(brioche: Brioche, projects: Projects) -> Self {
+        let code_cache_dir = brioche.data_dir.join(CODE_CACHE_DIR_NAME);
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
         tokio::spawn(async move {
@@ -303,7 +307,12 @@ impl RuntimeBridge {
             }
         }.instrument(tracing::Span::current()));
 
-        Self { tx }
+        Self { tx, code_cache_dir }
+    }
+
+    /// Directory where V8 bytecode caches are stored.
+    pub fn code_cache_dir(&self) -> &std::path::Path {
+        &self.code_cache_dir
     }
 
     pub async fn load_project_from_module_path(

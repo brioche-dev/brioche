@@ -167,12 +167,42 @@ impl BriocheModuleLoader {
             });
         }
 
+        // Look up cached bytecode for this source.
+        let hash = code_cache_hash(text.as_bytes());
+        let code_cache = self.read_code_cache(hash).map(Cow::Owned);
+
         Ok(deno_core::ModuleSource::new(
             deno_core::ModuleType::JavaScript,
             deno_core::ModuleSourceCode::String(text.into()),
             module_specifier,
-            None,
+            Some(deno_core::SourceCodeCacheInfo {
+                hash,
+                data: code_cache,
+            }),
         ))
+    }
+
+    fn code_cache_path(&self, hash: u64) -> PathBuf {
+        self.bridge
+            .code_cache_dir()
+            .join(format!("{hash:016x}.bin"))
+    }
+
+    fn read_code_cache(&self, hash: u64) -> Option<Vec<u8>> {
+        std::fs::read(self.code_cache_path(hash)).ok()
+    }
+
+    /// Write V8 bytecode for a module to the cache, atomically. Failures are
+    /// ignored.
+    fn write_code_cache(&self, hash: u64, data: &[u8]) {
+        let dir = self.bridge.code_cache_dir();
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+        let tmp = dir.join(format!("{hash:016x}.{}.tmp", std::process::id()));
+        if std::fs::write(&tmp, data).is_ok() {
+            let _ = std::fs::rename(&tmp, self.code_cache_path(hash));
+        }
     }
 
     fn resolve_module(
@@ -224,6 +254,16 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         )
     }
 
+    fn code_cache_ready(
+        &self,
+        _module_specifier: deno_core::ModuleSpecifier,
+        hash: u64,
+        code_cache: &[u8],
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> {
+        self.write_code_cache(hash, code_cache);
+        Box::pin(std::future::ready(()))
+    }
+
     fn get_source_map(&self, file_name: &str) -> Option<Cow<'_, [u8]>> {
         let sources = self.sources.borrow();
         let specifier: BriocheModuleSpecifier = file_name.parse().ok()?;
@@ -249,6 +289,16 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
 struct ModuleSource {
     pub source_contents: Arc<Vec<u8>>,
     pub source_map: Vec<u8>,
+}
+
+/// 64-bit blake3 digest of a module's source.
+fn code_cache_hash(bytes: &[u8]) -> u64 {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(bytes);
+
+    let mut digest = [0u8; 8];
+    hasher.finalize_xof().fill(&mut digest);
+    u64::from_le_bytes(digest)
 }
 
 pub enum ModuleLoaderMessage {
