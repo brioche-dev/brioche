@@ -23,15 +23,8 @@ pub async fn resolve_ref_to_commit(
     repository: &url::Url,
     reference: &str,
 ) -> anyhow::Result<String> {
-    if is_sha1_hex(reference) {
+    if is_commit_hash(reference) {
         return Ok(reference.to_ascii_lowercase());
-    }
-
-    // See https://github.com/GitoxideLabs/gitoxide/issues/281.
-    if is_sha256_hex(reference) {
-        anyhow::bail!(
-            "git ref '{reference}' looks like a SHA-256 commit hash, which is not yet supported"
-        );
     }
 
     let repository: gix::Url = repository
@@ -69,13 +62,11 @@ fn resolve_named_ref(repository: &gix::Url, reference: &str) -> anyhow::Result<S
     let refs = if let Some(refs) = outcome.refs {
         refs
     } else {
-        match gix::protocol::LsRefsCommand::new(None, &outcome.capabilities, ("agent", None))
-            .invoke_blocking(&mut transport, &mut gix::progress::Discard, false)
-        {
+        match ls_refs(&mut transport, &outcome.capabilities) {
             Ok(refs) => refs,
             Err(error) => {
                 let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
-                return Err(error.into());
+                return Err(error);
             }
         }
     };
@@ -120,4 +111,42 @@ fn resolve_named_ref(repository: &gix::Url, reference: &str) -> anyhow::Result<S
         .with_context(|| format!("git ref '{reference}' not found in repo {repository}"))?;
 
     Ok(object_id.to_string())
+}
+
+/// Runs a protocol V2 `ls-refs` command, echoing back the object format the
+/// server advertised during the handshake.
+fn ls_refs(
+    transport: &mut impl gix::protocol::transport::client::blocking_io::Transport,
+    capabilities: &gix::protocol::transport::client::Capabilities,
+) -> anyhow::Result<Vec<gix::protocol::handshake::Ref>> {
+    use gix::protocol::transport::client::blocking_io::TransportV2Ext as _;
+
+    let object_format = capabilities
+        .capability("object-format")
+        .and_then(|capability| capability.value())
+        .map(ToString::to_string);
+    let mut command_capabilities: Vec<(&str, Option<String>)> = vec![("agent", None)];
+    if let Some(object_format) = object_format {
+        command_capabilities.push(("object-format", Some(object_format)));
+    }
+
+    let supports_unborn = capabilities
+        .capability("ls-refs")
+        .and_then(|capability| capability.supports("unborn"))
+        .unwrap_or_default();
+    let mut arguments: Vec<gix::bstr::BString> = Vec::new();
+    if supports_unborn {
+        arguments.push("unborn".into());
+    }
+    arguments.push("symrefs".into());
+    arguments.push("peel".into());
+
+    let mut response = transport.invoke(
+        "ls-refs",
+        command_capabilities.into_iter(),
+        Some(arguments.into_iter()),
+        false,
+    )?;
+    let refs = gix::protocol::handshake::refs::from_v2_refs(&mut response)?;
+    Ok(refs)
 }
