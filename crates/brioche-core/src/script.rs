@@ -125,35 +125,45 @@ impl BriocheModuleLoader {
         let code = std::str::from_utf8(&contents)
             .context("failed to parse module contents as UTF-8 string")?;
 
-        let parsed = deno_ast::parse_module(deno_ast::ParseParams {
-            specifier: brioche_module_specifier.clone().into(),
-            text: code.into(),
-            media_type: deno_ast::MediaType::TypeScript,
-            capture_tokens: false,
-            scope_analysis: false,
-            maybe_syntax: None,
-        })?;
-        let transpiled = parsed.transpile(
-            &deno_ast::TranspileOptions {
-                imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
-                ..Default::default()
-            },
-            &deno_ast::TranspileModuleOptions {
-                module_kind: Some(deno_ast::ModuleKind::Esm),
-            },
-            &deno_ast::EmitOptions {
-                source_map: deno_ast::SourceMapOption::Separate,
-                ..Default::default()
-            },
-        )?;
+        // Serve prebuilt JS directly; transpile TypeScript sources.
+        let media_type = deno_ast::MediaType::from_specifier(module_specifier);
+        let (text, source_map) = if matches!(
+            media_type,
+            deno_ast::MediaType::JavaScript | deno_ast::MediaType::Mjs | deno_ast::MediaType::Cjs
+        ) {
+            (code.to_string(), Vec::new())
+        } else {
+            let parsed = deno_ast::parse_module(deno_ast::ParseParams {
+                specifier: brioche_module_specifier.clone().into(),
+                text: code.into(),
+                media_type: deno_ast::MediaType::TypeScript,
+                capture_tokens: false,
+                scope_analysis: false,
+                maybe_syntax: None,
+            })?;
+            let transpiled = parsed.transpile(
+                &deno_ast::TranspileOptions {
+                    imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
+                    ..Default::default()
+                },
+                &deno_ast::TranspileModuleOptions {
+                    module_kind: Some(deno_ast::ModuleKind::Esm),
+                },
+                &deno_ast::EmitOptions {
+                    source_map: deno_ast::SourceMapOption::Separate,
+                    ..Default::default()
+                },
+            )?;
 
-        let deno_ast::EmittedSourceText { text, source_map } = transpiled.into_source();
+            let deno_ast::EmittedSourceText { text, source_map } = transpiled.into_source();
+            let source_map = source_map.context("source map not generated")?.into_bytes();
+            (text, source_map)
+        };
 
         if let Entry::Vacant(entry) = self.sources.borrow_mut().entry(brioche_module_specifier) {
-            let source_map = source_map.context("source map not generated")?;
             entry.insert(ModuleSource {
                 source_contents: contents.clone(),
-                source_map: source_map.into_bytes(),
+                source_map,
             });
         }
 
