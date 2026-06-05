@@ -17,6 +17,10 @@ class BriocheLanguageServiceHost implements ts.LanguageServiceHost {
   }
 
   getScriptVersion(fileName: string): string {
+    // Virtual attribute modules have fixed source, so their version is constant.
+    if (brioche.attributeModuleSource(fileName) != null) {
+      return "0";
+    }
     const version = brioche.fileVersion(brioche.fromTsUrl(fileName)) ?? -1;
     return version.toString();
   }

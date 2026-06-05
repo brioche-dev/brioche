@@ -143,6 +143,66 @@ async fn test_lsp_completions_from_import() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+async fn test_lsp_completions_from_text_import_attribute() -> anyhow::Result<()> {
+    let (_brioche, context, lsp) = brioche_test_support::brioche_lsp_test().await;
+
+    context
+        .write_file("myproject/notes.txt", "hello world!")
+        .await;
+
+    let project_root_contents = indoc::indoc! {r#"
+        import notes from "./notes.txt" with { type: "text" };
+
+        notes.toUpperCa // <-- completion here
+    "#};
+    let project_root = context
+        .write_file("myproject/project.bri", project_root_contents)
+        .await;
+
+    lsp.notify::<notification::DidOpenTextDocument>(lsp_types::DidOpenTextDocumentParams {
+        text_document: TextDocumentItem::new(
+            Url::from_file_path(&project_root).unwrap(),
+            "brioche".to_string(),
+            1,
+            project_root_contents.to_string(),
+        ),
+    });
+
+    let completion_response = lsp
+        .request::<request::Completion>(lsp_types::CompletionParams {
+            text_document_position: TextDocumentPositionParams::new(
+                TextDocumentIdentifier::new(Url::from_file_path(&project_root).unwrap()),
+                Position::new(2, 15),
+            ),
+            context: None,
+            partial_result_params: PartialResultParams::default(),
+            work_done_progress_params: WorkDoneProgressParams::default(),
+        })
+        .await
+        .expect("no completion response returned");
+    let completion_items = match completion_response {
+        lsp_types::CompletionResponse::Array(completion_items) => completion_items,
+        lsp_types::CompletionResponse::List(completion_list) => {
+            assert!(
+                !completion_list.is_incomplete,
+                "expected complete completion list"
+            );
+            completion_list.items
+        }
+    };
+
+    // The text import is typed as a string, so string methods complete
+    assert!(
+        completion_items
+            .iter()
+            .any(|item| item.label == "toUpperCase"),
+        "expected string completions for text import attribute"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_lsp_completions_from_local_registry_import() -> anyhow::Result<()> {
     let (_brioche, context, lsp) = brioche_test_support::brioche_lsp_test().await;
 
