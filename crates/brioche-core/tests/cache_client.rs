@@ -564,6 +564,7 @@ async fn test_cache_client_save_and_load_artifact_with_shared_subtrees_simple() 
             &brioche,
             artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await?;
 
@@ -646,6 +647,7 @@ async fn test_cache_client_save_and_load_artifact_with_shared_subtrees_advanced(
             &brioche,
             artifact_hash,
             brioche_core::reporter::job::CacheFetchKind::Bake,
+            brioche_core::reporter::job::JobContext::default(),
         )
         .await?;
 
