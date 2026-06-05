@@ -23,7 +23,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use crate::{
     Brioche,
     blob::{BlobHash, SaveBlobOptions},
-    recipe::{Artifact, Recipe, RecipeHash},
+    recipe::{Artifact, Directory, Recipe, RecipeHash},
     reporter::{
         JobId,
         job::{CacheFetchKind, JobContext, NewJob, UpdateJob},
@@ -49,6 +49,10 @@ pub async fn write_artifact_archive(
 
     // Track all the blobs we need to add in the archive
     let mut artifact_blobs = BTreeSet::<BlobHash>::new();
+
+    // Track directories we've already written to avoid exponential expansion
+    // from shared nested resources
+    let mut seen_dirs: HashMap<Directory, ArtifactPath> = HashMap::new();
 
     // Use a queue to walk through the artifact, starting from the root
     let mut queue = VecDeque::from_iter([(ArtifactPath::default(), artifact)]);
@@ -85,14 +89,27 @@ pub async fn write_artifact_archive(
                 writer.write_all(target.as_slice()).await?;
             }
             Artifact::Directory(directory) => {
-                if directory.is_empty() {
+                // Check if we've already written this exact directory structure
+                if let Some(reference_path) = seen_dirs.get(&directory) {
+                    // Write a reference entry: tag, path, reference_path
+
+                    writer.write_all(b"R").await?;
+                    write_path(&path, writer).await?;
+                    write_path(reference_path, writer).await?;
+                } else if directory.is_empty() {
                     // Write an empty directory entry: tag, path. Non-empty
                     // directories don't need an entry, since they get created
                     // implicitly by its sub-entries.
 
                     writer.write_all(b"d").await?;
                     write_path(&path, writer).await?;
+
+                    // Track this empty directory
+                    seen_dirs.insert(directory, path);
                 } else {
+                    // Track this directory before traversing its children
+                    seen_dirs.insert(directory.clone(), path.clone());
+
                     // Enqueue each entry within the directory
                     let directory_entries = directory.entries(brioche).await?;
                     for (name, entry) in directory_entries {
