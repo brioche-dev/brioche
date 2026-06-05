@@ -121,13 +121,21 @@ fn ls_refs(
 ) -> anyhow::Result<Vec<gix::protocol::handshake::Ref>> {
     use gix::protocol::transport::client::blocking_io::TransportV2Ext as _;
 
-    let object_format = capabilities
+    let advertised_format = capabilities
         .capability("object-format")
         .and_then(|capability| capability.value())
         .map(ToString::to_string);
+    let object_format = match advertised_format.as_deref() {
+        Some("sha1") => Some("sha1"),
+        Some("sha256") => Some("sha256"),
+        Some(other) => {
+            anyhow::bail!("git server advertised unsupported object format: {other}");
+        }
+        None => None,
+    };
     let mut command_capabilities: Vec<(&str, Option<String>)> = vec![("agent", None)];
     if let Some(object_format) = object_format {
-        command_capabilities.push(("object-format", Some(object_format)));
+        command_capabilities.push(("object-format", Some(object_format.to_owned())));
     }
 
     let supports_unborn = capabilities
