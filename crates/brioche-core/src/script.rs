@@ -82,11 +82,45 @@ impl BriocheModuleLoader {
     fn load_module_source(
         &self,
         module_specifier: &deno_core::ModuleSpecifier,
+        requested_module_type: &deno_core::RequestedModuleType,
     ) -> Result<deno_core::ModuleSource, anyhow::Error> {
         let brioche_module_specifier: BriocheModuleSpecifier = module_specifier.try_into()?;
         let contents = self
             .bridge
             .read_specifier_contents(brioche_module_specifier.clone())?;
+
+        match requested_module_type {
+            deno_core::RequestedModuleType::Json => {
+                let code = std::str::from_utf8(&contents)
+                    .context("failed to parse JSON module contents as UTF-8 string")?;
+                return Ok(deno_core::ModuleSource::new(
+                    deno_core::ModuleType::Json,
+                    deno_core::ModuleSourceCode::String(code.to_owned().into()),
+                    module_specifier,
+                    None,
+                ));
+            }
+            deno_core::RequestedModuleType::Text => {
+                let code = std::str::from_utf8(&contents)
+                    .context("failed to parse text module contents as UTF-8 string")?;
+                return Ok(deno_core::ModuleSource::new(
+                    deno_core::ModuleType::Text,
+                    deno_core::ModuleSourceCode::String(code.to_owned().into()),
+                    module_specifier,
+                    None,
+                ));
+            }
+            deno_core::RequestedModuleType::Bytes => {
+                let bytes = std::sync::Arc::<[u8]>::from(contents.as_slice());
+                return Ok(deno_core::ModuleSource::new(
+                    deno_core::ModuleType::Bytes,
+                    deno_core::ModuleSourceCode::Bytes(bytes.into()),
+                    module_specifier,
+                    None,
+                ));
+            }
+            deno_core::RequestedModuleType::None | deno_core::RequestedModuleType::Other(_) => {}
+        }
 
         let code = std::str::from_utf8(&contents)
             .context("failed to parse module contents as UTF-8 string")?;
@@ -172,10 +206,10 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         &self,
         module_specifier: &deno_core::ModuleSpecifier,
         _maybe_referrer: Option<&deno_core::ModuleLoadReferrer>,
-        _options: deno_core::ModuleLoadOptions,
+        options: deno_core::ModuleLoadOptions,
     ) -> deno_core::ModuleLoadResponse {
         deno_core::ModuleLoadResponse::Sync(
-            self.load_module_source(module_specifier)
+            self.load_module_source(module_specifier, &options.requested_module_type)
                 .map_err(|error| AnyError(error).into()),
         )
     }

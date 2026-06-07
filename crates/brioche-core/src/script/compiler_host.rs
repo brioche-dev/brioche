@@ -117,9 +117,9 @@ impl BriocheCompilerHost {
                 find_imports(&parsed_module, |_| "<unknown>").collect::<Vec<_>>()
             };
 
-            for import_specifier in import_specifiers {
-                let import_specifier = match import_specifier {
-                    Ok(import_specifier) => import_specifier,
+            for import in import_specifiers {
+                let import_specifier = match import {
+                    Ok(import) => import.specifier,
                     Err(error) => {
                         tracing::warn!("error parsing import specifier: {error:#}");
                         continue;
