@@ -83,6 +83,9 @@ pub enum BriocheLocalImportSpecifier {
     ProjectRoot(String),
 }
 
+/// URL scheme for modules served from the prebuilt runtime bundle.
+pub const RUNTIME_SCHEME: &str = "briocheruntime";
+
 /// A specifier for a Brioche module, either from the filesystem or
 /// from the internal runtime package. A module specifier can be converted
 /// from/to a URL.
@@ -114,7 +117,7 @@ impl TryFrom<&'_ url::Url> for BriocheModuleSpecifier {
                     .map_err(|()| anyhow::anyhow!("failed to convert specifier {value} to path"))?;
                 Ok(Self::File { path })
             }
-            "briocheruntime" => {
+            RUNTIME_SCHEME => {
                 anyhow::ensure!(!value.has_host(), "invalid specifier: {value}");
                 let subpath = RelativePathBuf::from(value.path().trim_start_matches('/'));
                 Ok(Self::Runtime { subpath })
@@ -138,7 +141,9 @@ impl From<&'_ BriocheModuleSpecifier> for url::Url {
     fn from(value: &BriocheModuleSpecifier) -> Self {
         match value {
             BriocheModuleSpecifier::Runtime { subpath } => {
-                let mut url: Self = "briocheruntime:///".parse().expect("failed to build URL");
+                let mut url: Self = format!("{RUNTIME_SCHEME}:///")
+                    .parse()
+                    .expect("failed to build URL");
                 url.set_path(subpath.as_str());
                 url
             }

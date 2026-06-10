@@ -27,7 +27,7 @@ use crate::script::format::format_code;
 use crate::{Brioche, BriocheBuilder};
 
 use super::bridge::RuntimeBridge;
-use super::specifier::BriocheModuleSpecifier;
+use super::specifier::{BriocheModuleSpecifier, RUNTIME_SCHEME};
 
 /// The maximum time we spend resolving projects when regenerating a
 /// lockfile in the Language Server
@@ -748,7 +748,7 @@ fn js_lsp_task(
             });
 
             let main_module: deno_core::ModuleSpecifier =
-                "briocheruntime:///dist/index.js".parse()?;
+                format!("{RUNTIME_SCHEME}:///dist/index.js").parse()?;
 
             tracing::info!(%main_module, "evaluating module");
 

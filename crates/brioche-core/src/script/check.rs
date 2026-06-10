@@ -8,7 +8,10 @@ use crate::{
     vfs::Vfs,
 };
 
-use super::{bridge::RuntimeBridge, specifier::BriocheModuleSpecifier};
+use super::{
+    bridge::RuntimeBridge,
+    specifier::{BriocheModuleSpecifier, RUNTIME_SCHEME},
+};
 
 #[tracing::instrument(skip(brioche, projects), err)]
 pub async fn check(
@@ -70,7 +73,7 @@ async fn check_with_deno(
 
             // Get the specifier for the built-in runtime module
             let main_module: deno_core::ModuleSpecifier =
-                "briocheruntime:///dist/index.js".parse()?;
+                format!("{RUNTIME_SCHEME}:///dist/index.js").parse()?;
 
             tracing::debug!(%main_module, "evaluating module");
 

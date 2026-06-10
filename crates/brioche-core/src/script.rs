@@ -11,7 +11,7 @@ use anyhow::Context as _;
 use bridge::{GetStaticOptions, RuntimeBridge};
 use deno_core::{OpState, v8};
 use relative_path::PathExt as _;
-use specifier::BriocheModuleSpecifier;
+use specifier::{BriocheModuleSpecifier, RUNTIME_SCHEME};
 
 use crate::{bake::BakeScope, project::Projects, recipe::StackFrame};
 
@@ -167,18 +167,20 @@ impl BriocheModuleLoader {
             });
         }
 
-        // Look up cached bytecode for this source.
-        let hash = code_cache_hash(text.as_bytes());
-        let code_cache = self.read_code_cache(hash).map(Cow::Owned);
+        // Only look up cached bytecode for the prebuilt runtime bundle.
+        let code_cache_info = if module_specifier.scheme() == RUNTIME_SCHEME {
+            let hash = code_cache_hash(text.as_bytes());
+            let data = self.read_code_cache(hash).map(Cow::Owned);
+            Some(deno_core::SourceCodeCacheInfo { hash, data })
+        } else {
+            None
+        };
 
         Ok(deno_core::ModuleSource::new(
             deno_core::ModuleType::JavaScript,
             deno_core::ModuleSourceCode::String(text.into()),
             module_specifier,
-            Some(deno_core::SourceCodeCacheInfo {
-                hash,
-                data: code_cache,
-            }),
+            code_cache_info,
         ))
     }
 
@@ -256,11 +258,13 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
 
     fn code_cache_ready(
         &self,
-        _module_specifier: deno_core::ModuleSpecifier,
+        module_specifier: deno_core::ModuleSpecifier,
         hash: u64,
         code_cache: &[u8],
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> {
-        self.write_code_cache(hash, code_cache);
+        if module_specifier.scheme() == RUNTIME_SCHEME {
+            self.write_code_cache(hash, code_cache);
+        }
         Box::pin(std::future::ready(()))
     }
 
