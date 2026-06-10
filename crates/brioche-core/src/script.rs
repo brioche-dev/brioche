@@ -199,7 +199,7 @@ impl BriocheModuleLoader {
         if std::fs::create_dir_all(dir).is_err() {
             return;
         }
-        let tmp = dir.join(format!("{hash:016x}.{}.tmp", std::process::id()));
+        let tmp = dir.join(format!("{hash:016x}.{}.tmp", ulid::Ulid::new()));
         if std::fs::write(&tmp, data).is_ok() {
             let _ = std::fs::rename(&tmp, self.code_cache_path(hash));
         }
