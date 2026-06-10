@@ -128,10 +128,10 @@ fn ls_refs(
     let object_format = match advertised_format.as_deref() {
         Some("sha1") => Some("sha1"),
         Some("sha256") => Some("sha256"),
-        Some(other) => {
-            anyhow::bail!("git server advertised unsupported object format: {other}");
-        }
-        None => None,
+        // The server either did not advertise an `object-format` or advertised
+        // one we do not understand. So, omit the capability which will cause
+        // the server to fall back to the default.
+        _ => None,
     };
     let mut command_capabilities: Vec<(&str, Option<String>)> = vec![("agent", None)];
     if let Some(object_format) = object_format {
