@@ -1300,18 +1300,42 @@ async fn test_eval_brioche_git_checkout_with_commit_sha256_hash() -> anyhow::Res
         )
         .await;
 
-    let error = brioche_test_support::load_project(&brioche, &project_dir)
-        .await
-        .err()
-        .expect("expected loading to fail for SHA-256 commit hash");
-    let error_message = format!("{error:#}");
-    assert!(
-        error_message.contains("SHA-256"),
-        "unexpected error: {error_message}"
-    );
+    let (projects, project_hash) =
+        brioche_test_support::load_project(&brioche, &project_dir).await?;
+
+    let resolved = evaluate(
+        &brioche,
+        initialize_js_platform(),
+        &projects,
+        project_hash,
+        "default",
+    )
+    .await?
+    .value;
+
+    let brioche_core::recipe::Recipe::CreateFile { content, .. } = resolved else {
+        panic!("expected create_file recipe, got {resolved:?}");
+    };
 
     mock_git_info_refs.assert_async().await;
     mock_git_upload_pack.assert_async().await;
+
+    let git_ref: serde_json::Value = serde_json::from_slice(&content)?;
+    assert_eq!(
+        git_ref,
+        serde_json::json!({
+            "staticKind": "git_ref",
+            "repository": format!("{mock_repo_url}/"),
+            "commit": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        }),
+    );
+
+    // Commit hashes are self-pinning, so they must not appear in the lockfile.
+    projects.commit_dirty_lockfiles().await?;
+    let lockfile_path = project_dir.join("brioche.lock");
+    let lockfile_contents = tokio::fs::read_to_string(&lockfile_path).await?;
+    let lockfile: brioche_core::project::Lockfile = serde_json::from_str(&lockfile_contents)?;
+    assert!(lockfile.git_refs.is_empty());
 
     Ok(())
 }

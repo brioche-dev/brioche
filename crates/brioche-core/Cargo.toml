@@ -53,6 +53,7 @@ futures = "0.3.32"
 gix = { version = "0.84.0", features = [
     "blocking-network-client",
     "blocking-http-transport-reqwest",
+    "sha256",
 ] }
 globset = "0.4.18"
 hex = "0.4.3"
