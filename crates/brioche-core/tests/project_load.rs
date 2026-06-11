@@ -558,6 +558,203 @@ async fn test_project_load_remote_registry_dep() {
 }
 
 #[tokio::test]
+async fn test_project_load_remote_registry_dep_with_brioche_include() {
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) =
+        brioche_test_support::brioche_test_with_cache(cache.clone(), false).await;
+
+    let foo_hash = context
+        .cached_registry_project(&cache, async |path| {
+            tokio::fs::write(path.join("fizz"), "fizz!").await.unwrap();
+            tokio::fs::create_dir_all(path.join("buzz/hello"))
+                .await
+                .unwrap();
+            tokio::fs::write(path.join("buzz/hello/world.txt"), "buzz!")
+                .await
+                .unwrap();
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const project = {
+                        name: "foo",
+                    };
+
+                    export const foo = Brioche.includeFile("fizz");
+                    export const bar = Brioche.includeDirectory("buzz");
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    let mock_foo_latest = context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
+        .await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+
+    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    assert_matches!(&issues[..], []);
+
+    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    assert_eq!(
+        project_deps.len(),
+        1,
+        "expected to get 1 project dependency, got: {project_deps:#?}"
+    );
+
+    let foo_path = brioche
+        .data_dir
+        .join("projects")
+        .join(foo_hash.to_string())
+        .canonicalize()
+        .unwrap();
+
+    let foo_ref = project_deps["foo"];
+    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+        .await
+        .to_system_path()
+        .unwrap();
+    assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
+    assert_eq!(foo_local_path, foo_path);
+    assert_eq!(
+        foo_deps.len(),
+        0,
+        "expected to get 0 dependencies for foo, got: {foo_deps:#?}"
+    );
+
+    mock_foo_latest.assert_async().await;
+
+    let fizz_path = foo_path.join("fizz");
+    let buzz_hello_world_path = foo_path.join("buzz/hello/world.txt");
+
+    assert!(tokio::fs::try_exists(&fizz_path).await.unwrap());
+    assert!(tokio::fs::try_exists(&buzz_hello_world_path).await.unwrap());
+}
+
+#[tokio::test]
+async fn test_project_load_remote_registry_dep_with_brioche_glob() {
+    let cache = brioche_test_support::new_cache();
+    let (brioche, mut context) =
+        brioche_test_support::brioche_test_with_cache(cache.clone(), false).await;
+
+    let foo_hash = context
+        .cached_registry_project(&cache, async |path| {
+            tokio::fs::create_dir_all(path.join("fizz")).await.unwrap();
+            tokio::fs::write(path.join("fizz/hello.md"), "fizz!")
+                .await
+                .unwrap();
+            tokio::fs::create_dir_all(path.join("buzz")).await.unwrap();
+            tokio::fs::write(path.join("buzz/hello.txt"), "buzz!")
+                .await
+                .unwrap();
+            tokio::fs::write(path.join("buzz/hello.secret"), "buzz!")
+                .await
+                .unwrap();
+            tokio::fs::write(
+                path.join("project.bri"),
+                r#"
+                    export const project = {
+                        name: "foo",
+                    };
+
+                    export const globbed = Brioche.glob("fizz", "**/*.txt");
+                "#,
+            )
+            .await
+            .unwrap();
+        })
+        .await;
+    let mock_foo_latest = context
+        .mock_registry_publish_tag("foo", "latest", foo_hash)
+        .create_async()
+        .await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+
+    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    assert_matches!(&issues[..], []);
+
+    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    assert_eq!(
+        project_deps.len(),
+        1,
+        "expected to get 1 project dependency, got: {project_deps:#?}"
+    );
+
+    let foo_path = brioche
+        .data_dir
+        .join("projects")
+        .join(foo_hash.to_string())
+        .canonicalize()
+        .unwrap();
+
+    let foo_ref = project_deps["foo"];
+    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+        .await
+        .to_system_path()
+        .unwrap();
+    assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
+    assert_eq!(foo_local_path, foo_path);
+    assert_eq!(
+        foo_deps.len(),
+        0,
+        "expected to get 0 dependencies for foo, got: {foo_deps:#?}"
+    );
+
+    mock_foo_latest.assert_async().await;
+
+    assert!(
+        tokio::fs::try_exists(foo_path.join("fizz/hello.md"))
+            .await
+            .unwrap()
+    );
+    assert!(
+        tokio::fs::try_exists(foo_path.join("buzz/hello.txt"))
+            .await
+            .unwrap()
+    );
+    assert!(
+        !tokio::fs::try_exists(foo_path.join("buzz/hello.secret"))
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
 async fn test_project_load_path_dep_not_found() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 

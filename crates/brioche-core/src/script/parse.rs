@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use biome_rowan::{AstNode as _, AstNodeList as _, AstSeparatedList as _};
 
+use crate::{path::RelativePath, projects::ModuleStaticQuery};
+
 pub struct ScriptAst {
     module: biome_js_syntax::JsModule,
 }
@@ -193,6 +195,254 @@ fn find_dynamic_imports(
                 Ok(Some(ScriptImport { specifier, range }))
             } else {
                 Ok(None)
+            }
+        })
+        .filter_map(std::result::Result::transpose)
+}
+
+pub fn find_statics<'a>(
+    script: &'a ScriptAst,
+    env: &'a HashMap<String, serde_json::Value>,
+) -> impl Iterator<Item = Result<ModuleStaticQuery, ScriptParseError>> + 'a {
+    script
+        .module
+        .syntax()
+        .descendants()
+        .map(move |node| {
+            // Get a call expression (e.g. `Brioche.includeFile(...)`)
+            let Some(call_expr) = biome_js_syntax::JsCallExpression::cast(node) else {
+                return Ok(None);
+            };
+
+            let Ok(callee) = call_expr.callee() else {
+                return Ok(None);
+            };
+            let Some(callee) = callee.as_js_static_member_expression() else {
+                return Ok(None);
+            };
+
+            // Filter down to call expressions accessing a member from `Brioche`
+            let Ok(callee_object) = callee.object() else {
+                return Ok(None);
+            };
+            let Some(callee_object) = callee_object.as_js_identifier_expression() else {
+                return Ok(None);
+            };
+            let Ok(callee_object_name) = callee_object.name() else {
+                return Ok(None);
+            };
+            if !callee_object_name.has_name("Brioche") {
+                return Ok(None);
+            }
+
+            // Filter down to calls to one of the static methods
+            let Ok(callee_member) = callee.member() else {
+                return Ok(None);
+            };
+            let Some(callee_member) = callee_member.as_js_name() else {
+                return Ok(None);
+            };
+            let Ok(callee_member_text) = callee_member.value_token() else {
+                return Ok(None);
+            };
+            let callee_member_text = callee_member_text.text_trimmed();
+
+            match callee_member_text {
+                "includeFile" => {
+                    // Get the arguments
+                    let args = call_expr
+                        .arguments()
+                        .map_err(|error| ScriptParseError::SyntaxError {
+                            error,
+                            range: call_expr.range().into(),
+                        })?
+                        .args();
+                    let args = args
+                        .iter()
+                        .map(|arg| {
+                            let arg = arg.map_err(|error| ScriptParseError::SyntaxError {
+                                error,
+                                range: args.range().into(),
+                            })?;
+                            let arg = arg_to_string_literal(&arg, None)?;
+                            Result::<_, ScriptParseError>::Ok(arg)
+                        })
+                        .collect::<Result<Vec<_>, ScriptParseError>>()?;
+
+                    // Ensure there's exactly one argument
+                    let path = match &args[..] {
+                        [path] => path.clone(),
+                        _ => {
+                            return Err(ScriptParseError::UnsupportedFunctionCallArity {
+                                range: call_expr.range().into(),
+                                function: "Brioche.includeFile",
+                                expected_num_args: 1..=1,
+                                actual_num_args: args.len(),
+                            });
+                        }
+                    };
+
+                    let path = RelativePath::new(path);
+                    Ok(Some(ModuleStaticQuery::IncludeFile(path)))
+                }
+                "includeDirectory" => {
+                    // Get the arguments
+                    let args = call_expr
+                        .arguments()
+                        .map_err(|error| ScriptParseError::SyntaxError {
+                            error,
+                            range: call_expr.range().into(),
+                        })?
+                        .args();
+                    let args = args
+                        .iter()
+                        .map(|arg| {
+                            let arg = arg.map_err(|error| ScriptParseError::SyntaxError {
+                                error,
+                                range: args.range().into(),
+                            })?;
+                            let arg = arg_to_string_literal(&arg, None)?;
+                            Result::<_, ScriptParseError>::Ok(arg)
+                        })
+                        .collect::<Result<Vec<_>, ScriptParseError>>()?;
+
+                    // Ensure there's exactly one argument
+                    let path = match &args[..] {
+                        [path] => path.clone(),
+                        _ => {
+                            return Err(ScriptParseError::UnsupportedFunctionCallArity {
+                                range: call_expr.range().into(),
+                                function: "Brioche.includeDirectory",
+                                expected_num_args: 1..=1,
+                                actual_num_args: args.len(),
+                            });
+                        }
+                    };
+
+                    let path = RelativePath::new(path);
+                    Ok(Some(ModuleStaticQuery::IncludeDirectory(path)))
+                }
+                "glob" => {
+                    // Get the arguments
+                    let args = call_expr
+                        .arguments()
+                        .map_err(|error| ScriptParseError::SyntaxError {
+                            error,
+                            range: call_expr.range().into(),
+                        })?
+                        .args();
+                    let args = args
+                        .iter()
+                        .map(|arg| {
+                            let arg = arg.map_err(|error| ScriptParseError::SyntaxError {
+                                error,
+                                range: args.range().into(),
+                            })?;
+                            let arg = arg_to_string_literal(&arg, None)?;
+                            Result::<_, ScriptParseError>::Ok(arg)
+                        })
+                        .collect::<Result<Vec<_>, ScriptParseError>>()?;
+
+                    Ok(Some(ModuleStaticQuery::Glob { patterns: args }))
+                }
+                "download" => {
+                    // Get the arguments
+                    let args = call_expr
+                        .arguments()
+                        .map_err(|error| ScriptParseError::SyntaxError {
+                            error,
+                            range: call_expr.range().into(),
+                        })?
+                        .args();
+                    let args = args
+                        .iter()
+                        .map(|arg| {
+                            let arg = arg.map_err(|error| ScriptParseError::SyntaxError {
+                                error,
+                                range: args.range().into(),
+                            })?;
+                            let range = arg.range();
+                            let arg = arg_to_string_literal(&arg, None)?;
+                            Result::<_, ScriptParseError>::Ok((arg, range))
+                        })
+                        .collect::<Result<Vec<_>, ScriptParseError>>()?;
+
+                    // Ensure there's exactly one argument
+                    let [(url, url_range)] = &args[..] else {
+                        return Err(ScriptParseError::UnsupportedFunctionCallArity {
+                            range: call_expr.range().into(),
+                            function: "Brioche.download",
+                            expected_num_args: 1..=1,
+                            actual_num_args: args.len(),
+                        });
+                    };
+
+                    // Parse the URL
+                    let url =
+                        url.parse()
+                            .map_err(|error| ScriptParseError::InvalidFunctionArgument {
+                                range: (*url_range).into(),
+                                function: "Brioche.download",
+                                argument: 0,
+                                reason: format!("invalid URL: {error}"),
+                            })?;
+
+                    Ok(Some(ModuleStaticQuery::Download { url }))
+                }
+                function @ ("gitRef" | "gitCheckout") => {
+                    let function = match function {
+                        "gitRef" => "Brioche.gitRef",
+                        "gitCheckout" => "Brioche.gitCheckout",
+                        _ => unreachable!(),
+                    };
+
+                    // Get the arguments
+                    let args = call_expr
+                        .arguments()
+                        .map_err(|error| ScriptParseError::SyntaxError {
+                            error,
+                            range: call_expr.range().into(),
+                        })?
+                        .args();
+                    let args = args
+                        .iter()
+                        .map(|arg| {
+                            let arg = arg.map_err(|error| ScriptParseError::SyntaxError {
+                                error,
+                                range: args.range().into(),
+                            })?;
+                            let range = arg.range();
+                            let arg = arg_to_json(&arg, Some(env))?;
+                            Result::<_, ScriptParseError>::Ok((arg, range))
+                        })
+                        .collect::<Result<Vec<_>, ScriptParseError>>()?;
+
+                    // Ensure there's exactly one argument
+                    let (options, options_range) = match &args[..] {
+                        [options] => options.clone(),
+                        _ => {
+                            return Err(ScriptParseError::UnsupportedFunctionCallArity {
+                                range: call_expr.range().into(),
+                                function,
+                                expected_num_args: 1..=1,
+                                actual_num_args: args.len(),
+                            });
+                        }
+                    };
+
+                    // Parse the options
+                    let options = serde_json::from_value(options).map_err(|error| {
+                        ScriptParseError::InvalidFunctionArgument {
+                            range: options_range.into(),
+                            function,
+                            argument: 0,
+                            reason: format!("invalid URL: {error}"),
+                        }
+                    })?;
+
+                    Ok(Some(ModuleStaticQuery::GitRef(options)))
+                }
+                _ => Ok(None),
             }
         })
         .filter_map(std::result::Result::transpose)
@@ -657,6 +907,15 @@ pub enum ScriptParseError {
         expected_num_args: std::ops::RangeInclusive<usize>,
         actual_num_args: usize,
     },
+
+    #[error("argument {argument} for '{function}()' is invalid: {reason}")]
+    InvalidFunctionArgument {
+        range: TextRange,
+        function: &'static str,
+        argument: usize,
+        reason: String,
+    },
+
     #[error("unsupported static expression: {reason}")]
     UnsupportedStaticExpression { range: TextRange, reason: String },
 
@@ -669,6 +928,7 @@ impl ScriptParseError {
         match self {
             Self::SyntaxError { range, .. }
             | Self::UnsupportedFunctionCallArity { range, .. }
+            | Self::InvalidFunctionArgument { range, .. }
             | Self::UnsupportedStaticExpression { range, .. }
             | Self::UnsupportedExport { range, .. } => *range,
         }

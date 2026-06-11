@@ -397,15 +397,20 @@ impl AbsolutePath {
     }
 
     #[must_use]
-    pub fn parent_with_last_component(&self) -> Option<(Self, RelativePathComponent)> {
+    pub fn parent_with_filename(&self) -> Option<(Self, bstr::BString)> {
         let mut parent = self.clone();
         let last = parent.subpath_components.pop()?;
-        Some((parent, RelativePathComponent::Normal(last)))
+        Some((parent, last))
     }
 
     #[must_use]
     pub fn parent(&self) -> Option<Self> {
-        self.parent_with_last_component().map(|(parent, _)| parent)
+        self.parent_with_filename().map(|(parent, _)| parent)
+    }
+
+    #[must_use]
+    pub fn filename(&self) -> Option<bstr::BString> {
+        self.parent_with_filename().map(|(_, filename)| filename)
     }
 
     pub fn to_system_path(&self) -> Result<std::path::PathBuf, ToSystemPathError> {
@@ -635,6 +640,14 @@ pub async fn canonicalize_system_path(
     path: &std::path::Path,
 ) -> Result<AbsolutePath, CanonicalSystemPathError> {
     let path = tokio::fs::canonicalize(path).await?;
+    let path = from_canonical_system_path(&path)?;
+    Ok(path)
+}
+
+pub fn canonicalize_system_path_sync(
+    path: &std::path::Path,
+) -> Result<AbsolutePath, CanonicalSystemPathError> {
+    let path = std::fs::canonicalize(path)?;
     let path = from_canonical_system_path(&path)?;
     Ok(path)
 }

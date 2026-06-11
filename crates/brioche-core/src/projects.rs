@@ -4,6 +4,7 @@ use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
 
 use crate::{
     Brioche,
+    hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
     projects::hash::ProjectHash,
     registry::RegistryError,
@@ -20,14 +21,34 @@ type ProjectGraph = petgraph::stable_graph::StableDiGraph<ProjectNode, ProjectEd
 #[derive(Default)]
 pub struct Projects {
     graph: ProjectGraph,
+    workspaces: HashMap<WorkspaceRef, Result<Workspace, load::LoadWorkspaceError>>,
     projects: HashMap<ProjectRef, Project>,
     modules: HashMap<ModuleRef, Module>,
-    workspaces: HashMap<WorkspaceRef, Result<Workspace, load::LoadWorkspaceError>>,
+    statics: HashMap<StaticRef, Static>,
+    unresolved_statics: HashMap<StaticRef, UnresolvedStatic>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
     local_project_paths: HashMap<ProjectRef, AbsolutePath>,
     modules_by_project: HashMap<ProjectRef, HashMap<RelativePath, ModuleRef>>,
+    project_by_module: HashMap<ModuleRef, (ProjectRef, RelativePath)>,
     workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
     issues: HashMap<NodeIndex, Vec<ProjectIssue>>,
+}
+
+impl Projects {
+    pub(crate) fn module_statics(
+        &self,
+        module: ModuleRef,
+    ) -> impl Iterator<Item = (&ModuleStaticQuery, StaticRef)> {
+        self.graph
+            .edges_directed(module.0, petgraph::Direction::Outgoing)
+            .filter_map(|edge| {
+                if let ProjectEdge::ModuleStatic(query) = edge.weight() {
+                    Some((query, StaticRef(edge.target())))
+                } else {
+                    None
+                }
+            })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +56,8 @@ pub(crate) enum ProjectNode {
     Workspace,
     Project,
     Module,
+    Static,
+    UnresolvedStatic,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +66,7 @@ pub(crate) enum ProjectEdge {
     ProjectDependency(String),
     ProjectRootModule,
     ModuleImport(ImportSpecifier),
+    ModuleStatic(ModuleStaticQuery),
 }
 
 #[derive(Clone)]
@@ -53,6 +77,7 @@ pub struct Project {
 }
 
 pub(crate) struct Module {
+    project: ProjectRef,
     subpath: RelativePath,
     source: Result<String, load::LoadModuleError>,
 }
@@ -60,6 +85,77 @@ pub(crate) struct Module {
 pub(crate) struct Workspace {
     root: AbsolutePath,
     definition: WorkspaceDefinition,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum Static {
+    IncludeFile(RelativePath),
+    IncludeDirectory(RelativePath),
+    Glob {
+        patterns: Vec<String>,
+    },
+    Download {
+        url: url::Url,
+        hash: AnyHash,
+    },
+    GitRef {
+        repository: url::Url,
+        ref_: String,
+        commit: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum SharedStatic {
+    Download {
+        url: url::Url,
+        hash: AnyHash,
+    },
+    GitRef {
+        repository: url::Url,
+        ref_: String,
+        commit: String,
+    },
+}
+
+impl From<SharedStatic> for Static {
+    fn from(value: SharedStatic) -> Self {
+        match value {
+            SharedStatic::Download { url, hash } => Self::Download { url, hash },
+            SharedStatic::GitRef {
+                repository,
+                ref_,
+                commit,
+            } => Self::GitRef {
+                repository,
+                ref_,
+                commit,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum UnresolvedStatic {
+    Download { url: url::Url },
+    GitRef { repository: url::Url, ref_: String },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum ModuleStaticQuery {
+    IncludeFile(RelativePath),
+    IncludeDirectory(RelativePath),
+    Glob { patterns: Vec<String> },
+    Download { url: url::Url },
+    GitRef(ModuleStaticQueryGitRefOptions),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ModuleStaticQueryGitRefOptions {
+    pub repository: url::Url,
+
+    #[serde(rename = "ref")]
+    pub ref_: String,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -166,6 +262,9 @@ pub struct ProjectRef(NodeIndex);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct ModuleRef(NodeIndex);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct StaticRef(NodeIndex);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct WorkspaceRef(NodeIndex);

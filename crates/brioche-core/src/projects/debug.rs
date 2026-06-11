@@ -1,14 +1,19 @@
 use std::{collections::HashSet, io::Write as _};
 
+use petgraph::visit::EdgeRef as _;
+
 use crate::{
     Brioche,
-    projects::{ModuleRef, ProjectEdge, ProjectNode, ProjectRef, ProjectSpecifier, WorkspaceRef},
+    projects::{
+        ModuleRef, ProjectEdge, ProjectNode, ProjectRef, ProjectSpecifier, StaticRef, WorkspaceRef,
+    },
     script::specifier::ImportSpecifier,
 };
 
 #[derive(Default)]
 pub struct ProjectGraphvizOptions {
     pub show_modules: bool,
+    pub show_statics: bool,
     pub highlight_projects: HashSet<ProjectRef>,
 }
 
@@ -85,6 +90,94 @@ pub async fn graphviz(brioche: &Brioche, options: &ProjectGraphvizOptions) -> St
                         &mut graphviz,
                         r#"{node_idx}[shape = box, label = "{}", color = gray, fontcolor = gray]"#,
                         module.subpath
+                    )
+                    .unwrap();
+                }
+            }
+            ProjectNode::Static => {
+                if options.show_modules && options.show_statics {
+                    let static_ = &projects.statics[&StaticRef(node_id)];
+                    let module_path = projects
+                        .graph
+                        .edges_directed(node_id, petgraph::Direction::Incoming)
+                        .find_map(|edge| {
+                            let module_ref = match edge.weight() {
+                                ProjectEdge::ModuleStatic(_) => ModuleRef(edge.source()),
+                                _ => {
+                                    return None;
+                                }
+                            };
+
+                            let module = &projects.modules[&module_ref];
+                            let project_path = &projects.local_project_paths[&module.project];
+                            let (_, module_subpath) = &projects.project_by_module[&module_ref];
+                            project_path.join_subpath(module_subpath.clone()).ok()
+                        });
+
+                    let label = match static_ {
+                        super::Static::IncludeFile(path) => {
+                            format!("file {path}")
+                        }
+                        super::Static::IncludeDirectory(path) => {
+                            format!("dir {path}")
+                        }
+                        super::Static::Glob { patterns } => {
+                            if let [pattern] = &patterns[..] {
+                                format!("glob {pattern}")
+                            } else {
+                                "glob ...".to_string()
+                            }
+                        }
+                        super::Static::Download { url, hash: _ } => {
+                            format!("download {url}")
+                        }
+                        super::Static::GitRef {
+                            repository,
+                            ref_,
+                            commit: _,
+                        } => format!("git {repository} {ref_}"),
+                    };
+                    let tooltip = match static_ {
+                        super::Static::IncludeFile(path) => module_path.map(|module_path| {
+                            let path = module_path.join(path.clone());
+                            format!("file {path}")
+                        }),
+                        super::Static::IncludeDirectory(path) => module_path.map(|module_path| {
+                            let path = module_path.join(path.clone());
+                            format!("dir {path}")
+                        }),
+                        super::Static::Glob { patterns } => {
+                            if let [pattern] = &patterns[..] {
+                                Some(format!("glob {pattern}"))
+                            } else {
+                                Some(format!("glob ...({})", patterns.len()))
+                            }
+                        }
+                        super::Static::Download { .. } | super::Static::GitRef { .. } => None,
+                    };
+                    let tooltip = tooltip.as_deref().unwrap_or(&label);
+                    writeln!(
+                        &mut graphviz,
+                        r#"{node_idx}[shape = box, label = "{label}", tooltip = "{tooltip}", color = gray, fontcolor = gray]"#
+                    )
+                    .unwrap();
+                }
+            }
+            ProjectNode::UnresolvedStatic => {
+                if options.show_modules && options.show_statics {
+                    let static_ = &projects.unresolved_statics[&StaticRef(node_id)];
+
+                    let label = match static_ {
+                        super::UnresolvedStatic::Download { url } => {
+                            format!("download {url}")
+                        }
+                        super::UnresolvedStatic::GitRef { repository, ref_ } => {
+                            format!("git {repository} {ref_}")
+                        }
+                    };
+                    writeln!(
+                        &mut graphviz,
+                        r#"{node_idx}[shape = box, label = "?{label}", tooltip = "(unresolved) {label}", color = gray, fontcolor = gray]"#
                     )
                     .unwrap();
                 }

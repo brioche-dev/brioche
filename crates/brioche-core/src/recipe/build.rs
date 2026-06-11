@@ -121,7 +121,7 @@ fn build_artifact_node(
     Ok(recipe_ref)
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct ArtifactPath {
     pub components: Vec<ArtifactPathComponent>,
 }
@@ -176,7 +176,7 @@ impl TryFrom<crate::path::RelativePath> for ArtifactPath {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArtifactPathComponent {
     DirectoryEntry(bstr::BString),
     FileResources,

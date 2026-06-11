@@ -44,7 +44,10 @@ pub async fn hash_project(
         crate::projects::ProjectNode::Project => {
             petgraph::algo::has_path_connecting(&*graph, project_ref.0, index, Some(&mut dfs_space))
         }
-        crate::projects::ProjectNode::Workspace | crate::projects::ProjectNode::Module => false,
+        crate::projects::ProjectNode::Workspace
+        | crate::projects::ProjectNode::Module
+        | crate::projects::ProjectNode::Static
+        | crate::projects::ProjectNode::UnresolvedStatic => false,
     });
 
     // Group nodes by finding the strongly-connected components of the graph.
@@ -87,7 +90,8 @@ pub(super) fn hash_projects_inner(
                 }
                 crate::projects::ProjectEdge::ProjectWithinWorkspace
                 | crate::projects::ProjectEdge::ProjectRootModule
-                | crate::projects::ProjectEdge::ModuleImport(_) => None,
+                | crate::projects::ProjectEdge::ModuleImport(_)
+                | crate::projects::ProjectEdge::ModuleStatic(_) => None,
             })
             .collect();
 
@@ -164,7 +168,7 @@ impl std::fmt::Display for WorkspaceHash {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ContentAddressedProject {
+pub struct ContentAddressedProject {
     definition: ProjectDefinition,
     dependencies: HashMap<String, DependencyRef>,
     #[serde_as(as = "HashMap<TickEncoded, _>")]

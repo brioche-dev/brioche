@@ -5,17 +5,20 @@ use std::{
 };
 
 use anyhow::Context as _;
-use bstr::ByteSlice as _;
+use bstr::{ByteSlice as _, ByteVec as _};
 
 use crate::{
     Brioche,
     blob::SaveBlobPermit,
-    path::RelativePath,
+    path::{AbsolutePath, RelativePath, RelativePathComponent},
     projects::{
         ProjectRef,
         hash::{ContentAddressedProjectEntry, WorkspaceHash},
     },
-    recipe::{Directory, File, Recipe, RecipeRef, Symlink, build::ArtifactBuilder},
+    recipe::{
+        Directory, File, Recipe, RecipeRef, Symlink,
+        build::{ArtifactBuilder, ArtifactPath, ArtifactPathComponent},
+    },
 };
 
 use super::{Projects, hash::ProjectHash};
@@ -38,7 +41,10 @@ pub async fn create_project_artifact(
         crate::projects::ProjectNode::Project => {
             petgraph::algo::has_path_connecting(&*graph, project_ref.0, index, Some(&mut dfs_space))
         }
-        crate::projects::ProjectNode::Workspace | crate::projects::ProjectNode::Module => false,
+        crate::projects::ProjectNode::Workspace
+        | crate::projects::ProjectNode::Module
+        | crate::projects::ProjectNode::Static
+        | crate::projects::ProjectNode::UnresolvedStatic => false,
     });
 
     // Group nodes by finding the strongly-connected components of the graph.
@@ -91,10 +97,18 @@ async fn create_single_project_artifact(
 ) -> anyhow::Result<RecipeRef> {
     let mut artifact = Some(ArtifactBuilder::empty_dir());
 
-    // TODO: Add statics
+    let mut files = HashMap::<ArtifactPath, AbsolutePath>::new();
+    let mut directories = Vec::<(ArtifactPath, AbsolutePath)>::new();
+    let mut symlinks = HashMap::<ArtifactPath, bstr::BString>::new();
+    let mut globs = vec![];
 
     // Add each module to the artifact
     for (module_path, module_ref) in &projects.modules_by_project[&project_ref] {
+        let local_project_path = &projects.local_project_paths[&project_ref];
+        let module_parent_path = module_path
+            .parent()
+            .unwrap_or_else(|| panic!("invalid module path: {module_path}"));
+
         let module = &projects.modules[module_ref];
         let source = module
             .source
@@ -116,6 +130,36 @@ async fn create_single_project_artifact(
 
         let path = crate::recipe::build::ArtifactPath::try_from(module_path.clone())?;
         crate::recipe::build::insert_into_artifact(&mut artifact, &path, module_artifact)?;
+
+        // Queue up any file paths referenced from statics
+        for (static_query, _) in projects.module_statics(*module_ref) {
+            match static_query {
+                super::ModuleStaticQuery::IncludeFile(include_path) => {
+                    let include_path = module_parent_path.clone().join(include_path.clone());
+                    let artifact_path =
+                        crate::recipe::build::ArtifactPath::try_from(include_path.clone())?;
+                    let include_path = local_project_path.join_subpath(include_path)?;
+                    files.insert(artifact_path, include_path);
+                }
+                super::ModuleStaticQuery::IncludeDirectory(include_path) => {
+                    let include_path = module_parent_path.clone().join(include_path.clone());
+                    let artifact_path =
+                        crate::recipe::build::ArtifactPath::try_from(include_path.clone())?;
+                    let include_path = local_project_path.join_subpath(include_path)?;
+                    directories.push((artifact_path, include_path));
+                }
+                super::ModuleStaticQuery::Glob { patterns } => {
+                    let artifact_path =
+                        crate::recipe::build::ArtifactPath::try_from(module_parent_path.clone())?;
+                    let module_parent_path =
+                        local_project_path.join_subpath(module_parent_path.clone())?;
+                    globs.push((artifact_path, module_parent_path, patterns));
+                }
+                super::ModuleStaticQuery::Download { .. } | super::ModuleStaticQuery::GitRef(_) => {
+                    // Nothing to add
+                }
+            }
+        }
     }
 
     // Add the lockfile to the artifact
@@ -139,6 +183,157 @@ async fn create_single_project_artifact(
     let lockfile_path = RelativePath::new("brioche.lock");
     let lockfile_path = crate::recipe::build::ArtifactPath::try_from(lockfile_path)?;
     crate::recipe::build::insert_into_artifact(&mut artifact, &lockfile_path, lockfile_artifact)?;
+
+    // Resolve static glob patterns into files/directories/symlinks to add
+    for (artifact_path, path, patterns) in globs {
+        tracing::info!(
+            path = artifact_path.display_pretty(),
+            ?patterns,
+            "adding globs"
+        );
+
+        let mut glob_set = globset::GlobSetBuilder::new();
+        for pattern in patterns {
+            let glob = globset::GlobBuilder::new(pattern)
+                .case_insensitive(false)
+                .literal_separator(true)
+                .backslash_escape(true)
+                .empty_alternates(true)
+                .build()?;
+            glob_set.add(glob);
+        }
+        let glob_set = glob_set.build()?;
+
+        (files, directories, symlinks) = tokio::task::spawn_blocking(move || {
+            let system_path = path.to_system_path()?;
+            for entry in walkdir::WalkDir::new(&system_path) {
+                let entry = entry?;
+
+                let entry_path = crate::path::canonicalize_system_path_sync(entry.path())?;
+                let relative_entry_path = crate::path::relative_path_between(&path, &entry_path)
+                    .with_context(|| {
+                        format!(
+                            "failed to resolve matched path {entry_path} relative to module path {path}",
+                        )
+                    })?;
+
+                let relative_entry_system_path = relative_entry_path.to_system_path()?;
+                if !glob_set.is_match(&relative_entry_system_path) {
+                    tracing::debug!(path = %relative_entry_system_path.display(), "path does not match");
+                    continue;
+                }
+
+                let mut artifact_subpath = artifact_path.clone();
+                for component in relative_entry_path.components() {
+                    let RelativePathComponent::Normal(component) = component else {
+                        panic!("invalid path between module path {path} and matched path {entry_path}");
+                    };
+                    artifact_subpath.components.push(ArtifactPathComponent::DirectoryEntry(component.clone()));
+                }
+
+                let file_type = entry.file_type();
+                if file_type.is_file() {
+                    tracing::debug!(path = %relative_entry_path, "matched file");
+                    let entry_path = crate::path::canonicalize_system_path_sync(entry.path())?;
+                    files.insert(artifact_subpath, entry_path);
+                } else if file_type.is_dir() {
+                    tracing::debug!(path = %relative_entry_path, "matched dir");
+                    let entry_path = crate::path::canonicalize_system_path_sync(entry.path())?;
+                    directories.push((artifact_subpath, entry_path));
+                } else if file_type.is_symlink() {
+                    tracing::debug!(path = %relative_entry_path, "matched symlink");
+                    let target_path = std::fs::read_link(entry.path())
+                        .context("failed to read symlink target")?;
+                    let target = <Vec<u8>>::from_path_buf(target_path.clone()).map_err(|_| {
+                        anyhow::anyhow!("invalid symlink target at {}", entry.path().display())
+                    })?;
+                    symlinks.insert(artifact_subpath, bstr::BString::new(target));
+                } else {
+                    anyhow::bail!("unknown file type at {}", entry.path().display());
+                }
+            }
+            anyhow::Ok((files, directories, symlinks))
+        })
+        .await??;
+    }
+
+    // Add directories from statics (recursively), and queue up files/symlinks
+    // along the way
+    let mut visited_directories = HashSet::new();
+    while let Some((artifact_path, path)) = directories.pop() {
+        if !visited_directories.insert(artifact_path.clone()) {
+            break;
+        }
+
+        crate::recipe::build::insert_into_artifact(
+            &mut artifact,
+            &artifact_path,
+            ArtifactBuilder::empty_dir(),
+        )?;
+
+        let system_path = path.to_system_path()?;
+        let mut entries = tokio::fs::read_dir(&system_path).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let filename = entry.file_name();
+            let filename = <[u8]>::from_os_str(&filename)
+                .with_context(|| format!("invalid filename: {}", filename.display()))?;
+            let filename = bstr::BString::from(filename);
+            let artifact_subpath = artifact_path
+                .clone()
+                .child(ArtifactPathComponent::DirectoryEntry(filename.clone()));
+
+            let file_type = entry.file_type().await?;
+            if file_type.is_file() {
+                let entry_path = path.join_one(&filename);
+                files.insert(artifact_subpath, entry_path);
+            } else if file_type.is_dir() {
+                let entry_path = path.join_one(&filename);
+                directories.push((artifact_subpath, entry_path));
+            } else if file_type.is_symlink() {
+                let target_path =
+                    std::fs::read_link(entry.path()).context("failed to read symlink target")?;
+                let target = <Vec<u8>>::from_path_buf(target_path.clone()).map_err(|_| {
+                    anyhow::anyhow!("invalid symlink target at {}", entry.path().display())
+                })?;
+                symlinks.insert(artifact_subpath, bstr::BString::new(target));
+            } else {
+                anyhow::bail!("unknown file type at {}", entry.path().display());
+            }
+        }
+    }
+
+    // Add files from statics
+    let mut buffer = vec![];
+    for (artifact_path, path) in files {
+        let system_path = path.to_system_path()?;
+        let file_blob = crate::blob::save_blob_from_file(
+            brioche,
+            permit,
+            &system_path,
+            crate::blob::SaveBlobOptions::default(),
+            &mut buffer,
+        )
+        .await?;
+        let file_metadata = tokio::fs::metadata(&system_path).await?;
+        let executable = crate::fs_utils::is_executable(&file_metadata.permissions());
+
+        let file_artifact = ArtifactBuilder::File {
+            content_blob: file_blob,
+            executable,
+            resources: Box::new(None),
+        };
+
+        crate::recipe::build::insert_into_artifact(&mut artifact, &artifact_path, file_artifact)?;
+    }
+
+    // Add symlinks from statics
+    for (artifact_path, target) in symlinks {
+        crate::recipe::build::insert_into_artifact(
+            &mut artifact,
+            &artifact_path,
+            ArtifactBuilder::Symlink { target },
+        )?;
+    }
 
     let artifact = artifact.unwrap();
     let artifact = crate::recipe::build::build_artifact(&artifact, recipes)?;

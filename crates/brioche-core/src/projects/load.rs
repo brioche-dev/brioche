@@ -7,10 +7,11 @@ use crate::{
     Brioche,
     path::{AbsolutePath, RelativePath},
     projects::{
-        DependencyDefinition, Lockfile, Module, ModuleRef, ModuleReferrer, Project,
-        ProjectDefinition, ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode,
-        ProjectRef, ProjectReferrer, ProjectSpecifier, Version, Workspace, WorkspaceDefinition,
-        WorkspaceMember, WorkspaceRef, hash::ProjectHash,
+        DependencyDefinition, Lockfile, Module, ModuleRef, ModuleReferrer, ModuleStaticQuery,
+        Project, ProjectDefinition, ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode,
+        ProjectRef, ProjectReferrer, ProjectSpecifier, SharedStatic, Static, StaticRef,
+        UnresolvedStatic, Version, Workspace, WorkspaceDefinition, WorkspaceMember, WorkspaceRef,
+        hash::ProjectHash,
     },
     script::specifier::{ImportSpecifier, LocalImportSpecifier},
 };
@@ -28,6 +29,8 @@ pub async fn load_projects(
     let projects = &mut *projects;
     let mut project_hashes_to_validate = HashMap::new();
     let mut results = HashMap::new();
+
+    let mut shared_statics = HashMap::<SharedStatic, StaticRef>::new();
 
     while let Some((specifier, referrer)) = queue.pop_front() {
         if let Some(project) = projects.projects_by_specifier.get(&specifier) {
@@ -200,6 +203,7 @@ pub async fn load_projects(
             let module_system_path = module_path.to_system_path()?;
             let module_source = load_module_source(&module_system_path).await;
             let module = Module {
+                project: project_ref,
                 source: module_source,
                 subpath: module_subpath,
             };
@@ -219,6 +223,8 @@ pub async fn load_projects(
 
             match module_ast {
                 Ok(module_ast) => {
+                    let mut env = HashMap::new();
+
                     if let ModuleReferrer::ProjectRoot { .. } = module_referrer {
                         let project_definition_value =
                             crate::script::parse::get_export_value(module_ast, "project");
@@ -234,6 +240,12 @@ pub async fn load_projects(
                                 None
                             }
                         };
+
+                        // Insert the `project` export in the env, so it can
+                        // be referenced when resolving statics
+                        if let Some(project) = &project_definition_value {
+                            env.insert("project".to_string(), project.value.clone());
+                        }
 
                         let project_definition_location = ProjectIssueLocation {
                             path: root_module_path.clone(),
@@ -345,6 +357,53 @@ pub async fn load_projects(
                                 }
                             }
                         }
+                    }
+
+                    let static_queries = crate::script::parse::find_statics(module_ast, &env);
+                    for query in static_queries {
+                        let query = match query {
+                            Ok(query) => query,
+                            Err(error) => {
+                                projects.issues.entry(module_ref.0).or_default().push(
+                                    ProjectIssue::ScriptParseError {
+                                        error,
+                                        path: module_path.clone(),
+                                    },
+                                );
+                                continue;
+                            }
+                        };
+                        let static_ = prepare_static(query.clone(), lockfile.as_ref().ok());
+
+                        let static_ref = match static_ {
+                            PartialStatic::Shared(static_) => {
+                                *shared_statics.entry(static_).or_insert_with_key(|static_| {
+                                    let static_ref =
+                                        StaticRef(projects.graph.add_node(ProjectNode::Static));
+                                    projects.statics.insert(static_ref, static_.clone().into());
+                                    static_ref
+                                })
+                            }
+                            PartialStatic::Unique(static_) => {
+                                let static_ref =
+                                    StaticRef(projects.graph.add_node(ProjectNode::Static));
+                                projects.statics.insert(static_ref, static_);
+                                static_ref
+                            }
+                            PartialStatic::Unresolved(static_) => {
+                                let static_ref = StaticRef(
+                                    projects.graph.add_node(ProjectNode::UnresolvedStatic),
+                                );
+                                projects.unresolved_statics.insert(static_ref, static_);
+                                static_ref
+                            }
+                        };
+
+                        projects.graph.add_edge(
+                            module_ref.0,
+                            static_ref.0,
+                            ProjectEdge::ModuleStatic(query),
+                        );
                     }
                 }
                 Err(error) => {
@@ -477,7 +536,10 @@ pub async fn load_projects(
                     )
                 })
             }
-            crate::projects::ProjectNode::Workspace | crate::projects::ProjectNode::Module => false,
+            crate::projects::ProjectNode::Workspace
+            | crate::projects::ProjectNode::Module
+            | crate::projects::ProjectNode::Static
+            | crate::projects::ProjectNode::UnresolvedStatic => false,
         });
 
         // Group nodes by finding the strongly-connected components of the graph.
@@ -860,4 +922,49 @@ async fn resolve_project_from_workspace(
     }
 
     todo!();
+}
+
+fn prepare_static(static_query: ModuleStaticQuery, lockfile: Option<&Lockfile>) -> PartialStatic {
+    match static_query {
+        ModuleStaticQuery::IncludeFile(path) => PartialStatic::Unique(Static::IncludeFile(path)),
+        ModuleStaticQuery::IncludeDirectory(path) => {
+            PartialStatic::Unique(Static::IncludeDirectory(path))
+        }
+        ModuleStaticQuery::Glob { patterns } => PartialStatic::Unique(Static::Glob { patterns }),
+        ModuleStaticQuery::Download { url } => {
+            if let Some(lockfile) = lockfile
+                && let Some(hash) = lockfile.downloads.get(&url)
+            {
+                PartialStatic::Shared(SharedStatic::Download {
+                    url,
+                    hash: hash.clone(),
+                })
+            } else {
+                PartialStatic::Unresolved(UnresolvedStatic::Download { url })
+            }
+        }
+        ModuleStaticQuery::GitRef(options) => {
+            if let Some(lockfile) = lockfile
+                && let Some(commits) = lockfile.git_refs.get(&options.repository)
+                && let Some(commit) = commits.get(&options.ref_)
+            {
+                PartialStatic::Shared(SharedStatic::GitRef {
+                    repository: options.repository,
+                    ref_: options.ref_,
+                    commit: commit.clone(),
+                })
+            } else {
+                PartialStatic::Unresolved(UnresolvedStatic::GitRef {
+                    repository: options.repository,
+                    ref_: options.ref_,
+                })
+            }
+        }
+    }
+}
+
+enum PartialStatic {
+    Unresolved(UnresolvedStatic),
+    Shared(SharedStatic),
+    Unique(Static),
 }
