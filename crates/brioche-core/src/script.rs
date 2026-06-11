@@ -11,7 +11,7 @@ use anyhow::Context as _;
 use bridge::{GetStaticOptions, RuntimeBridge};
 use deno_core::{OpState, v8};
 use relative_path::PathExt as _;
-use specifier::BriocheModuleSpecifier;
+use specifier::{BriocheModuleSpecifier, RUNTIME_SCHEME};
 
 use crate::{bake::BakeScope, project::Projects, recipe::StackFrame};
 
@@ -125,44 +125,86 @@ impl BriocheModuleLoader {
         let code = std::str::from_utf8(&contents)
             .context("failed to parse module contents as UTF-8 string")?;
 
-        let parsed = deno_ast::parse_module(deno_ast::ParseParams {
-            specifier: brioche_module_specifier.clone().into(),
-            text: code.into(),
-            media_type: deno_ast::MediaType::TypeScript,
-            capture_tokens: false,
-            scope_analysis: false,
-            maybe_syntax: None,
-        })?;
-        let transpiled = parsed.transpile(
-            &deno_ast::TranspileOptions {
-                imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
-                ..Default::default()
-            },
-            &deno_ast::TranspileModuleOptions {
-                module_kind: Some(deno_ast::ModuleKind::Esm),
-            },
-            &deno_ast::EmitOptions {
-                source_map: deno_ast::SourceMapOption::Separate,
-                ..Default::default()
-            },
-        )?;
+        // Serve prebuilt JS directly; transpile TypeScript sources.
+        let media_type = deno_ast::MediaType::from_specifier(module_specifier);
+        let (text, source_map) = if matches!(
+            media_type,
+            deno_ast::MediaType::JavaScript | deno_ast::MediaType::Mjs | deno_ast::MediaType::Cjs
+        ) {
+            (code.to_string(), Vec::new())
+        } else {
+            let parsed = deno_ast::parse_module(deno_ast::ParseParams {
+                specifier: brioche_module_specifier.clone().into(),
+                text: code.into(),
+                media_type: deno_ast::MediaType::TypeScript,
+                capture_tokens: false,
+                scope_analysis: false,
+                maybe_syntax: None,
+            })?;
+            let transpiled = parsed.transpile(
+                &deno_ast::TranspileOptions {
+                    imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
+                    ..Default::default()
+                },
+                &deno_ast::TranspileModuleOptions {
+                    module_kind: Some(deno_ast::ModuleKind::Esm),
+                },
+                &deno_ast::EmitOptions {
+                    source_map: deno_ast::SourceMapOption::Separate,
+                    ..Default::default()
+                },
+            )?;
 
-        let deno_ast::EmittedSourceText { text, source_map } = transpiled.into_source();
+            let deno_ast::EmittedSourceText { text, source_map } = transpiled.into_source();
+            let source_map = source_map.context("source map not generated")?.into_bytes();
+            (text, source_map)
+        };
 
         if let Entry::Vacant(entry) = self.sources.borrow_mut().entry(brioche_module_specifier) {
-            let source_map = source_map.context("source map not generated")?;
             entry.insert(ModuleSource {
                 source_contents: contents.clone(),
-                source_map: source_map.into_bytes(),
+                source_map,
             });
         }
+
+        // Only look up cached bytecode for the prebuilt runtime bundle.
+        let code_cache_info = if module_specifier.scheme() == RUNTIME_SCHEME {
+            let hash = code_cache_hash(text.as_bytes());
+            let data = self.read_code_cache(hash).map(Cow::Owned);
+            Some(deno_core::SourceCodeCacheInfo { hash, data })
+        } else {
+            None
+        };
 
         Ok(deno_core::ModuleSource::new(
             deno_core::ModuleType::JavaScript,
             deno_core::ModuleSourceCode::String(text.into()),
             module_specifier,
-            None,
+            code_cache_info,
         ))
+    }
+
+    fn code_cache_path(&self, hash: u64) -> PathBuf {
+        self.bridge
+            .code_cache_dir()
+            .join(format!("{hash:016x}.bin"))
+    }
+
+    fn read_code_cache(&self, hash: u64) -> Option<Vec<u8>> {
+        std::fs::read(self.code_cache_path(hash)).ok()
+    }
+
+    /// Write V8 bytecode for a module to the cache, atomically. Failures are
+    /// ignored.
+    fn write_code_cache(&self, hash: u64, data: &[u8]) {
+        let dir = self.bridge.code_cache_dir();
+        if std::fs::create_dir_all(dir).is_err() {
+            return;
+        }
+        let tmp = dir.join(format!("{hash:016x}.{}.tmp", ulid::Ulid::new()));
+        if std::fs::write(&tmp, data).is_ok() {
+            let _ = std::fs::rename(&tmp, self.code_cache_path(hash));
+        }
     }
 
     fn resolve_module(
@@ -214,6 +256,18 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
         )
     }
 
+    fn code_cache_ready(
+        &self,
+        module_specifier: deno_core::ModuleSpecifier,
+        hash: u64,
+        code_cache: &[u8],
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> {
+        if module_specifier.scheme() == RUNTIME_SCHEME {
+            self.write_code_cache(hash, code_cache);
+        }
+        Box::pin(std::future::ready(()))
+    }
+
     fn get_source_map(&self, file_name: &str) -> Option<Cow<'_, [u8]>> {
         let sources = self.sources.borrow();
         let specifier: BriocheModuleSpecifier = file_name.parse().ok()?;
@@ -239,6 +293,16 @@ impl deno_core::ModuleLoader for BriocheModuleLoader {
 struct ModuleSource {
     pub source_contents: Arc<Vec<u8>>,
     pub source_map: Vec<u8>,
+}
+
+/// 64-bit blake3 digest of a module's source.
+fn code_cache_hash(bytes: &[u8]) -> u64 {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(bytes);
+
+    let mut digest = [0u8; 8];
+    hasher.finalize_xof().fill(&mut digest);
+    u64::from_le_bytes(digest)
 }
 
 pub enum ModuleLoaderMessage {

@@ -1617,7 +1617,12 @@ mod tests {
 
     #[test]
     fn test_stack_frame_display() {
-        let cases: &[(_, _, _, _, _, &str)] = &[
+        let runtime_url = format!(
+            "{}:///dist/std/process.js",
+            crate::script::specifier::RUNTIME_SCHEME
+        );
+
+        let cases = [
             // project+module wins over file_name
             (
                 Some("file:///abs/path/myproj/build.bri"),
@@ -1625,7 +1630,7 @@ mod tests {
                 Some("build.bri"),
                 Some(7),
                 Some(25),
-                "myproj/build.bri:7:25",
+                "myproj/build.bri:7:25".to_owned(),
             ),
             // module_path alone is used when project_name is absent
             (
@@ -1634,19 +1639,19 @@ mod tests {
                 Some("sub/build.bri"),
                 Some(3),
                 None,
-                "sub/build.bri:3",
+                "sub/build.bri:3".to_owned(),
             ),
             // file_name is the final fallback when neither field is set
             (
-                Some("briocheruntime:///dist/std/process.js"),
+                Some(&runtime_url),
                 None,
                 None,
                 Some(42),
                 Some(1),
-                "briocheruntime:///dist/std/process.js:42:1",
+                format!("{runtime_url}:42:1"),
             ),
             // entirely-empty frame renders the placeholder
-            (None, None, None, None, None, "<unknown>"),
+            (None, None, None, None, None, "<unknown>".to_owned()),
             // line-only (no column) still produces `:line`
             (
                 None,
@@ -1654,19 +1659,19 @@ mod tests {
                 Some("main.bri"),
                 Some(10),
                 None,
-                "myproj/main.bri:10",
+                "myproj/main.bri:10".to_owned(),
             ),
         ];
 
         for (file_name, project_name, module_path, line, col, expected) in cases {
             let frame = StackFrame {
                 file_name: file_name.map(str::to_owned),
-                line_number: *line,
-                column_number: *col,
+                line_number: line,
+                column_number: col,
                 project_name: project_name.map(str::to_owned),
                 module_path: module_path.map(str::to_owned),
             };
-            assert_eq!(frame.to_string(), *expected);
+            assert_eq!(frame.to_string(), expected);
         }
     }
 }

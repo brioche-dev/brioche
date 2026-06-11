@@ -21,7 +21,7 @@ await esbuild.build({
   entryPoints: ["./src/index.ts"],
   format: "esm",
   outfile: "dist/index.js",
-  minifyWhitespace: true,
+  minify: true,
   define: {
     global: "globalThis",
     "__filename": "\"\"",

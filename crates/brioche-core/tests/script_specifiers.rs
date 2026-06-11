@@ -2,7 +2,8 @@ use assert_matches::assert_matches;
 use brioche_core::{
     project::Projects,
     script::specifier::{
-        self, BriocheImportSpecifier, BriocheModuleSpecifier, read_specifier_contents,
+        self, BriocheImportSpecifier, BriocheModuleSpecifier, RUNTIME_SCHEME,
+        read_specifier_contents,
     },
 };
 
@@ -21,7 +22,7 @@ fn resolve(
 async fn test_specifier_read_runtime() -> anyhow::Result<()> {
     let (brioche, _context) = brioche_test_support::brioche_test().await;
 
-    let specifier: BriocheModuleSpecifier = "briocheruntime:///dist/index.js"
+    let specifier: BriocheModuleSpecifier = format!("{RUNTIME_SCHEME}:///dist/index.js")
         .parse()
         .expect("failed to parse specifier");
     let contents = read_specifier_contents(&brioche.vfs, &specifier)?;
