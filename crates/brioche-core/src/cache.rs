@@ -7,10 +7,7 @@ use tokio::io::AsyncWriteExt as _;
 
 use crate::recipe::RecipeRef;
 use crate::{
-    Brioche,
-    projects::hash::ProjectHash,
-    recipe::{Artifact, hash::RecipeHash},
-    reporter::job::CacheFetchKind,
+    Brioche, projects::hash::ProjectHash, recipe::hash::RecipeHash, reporter::job::CacheFetchKind,
 };
 
 mod archive;

@@ -10,7 +10,7 @@
 //! up into similarly-sized chunks that can be fetched in parallel.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     ops::Range,
     sync::Arc,
 };
@@ -24,7 +24,7 @@ use crate::{
     Brioche,
     blob::{BlobHash, SaveBlobOptions},
     recipe::{
-        Artifact, File, Recipe, RecipeHash, RecipeRef, Recipes, Symlink,
+        File, Recipe, RecipeRef, Symlink,
         build::{
             ArtifactBuilder, ArtifactPath, ArtifactPathComponent, build_artifact,
             insert_into_artifact, set_subtree,

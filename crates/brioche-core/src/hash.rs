@@ -34,11 +34,6 @@ pub enum AnyHashHasher {
 
 impl AnyHashHasher {
     #[must_use]
-    pub fn new_sha256() -> Self {
-        Self::Sha256(Sha256Hasher::new())
-    }
-
-    #[must_use]
     pub fn for_hash(hash: &AnyHash) -> Self {
         match hash {
             AnyHash::Sha256 { .. } => Self::Sha256(Sha256Hasher::new()),

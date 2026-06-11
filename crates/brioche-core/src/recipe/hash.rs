@@ -525,7 +525,7 @@ pub(super) enum ContentAddressedRecipe {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ContentAddressedProcessRecipe {
+pub(super) struct ContentAddressedProcessRecipe {
     pub command: ContentAddressedProcessTemplate,
 
     pub args: Vec<ContentAddressedProcessTemplate>,
@@ -562,7 +562,7 @@ struct ContentAddressedProcessRecipe {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ContentAddressedProcessTemplate {
+pub(super) struct ContentAddressedProcessTemplate {
     pub components: Vec<ContentAddressedProcessTemplateComponent>,
 }
 
@@ -584,7 +584,7 @@ impl ContentAddressedProcessTemplate {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub enum ContentAddressedProcessTemplateComponent {
+pub(super) enum ContentAddressedProcessTemplateComponent {
     Literal {
         #[serde_as(as = "TickEncoded")]
         value: BString,
@@ -602,17 +602,11 @@ pub enum ContentAddressedProcessTemplateComponent {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
-pub enum ContentAddressedProcessTemplateInputComponent {
+pub(super) enum ContentAddressedProcessTemplateInputComponent {
     Recipe {
         recipe: Arc<ContentAddressedRecipe>,
     },
     Artifact {
         artifact: Arc<ContentAddressedRecipe>,
     },
-}
-
-#[derive(Debug, thiserror::Error)]
-enum DirectoryFromArtifactError {
-    #[error("expected directory artifact")]
-    ExpectedDirectoryArtifact,
 }

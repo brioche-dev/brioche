@@ -28,6 +28,7 @@ pub enum ArtifactBuilder {
 }
 
 impl ArtifactBuilder {
+    #[must_use]
     pub fn empty_dir() -> Self {
         Self::Directory {
             entries: HashMap::new(),
@@ -126,11 +127,13 @@ pub struct ArtifactPath {
 }
 
 impl ArtifactPath {
+    #[must_use]
     pub fn child(mut self, component: ArtifactPathComponent) -> Self {
         self.components.push(component);
         self
     }
 
+    #[must_use]
     pub fn display_pretty(&self) -> String {
         let mut display_pretty = String::new();
         for component in &self.components {

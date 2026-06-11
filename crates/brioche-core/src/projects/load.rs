@@ -458,7 +458,7 @@ pub async fn load_projects(
         projects
             .issues
             .get(&project_ref.0)
-            .is_none_or(|issues| issues.is_empty())
+            .is_none_or(Vec::is_empty)
     });
 
     if !project_hashes_to_validate.is_empty() {
@@ -498,7 +498,7 @@ pub async fn load_projects(
                         expected_hash,
                         actual_hash,
                     },
-                )
+                );
             }
         }
     }

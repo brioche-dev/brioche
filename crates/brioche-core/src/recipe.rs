@@ -29,6 +29,7 @@ pub struct Recipes {
 }
 
 impl Recipes {
+    #[must_use]
     pub fn get_recipe(&self, recipe_ref: RecipeRef) -> &Arc<Recipe> {
         &self.recipes[&recipe_ref]
     }
@@ -142,7 +143,8 @@ pub enum Recipe {
 }
 
 impl Recipe {
-    pub fn kind(&self) -> RecipeKind {
+    #[must_use]
+    pub const fn kind(&self) -> RecipeKind {
         match self {
             Self::File(..) => RecipeKind::File,
             Self::Directory(..) => RecipeKind::Directory,
@@ -167,6 +169,7 @@ impl Recipe {
         }
     }
 
+    #[must_use]
     pub fn is_empty_dir(&self) -> bool {
         match self {
             Self::Directory(directory) => directory.entries.is_empty(),
@@ -182,8 +185,7 @@ impl Recipe {
             Self::Directory(directory) => {
                 recipe_refs.extend(directory.entries.values().copied());
             }
-            Self::Symlink(_) => {}
-            Self::Download(_) => {}
+            Self::Symlink(_) | Self::Download(_) => {}
             Self::Unarchive(unarchive) => {
                 recipe_refs.push(unarchive.file);
             }
@@ -203,7 +205,11 @@ impl Recipe {
             Self::CreateDirectory { entries } => {
                 recipe_refs.extend(entries.values().copied());
             }
-            Self::Cast { recipe, to: _ } => {
+            Self::Cast { recipe, to: _ }
+            | Self::CollectReferences { recipe }
+            | Self::AttachResources { recipe }
+            | Self::Proxy { recipe }
+            | Self::Sync { recipe } => {
                 recipe_refs.push(*recipe);
             }
             Self::Merge { directories } => {
@@ -212,10 +218,12 @@ impl Recipe {
             Self::Peel {
                 directory,
                 depth: _,
-            } => {
-                recipe_refs.push(*directory);
             }
-            Self::Get { directory, path: _ } => {
+            | Self::Get { directory, path: _ }
+            | Self::Glob {
+                directory,
+                patterns: _,
+            } => {
                 recipe_refs.push(*directory);
             }
             Self::Insert {
@@ -226,29 +234,11 @@ impl Recipe {
                 recipe_refs.push(*directory);
                 recipe_refs.extend(*recipe);
             }
-            Self::Glob {
-                directory,
-                patterns: _,
-            } => {
-                recipe_refs.push(*directory);
-            }
             Self::SetPermissions {
                 file,
                 executable: _,
             } => {
                 recipe_refs.push(*file);
-            }
-            Self::CollectReferences { recipe } => {
-                recipe_refs.push(*recipe);
-            }
-            Self::AttachResources { recipe } => {
-                recipe_refs.push(*recipe);
-            }
-            Self::Proxy { recipe } => {
-                recipe_refs.push(*recipe);
-            }
-            Self::Sync { recipe } => {
-                recipe_refs.push(*recipe);
             }
         }
     }

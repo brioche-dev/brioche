@@ -5,7 +5,6 @@ use std::{
 };
 
 use anyhow::Context as _;
-use sqlx::Acquire as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::hash::AnyHashHasher;
@@ -37,7 +36,7 @@ pub async fn save_blob(
 ) -> anyhow::Result<BlobHash> {
     let mut hasher = BlobHasher::new(&options);
     hasher.update(bytes);
-    let (blob_hash, validated_hash) = hasher.finish()?;
+    let (blob_hash, _validated_hash) = hasher.finish()?;
 
     let blob_path = local_blob_path(brioche, blob_hash);
 
@@ -126,7 +125,7 @@ where
         }
     }
 
-    let (blob_hash, validated_hash) = hasher.finish()?;
+    let (blob_hash, _validated_hash) = hasher.finish()?;
     let blob_path = local_blob_path(brioche, blob_hash);
 
     if let Some(parent) = blob_path.parent() {
@@ -251,7 +250,7 @@ pub async fn save_blob_from_file(
 
     std::mem::swap(buffer, &mut swapped_buffer);
 
-    let (blob_hash, validated_hash) = hasher.finish()?;
+    let (blob_hash, _validated_hash) = hasher.finish()?;
     let blob_path = local_blob_path(brioche, blob_hash);
 
     if let Some(parent) = blob_path.parent() {
@@ -362,7 +361,7 @@ impl<'a> SaveBlobOptions<'a> {
     }
 
     #[must_use]
-    pub fn expected_hash(mut self, expected_hash: Option<AnyHash>) -> Self {
+    pub const fn expected_hash(mut self, expected_hash: Option<AnyHash>) -> Self {
         self.expected_hash = expected_hash;
         self
     }
@@ -426,7 +425,7 @@ impl BlobHash {
     }
 
     #[must_use]
-    pub const fn to_blake3(&self) -> crate::hash::Blake3Hash {
+    pub const fn to_blake3(self) -> crate::hash::Blake3Hash {
         self.0
     }
 

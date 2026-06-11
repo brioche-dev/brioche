@@ -164,7 +164,7 @@ impl std::fmt::Display for WorkspaceHash {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ContentAddressedProject {
+pub(super) struct ContentAddressedProject {
     definition: ProjectDefinition,
     dependencies: HashMap<String, DependencyRef>,
     #[serde_as(as = "HashMap<TickEncoded, _>")]

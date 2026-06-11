@@ -56,7 +56,6 @@ impl Brioche {
     }
 
     #[must_use]
-    #[expect(clippy::new_without_default)]
     pub async fn new() -> Self {
         Self::builder().build().await.unwrap()
     }

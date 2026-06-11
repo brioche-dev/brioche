@@ -417,7 +417,7 @@ async fn test_project_load_local_registry_dep_implied_nested() {
 }
 
 #[tokio::test]
-async fn test_project_load_local_registry_dep_imported() -> anyhow::Result<()> {
+async fn test_project_load_local_registry_dep_imported() {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let (foo_hash, foo_path) = context
@@ -481,12 +481,10 @@ async fn test_project_load_local_registry_dep_imported() -> anyhow::Result<()> {
     );
 
     mock_foo_latest.assert_async().await;
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn test_project_load_remote_registry_dep() -> anyhow::Result<()> {
+async fn test_project_load_remote_registry_dep() {
     let cache = brioche_test_support::new_cache();
     let (brioche, mut context) =
         brioche_test_support::brioche_test_with_cache(cache.clone(), false).await;
@@ -557,8 +555,6 @@ async fn test_project_load_remote_registry_dep() -> anyhow::Result<()> {
     );
 
     mock_foo_latest.assert_async().await;
-
-    Ok(())
 }
 
 #[tokio::test]

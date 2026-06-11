@@ -212,7 +212,7 @@ impl TestContext {
             .unwrap();
         let specifier = ProjectSpecifier::Path(project_dir);
 
-        let mut refs = brioche_core::projects::load::load_projects(&brioche, [specifier.clone()])
+        let mut refs = brioche_core::projects::load::load_projects(brioche, [specifier.clone()])
             .await
             .unwrap();
         let project_ref = refs.remove(&specifier).unwrap();

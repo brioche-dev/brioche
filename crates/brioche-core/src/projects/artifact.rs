@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     path::Path,
     sync::Arc,
 };
@@ -15,12 +15,10 @@ use crate::{
         ProjectRef,
         hash::{ContentAddressedProjectEntry, WorkspaceHash},
     },
-    recipe::{
-        Artifact, ArtifactKind, Directory, File, Recipe, RecipeRef, Symlink, build::ArtifactBuilder,
-    },
+    recipe::{Directory, File, Recipe, RecipeRef, Symlink, build::ArtifactBuilder},
 };
 
-use super::{Project, Projects, Workspace, hash::ProjectHash};
+use super::{Projects, hash::ProjectHash};
 
 pub async fn create_project_artifact(
     brioche: &Brioche,
@@ -161,7 +159,7 @@ pub async fn save_projects_from_artifact(
     brioche: &Brioche,
     artifact_ref: RecipeRef,
 ) -> anyhow::Result<HashMap<ProjectHash, crate::path::AbsolutePath>> {
-    let mut recipes = brioche.recipes.write().await;
+    let recipes = brioche.recipes.read().await;
 
     let mut project_hashes = HashSet::new();
     let mut needed_workspace_hashes = HashSet::new();
