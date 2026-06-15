@@ -496,7 +496,7 @@ impl ConsoleReporter {
     fn render(&mut self) -> anyhow::Result<()> {
         match self {
             Self::SuperConsole { console, root } => {
-                console.render(root)?;
+                console.render(root).map_err(anyhow::Error::msg)?;
             }
             Self::Plain { .. } => {}
         }
@@ -507,7 +507,7 @@ impl ConsoleReporter {
     fn finalize(self) -> anyhow::Result<()> {
         match self {
             Self::SuperConsole { console, root } => {
-                console.finalize(&root)?;
+                console.finalize(&root).map_err(anyhow::Error::msg)?;
             }
             Self::Plain { .. } => {}
         }
@@ -553,6 +553,8 @@ struct JobsComponent {
 }
 
 impl superconsole::Component for JobsComponent {
+    type Error = anyhow::Error;
+
     fn draw_unchecked(
         &self,
         dimensions: superconsole::Dimensions,
@@ -710,6 +712,8 @@ struct JobComponent<'a> {
 }
 
 impl superconsole::Component for JobComponent<'_> {
+    type Error = anyhow::Error;
+
     #[expect(
         clippy::cast_possible_truncation,
         clippy::cast_precision_loss,
