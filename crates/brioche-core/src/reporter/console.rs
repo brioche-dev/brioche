@@ -21,10 +21,6 @@ use super::{
 // Render at 30 fps
 const RENDER_RATE: std::time::Duration = std::time::Duration::from_nanos(1_000_000_000 / 30);
 
-// Minimum amount of time to sleep before rendering next frame, even if
-// the next frame will be late
-const MIN_RENDER_WAIT: std::time::Duration = std::time::Duration::from_millis(1);
-
 /// Pads every job-kind keyword to the same width so kinds line up in a
 /// right-aligned column across rows.
 const JOB_KIND_WIDTH: usize = 9;
@@ -57,7 +53,7 @@ pub fn start_console_reporter(
         tx: tx.clone(),
     };
 
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         let superconsole = match kind {
             ConsoleReporterKind::Auto => {
                 let mut builder = superconsole::Builder::new();
@@ -102,42 +98,43 @@ pub fn start_console_reporter(
             },
         };
 
-        let mut last_render: Option<std::time::Instant> = None;
-        let mut running = true;
-        while running {
-            // Sleep long enough to try and hit our target render rate
-            if let Some(last_render) = last_render {
-                let elapsed_since_last_render = last_render.elapsed();
-                let wait_until_next_render = RENDER_RATE.saturating_sub(elapsed_since_last_render);
-                let wait_until_next_render =
-                    wait_until_next_render.clamp(MIN_RENDER_WAIT, RENDER_RATE);
+        let mut interval = tokio::time::interval(RENDER_RATE);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-                std::thread::sleep(wait_until_next_render);
+        let mut shutdown = false;
+        while !shutdown {
+            tokio::select! {
+                biased;
+
+                maybe_event = rx.recv() => {
+                    let Some(event) = maybe_event else { break };
+                    match event {
+                        ReportEvent::Emit { lines } => {
+                            console.emit(lines);
+                        }
+                        ReportEvent::AddJob { id, job, context } => {
+                            console.add_job(id, job, context);
+                        }
+                        ReportEvent::UpdateJobState { id, update } => {
+                            console.update_job(id, update);
+                        }
+                        ReportEvent::Shutdown => {
+                            shutdown = true;
+                        }
+                    }
+                }
+                _ = interval.tick() => {
+                    // Tick fires: no event this iteration.
+                }
             }
 
             let _ = console.render();
 
-            last_render = Some(std::time::Instant::now());
-
-            while let Ok(event) = rx.try_recv() {
-                match event {
-                    ReportEvent::Emit { lines } => {
-                        console.emit(lines);
-                    }
-                    ReportEvent::AddJob { id, job, context } => {
-                        console.add_job(id, job, context);
-                    }
-                    ReportEvent::UpdateJobState { id, update } => {
-                        console.update_job(id, update);
-                    }
-                    ReportEvent::Shutdown => {
-                        running = false;
-                    }
+            {
+                let mut queued_lines = queued_lines.write().await;
+                for lines in queued_lines.drain(..) {
+                    console.emit(lines);
                 }
-            }
-            let mut queued_lines = queued_lines.blocking_write();
-            for lines in queued_lines.drain(..) {
-                console.emit(lines);
             }
         }
 
