@@ -59,13 +59,21 @@ pub fn start_console_reporter(
 
     std::thread::spawn(move || {
         let superconsole = match kind {
-            ConsoleReporterKind::Auto => superconsole::SuperConsole::new(),
-            ConsoleReporterKind::SuperConsole => Some(superconsole::SuperConsole::forced_new(
-                superconsole::Dimensions {
-                    width: 80,
-                    height: 24,
-                },
-            )),
+            ConsoleReporterKind::Auto => {
+                let mut builder = superconsole::Builder::new();
+                builder.non_blocking();
+                builder.build().ok().flatten()
+            }
+            ConsoleReporterKind::SuperConsole => {
+                let mut builder = superconsole::Builder::new();
+                builder.non_blocking();
+                builder
+                    .build_forced(superconsole::Dimensions {
+                        width: 80,
+                        height: 24,
+                    })
+                    .ok()
+            }
             ConsoleReporterKind::Plain | ConsoleReporterKind::PlainReduced => None,
         };
 
@@ -82,18 +90,15 @@ pub fn start_console_reporter(
                 };
                 ConsoleReporter::SuperConsole { console, root }
             }
-            (_, ConsoleReporterKind::SuperConsole) => {
-                unreachable!();
-            }
-            (_, ConsoleReporterKind::Auto | ConsoleReporterKind::Plain) => ConsoleReporter::Plain {
-                jobs,
-                contexts,
-                job_outputs: Some(job_outputs),
-            },
-            (_, ConsoleReporterKind::PlainReduced) => ConsoleReporter::Plain {
+            (None, ConsoleReporterKind::PlainReduced) => ConsoleReporter::Plain {
                 jobs,
                 contexts,
                 job_outputs: None,
+            },
+            (None, _) => ConsoleReporter::Plain {
+                jobs,
+                contexts,
+                job_outputs: Some(job_outputs),
             },
         };
 
