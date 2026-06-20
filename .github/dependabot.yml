@@ -30,13 +30,3 @@ updates:
       cargo:
         patterns:
           - "*"
-
-  - package-ecosystem: "npm"
-    directory: "/crates/brioche-core/runtime"
-    schedule:
-      interval: "weekly"
-      day: "sunday"
-    groups:
-      npm:
-        patterns:
-          - "*"
