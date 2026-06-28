@@ -21,7 +21,7 @@ csv = "1.4.0"
 futures = "0.3.32"
 hex = "0.4.3"
 notify = "8.2.0"
-object_store = "0.13.2"
+object_store = "0.14.0"
 openssl = { version = "0.10.80", optional = true }
 reqwest = { version = "0.13.4", default-features = false, features = [
     "http2",
