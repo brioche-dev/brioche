@@ -211,7 +211,7 @@ pub async fn analyze_project(vfs: &Vfs, project_path: &Path) -> anyhow::Result<P
     });
 
     let project_definition_json_with_context = project_export.map(|project_export| {
-        let line = contents[..project_export.syntax().text_range().start().into()]
+        let line = contents[..project_export.syntax().text_range_with_trivia().start().into()]
         .lines()
         .count();
         let file_line = format!("{file}:{line}");
@@ -506,7 +506,7 @@ where
         .items()
         .iter()
         .map(move |item| {
-            let location = display_location(item.syntax().text_range().start().into());
+            let location = display_location(item.syntax().text_range_with_trivia().start().into());
             let import_source = match &item {
                 biome_js_syntax::AnyJsModuleItem::JsExport(export_item) => {
                     let export_clause = export_item
@@ -535,7 +535,23 @@ where
                     let import_clause = import_item
                         .import_clause()
                         .with_context(|| format!("{location}: failed to parse import statement"))?;
-                    import_clause.source()
+                    match import_clause {
+                        biome_js_syntax::AnyJsImportClause::JsImportBareClause(clause) => {
+                            clause.source()
+                        }
+                        biome_js_syntax::AnyJsImportClause::JsImportCombinedClause(clause) => {
+                            clause.source()
+                        }
+                        biome_js_syntax::AnyJsImportClause::JsImportDefaultClause(clause) => {
+                            clause.source()
+                        }
+                        biome_js_syntax::AnyJsImportClause::JsImportNamedClause(clause) => {
+                            clause.source()
+                        }
+                        biome_js_syntax::AnyJsImportClause::JsImportNamespaceClause(clause) => {
+                            clause.source()
+                        }
+                    }
                 }
                 biome_js_syntax::AnyJsModuleItem::AnyJsStatement(_) => {
                     // Not an import or export statement
@@ -546,9 +562,12 @@ where
             let import_source = import_source
                 .with_context(|| format!("{location}: failed to parse import source"))?;
             let import_source = import_source
-                .inner_string_text()
-                .with_context(|| format!("{location}: failed to get import source text"))?;
-            let import_source = import_source.text();
+                .as_js_module_source()
+                .with_context(|| format!("{location}: failed to get import source"))?;
+            let import_source_token = import_source
+                .value_token()
+                .with_context(|| format!("{location}: failed to get import source value"))?;
+            let import_source = unquote(import_source_token.text_trimmed());
             let specifier: BriocheImportSpecifier = import_source
                 .parse()
                 .with_context(|| format!("{location}: invalid import specifier"))?;
@@ -630,8 +649,13 @@ where
         .descendants()
         .map(move |node| {
             if let Some(import_call_expr) = biome_js_syntax::JsImportCallExpression::cast(node) {
-                let location =
-                    display_location(import_call_expr.syntax().text_range().start().into());
+                let location = display_location(
+                    import_call_expr
+                        .syntax()
+                        .text_range_with_trivia()
+                        .start()
+                        .into(),
+                );
 
                 // Get the arguments
                 let args = import_call_expr
@@ -724,7 +748,7 @@ where
             };
             let callee_member_text = callee_member_text.text_trimmed();
 
-            let location = display_location(call_expr.syntax().text_range().start().into());
+            let location = display_location(call_expr.syntax().text_range_with_trivia().start().into());
             match callee_member_text {
                 "includeFile" => {
                     // Get the arguments
@@ -932,6 +956,11 @@ pub fn expression_to_json(
                                 let key = name.name().context("invalid object member name")?;
                                 key.text().to_string()
                             }
+                            biome_js_syntax::AnyJsObjectMemberName::JsMetavariable(_) => {
+                                anyhow::bail!(
+                                    "metavariables are not supported in object member names"
+                                );
+                            }
                         };
 
                         let value = member
@@ -967,7 +996,7 @@ pub fn expression_to_json(
                 .map(|element| {
                     let value = match element {
                         biome_js_syntax::AnyJsTemplateElement::JsTemplateChunkElement(chunk) => {
-                            let string = chunk.text();
+                            let string = chunk.syntax().text_trimmed().to_string();
 
                             anyhow::ensure!(!string.contains('\\'), "unsupported escape sequence");
 
@@ -996,7 +1025,7 @@ pub fn expression_to_json(
         }
         Expr::JsIdentifierExpression(ident) => {
             let name = ident.name().context("invalid identifier")?;
-            let name = name.text();
+            let name = name.syntax().text_trimmed().to_string();
             let value = env
                 .and_then(|env| env.get(&name))
                 .with_context(|| format!("variable {name:?} is not allowed in this context"))?;
@@ -1008,7 +1037,7 @@ pub fn expression_to_json(
             let object = object.as_object().context("invalid object reference")?;
 
             let member = expr.member().context("invalid member reference")?;
-            let member = member.text();
+            let member = member.syntax().text_trimmed().to_string();
 
             let value = object
                 .get(&member)
