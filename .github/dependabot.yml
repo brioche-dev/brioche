@@ -18,9 +18,6 @@ updates:
     allow:
       - dependency-type: direct
     ignore:
-      # As for now, disable the update of biome dependencies
-      # See: https://github.com/biomejs/biome/issues/5151
-      - dependency-name: biome_*
       # Bincode is unmaintained and considered complete (sans CVE fixes). v3
       # exists but is effectively an empty crate. For context, see:
       # https://crates.io/crates/bincode/3.0.0
