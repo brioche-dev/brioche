@@ -480,13 +480,10 @@ impl ProjectsInner {
             }
             ProjectEntry::Project(project) => {
                 project.dependencies.iter().map(|(dep_name, dep_ref)| {
-                    let dep_hash = match dep_ref {
-                        DependencyRef::WorkspaceMember { .. } => {
-                            panic!("unexpected workspace member reference for dependency {dep_name} in project {project_hash}");
-                        },
-                        DependencyRef::Project(hash) => *hash,
+                    let DependencyRef::Project(hash) = dep_ref else {
+                        panic!("unexpected workspace member reference for dependency {dep_name} in project {project_hash}");
                     };
-                    (dep_name.clone(), dep_hash)
+                    (dep_name.clone(), *hash)
                 }).collect()
             },
         };
