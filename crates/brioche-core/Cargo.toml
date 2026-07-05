@@ -45,7 +45,7 @@ bytesize = "2.3.1"
 console-subscriber = "0.5.0"
 debug-ignore = "1.0.5"
 deno_ast = { version = "0.53.2", features = ["transpiling"] }
-deno_core = "0.405.0"
+deno_core = "0.406.0"
 deno_error = "0.7.1"
 directories = "6.0.0"
 fastcdc = { version = "4.0.1", features = ["tokio"] }
@@ -103,7 +103,7 @@ rust-embed = { version = "8.11.0", features = [
 rustls-native-certs = "0.8.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-serde_v8 = "0.314.0"
+serde_v8 = "0.315.0"
 serde_with = { version = "3.21.0", features = ["hex"] }
 sha2 = "0.11.0"
 sqlx = { version = "0.8.6", features = [
@@ -150,7 +150,7 @@ humantime = "2.3.0"
 assert_matches = "1.5.0"
 aws-runtime = "1.7.3"
 brioche-test-support = { path = "../brioche-test-support" }
-deno_core = { version = "0.405.0", features = [
+deno_core = { version = "0.406.0", features = [
     # For tests, this feature should be enabled to resolve a segfault that
     # can occur if V8 detects the `pki` CPU flag. See this issue:
     # https://github.com/denoland/deno_core/issues/1091
