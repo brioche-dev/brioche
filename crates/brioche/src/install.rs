@@ -46,6 +46,7 @@ pub struct InstallArgs {
     display: super::DisplayMode,
 }
 
+#[expect(clippy::print_stderr)]
 pub async fn install(
     js_platform: brioche_core::script::JsPlatform,
     args: InstallArgs,
@@ -156,6 +157,7 @@ pub async fn install(
     }
 
     // Install loop
+    let mut num_installed = 0;
     for &(project_hash, ProjectRef { source, export }) in &projects_resolved {
         let project_name = source.to_string();
 
@@ -170,11 +172,33 @@ pub async fn install(
         )
         .await;
 
-        consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
+        match result {
+            Ok(()) => {
+                consolidate_result(&reporter, Some(&project_name), Ok(true), &mut error_result);
+                num_installed += 1;
+            }
+            Err(err) => {
+                consolidate_result(&reporter, Some(&project_name), Err(err), &mut error_result);
+            }
+        }
     }
 
     guard.shutdown_console().await;
     brioche.wait_for_tasks().await;
+
+    if num_installed > 0 {
+        let elapsed = DisplayDuration(reporter.elapsed());
+        let num_jobs = reporter.num_jobs();
+        let jobs_message = match num_jobs {
+            0 => "(no new jobs)".to_string(),
+            1 => "1 job".to_string(),
+            n => format!("{n} jobs"),
+        };
+        let build_finished = format!("Build finished, completed {jobs_message} in {elapsed}");
+        for _ in 0..num_installed {
+            eprintln!("{build_finished}");
+        }
+    }
 
     let exit_code = error_result.map_or(ExitCode::SUCCESS, |()| ExitCode::FAILURE);
 
@@ -189,7 +213,7 @@ async fn run_install(
     project_hash: ProjectHash,
     project_name: &str,
     export: &str,
-) -> Result<bool, anyhow::Error> {
+) -> Result<(), anyhow::Error> {
     async {
         let recipe = brioche_core::script::evaluate::evaluate(
             brioche,
@@ -210,19 +234,6 @@ async fn run_install(
         )
         .instrument(tracing::info_span!("bake"))
         .await?;
-
-        let elapsed = DisplayDuration(reporter.elapsed());
-        let num_jobs = reporter.num_jobs();
-        let jobs_message = match num_jobs {
-            0 => "(no new jobs)".to_string(),
-            1 => "1 job".to_string(),
-            n => format!("{n} jobs"),
-        };
-
-        reporter.emit(superconsole::Lines::from_multiline_string(
-            &format!("Build finished, completed {jobs_message} in {elapsed}"),
-            superconsole::style::ContentStyle::default(),
-        ));
 
         // Ensure the artifact is a directory
         let mut directory = match artifact.value {
@@ -287,7 +298,7 @@ async fn run_install(
             ));
         }
 
-        Ok(true)
+        Ok(())
     }
     .instrument(tracing::info_span!("run_install"))
     .await
