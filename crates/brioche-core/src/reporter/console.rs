@@ -611,8 +611,8 @@ impl superconsole::Component for JobsComponent {
             .saturating_sub(JOB_LABEL_WIDTH)
             .saturating_sub(4);
 
-        let contents_rev = Some(self.job_outputs.contents().rev())
-            .filter(|_| job_output_content_width > 0)
+        let contents_rev = (job_output_content_width > 0)
+            .then_some(self.job_outputs.contents().rev())
             .into_iter()
             .flatten();
         let lines_with_streams_rev = contents_rev
