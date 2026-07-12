@@ -184,6 +184,25 @@ pub enum ArtifactPathComponent {
 
 pub fn insert_into_artifact(
     container: &mut Option<ArtifactBuilder>,
+    path: &ArtifactPath,
+    artifact: ArtifactBuilder,
+) -> anyhow::Result<()> {
+    tracing::info!(
+        path = path.display_pretty(),
+        kind = match artifact {
+            ArtifactBuilder::File { .. } => "file",
+            ArtifactBuilder::Symlink { .. } => "symlink",
+            ArtifactBuilder::Directory { .. } => "directory",
+            ArtifactBuilder::Reference { .. } => "reference",
+        },
+        "inserting into artifact"
+    );
+
+    insert_into_artifact_inner(container, path, &path.components, artifact)
+}
+
+fn insert_into_artifact_inner(
+    container: &mut Option<ArtifactBuilder>,
     full_path: &ArtifactPath,
     components: &[ArtifactPathComponent],
     artifact: ArtifactBuilder,
@@ -206,7 +225,7 @@ pub fn insert_into_artifact(
                 );
             };
             let entry = entries.entry(name.to_owned()).or_default();
-            insert_into_artifact(entry, full_path, rest, artifact)?;
+            insert_into_artifact_inner(entry, full_path, rest, artifact)?;
         }
         [ArtifactPathComponent::FileResources, rest @ ..] => {
             let Some(container) = container else {
@@ -222,7 +241,7 @@ pub fn insert_into_artifact(
                 );
             };
 
-            insert_into_artifact(resources.as_mut(), full_path, rest, artifact)?;
+            insert_into_artifact_inner(resources.as_mut(), full_path, rest, artifact)?;
         }
     }
 

@@ -115,12 +115,7 @@ async fn create_single_project_artifact(
         };
 
         let path = crate::recipe::build::ArtifactPath::try_from(module_path.clone())?;
-        crate::recipe::build::insert_into_artifact(
-            &mut artifact,
-            &path,
-            &path.components,
-            module_artifact,
-        )?;
+        crate::recipe::build::insert_into_artifact(&mut artifact, &path, module_artifact)?;
     }
 
     // Add the lockfile to the artifact
@@ -143,12 +138,7 @@ async fn create_single_project_artifact(
 
     let lockfile_path = RelativePath::new("brioche.lock");
     let lockfile_path = crate::recipe::build::ArtifactPath::try_from(lockfile_path)?;
-    crate::recipe::build::insert_into_artifact(
-        &mut artifact,
-        &lockfile_path,
-        &lockfile_path.components,
-        lockfile_artifact,
-    )?;
+    crate::recipe::build::insert_into_artifact(&mut artifact, &lockfile_path, lockfile_artifact)?;
 
     let artifact = artifact.unwrap();
     let artifact = crate::recipe::build::build_artifact(&artifact, recipes)?;

@@ -713,7 +713,6 @@ pub async fn read_artifact_archive(
         insert_into_artifact(
             &mut result,
             &entry.path,
-            &entry.path.components,
             artifact_builder_from_node(entry.node),
         )?;
     }
