@@ -247,7 +247,7 @@ impl RelativePath {
     }
 
     pub fn to_system_path(&self) -> Result<std::path::PathBuf, ToSystemPathError> {
-        to_system_path(None, std::iter::empty())
+        to_system_path(None, self.components().map(std::convert::AsRef::as_ref))
     }
 }
 
