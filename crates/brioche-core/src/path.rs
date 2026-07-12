@@ -744,6 +744,52 @@ fn logical_components(components: Vec<RelativePathComponent>) -> (Vec<bstr::BStr
     (new_components, ascends)
 }
 
+/// Return a relative path to traverse from the directory `source` to the
+/// path `target`.
+///
+/// The relative path is calculated logically as a diff between the paths (i.e.
+/// without consideration for symlinks). The returned path will be empty if
+/// `source` and `target` are equal. If `target` is a descendant of `source`,
+/// then the path between them will be a normalized subpath.
+pub fn relative_path_between(
+    source: &AbsolutePath,
+    target: &AbsolutePath,
+) -> Result<RelativePath, RelativePathBetweenError> {
+    // Can only diff paths if the paths share the same root
+    if source.root != target.root {
+        return Err(RelativePathBetweenError::DifferentRoot);
+    }
+
+    let mut source_components = source.subpath_components.iter().peekable();
+    let mut target_components = target.subpath_components.iter().peekable();
+
+    // Skip over the common prefix of both paths
+    loop {
+        if let Some(source_head) = source_components.peek()
+            && let Some(target_head) = target_components.peek()
+            && source_head == target_head
+        {
+            source_components.next();
+            target_components.next();
+        } else {
+            break;
+        }
+    }
+
+    // Build the final path after the common prefix. Any components left in
+    // `source_components` are directories we'll have to ascend-- followed by
+    // traversing the components left in `target_components`.
+    let mut relative_path = RelativePath::default();
+    relative_path
+        .components
+        .extend(source_components.map(|_| RelativePathComponent::ParentDir));
+    relative_path
+        .components
+        .extend(target_components.map(|name| RelativePathComponent::Normal(name.clone())));
+
+    Ok(relative_path)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum FromSystemPathError {
     #[error("unrepresentable path")]
@@ -781,4 +827,125 @@ pub enum CanonicalSystemPathError {
 pub enum SubpathError {
     #[error("subpath escapes top-level path")]
     SubpathEscapesTopLevel,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RelativePathBetweenError {
+    #[error("paths have different roots")]
+    DifferentRoot,
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+
+    use crate::path::{
+        AbsolutePath, RelativePath, RelativePathBetweenError, RelativePathComponent,
+        relative_path_between,
+    };
+
+    fn unix(subpath: &str) -> AbsolutePath {
+        let subpath = RelativePath::new(subpath);
+        let subpath_components = subpath
+            .components()
+            .map(|component| {
+                let RelativePathComponent::Normal(component) = component else {
+                    panic!("invalid subpath: {component}");
+                };
+                component.clone()
+            })
+            .collect();
+
+        AbsolutePath {
+            root: super::RootPath::UnixRoot,
+            subpath_components,
+        }
+    }
+
+    fn windows(drive_letter: char, subpath: &str) -> AbsolutePath {
+        let subpath = RelativePath::new(subpath);
+        let subpath_components = subpath
+            .components()
+            .map(|component| {
+                let RelativePathComponent::Normal(component) = component else {
+                    panic!("invalid subpath: {component}");
+                };
+                component.clone()
+            })
+            .collect();
+
+        let drive_letter = u8::try_from(drive_letter)
+            .unwrap_or_else(|error| panic!("invalid drive letter '{drive_letter}': {error:#}"));
+
+        AbsolutePath {
+            root: super::RootPath::WindowsDriveRoot { drive_letter },
+            subpath_components,
+        }
+    }
+
+    fn windows_unc(host: &str, subpath: &str) -> AbsolutePath {
+        let subpath = RelativePath::new(subpath);
+        let subpath_components = subpath
+            .components()
+            .map(|component| {
+                let RelativePathComponent::Normal(component) = component else {
+                    panic!("invalid subpath: {component}");
+                };
+                component.clone()
+            })
+            .collect();
+
+        AbsolutePath {
+            root: super::RootPath::WindowsUnc { host: host.into() },
+            subpath_components,
+        }
+    }
+
+    #[test]
+    fn test_relative_path_between() {
+        assert_eq!(
+            relative_path_between(&unix("foo"), &unix("foo")).unwrap(),
+            RelativePath::default()
+        );
+
+        assert_eq!(
+            relative_path_between(&unix("foo"), &unix("foo/bar/baz")).unwrap(),
+            RelativePath::new("bar/baz")
+        );
+
+        assert_eq!(
+            relative_path_between(&unix("foo/bar/baz"), &unix("foo")).unwrap(),
+            RelativePath::new("../..")
+        );
+
+        assert_eq!(
+            relative_path_between(&unix("foo/bar/baz"), &unix("foo/fizz/buzz")).unwrap(),
+            RelativePath::new("../../fizz/buzz")
+        );
+
+        assert_eq!(
+            relative_path_between(&unix("a/b/c/d"), &unix("e")).unwrap(),
+            RelativePath::new("../../../../e")
+        );
+    }
+
+    #[test]
+    fn test_relative_path_between_different_root_error() {
+        assert_matches!(
+            relative_path_between(&unix("foo"), &windows('C', "foo")),
+            Err(RelativePathBetweenError::DifferentRoot)
+        );
+        assert_matches!(
+            relative_path_between(&windows('C', "foo"), &unix("foo")),
+            Err(RelativePathBetweenError::DifferentRoot)
+        );
+        assert_matches!(
+            relative_path_between(&unix("foo"), &windows_unc("localhost", "foo")),
+            Err(RelativePathBetweenError::DifferentRoot)
+        );
+        assert_matches!(
+            relative_path_between(&windows('C', "foo"), &windows_unc("localhost", "foo")),
+            Err(RelativePathBetweenError::DifferentRoot)
+        );
+    }
 }
