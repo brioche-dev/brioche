@@ -40,7 +40,7 @@ tokio = { version = "1.52.3", features = ["full", "tracing"] }
 tokio-util = "0.7.18"
 tower-lsp = "0.20.0"
 tracing = "0.1.44"
-ulid = "1.2.1"
+ulid = "2.0.1"
 url = { version = "2.5.8", features = ["serde"] }
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
 

@@ -650,7 +650,7 @@ impl TestContext {
         f: impl AsyncFnOnce(PathBuf),
     ) -> (Projects, ProjectHash, PathBuf) {
         let temp_project_path = self
-            .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
+            .mkdir(format!("temp-project-{}", ulid::Ulid::r#gen()))
             .await;
 
         f(temp_project_path.clone()).await;
@@ -714,7 +714,7 @@ impl TestContext {
     ) -> ProjectHash {
         self.cached_registry_project_by_path(cache, async |context| {
             let temp_project_path = context
-                .mkdir(format!("temp-project-{}", ulid::Ulid::new()))
+                .mkdir(format!("temp-project-{}", ulid::Ulid::r#gen()))
                 .await;
             f(temp_project_path.clone()).await;
             temp_project_path
