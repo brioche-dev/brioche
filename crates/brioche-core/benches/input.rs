@@ -18,7 +18,7 @@ fn bench_input(bencher: divan::Bencher, removal: Removal) {
                 .unwrap();
             let (brioche, context) = runtime.block_on(brioche_test_support::brioche_test());
 
-            let input_root = context.path(ulid::Ulid::new().to_string());
+            let input_root = context.path(ulid::Ulid::r#gen().to_string());
 
             let input_path = input_root.join("input");
             let input_resources = input_root.join("resources");
@@ -92,7 +92,7 @@ fn bench_input_with_shared_resources(bencher: divan::Bencher, removal: Removal) 
                 .unwrap();
             let (brioche, context) = runtime.block_on(brioche_test_support::brioche_test());
 
-            let input_root = context.path(ulid::Ulid::new().to_string());
+            let input_root = context.path(ulid::Ulid::r#gen().to_string());
 
             let input_path = input_root.join("input");
             let input_resources = input_root.join("resources");
@@ -163,7 +163,7 @@ fn bench_input_with_shared_ancestor_resources(bencher: divan::Bencher, removal: 
                 .unwrap();
             let (brioche, context) = runtime.block_on(brioche_test_support::brioche_test());
 
-            let input_root = context.path(ulid::Ulid::new().to_string());
+            let input_root = context.path(ulid::Ulid::r#gen().to_string());
 
             let input_path = input_root.join("input");
             let input_resources = input_root.join("resources");

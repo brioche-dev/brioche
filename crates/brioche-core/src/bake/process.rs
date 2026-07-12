@@ -320,7 +320,7 @@ pub async fn bake_process(
     tracing::Span::current().record("recipe_hash", tracing::field::display(hash));
 
     let temp_dir = brioche.data_dir.join("process-temp");
-    let bake_dir = temp_dir.join(ulid::Ulid::new().to_string());
+    let bake_dir = temp_dir.join(ulid::Ulid::r#gen().to_string());
     tracing::Span::current().record("bake_dir", tracing::field::display(bake_dir.display()));
     let bake_dir = BakeDir::create(bake_dir).await?;
 
@@ -1612,7 +1612,7 @@ impl SandboxBackendSelector {
         let temp_dir = brioche
             .data_dir
             .join("process-temp")
-            .join(format!("{}-setup", ulid::Ulid::new()));
+            .join(format!("{}-setup", ulid::Ulid::r#gen()));
         let temp_dir = BakeDir::create(temp_dir).await?;
         let temp_dir = temp_dir.remove_on_drop();
 
