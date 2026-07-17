@@ -6,7 +6,7 @@ use std::{
 use anyhow::Context as _;
 use tokio::sync::RwLock;
 
-mod blob;
+pub mod blob;
 pub mod cache;
 pub mod config;
 mod encoding;
@@ -58,6 +58,10 @@ impl Brioche {
     #[must_use]
     pub async fn new() -> Self {
         Self::builder().build().await.unwrap()
+    }
+
+    pub fn recipes(&self) -> &Arc<RwLock<recipe::Recipes>> {
+        &self.recipes
     }
 }
 

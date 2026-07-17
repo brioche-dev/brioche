@@ -344,6 +344,18 @@ pub async fn get_specifier(brioche: &Brioche, project_ref: ProjectRef) -> Projec
     projects.projects[&project_ref].specifier.clone()
 }
 
+pub async fn get_project_by_specifier(
+    brioche: &Brioche,
+    project_specifier: &ProjectSpecifier,
+) -> Option<ProjectRef> {
+    let projects = brioche.projects.read().await;
+
+    projects
+        .projects_by_specifier
+        .get(project_specifier)
+        .copied()
+}
+
 pub async fn get_all_issues(brioche: &Brioche) -> Vec<ProjectIssue> {
     let projects = brioche.projects.read().await;
 

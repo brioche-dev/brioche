@@ -6,6 +6,7 @@ use std::{
 use bstr::BString;
 
 use crate::{
+    Brioche,
     blob::BlobHash,
     hash::AnyHash,
     platform::Platform,
@@ -18,6 +19,16 @@ pub mod hash;
 
 pub use graph::RecipeRef;
 pub use hash::RecipeHash;
+
+pub async fn get_recipe(brioche: &Brioche, recipe_ref: RecipeRef) -> Arc<Recipe> {
+    let recipes = brioche.recipes.read().await;
+    recipes.get_recipe(recipe_ref).clone()
+}
+
+pub async fn insert_recipe(brioche: &Brioche, recipe: Arc<Recipe>) -> RecipeRef {
+    let mut recipes = brioche.recipes.write().await;
+    recipes.insert_recipe(recipe)
+}
 
 #[derive(Default)]
 pub struct Recipes {

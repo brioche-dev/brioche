@@ -1395,6 +1395,7 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "brioche-core",
+ "bstr",
  "futures",
  "mockito",
  "object_store",

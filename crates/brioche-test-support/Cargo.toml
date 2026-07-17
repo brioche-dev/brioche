@@ -8,6 +8,7 @@ rust-version.workspace = true
 anyhow = "1.0.101"
 assert_matches = "1.5.0"
 brioche-core = { path="../brioche-core" }
+bstr = "1.12.1"
 futures = "0.3.31"
 mockito = "1.7.2"
 object_store = "0.13.2"

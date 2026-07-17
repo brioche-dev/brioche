@@ -6,9 +6,12 @@ use std::{
 use assert_matches::assert_matches;
 use brioche_core::{
     Brioche, BriocheBuilder,
+    blob::{BlobHash, SaveBlobOptions},
     path::AbsolutePath,
     projects::{ProjectRef, ProjectSpecifier, hash::ProjectHash},
+    recipe::RecipeRef,
 };
+use bstr::ByteSlice as _;
 use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 pub async fn brioche_test() -> (Brioche, TestContext) {
@@ -109,6 +112,101 @@ pub fn take_where<T>(items: &mut Vec<T>, mut predicate: impl FnMut(&T) -> bool) 
 #[must_use]
 pub fn new_cache() -> Arc<dyn object_store::ObjectStore> {
     Arc::new(object_store::memory::InMemory::new())
+}
+
+pub async fn get_recipe_within(
+    brioche: &Brioche,
+    mut recipe_ref: RecipeRef,
+    path: impl AsRef<[u8]>,
+) -> RecipeRef {
+    let path_components = path
+        .as_ref()
+        .split_str(b"/")
+        .filter(|component| !component.is_empty());
+
+    for path_component in path_components {
+        let path_component = bstr::BStr::new(path_component);
+        let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref).await;
+        let brioche_core::recipe::Recipe::Directory(directory) = &*recipe else {
+            panic!(
+                "tried to traverse into subpath '{path_component}' into non-directory recipe ({:?})",
+                recipe.kind()
+            );
+        };
+
+        recipe_ref = *directory
+            .entries
+            .get(path_component)
+            .unwrap_or_else(|| panic!("directory does not contain subpath '{path_component}'"));
+    }
+
+    recipe_ref
+}
+
+pub async fn read_file_recipe_content(brioche: &Brioche, recipe_ref: RecipeRef) -> Vec<u8> {
+    let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref).await;
+    let brioche_core::recipe::Recipe::File(file) = &*recipe else {
+        panic!("expected recipe to be a file, was {:?}", recipe.kind());
+    };
+
+    let blob_path = brioche_core::blob::local_blob_path(brioche, file.content_blob);
+    tokio::fs::read(&blob_path)
+        .await
+        .expect("failed to read file blob")
+}
+
+pub async fn read_file_within(
+    brioche: &Brioche,
+    mut recipe_ref: RecipeRef,
+    path: impl AsRef<[u8]>,
+) -> RecipeRef {
+    let path_components = path
+        .as_ref()
+        .split_str(b"/")
+        .filter(|component| !component.is_empty());
+
+    for path_component in path_components {
+        let path_component = bstr::BStr::new(path_component);
+        let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref).await;
+        let brioche_core::recipe::Recipe::Directory(directory) = &*recipe else {
+            panic!(
+                "tried to traverse into subpath '{path_component}' into non-directory recipe ({:?})",
+                recipe.kind()
+            );
+        };
+
+        recipe_ref = *directory
+            .entries
+            .get(path_component)
+            .unwrap_or_else(|| panic!("directory does not contain subpath '{path_component}'"));
+    }
+
+    recipe_ref
+}
+
+pub fn artifact_path(path: impl AsRef<[u8]>) -> brioche_core::recipe::build::ArtifactPath {
+    let components = path
+        .as_ref()
+        .split_str(b"/")
+        .filter(|component| !component.is_empty())
+        .map(|component| {
+            brioche_core::recipe::build::ArtifactPathComponent::DirectoryEntry(component.into())
+        })
+        .collect();
+
+    brioche_core::recipe::build::ArtifactPath { components }
+}
+
+pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]>) -> BlobHash {
+    let mut permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
+    brioche_core::blob::save_blob(
+        brioche,
+        &mut permit,
+        content.as_ref(),
+        SaveBlobOptions::default(),
+    )
+    .await
+    .unwrap()
 }
 
 pub struct TestContext {

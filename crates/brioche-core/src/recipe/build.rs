@@ -35,6 +35,37 @@ impl ArtifactBuilder {
         }
     }
 
+    pub fn from_artifact(recipe_ref: RecipeRef, recipes: &Recipes) -> anyhow::Result<Self> {
+        match &**recipes.get_recipe(recipe_ref) {
+            Recipe::File(file) => {
+                let resources = file
+                    .resources
+                    .map(|resources| Self::from_artifact(resources, recipes))
+                    .transpose()?;
+                Ok(Self::File {
+                    executable: file.executable,
+                    content_blob: file.content_blob,
+                    resources: Box::new(resources),
+                })
+            }
+            Recipe::Directory(directory) => {
+                let entries = directory
+                    .entries
+                    .iter()
+                    .map(|(entry_name, entry)| {
+                        let entry = Self::from_artifact(*entry, recipes)?;
+                        anyhow::Ok((entry_name.clone(), Some(entry)))
+                    })
+                    .collect::<anyhow::Result<_>>()?;
+                Ok(Self::Directory { entries })
+            }
+            Recipe::Symlink(symlink) => Ok(Self::Symlink {
+                target: symlink.target.clone(),
+            }),
+            recipe => anyhow::bail!("recipe is not an artifact: {:?}", recipe.kind()),
+        }
+    }
+
     pub fn is_empty_dir(&self) -> bool {
         match self {
             Self::Directory { entries } => entries.values().all(Option::is_none),
