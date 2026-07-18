@@ -229,7 +229,46 @@ pub fn insert_into_artifact(
         "inserting into artifact"
     );
 
-    insert_into_artifact_inner(container, path, &path.components, artifact)
+    insert_into_artifact_inner(
+        container,
+        path,
+        &path.components,
+        artifact,
+        InsertOnConflict::Error,
+    )?;
+
+    Ok(())
+}
+
+pub fn insert_or_replace_in_artifact(
+    container: &mut Option<ArtifactBuilder>,
+    path: &ArtifactPath,
+    artifact: ArtifactBuilder,
+) -> anyhow::Result<Option<ArtifactBuilder>> {
+    tracing::info!(
+        path = path.display_pretty(),
+        kind = match artifact {
+            ArtifactBuilder::File { .. } => "file",
+            ArtifactBuilder::Symlink { .. } => "symlink",
+            ArtifactBuilder::Directory { .. } => "directory",
+            ArtifactBuilder::Reference { .. } => "reference",
+        },
+        "inserting into artifact"
+    );
+
+    insert_into_artifact_inner(
+        container,
+        path,
+        &path.components,
+        artifact,
+        InsertOnConflict::Replace,
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+enum InsertOnConflict {
+    Replace,
+    Error,
 }
 
 fn insert_into_artifact_inner(
@@ -237,16 +276,21 @@ fn insert_into_artifact_inner(
     full_path: &ArtifactPath,
     components: &[ArtifactPathComponent],
     artifact: ArtifactBuilder,
-) -> anyhow::Result<()> {
-    match components {
-        [] => {
-            anyhow::ensure!(
-                container.is_none(),
-                "archive entry tried to override path {:?}",
-                full_path.display_pretty()
-            );
-            *container = Some(artifact);
-        }
+    on_conflict: InsertOnConflict,
+) -> anyhow::Result<Option<ArtifactBuilder>> {
+    let replaced = match components {
+        [] => match on_conflict {
+            InsertOnConflict::Error => {
+                anyhow::ensure!(
+                    container.is_none(),
+                    "archive entry tried to override path {:?}",
+                    full_path.display_pretty()
+                );
+                *container = Some(artifact);
+                None
+            }
+            InsertOnConflict::Replace => container.replace(artifact),
+        },
         [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
             let container = container.get_or_insert_with(ArtifactBuilder::empty_dir);
             let ArtifactBuilder::Directory { entries } = container else {
@@ -256,7 +300,7 @@ fn insert_into_artifact_inner(
                 );
             };
             let entry = entries.entry(name.to_owned()).or_default();
-            insert_into_artifact_inner(entry, full_path, rest, artifact)?;
+            insert_into_artifact_inner(entry, full_path, rest, artifact, on_conflict)?
         }
         [ArtifactPathComponent::FileResources, rest @ ..] => {
             let Some(container) = container else {
@@ -272,11 +316,11 @@ fn insert_into_artifact_inner(
                 );
             };
 
-            insert_into_artifact_inner(resources.as_mut(), full_path, rest, artifact)?;
+            insert_into_artifact_inner(resources.as_mut(), full_path, rest, artifact, on_conflict)?
         }
-    }
+    };
 
-    Ok(())
+    Ok(replaced)
 }
 
 /// Get a reference to a subtree at the given path components.
