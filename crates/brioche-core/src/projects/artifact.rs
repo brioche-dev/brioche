@@ -133,29 +133,29 @@ async fn create_single_project_artifact(
 
         // Queue up any file paths referenced from statics
         for (static_query, _) in projects.module_statics(*module_ref) {
-            match static_query {
-                super::ModuleStaticQuery::IncludeFile(include_path) => {
+            match &static_query.query {
+                super::StaticQuery::IncludeFile(include_path) => {
                     let include_path = module_parent_path.clone().join(include_path.clone());
                     let artifact_path =
                         crate::recipe::build::ArtifactPath::try_from(include_path.clone())?;
                     let include_path = local_project_path.join_subpath(include_path)?;
                     files.insert(artifact_path, include_path);
                 }
-                super::ModuleStaticQuery::IncludeDirectory(include_path) => {
+                super::StaticQuery::IncludeDirectory(include_path) => {
                     let include_path = module_parent_path.clone().join(include_path.clone());
                     let artifact_path =
                         crate::recipe::build::ArtifactPath::try_from(include_path.clone())?;
                     let include_path = local_project_path.join_subpath(include_path)?;
                     directories.push((artifact_path, include_path));
                 }
-                super::ModuleStaticQuery::Glob { patterns } => {
+                super::StaticQuery::Glob { patterns } => {
                     let artifact_path =
                         crate::recipe::build::ArtifactPath::try_from(module_parent_path.clone())?;
                     let module_parent_path =
                         local_project_path.join_subpath(module_parent_path.clone())?;
                     globs.push((artifact_path, module_parent_path, patterns));
                 }
-                super::ModuleStaticQuery::Download { .. } | super::ModuleStaticQuery::GitRef(_) => {
+                super::StaticQuery::Download { .. } | super::StaticQuery::GitRef(_) => {
                     // Nothing to add
                 }
             }

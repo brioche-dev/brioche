@@ -3,16 +3,19 @@ use std::{
     sync::Arc,
 };
 
+use tokio::io::AsyncReadExt as _;
+
 use crate::{
     Brioche,
     path::{AbsolutePath, RelativePath},
     projects::{
-        DependencyDefinition, Lockfile, Module, ModuleRef, ModuleReferrer, ModuleStaticQuery,
-        Project, ProjectDefinition, ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode,
-        ProjectRef, ProjectReferrer, ProjectSpecifier, SharedStatic, Static, StaticRef,
-        UnresolvedStatic, Version, Workspace, WorkspaceDefinition, WorkspaceMember, WorkspaceRef,
-        hash::ProjectHash,
+        DependencyDefinition, Lockfile, Module, ModuleRef, ModuleReferrer, Project,
+        ProjectDefinition, ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode,
+        ProjectRef, ProjectReferrer, ProjectSpecifier, SharedStatic, Static, StaticQuery,
+        StaticRef, UnresolvedStatic, Version, Workspace, WorkspaceDefinition, WorkspaceMember,
+        WorkspaceRef, hash::ProjectHash,
     },
+    reporter::job::JobContext,
     script::specifier::{ImportSpecifier, LocalImportSpecifier},
 };
 
@@ -373,7 +376,7 @@ pub async fn load_projects(
                                 continue;
                             }
                         };
-                        let static_ = prepare_static(query.clone(), lockfile.as_ref().ok());
+                        let static_ = prepare_static(query.query.clone(), lockfile.as_ref().ok());
 
                         let static_ref = match static_ {
                             PartialStatic::Shared(static_) => {
@@ -394,7 +397,13 @@ pub async fn load_projects(
                                 let static_ref = StaticRef(
                                     projects.graph.add_node(ProjectNode::UnresolvedStatic),
                                 );
-                                projects.unresolved_statics.insert(static_ref, static_);
+                                let location = ProjectIssueLocation {
+                                    path: module_path.clone(),
+                                    range: Some(query.range),
+                                };
+                                projects
+                                    .unresolved_statics
+                                    .insert(static_ref, (static_, location));
                                 static_ref
                             }
                         };
@@ -566,6 +575,99 @@ pub async fn load_projects(
     }
 
     Ok(results)
+}
+
+#[tracing::instrument(skip_all)]
+pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> {
+    let mut projects = brioche.projects.write().await;
+
+    for (static_ref, (static_, location)) in projects.unresolved_statics.clone() {
+        let result = resolve_static(brioche, static_, location).await;
+
+        match result {
+            Ok(static_) => {
+                projects.unresolved_statics.remove(&static_ref);
+
+                match projects.shared_static_by_ref.entry(static_) {
+                    std::collections::hash_map::Entry::Occupied(entry) => {
+                        let resolved_ref = *entry.get();
+                        projects.resolved_statics.insert(static_ref, resolved_ref);
+
+                        projects.graph.add_edge(
+                            static_ref.0,
+                            resolved_ref.0,
+                            ProjectEdge::ResolvedStatic,
+                        );
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(static_ref);
+
+                        let static_node = projects
+                            .graph
+                            .node_weight_mut(static_ref.0)
+                            .expect("node not found");
+                        *static_node = ProjectNode::Static;
+                    }
+                }
+            }
+            Err(issue) => {
+                projects.issues.entry(static_ref.0).or_default().push(issue);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn resolve_static(
+    brioche: &Brioche,
+    static_: UnresolvedStatic,
+    location: ProjectIssueLocation,
+) -> Result<SharedStatic, ProjectIssue> {
+    match static_ {
+        UnresolvedStatic::Download { url } => {
+            let new_blob_hash =
+                crate::download::download(brioche, &url, None, JobContext::default())
+                    .await
+                    .map_err(|error| ProjectIssue::DownloadError {
+                        url: url.clone(),
+                        error_message: error.to_string(),
+                        location: location.clone(),
+                    })?;
+            let blob_system_path = crate::blob::local_blob_path(brioche, new_blob_hash);
+            let blob_path = crate::path::canonicalize_system_path(&blob_system_path)
+                .await
+                .expect("failed to canonicalize blob path");
+            let mut blob = tokio::fs::File::open(&blob_system_path)
+                .await
+                .map_err(|error| ProjectIssue::IoError {
+                    error_message: error.to_string(),
+                    path: blob_path,
+                    location: location.clone(),
+                })?;
+
+            let mut hasher = crate::hash::AnyHashHasher::new_sha256();
+            let mut buffer = vec![0u8; 1024 * 1024];
+            loop {
+                let length =
+                    blob.read(&mut buffer)
+                        .await
+                        .map_err(|error| ProjectIssue::DownloadError {
+                            url: url.clone(),
+                            error_message: error.to_string(),
+                            location: location.clone(),
+                        })?;
+                if length == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..length]);
+            }
+
+            let hash = hasher.finish();
+            Ok(SharedStatic::Download { url, hash })
+        }
+        UnresolvedStatic::GitRef { repository, ref_ } => todo!(),
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -924,14 +1026,14 @@ async fn resolve_project_from_workspace(
     todo!();
 }
 
-fn prepare_static(static_query: ModuleStaticQuery, lockfile: Option<&Lockfile>) -> PartialStatic {
+fn prepare_static(static_query: StaticQuery, lockfile: Option<&Lockfile>) -> PartialStatic {
     match static_query {
-        ModuleStaticQuery::IncludeFile(path) => PartialStatic::Unique(Static::IncludeFile(path)),
-        ModuleStaticQuery::IncludeDirectory(path) => {
+        StaticQuery::IncludeFile(path) => PartialStatic::Unique(Static::IncludeFile(path)),
+        StaticQuery::IncludeDirectory(path) => {
             PartialStatic::Unique(Static::IncludeDirectory(path))
         }
-        ModuleStaticQuery::Glob { patterns } => PartialStatic::Unique(Static::Glob { patterns }),
-        ModuleStaticQuery::Download { url } => {
+        StaticQuery::Glob { patterns } => PartialStatic::Unique(Static::Glob { patterns }),
+        StaticQuery::Download { url } => {
             if let Some(lockfile) = lockfile
                 && let Some(hash) = lockfile.downloads.get(&url)
             {
@@ -943,7 +1045,7 @@ fn prepare_static(static_query: ModuleStaticQuery, lockfile: Option<&Lockfile>) 
                 PartialStatic::Unresolved(UnresolvedStatic::Download { url })
             }
         }
-        ModuleStaticQuery::GitRef(options) => {
+        StaticQuery::GitRef(options) => {
             if let Some(lockfile) = lockfile
                 && let Some(commits) = lockfile.git_refs.get(&options.repository)
                 && let Some(commit) = commits.get(&options.ref_)

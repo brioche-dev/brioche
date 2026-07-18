@@ -165,7 +165,7 @@ pub async fn graphviz(brioche: &Brioche, options: &ProjectGraphvizOptions) -> St
             }
             ProjectNode::UnresolvedStatic => {
                 if options.show_modules && options.show_statics {
-                    let static_ = &projects.unresolved_statics[&StaticRef(node_id)];
+                    let (static_, _) = &projects.unresolved_statics[&StaticRef(node_id)];
 
                     let label = match static_ {
                         super::UnresolvedStatic::Download { url } => {

@@ -8,7 +8,7 @@ use crate::{
     path::{AbsolutePath, AnyPath, RelativePath},
     projects::hash::ProjectHash,
     registry::RegistryError,
-    script::specifier::ImportSpecifier,
+    script::{parse::ModuleStaticQuery, specifier::ImportSpecifier},
 };
 
 pub mod artifact;
@@ -25,12 +25,14 @@ pub struct Projects {
     projects: HashMap<ProjectRef, Project>,
     modules: HashMap<ModuleRef, Module>,
     statics: HashMap<StaticRef, Static>,
-    unresolved_statics: HashMap<StaticRef, UnresolvedStatic>,
+    unresolved_statics: HashMap<StaticRef, (UnresolvedStatic, ProjectIssueLocation)>,
+    resolved_statics: HashMap<StaticRef, StaticRef>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
     local_project_paths: HashMap<ProjectRef, AbsolutePath>,
     modules_by_project: HashMap<ProjectRef, HashMap<RelativePath, ModuleRef>>,
     project_by_module: HashMap<ModuleRef, (ProjectRef, RelativePath)>,
     workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
+    shared_static_by_ref: HashMap<SharedStatic, StaticRef>,
     issues: HashMap<NodeIndex, Vec<ProjectIssue>>,
 }
 
@@ -67,6 +69,7 @@ pub(crate) enum ProjectEdge {
     ProjectRootModule,
     ModuleImport(ImportSpecifier),
     ModuleStatic(ModuleStaticQuery),
+    ResolvedStatic,
 }
 
 #[derive(Clone)]
@@ -142,7 +145,7 @@ pub(crate) enum UnresolvedStatic {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum ModuleStaticQuery {
+pub(crate) enum StaticQuery {
     IncludeFile(RelativePath),
     IncludeDirectory(RelativePath),
     Glob { patterns: Vec<String> },
@@ -409,6 +412,16 @@ pub enum ProjectIssue {
         error_message: String,
     },
 
+    #[error("error downloading URL '{url}': {error_message}")]
+    DownloadError {
+        url: url::Url,
+
+        // TODO: Use proper error
+        error_message: String,
+
+        location: ProjectIssueLocation,
+    },
+
     #[error("expected project with hash {expected_hash}, but got {actual_hash}")]
     ProjectHashMismatch {
         expected_hash: ProjectHash,
@@ -451,6 +464,7 @@ impl ProjectIssue {
                 // TODO: Track location
                 None
             }
+            Self::DownloadError { location, .. } => Some(location.clone()),
             Self::ProjectHashMismatch { .. } => None,
         }
     }

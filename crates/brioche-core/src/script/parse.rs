@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use biome_rowan::{AstNode as _, AstNodeList as _, AstSeparatedList as _};
 
-use crate::{path::RelativePath, projects::ModuleStaticQuery};
+use crate::{path::RelativePath, projects::StaticQuery};
 
 pub struct ScriptAst {
     module: biome_js_syntax::JsModule,
@@ -283,7 +283,9 @@ pub fn find_statics<'a>(
                     };
 
                     let path = RelativePath::new(path);
-                    Ok(Some(ModuleStaticQuery::IncludeFile(path)))
+                    let query = StaticQuery::IncludeFile(path);
+                    let range = call_expr.syntax().text_range_with_trivia().into();
+                    Ok(Some(ModuleStaticQuery { query, range }))
                 }
                 "includeDirectory" => {
                     // Get the arguments
@@ -320,7 +322,9 @@ pub fn find_statics<'a>(
                     };
 
                     let path = RelativePath::new(path);
-                    Ok(Some(ModuleStaticQuery::IncludeDirectory(path)))
+                    let query = StaticQuery::IncludeDirectory(path);
+                    let range = call_expr.syntax().text_range_with_trivia().into();
+                    Ok(Some(ModuleStaticQuery { query, range }))
                 }
                 "glob" => {
                     // Get the arguments
@@ -343,7 +347,9 @@ pub fn find_statics<'a>(
                         })
                         .collect::<Result<Vec<_>, ScriptParseError>>()?;
 
-                    Ok(Some(ModuleStaticQuery::Glob { patterns: args }))
+                    let query = StaticQuery::Glob { patterns: args };
+                    let range = call_expr.syntax().text_range_with_trivia().into();
+                    Ok(Some(ModuleStaticQuery { query, range }))
                 }
                 "download" => {
                     // Get the arguments
@@ -387,7 +393,9 @@ pub fn find_statics<'a>(
                                 reason: format!("invalid URL: {error}"),
                             })?;
 
-                    Ok(Some(ModuleStaticQuery::Download { url }))
+                    let query = StaticQuery::Download { url };
+                    let range = call_expr.syntax().text_range_with_trivia().into();
+                    Ok(Some(ModuleStaticQuery { query, range }))
                 }
                 function @ ("gitRef" | "gitCheckout") => {
                     let function = match function {
@@ -440,12 +448,20 @@ pub fn find_statics<'a>(
                         }
                     })?;
 
-                    Ok(Some(ModuleStaticQuery::GitRef(options)))
+                    let query = StaticQuery::GitRef(options);
+                    let range = call_expr.syntax().text_range_with_trivia().into();
+                    Ok(Some(ModuleStaticQuery { query, range }))
                 }
                 _ => Ok(None),
             }
         })
         .filter_map(std::result::Result::transpose)
+}
+
+#[derive(Debug, Clone)]
+pub struct ModuleStaticQuery {
+    pub query: StaticQuery,
+    pub range: TextRange,
 }
 
 fn expression_to_json(

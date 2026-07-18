@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 pub mod blob;
 pub mod cache;
 pub mod config;
+mod download;
 mod encoding;
 mod fs_utils;
 mod hash;
@@ -21,6 +22,8 @@ pub mod registry;
 pub mod reporter;
 mod script;
 mod utils;
+
+const MAX_CONCURRENT_DOWNLOADS: usize = 20;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 const USER_AGENT: &str = concat!("brioche/", env!("CARGO_PKG_VERSION"));
@@ -41,6 +44,10 @@ pub struct Brioche {
     pub data_dir: PathBuf,
 
     pub cache_client: cache::CacheClient,
+
+    pub download_semaphore: Arc<tokio::sync::Semaphore>,
+
+    pub download_client: reqwest_middleware::ClientWithMiddleware,
 }
 
 impl Brioche {
@@ -240,6 +247,23 @@ impl BriocheBuilder {
             .unwrap_or_else(|| DEFAULT_REGISTRY_URL.clone());
         let registry = registry::RegistryClient::new(registry_url);
 
+        let download_retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
+            .retry_bounds(
+                std::time::Duration::from_secs(1),
+                std::time::Duration::from_secs(30),
+            )
+            .build_with_max_retries(5);
+        let download_retry_middleware =
+            reqwest_retry::RetryTransientMiddleware::new_with_policy(download_retry_policy);
+        let download_client = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .pool_idle_timeout(std::time::Duration::from_mins(1))
+            .pool_max_idle_per_host(10)
+            .build()?;
+        let download_client = reqwest_middleware::ClientBuilder::new(download_client)
+            .with(download_retry_middleware)
+            .build();
+
         Ok(Brioche {
             reporter,
             projects: Arc::new(RwLock::new(projects::Projects::default())),
@@ -247,6 +271,8 @@ impl BriocheBuilder {
             data_dir,
             registry,
             cache_client,
+            download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
+            download_client,
         })
     }
 }

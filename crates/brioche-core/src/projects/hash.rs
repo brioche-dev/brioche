@@ -91,7 +91,8 @@ pub(super) fn hash_projects_inner(
                 crate::projects::ProjectEdge::ProjectWithinWorkspace
                 | crate::projects::ProjectEdge::ProjectRootModule
                 | crate::projects::ProjectEdge::ModuleImport(_)
-                | crate::projects::ProjectEdge::ModuleStatic(_) => None,
+                | crate::projects::ProjectEdge::ModuleStatic(_)
+                | crate::projects::ProjectEdge::ResolvedStatic => None,
             })
             .collect();
 

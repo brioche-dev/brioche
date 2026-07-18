@@ -2,6 +2,11 @@ use std::sync::{Arc, RwLock};
 
 use debug_ignore::DebugIgnore;
 
+#[derive(Debug, Clone, Default)]
+pub struct JobContext {
+    pub source_label: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum NewJob {
     Download {
