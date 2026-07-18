@@ -873,11 +873,10 @@ async fn test_project_load_remote_registry_dep_with_subdir_brioche_glob() {
             .unwrap()
     );
     assert!(
-        tokio::fs::try_exists(foo_path.join("subdir/buzz/hello.secret"))
+        !tokio::fs::try_exists(foo_path.join("subdir/buzz/hello.secret"))
             .await
             .unwrap()
     );
-    // FIXME: Flip ^
 }
 
 #[tokio::test]
@@ -1788,7 +1787,7 @@ async fn test_project_load_dep_not_found() {
 
     // FIXME: fix assertion
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_eq!(issues.len(), 999_999, "FIXME: assert isssues: {issues:#?}");
+    assert_matches!(&issues[..], [ProjectIssue::RegistryError { .. }]);
 }
 
 #[tokio::test]
@@ -1805,11 +1804,10 @@ async fn test_project_load_dep_implied_not_found() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    // FIXME: fix assertion
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_eq!(issues.len(), 999_999, "FIXME: assert isssues: {issues:#?}");
+    assert_matches!(&issues[..], [ProjectIssue::RegistryError { .. }]);
 }
 
 #[tokio::test]
@@ -2005,7 +2003,7 @@ async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() {
         )
         .unwrap();
         let mut new_foo_artifact = Some(new_foo_artifact);
-        brioche_core::recipe::build::insert_into_artifact(
+        brioche_core::recipe::build::insert_or_replace_in_artifact(
             &mut new_foo_artifact,
             &brioche_test_support::artifact_path(&artifact_project_bri_path),
             brioche_core::recipe::build::ArtifactBuilder::File {
@@ -2059,11 +2057,18 @@ async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() {
 
     // Try loading the project. This should fail because `foo` doesn't
     // have the right hash
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    // FIXME: fix assertion
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_eq!(issues.len(), 999_999, "FIXME: assert isssues: {issues:#?}");
+    assert_matches!(
+        &issues[..],
+        [ProjectIssue::ProjectHashMismatch {
+            expected_hash,
+            actual_hash
+        }] if *expected_hash == foo_hash && *actual_hash != foo_hash
+    );
+
+    mock_foo_latest.assert_async().await;
 }
 
 #[tokio::test]
