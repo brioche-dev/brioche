@@ -1811,7 +1811,7 @@ async fn test_project_load_dep_implied_not_found() {
 }
 
 #[tokio::test]
-async fn test_project_load_brioche_include_outside_of_project() {
+async fn test_project_load_brioche_include_outside_of_project_error() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -1848,11 +1848,13 @@ async fn test_project_load_brioche_include_outside_of_project() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    // FIXME: fix assertion
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_eq!(issues.len(), 999_999, "FIXME: assert isssues: {issues:#?}");
+    assert_matches!(
+        &issues[..],
+        [ProjectIssue::StaticIncludeEscapesProjectPath { .. }]
+    );
 }
 
 #[tokio::test]
@@ -1893,11 +1895,13 @@ async fn test_project_load_brioche_include_directory_as_file_error() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    // FIXME: fix assertion
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_eq!(issues.len(), 999_999, "FIXME: assert isssues: {issues:#?}");
+    assert_matches!(
+        &issues[..],
+        [ProjectIssue::StaticIncludeExpectedFile { .. }]
+    );
 }
 
 #[tokio::test]
@@ -1940,9 +1944,11 @@ async fn test_project_load_brioche_include_file_as_directory_error() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    // FIXME: fix assertion
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_eq!(issues.len(), 999_999, "FIXME: assert isssues: {issues:#?}");
+    assert_matches!(
+        &issues[..],
+        [ProjectIssue::StaticIncludeExpectedDirectory { .. }]
+    );
 }
 
 #[tokio::test]

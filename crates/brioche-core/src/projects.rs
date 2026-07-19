@@ -25,14 +25,16 @@ pub struct Projects {
     projects: HashMap<ProjectRef, Project>,
     modules: HashMap<ModuleRef, Module>,
     statics: HashMap<StaticRef, Static>,
-    unresolved_statics: HashMap<StaticRef, (UnresolvedStatic, ProjectIssueLocation)>,
+    unresolved_statics: HashMap<StaticRef, UnresolvedStatic>,
     resolved_statics: HashMap<StaticRef, StaticRef>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
     local_project_paths: HashMap<ProjectRef, AbsolutePath>,
     modules_by_project: HashMap<ProjectRef, HashMap<RelativePath, ModuleRef>>,
     project_by_module: HashMap<ModuleRef, (ProjectRef, RelativePath)>,
     workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
-    shared_static_by_ref: HashMap<SharedStatic, StaticRef>,
+    static_ref_by_shared_static: HashMap<SharedStatic, StaticRef>,
+    static_ref_by_unresolved_static:
+        HashMap<UnresolvedStatic, (StaticRef, Vec<ProjectIssueLocation>)>,
     issues: HashMap<NodeIndex, Vec<ProjectIssue>>,
 }
 
@@ -46,6 +48,18 @@ impl Projects {
             .filter_map(|edge| {
                 if let ProjectEdge::ModuleStatic(query) = edge.weight() {
                     Some((query, StaticRef(edge.target())))
+                } else {
+                    None
+                }
+            })
+    }
+
+    pub(crate) fn module_for_static(&self, static_ref: StaticRef) -> Option<ModuleRef> {
+        self.graph
+            .edges_directed(static_ref.0, petgraph::Direction::Incoming)
+            .find_map(|edge| {
+                if let ProjectEdge::ModuleStatic(_) = edge.weight() {
+                    Some(ModuleRef(edge.source()))
                 } else {
                     None
                 }
@@ -441,16 +455,30 @@ pub enum ProjectIssue {
         import: crate::script::parse::ScriptImport,
         path: AbsolutePath,
     },
+
+    #[error("static include '{include}' escapes project path")]
+    StaticIncludeEscapesProjectPath {
+        include: RelativePath,
+        module_subpath: RelativePath,
+    },
+
+    #[error("expected static include '{include}' to be a file")]
+    StaticIncludeExpectedFile {
+        include: RelativePath,
+        module_subpath: RelativePath,
+    },
+
+    #[error("expected static include '{include}' to be a directory")]
+    StaticIncludeExpectedDirectory {
+        include: RelativePath,
+        module_subpath: RelativePath,
+    },
 }
 
 impl ProjectIssue {
     #[must_use]
     pub fn location(&self) -> Option<ProjectIssueLocation> {
         match self {
-            Self::InvalidProjectDefinition { location, .. }
-            | Self::IoError { location, .. }
-            | Self::RegistryError { location, .. }
-            | Self::ToSystemPathError { location, .. } => Some(location.clone()),
             Self::LoadModuleError { location, .. } => location.clone(),
             Self::ScriptParseError { error, path } => Some(ProjectIssueLocation {
                 path: path.clone(),
@@ -460,11 +488,18 @@ impl ProjectIssue {
                 path: path.clone(),
                 range: Some(import.range),
             }),
-            Self::CacheError { .. } => {
+            Self::CacheError { .. }
+            | Self::StaticIncludeEscapesProjectPath { .. }
+            | Self::StaticIncludeExpectedFile { .. }
+            | Self::StaticIncludeExpectedDirectory { .. } => {
                 // TODO: Track location
                 None
             }
-            Self::DownloadError { location, .. } => Some(location.clone()),
+            Self::InvalidProjectDefinition { location, .. }
+            | Self::IoError { location, .. }
+            | Self::RegistryError { location, .. }
+            | Self::ToSystemPathError { location, .. }
+            | Self::DownloadError { location, .. } => Some(location.clone()),
             Self::ProjectHashMismatch { .. } => None,
         }
     }

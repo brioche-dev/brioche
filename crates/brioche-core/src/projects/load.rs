@@ -3,6 +3,8 @@ use std::{
     sync::Arc,
 };
 
+use futures::TryFutureExt as _;
+use petgraph::visit::EdgeRef as _;
 use tokio::io::AsyncReadExt as _;
 
 use crate::{
@@ -202,6 +204,9 @@ pub async fn load_projects(
                 module_referrer.edge(),
             );
             project_modules.insert(module_subpath.clone(), module_ref);
+            projects
+                .project_by_module
+                .insert(module_ref, (project_ref, module_subpath.clone()));
 
             let module_system_path = module_path.to_system_path()?;
             let module_source = load_module_source(&module_system_path).await;
@@ -394,16 +399,28 @@ pub async fn load_projects(
                                 static_ref
                             }
                             PartialStatic::Unresolved(static_) => {
-                                let static_ref = StaticRef(
-                                    projects.graph.add_node(ProjectNode::UnresolvedStatic),
-                                );
                                 let location = ProjectIssueLocation {
                                     path: module_path.clone(),
                                     range: Some(query.range),
                                 };
-                                projects
-                                    .unresolved_statics
-                                    .insert(static_ref, (static_, location));
+                                let static_ref_entry = projects
+                                    .static_ref_by_unresolved_static
+                                    .entry(static_.clone());
+                                let static_ref = match static_ref_entry {
+                                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                                        let (static_ref, locations) = entry.get_mut();
+                                        locations.push(location);
+                                        *static_ref
+                                    }
+                                    std::collections::hash_map::Entry::Vacant(entry) => {
+                                        let static_ref = StaticRef(
+                                            projects.graph.add_node(ProjectNode::UnresolvedStatic),
+                                        );
+                                        entry.insert((static_ref, vec![location]));
+                                        static_ref
+                                    }
+                                };
+                                projects.unresolved_statics.insert(static_ref, static_);
                                 static_ref
                             }
                         };
@@ -581,14 +598,18 @@ pub async fn load_projects(
 pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> {
     let mut projects = brioche.projects.write().await;
 
-    for (static_ref, (static_, location)) in projects.unresolved_statics.clone() {
-        let result = resolve_static(brioche, static_, location).await;
+    for (unresolved, (static_ref, mut locations)) in
+        projects.static_ref_by_unresolved_static.clone()
+    {
+        let location = locations.swap_remove(0);
+        let result = resolve_static(brioche, &unresolved, location).await;
 
         match result {
             Ok(static_) => {
                 projects.unresolved_statics.remove(&static_ref);
+                projects.static_ref_by_unresolved_static.remove(&unresolved);
 
-                match projects.shared_static_by_ref.entry(static_) {
+                match projects.static_ref_by_shared_static.entry(static_) {
                     std::collections::hash_map::Entry::Occupied(entry) => {
                         let resolved_ref = *entry.get();
                         projects.resolved_statics.insert(static_ref, resolved_ref);
@@ -616,12 +637,142 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
         }
     }
 
+    let projects = &mut *projects;
+    for (static_ref, static_) in &projects.statics {
+        match static_ {
+            Static::IncludeFile(relative_path) => {
+                let module_ref = projects.module_for_static(*static_ref);
+                let Some(module_ref) = module_ref else {
+                    continue;
+                };
+
+                let (project_ref, module_subpath) = &projects.project_by_module[&module_ref];
+                let module_dir = module_subpath.parent().expect("invalid module subpath");
+                let project_path = &projects.local_project_paths[project_ref];
+                let static_subpath = module_dir.join(relative_path.clone());
+                let static_path = project_path.join_subpath(static_subpath);
+                let Ok(static_path) = static_path else {
+                    projects.issues.entry(static_ref.0).or_default().push(
+                        ProjectIssue::StaticIncludeEscapesProjectPath {
+                            include: relative_path.clone(),
+                            module_subpath: module_subpath.clone(),
+                        },
+                    );
+                    continue;
+                };
+                let static_system_path = static_path.to_system_path()?;
+
+                let file_with_metadata = tokio::fs::File::open(&static_system_path)
+                    .and_then(async |file| {
+                        let metadata = file.metadata().await?;
+                        Ok((file, metadata))
+                    })
+                    .await;
+                let (_file, file_metadata) = match file_with_metadata {
+                    Ok(file_with_metadata) => file_with_metadata,
+                    Err(error) => {
+                        // TODO: Better location tracking
+                        let location = ProjectIssueLocation {
+                            path: project_path.join(module_subpath.clone()),
+                            range: None,
+                        };
+                        projects.issues.entry(static_ref.0).or_default().push(
+                            ProjectIssue::IoError {
+                                error_message: error.to_string(),
+                                path: static_path,
+                                location,
+                            },
+                        );
+                        continue;
+                    }
+                };
+
+                // TODO: Read file into an artifact
+
+                if !file_metadata.is_file() {
+                    projects.issues.entry(static_ref.0).or_default().push(
+                        ProjectIssue::StaticIncludeExpectedFile {
+                            include: relative_path.clone(),
+                            module_subpath: module_subpath.clone(),
+                        },
+                    );
+                }
+            }
+            Static::IncludeDirectory(relative_path) => {
+                let module_ref = projects.module_for_static(*static_ref);
+                let Some(module_ref) = module_ref else {
+                    continue;
+                };
+
+                let (project_ref, module_subpath) = &projects.project_by_module[&module_ref];
+                let module_dir = module_subpath.parent().expect("invalid module subpath");
+                let project_path = &projects.local_project_paths[project_ref];
+                let static_subpath = module_dir.join(relative_path.clone());
+                let static_path = project_path.join_subpath(static_subpath);
+                let Ok(static_path) = static_path else {
+                    projects.issues.entry(static_ref.0).or_default().push(
+                        ProjectIssue::StaticIncludeEscapesProjectPath {
+                            include: relative_path.clone(),
+                            module_subpath: module_subpath.clone(),
+                        },
+                    );
+                    continue;
+                };
+                let static_system_path = static_path.to_system_path()?;
+
+                let directory_metadata = tokio::fs::metadata(&static_system_path).await;
+                let directory_metadata = match directory_metadata {
+                    Ok(directory_metadata) => directory_metadata,
+                    Err(error) => {
+                        // TODO: Better location tracking
+                        let location = ProjectIssueLocation {
+                            path: project_path.join(module_subpath.clone()),
+                            range: None,
+                        };
+                        projects.issues.entry(static_ref.0).or_default().push(
+                            ProjectIssue::IoError {
+                                error_message: error.to_string(),
+                                path: static_path,
+                                location,
+                            },
+                        );
+                        continue;
+                    }
+                };
+
+                // TODO: Read directory into an artifact
+
+                if !directory_metadata.is_dir() {
+                    projects.issues.entry(static_ref.0).or_default().push(
+                        ProjectIssue::StaticIncludeExpectedDirectory {
+                            include: relative_path.clone(),
+                            module_subpath: module_subpath.clone(),
+                        },
+                    );
+                }
+            }
+            Static::Glob { patterns } => {
+                // TODO: Construct artifact
+            }
+            Static::Download { url, hash } => {
+                // TODO: Construct artifact
+            }
+            Static::GitRef {
+                repository,
+                ref_,
+                commit,
+            } => {
+                // TODO: Construct artifact
+            }
+        }
+    }
+
     Ok(())
 }
 
 async fn resolve_static(
     brioche: &Brioche,
-    static_: UnresolvedStatic,
+    static_: &UnresolvedStatic,
     location: ProjectIssueLocation,
 ) -> Result<SharedStatic, ProjectIssue> {
     match static_ {
@@ -664,7 +815,10 @@ async fn resolve_static(
             }
 
             let hash = hasher.finish();
-            Ok(SharedStatic::Download { url, hash })
+            Ok(SharedStatic::Download {
+                url: url.clone(),
+                hash,
+            })
         }
         UnresolvedStatic::GitRef { repository, ref_ } => todo!(),
     }
