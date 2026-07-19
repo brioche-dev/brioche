@@ -24,7 +24,7 @@ tokio-util = "0.7.18"
 toml = "1.1.2"
 tower-lsp = "0.20.0"
 tracing = "0.1.44"
-ulid = "2.0.1"
+ulid = "3.0.0"
 url = "2.5.8"
 zstd = "0.13.3"
 
