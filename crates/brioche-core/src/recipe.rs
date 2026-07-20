@@ -16,6 +16,7 @@ use crate::{
 pub mod build;
 mod graph;
 pub mod hash;
+pub mod load;
 
 pub use graph::RecipeRef;
 pub use hash::RecipeHash;
