@@ -366,11 +366,13 @@ impl TestContext {
         let (temp_brioche, temp_context) = brioche_test_with({
             let cache = cache.clone();
             |builder| {
-                builder.cache_client(brioche_core::cache::CacheClient {
-                    store: Some(cache),
-                    writable: true,
-                    ..Default::default()
-                })
+                builder
+                    .registry_url(self.registry_server.url().parse().unwrap())
+                    .cache_client(brioche_core::cache::CacheClient {
+                        store: Some(cache),
+                        writable: true,
+                        ..Default::default()
+                    })
             }
         })
         .await;
