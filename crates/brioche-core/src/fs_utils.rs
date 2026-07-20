@@ -127,7 +127,7 @@ pub async fn move_file(source: &Path, dest: &Path) -> anyhow::Result<MoveType> {
 }
 
 pub async fn atomic_copy(source: &Path, dest: &Path) -> anyhow::Result<()> {
-    let dest_temp = dest.with_extension(format!("tmp-{}", ulid::Ulid::r#gen()));
+    let dest_temp = dest.with_extension(format!("tmp-{}", ulid::Ulid::generate()));
     tokio::fs::copy(source, &dest_temp)
         .await
         .context("failed to copy file to temp")?;

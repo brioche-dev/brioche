@@ -72,7 +72,7 @@ pub async fn save_blob(
 
     let temp_dir = brioche.data_dir.join("blobs-temp");
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let temp_path = temp_dir.join(ulid::Ulid::r#gen().to_string());
+    let temp_path = temp_dir.join(ulid::Ulid::generate().to_string());
 
     let mut temp_file = tokio::fs::File::create(&temp_path)
         .await
@@ -115,7 +115,7 @@ where
 
     let temp_dir = brioche.data_dir.join("blobs-temp");
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let temp_path = temp_dir.join(ulid::Ulid::r#gen().to_string());
+    let temp_path = temp_dir.join(ulid::Ulid::generate().to_string());
     let mut temp_file = tokio::fs::File::create(&temp_path)
         .await
         .context("failed to open temp file")?;
@@ -213,7 +213,7 @@ where
 
     let temp_dir = brioche.data_dir.join("blobs-temp");
     std::fs::create_dir_all(&temp_dir).unwrap();
-    let temp_path = temp_dir.join(ulid::Ulid::r#gen().to_string());
+    let temp_path = temp_dir.join(ulid::Ulid::generate().to_string());
     let mut temp_file = std::fs::File::create(&temp_path).context("failed to open temp file")?;
 
     tracing::trace!(temp_path = %temp_path.display(), "saving blob");

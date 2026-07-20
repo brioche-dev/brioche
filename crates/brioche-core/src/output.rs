@@ -362,7 +362,7 @@ async fn create_local_output_inner(
         let local_temp_dir = brioche.data_dir.join(LOCALS_TEMP_DIR_NAME);
         tokio::fs::create_dir_all(&local_temp_dir).await?;
 
-        let temp_id = ulid::Ulid::r#gen();
+        let temp_id = ulid::Ulid::generate();
         let local_temp_path = local_temp_dir.join(temp_id.to_string());
         let local_temp_resource_dir = local_temp_dir.join(format!("{temp_id}-resources.d"));
 
