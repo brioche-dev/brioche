@@ -46,7 +46,7 @@ impl Vfs {
         let contents = Arc::new(contents);
 
         let file_id = if self.mutable {
-            FileId::Mutable(ulid::Ulid::r#gen())
+            FileId::Mutable(ulid::Ulid::generate())
         } else {
             FileId::Hash(BlobHash::for_content(&contents))
         };

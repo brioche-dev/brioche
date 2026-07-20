@@ -541,7 +541,7 @@ async fn write_artifact_atomic(
             }
 
             // Write the file to a temp path
-            let temp_path = temp_dir.join(format!("temp-file-{}", ulid::Ulid::r#gen()));
+            let temp_path = temp_dir.join(format!("temp-file-{}", ulid::Ulid::generate()));
             crate::output::create_output(
                 brioche,
                 artifact,

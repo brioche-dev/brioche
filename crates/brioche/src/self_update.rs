@@ -193,7 +193,7 @@ pub async fn self_update(args: SelfUpdateArgs) -> anyhow::Result<bool> {
     let mut download_body = tokio_util::io::StreamReader::new(download_body);
 
     // Open a temporary file to save the response
-    let id = ulid::Ulid::r#gen();
+    let id = ulid::Ulid::generate();
     let download_path = installation_info
         .install_root
         .join(format!("v{latest_version}-{download_basename}-{id}.tar.xz"));
