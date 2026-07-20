@@ -74,7 +74,7 @@ pub fn load_artifact_sync(
             ArtifactBuilder::Symlink { target }
         } else {
             return Err(LoadArtifactError::UnsupportedFileType {
-                path: path.clone(),
+                path,
                 file_type: metadata.file_type(),
             });
         };
@@ -89,7 +89,7 @@ pub fn load_artifact_sync(
 }
 
 #[derive(Debug, thiserror::Error)]
-enum LoadArtifactError {
+pub enum LoadArtifactError {
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 

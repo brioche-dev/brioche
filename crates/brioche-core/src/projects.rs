@@ -65,6 +65,57 @@ impl Projects {
                 }
             })
     }
+
+    pub(crate) fn get_static(&self, static_ref: StaticRef) -> Option<&Static> {
+        self.statics
+            .get(&static_ref)
+            .or_else(|| self.statics.get(self.resolved_statics.get(&static_ref)?))
+    }
+
+    #[expect(clippy::result_large_err)]
+    pub(crate) fn static_path(
+        &self,
+        static_ref: StaticRef,
+    ) -> Result<Option<AbsolutePath>, ProjectIssue> {
+        let module_ref = self.module_for_static(static_ref);
+        let Some(module_ref) = module_ref else {
+            return Ok(None);
+        };
+
+        let Some(static_) = self.get_static(static_ref) else {
+            return Ok(None);
+        };
+
+        match static_ {
+            Static::IncludeFile(relative_path) | Static::IncludeDirectory(relative_path) => {
+                let (project_ref, module_subpath) = &self.project_by_module[&module_ref];
+                let module_dir = module_subpath.parent().expect("invalid module subpath");
+                let project_path = &self.local_project_paths[project_ref];
+                let static_subpath = module_dir.join(relative_path.clone());
+                let static_path = project_path.join_subpath(static_subpath);
+                let Ok(static_path) = static_path else {
+                    return Err(ProjectIssue::StaticIncludeEscapesProjectPath {
+                        include: relative_path.clone(),
+                        module_subpath: module_subpath.clone(),
+                    });
+                };
+
+                Ok(Some(static_path))
+            }
+            Static::Glob { .. } => {
+                let (project_ref, module_subpath) = &self.project_by_module[&module_ref];
+                let module_dir = module_subpath.parent().expect("invalid module subpath");
+                let project_path = &self.local_project_paths[project_ref];
+                let static_path = project_path.join_subpath(module_dir);
+                let Ok(static_path) = static_path else {
+                    unreachable!("invlaid module dir path");
+                };
+
+                Ok(Some(static_path))
+            }
+            Static::Download { .. } | Static::GitRef { .. } => Ok(None),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

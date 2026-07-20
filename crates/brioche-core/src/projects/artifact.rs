@@ -56,7 +56,14 @@ pub async fn create_project_artifact(
 
     // Compute hashes for each project
     let mut project_hashes = HashMap::new();
-    crate::projects::hash::hash_projects_inner(&projects, &node_groups, &mut project_hashes);
+    crate::projects::hash::hash_projects_inner(
+        brioche,
+        &projects,
+        &mut recipes,
+        &mut permit,
+        &node_groups,
+        &mut project_hashes,
+    );
 
     for group_nodes in node_groups {
         let group_nodes: HashSet<_> = group_nodes.into_iter().collect();

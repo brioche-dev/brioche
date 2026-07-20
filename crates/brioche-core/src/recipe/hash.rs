@@ -22,8 +22,7 @@ pub struct RecipeHash(crate::hash::Blake3Hash);
 
 pub async fn hash_recipe(brioche: &Brioche, recipe_ref: RecipeRef) -> RecipeHash {
     let mut recipes = brioche.recipes.write().await;
-    let hashes = hash_recipes_within(&mut recipes, [recipe_ref]);
-    hashes[&recipe_ref]
+    hash_recipe_inner(&mut recipes, recipe_ref)
 }
 
 pub async fn hash_recipes(
@@ -31,10 +30,15 @@ pub async fn hash_recipes(
     recipe_refs: impl IntoIterator<Item = RecipeRef>,
 ) -> HashMap<RecipeRef, RecipeHash> {
     let mut recipes = brioche.recipes.write().await;
-    hash_recipes_within(&mut recipes, recipe_refs)
+    hash_recipes_inner(&mut recipes, recipe_refs)
 }
 
-pub fn hash_recipes_within(
+pub fn hash_recipe_inner(recipes: &mut super::Recipes, recipe_ref: RecipeRef) -> RecipeHash {
+    let hashes = hash_recipes_inner(recipes, [recipe_ref]);
+    hashes[&recipe_ref]
+}
+
+pub fn hash_recipes_inner(
     recipes: &mut super::Recipes,
     recipe_refs: impl IntoIterator<Item = RecipeRef>,
 ) -> HashMap<RecipeRef, RecipeHash> {
