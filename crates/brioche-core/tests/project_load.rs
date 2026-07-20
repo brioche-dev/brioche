@@ -1670,11 +1670,16 @@ async fn test_project_load_not_found() {
     // project.bri does not exist
     let project_dir = context.mkdir("myproject").await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir);
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    // FIXME: fix assertion
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_eq!(issues.len(), 999_999, "FIXME: assert isssues: {issues:#?}");
+    assert_matches!(
+        &issues[..],
+        [ProjectIssue::LoadModuleError {
+            error: LoadModuleError::IoError { .. },
+            ..
+        }]
+    );
 }
 
 #[tokio::test]
@@ -1942,7 +1947,7 @@ async fn test_project_load_brioche_include_file_as_directory_error() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(
