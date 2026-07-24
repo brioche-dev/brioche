@@ -610,6 +610,7 @@ pub async fn load_projects(
 #[tracing::instrument(skip_all)]
 pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> {
     let mut projects = brioche.projects.write().await;
+    let projects = &mut *projects;
 
     for (unresolved, (static_ref, mut locations)) in
         projects.static_ref_by_unresolved_static.clone()
@@ -621,6 +622,41 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
             Ok(static_) => {
                 projects.unresolved_statics.remove(&static_ref);
                 projects.static_ref_by_unresolved_static.remove(&unresolved);
+
+                let module_refs = projects
+                    .graph
+                    .edges_directed(static_ref.0, petgraph::Direction::Incoming)
+                    .filter_map(|edge| {
+                        if let ProjectEdge::ModuleStatic(_) = edge.weight() {
+                            Some(ModuleRef(edge.source()))
+                        } else {
+                            None
+                        }
+                    });
+                let project_refs =
+                    module_refs.map(|module_ref| &projects.project_by_module[&module_ref]);
+                for (project_ref, _) in project_refs {
+                    let Some(project) = projects.projects.get_mut(project_ref) else {
+                        continue;
+                    };
+
+                    project.lockfile_state.update(|lockfile| match &static_ {
+                        SharedStatic::Download { url, hash } => {
+                            lockfile.downloads.insert(url.clone(), hash.clone());
+                        }
+                        SharedStatic::GitRef {
+                            repository,
+                            ref_,
+                            commit,
+                        } => {
+                            lockfile
+                                .git_refs
+                                .entry(repository.clone())
+                                .or_default()
+                                .insert(ref_.clone(), commit.clone());
+                        }
+                    });
+                }
 
                 match projects.static_ref_by_shared_static.entry(static_) {
                     std::collections::hash_map::Entry::Occupied(entry) => {
@@ -1234,6 +1270,7 @@ fn prepare_static(static_query: StaticQuery, lockfile: Option<&Lockfile>) -> Par
     }
 }
 
+#[derive(Debug, Clone)]
 enum PartialStatic {
     Unresolved(UnresolvedStatic),
     Shared(SharedStatic),

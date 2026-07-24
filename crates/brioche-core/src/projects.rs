@@ -297,6 +297,24 @@ impl LockfileState {
         }
     }
 
+    pub fn update(&mut self, mut f: impl FnMut(&mut Lockfile)) {
+        match self {
+            Self::Clean(lockfile) => {
+                let mut new_lockfile = lockfile.clone();
+                f(&mut new_lockfile);
+                if new_lockfile != *lockfile {
+                    *self = Self::Dirty {
+                        old: Some(std::mem::take(lockfile)),
+                        new: new_lockfile,
+                    };
+                }
+            }
+            Self::Dirty { old: _, new } => {
+                f(new);
+            }
+        }
+    }
+
     #[must_use]
     pub const fn lockfile(&self) -> &Lockfile {
         match self {
