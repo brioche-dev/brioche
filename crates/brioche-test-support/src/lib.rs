@@ -329,8 +329,18 @@ impl TestContext {
         &self,
         f: impl AsyncFnOnce(PathBuf),
     ) -> (ProjectHash, PathBuf) {
-        let (temp_brioche, _temp_context) = brioche_test().await;
-        let (project_ref, temp_project_path) = self.temp_project(&temp_brioche, f).await;
+        // Create a temporary test context so the project does not get
+        // loaded into the current context
+        let (temp_brioche, temp_context) = brioche_test_with({
+            |builder| {
+                builder
+                    .registry_url(self.registry_server.url().parse().unwrap())
+                    .data_dir(self.temp.path().join("brioche-data"))
+            }
+        })
+        .await;
+
+        let (project_ref, temp_project_path) = temp_context.temp_project(&temp_brioche, f).await;
         let project_hash = brioche_core::projects::hash::hash_project(&temp_brioche, project_ref)
             .await
             .unwrap();

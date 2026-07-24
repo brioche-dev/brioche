@@ -1112,8 +1112,8 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
     let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
-        1,
-        "expected to get 1 project dependency, got: {project_deps:#?}"
+        2,
+        "expected to get 2 project dependencies, got: {project_deps:#?}"
     );
 
     let fizz_path = brioche
@@ -1133,8 +1133,8 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
     assert_eq!(fizz_local_path, fizz_path);
     assert_eq!(
         fizz_deps.len(),
-        0,
-        "expected to get 0 dependencies for fizz, got: {fizz_deps:#?}"
+        1,
+        "expected to get 1 dependency for fizz, got: {fizz_deps:#?}"
     );
 
     let buzz_path = brioche
@@ -1154,8 +1154,8 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
     assert_eq!(buzz_local_path, buzz_path);
     assert_eq!(
         buzz_deps.len(),
-        0,
-        "expected to get 0 dependencies for buzz, got: {buzz_deps:#?}"
+        1,
+        "expected to get 1 dependency for buzz, got: {buzz_deps:#?}"
     );
 
     let fizz_foo_dep_ref =
@@ -1178,7 +1178,6 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         .canonicalize()
         .unwrap();
 
-    let foo_ref = project_deps["foo"];
     let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
     let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
     let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
