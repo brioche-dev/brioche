@@ -152,6 +152,7 @@ pub(super) fn hash_projects_inner(
                             .to_system_path()
                             .expect("todo: failed to convert static path");
 
+                        // TODO: Wrap with blocking!!
                         let mut artifact = None;
                         crate::recipe::load::load_artifact_sync(
                             brioche,
@@ -184,6 +185,7 @@ pub(super) fn hash_projects_inner(
                             .to_system_path()
                             .expect("todo: failed to convert static path");
 
+                        // TODO: Wrap with blocking!!
                         let mut artifact = None;
                         crate::recipe::load::load_artifact_sync(
                             brioche,
@@ -207,7 +209,40 @@ pub(super) fn hash_projects_inner(
 
                         StaticOutput::RecipeHash(recipe_hash)
                     }
-                    super::Static::Glob { patterns: _ } => todo!(),
+                    super::Static::Glob { patterns } => {
+                        let static_path = projects
+                            .static_path(static_ref)
+                            .unwrap()
+                            .expect("no local path for include static");
+                        let static_path = static_path
+                            .to_system_path()
+                            .expect("todo: failed to convert static path");
+
+                        // TODO: Wrap with blocking!!
+                        let mut artifact = None;
+                        crate::recipe::load::load_artifact_glob_sync(
+                            brioche,
+                            permit,
+                            &mut artifact,
+                            &static_path,
+                            &ArtifactPath::default(),
+                            patterns,
+                        )
+                        .expect("todo: load artifact error");
+                        let artifact = artifact.unwrap();
+
+                        assert!(
+                            matches!(artifact, ArtifactBuilder::Directory { .. }),
+                            "todo: expected directory artifact"
+                        );
+
+                        let recipe_ref = crate::recipe::build::build_artifact(&artifact, recipes)
+                            .expect("todo: failed to build artifact");
+                        let recipe_hash =
+                            crate::recipe::hash::hash_recipe_inner(recipes, recipe_ref);
+
+                        StaticOutput::RecipeHash(recipe_hash)
+                    }
                     super::Static::Download { url: _, hash } => {
                         StaticOutput::Kind(StaticOutputKind::Download { hash: hash.clone() })
                     }

@@ -8,6 +8,7 @@ use bstr::{ByteSlice as _, ByteVec as _};
 use crate::{
     Brioche,
     blob::SaveBlobOptions,
+    path::RelativePathComponent,
     recipe::build::{ArtifactBuilder, ArtifactPath, ArtifactPathComponent},
 };
 
@@ -88,10 +89,81 @@ pub fn load_artifact_sync(
     Ok(())
 }
 
+pub fn load_artifact_glob_sync(
+    brioche: &Brioche,
+    save_blob_permit: &mut crate::blob::SaveBlobPermit<'_>,
+    container: &mut Option<ArtifactBuilder>,
+    path: &Path,
+    artifact_subpath: &ArtifactPath,
+    patterns: &[String],
+) -> Result<(), LoadArtifactError> {
+    let absolute_path = crate::path::canonicalize_system_path_sync(path)?;
+
+    let mut glob_set = globset::GlobSetBuilder::new();
+    for pattern in patterns {
+        let glob = globset::GlobBuilder::new(pattern)
+            .case_insensitive(false)
+            .literal_separator(true)
+            .backslash_escape(true)
+            .empty_alternates(true)
+            .build()?;
+        glob_set.add(glob);
+    }
+    let glob_set = glob_set.build()?;
+
+    for entry in walkdir::WalkDir::new(path) {
+        let entry = entry?;
+        let entry_path = crate::path::canonicalize_system_path_sync(entry.path())?;
+        let relative_entry_path = crate::path::relative_path_between(&absolute_path, &entry_path)?;
+
+        let relative_entry_system_path = relative_entry_path.to_system_path()?;
+        if !glob_set.is_match(&relative_entry_system_path) {
+            continue;
+        }
+
+        let mut artifact_subpath = artifact_subpath.clone();
+        for component in relative_entry_path.components() {
+            let RelativePathComponent::Normal(component) = component else {
+                panic!(
+                    "invalid path between module path {absolute_path} and matched path {entry_path}"
+                );
+            };
+            artifact_subpath
+                .components
+                .push(ArtifactPathComponent::DirectoryEntry(component.clone()));
+        }
+
+        load_artifact_sync(
+            brioche,
+            save_blob_permit,
+            container,
+            entry.path(),
+            artifact_subpath,
+        )?;
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LoadArtifactError {
     #[error(transparent)]
     IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    GlobsetError(#[from] globset::Error),
+
+    #[error(transparent)]
+    WalkdirError(#[from] walkdir::Error),
+
+    #[error(transparent)]
+    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
+
+    #[error(transparent)]
+    RelativePathBetweenError(#[from] crate::path::RelativePathBetweenError),
+
+    #[error(transparent)]
+    ToSystemPathError(#[from] crate::path::ToSystemPathError),
 
     #[error("error saving blob: {error_message}")]
     SaveBlobError { error_message: String },
