@@ -315,8 +315,12 @@ impl TestContext {
 
         let mut refs = brioche_core::projects::load::load_projects(brioche, [specifier.clone()])
             .await
-            .unwrap();
+            .expect("failed to load temp project");
         let project_ref = refs.remove(&specifier).unwrap();
+
+        brioche_core::projects::load::resolve_statics(brioche)
+            .await
+            .expect("failed to resolve temp project statics");
 
         (project_ref, temp_project_path)
     }

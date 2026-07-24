@@ -634,7 +634,9 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                         );
                     }
                     std::collections::hash_map::Entry::Vacant(entry) => {
+                        let static_ = entry.key().clone().into();
                         entry.insert(static_ref);
+                        projects.statics.insert(static_ref, static_);
 
                         let static_node = projects
                             .graph
@@ -791,7 +793,7 @@ async fn resolve_static(
     match static_ {
         UnresolvedStatic::Download { url } => {
             let new_blob_hash =
-                crate::download::download(brioche, &url, None, JobContext::default())
+                crate::download::download(brioche, url, None, JobContext::default())
                     .await
                     .map_err(|error| ProjectIssue::DownloadError {
                         url: url.clone(),
