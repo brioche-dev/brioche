@@ -1016,28 +1016,38 @@ async fn load_project_by_hash(
     tokio::fs::create_dir_all(&projects_system_path)
         .await
         .unwrap();
-    let projects_path = crate::path::canonicalize_system_path(&projects_system_path)
-        .await
-        .unwrap();
-    let local_path = projects_path.join_one(project_hash.to_string());
-    let local_system_path = local_path.to_system_path().unwrap();
+    let local_system_path = projects_system_path.join(project_hash.to_string());
+    let local_path = crate::path::canonicalize_system_path(&local_system_path).await;
 
-    let local_project_exists =
-        tokio::fs::try_exists(&local_system_path)
-            .await
-            .map_err(|error| ProjectIssue::IoError {
+    match local_path {
+        Ok(local_path) => {
+            // Directory for the local project exists. No need to fetch. The
+            // hash is also validated later on
+            // TODO: workspace
+            return Ok((local_path, None));
+        }
+        Err(crate::path::CanonicalSystemPathError::IoError(error))
+            if error.kind() == std::io::ErrorKind::NotFound =>
+        {
+            // Directory for the local project does not exist
+        }
+        Err(crate::path::CanonicalSystemPathError::IoError(error)) => {
+            let projects_path = crate::path::canonicalize_system_path(&projects_system_path)
+                .await
+                .unwrap();
+            let local_path = projects_path.join_one(project_hash.to_string());
+            return Err(ProjectIssue::IoError {
                 error_message: error.to_string(),
                 path: local_path.clone(),
                 location: ProjectIssueLocation {
-                    path: local_path.clone(),
+                    path: local_path,
                     range: None,
                 },
-            })?;
-    if local_project_exists {
-        // Directory for the local project exists. No need to fetch. The
-        // hash is also validated later on
-        // TODO: workspace
-        return Ok((local_path, None));
+            });
+        }
+        Err(error) => {
+            panic!("path error: {error}");
+        }
     }
 
     // By this point, we know the project doesn't exist locally so we
