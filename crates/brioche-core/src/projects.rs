@@ -6,7 +6,7 @@ use crate::{
     Brioche,
     hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
-    projects::hash::ProjectHash,
+    projects::{hash::ProjectHash, load::LockfileIssue},
     registry::RegistryError,
     script::{parse::ModuleStaticQuery, specifier::ImportSpecifier},
 };
@@ -15,6 +15,7 @@ pub mod artifact;
 pub mod debug;
 pub mod hash;
 pub mod load;
+pub mod lock;
 
 type ProjectGraph = petgraph::stable_graph::StableDiGraph<ProjectNode, ProjectEdge>;
 
@@ -137,11 +138,10 @@ pub(crate) enum ProjectEdge {
     ResolvedStatic,
 }
 
-#[derive(Clone)]
 pub struct Project {
     pub definition: ProjectDefinition,
     pub specifier: ProjectSpecifier,
-    pub lockfile: Lockfile,
+    pub lockfile_state: LockfileState,
 }
 
 pub(crate) struct Module {
@@ -256,6 +256,54 @@ pub struct Lockfile {
 
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub git_refs: BTreeMap<url::Url, BTreeMap<String, String>>,
+}
+
+pub enum LockfileState {
+    Clean(Lockfile),
+    Dirty {
+        old: Option<Lockfile>,
+        new: Lockfile,
+    },
+}
+
+impl LockfileState {
+    #[must_use]
+    pub fn new(
+        old_lockfile_with_content: Option<(Lockfile, &[u8])>,
+        new_lockfile: Lockfile,
+    ) -> Self {
+        let Some((old_lockfile, old_lockfile_content)) = old_lockfile_with_content else {
+            return Self::Dirty {
+                old: None,
+                new: new_lockfile,
+            };
+        };
+        if old_lockfile != new_lockfile {
+            return Self::Dirty {
+                old: Some(old_lockfile),
+                new: new_lockfile,
+            };
+        }
+
+        let new_lockfile_content =
+            serde_json::to_vec_pretty(&new_lockfile).expect("failed to serialize lockfile");
+        if old_lockfile_content == new_lockfile_content {
+            Self::Clean(new_lockfile)
+        } else {
+            Self::Dirty {
+                old: Some(old_lockfile),
+                new: new_lockfile,
+            }
+        }
+    }
+
+    #[must_use]
+    pub const fn lockfile(&self) -> &Lockfile {
+        match self {
+            Self::Clean(lockfile) => lockfile,
+            Self::Dirty { old: _, new } => new,
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde_with::SerializeDisplay, serde_with::DeserializeFromStr)]

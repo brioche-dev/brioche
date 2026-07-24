@@ -11,7 +11,7 @@ use crate::{
     Brioche,
     path::{AbsolutePath, RelativePath},
     projects::{
-        DependencyDefinition, Lockfile, Module, ModuleRef, ModuleReferrer, Project,
+        DependencyDefinition, Lockfile, LockfileState, Module, ModuleRef, ModuleReferrer, Project,
         ProjectDefinition, ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode,
         ProjectRef, ProjectReferrer, ProjectSpecifier, SharedStatic, Static, StaticQuery,
         StaticRef, UnresolvedStatic, Version, Workspace, WorkspaceDefinition, WorkspaceMember,
@@ -152,15 +152,16 @@ pub async fn load_projects(
                 });
             }
         };
-        let lockfile = lockfile_content.as_deref().map_or_else(
+        let lockfile_with_content = lockfile_content.as_deref().map_or_else(
             || Err(LockfileIssue::NotFound),
             |content| {
-                let content = std::str::from_utf8(content).map_err(LockfileIssue::Utf8Error)?;
+                let content_str = std::str::from_utf8(content).map_err(LockfileIssue::Utf8Error)?;
                 let lockfile: Lockfile =
-                    serde_json::from_str(content).map_err(LockfileIssue::DeserializeError)?;
-                Ok(lockfile)
+                    serde_json::from_str(content_str).map_err(LockfileIssue::DeserializeError)?;
+                Ok((lockfile, content))
             },
         );
+        let lockfile = lockfile_with_content.as_ref().map(|(lockfile, _)| lockfile);
         let mut new_lockfile = Lockfile::default();
 
         let root_module_subpath = RelativePath::one("project.bri");
@@ -345,7 +346,7 @@ pub async fn load_projects(
                                         workspace,
                                         external_deps: &mut external_deps,
                                         issues,
-                                        lockfile: lockfile.as_ref().ok(),
+                                        lockfile: lockfile.ok(),
                                         new_lockfile: &mut new_lockfile,
                                     },
                                     specifier,
@@ -381,7 +382,7 @@ pub async fn load_projects(
                                 continue;
                             }
                         };
-                        let static_ = prepare_static(query.query.clone(), lockfile.as_ref().ok());
+                        let static_ = prepare_static(query.query.clone(), lockfile.ok());
 
                         let static_ref = match static_ {
                             PartialStatic::Shared(static_) => {
@@ -505,7 +506,7 @@ pub async fn load_projects(
                     workspace,
                     external_deps: &mut external_deps,
                     issues,
-                    lockfile: lockfile.as_ref().ok(),
+                    lockfile: lockfile.ok(),
                     new_lockfile: &mut new_lockfile,
                 },
                 specifier,
@@ -528,7 +529,7 @@ pub async fn load_projects(
         let project = Project {
             definition: project_definition,
             specifier,
-            lockfile: new_lockfile,
+            lockfile_state: LockfileState::new(lockfile_with_content.ok(), new_lockfile),
         };
         projects.projects.insert(project_ref, project);
 

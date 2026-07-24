@@ -170,7 +170,7 @@ async fn create_single_project_artifact(
     }
 
     // Add the lockfile to the artifact
-    let lockfile = &projects.projects[&project_ref].lockfile;
+    let lockfile = &projects.projects[&project_ref].lockfile_state.lockfile();
     let lockfile_contents =
         serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
 

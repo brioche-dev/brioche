@@ -1,10 +1,9 @@
 #![allow(clippy::similar_names)]
 
+use std::collections::HashSet;
+
 use assert_matches::assert_matches;
-use brioche_core::{
-    projects::{ProjectIssue, ProjectSpecifier, load::LoadModuleError},
-    recipe::Recipe,
-};
+use brioche_core::projects::{ProjectIssue, ProjectSpecifier, load::LoadModuleError};
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
@@ -1378,7 +1377,10 @@ async fn test_project_load_locked_registry_dep() {
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    // todo!("commit dirty lockfiles");
+    let committed_projects = brioche_core::projects::lock::commit_all_dirty_lockfiles(&brioche)
+        .await
+        .expect("failed to commit dirty lockfiles");
+    assert_eq!(committed_projects, HashSet::from_iter([project_ref]));
 
     let project_lockfile_path = project_dir.join("brioche.lock");
     assert!(
