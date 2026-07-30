@@ -5,7 +5,8 @@ use petgraph::visit::EdgeRef as _;
 use crate::{
     Brioche,
     projects::{
-        ModuleRef, ProjectEdge, ProjectNode, ProjectRef, ProjectSpecifier, StaticRef, WorkspaceRef,
+        ModuleRef, ProjectEdge, ProjectNode, ProjectRef, ProjectSpecifier, Projects, StaticRef,
+        WorkspaceRef,
     },
     script::specifier::ImportSpecifier,
 };
@@ -19,15 +20,22 @@ pub struct ProjectGraphvizOptions {
 
 pub async fn graphviz(brioche: &Brioche, options: &ProjectGraphvizOptions) -> String {
     let projects = brioche.projects.read().await;
+    graphviz_inner(&projects, &projects.graph, options)
+}
 
+pub(crate) fn graphviz_inner(
+    projects: &Projects,
+    graph: &super::ProjectGraph,
+    options: &ProjectGraphvizOptions,
+) -> String {
     let mut graphviz = Vec::<u8>::new();
     writeln!(&mut graphviz, "digraph {{").unwrap();
 
     writeln!(&mut graphviz, "graph [concentrate=true]").unwrap();
 
-    for node_id in projects.graph.node_indices() {
+    for node_id in graph.node_indices() {
         let node_idx = node_id.index();
-        match projects.graph[node_id] {
+        match graph[node_id] {
             ProjectNode::Workspace => {
                 let workspace = &projects.workspaces[&WorkspaceRef(node_id)];
                 match workspace {
@@ -97,8 +105,7 @@ pub async fn graphviz(brioche: &Brioche, options: &ProjectGraphvizOptions) -> St
             ProjectNode::Static => {
                 if options.show_modules && options.show_statics {
                     let static_ = &projects.statics[&StaticRef(node_id)];
-                    let module_path = projects
-                        .graph
+                    let module_path = graph
                         .edges_directed(node_id, petgraph::Direction::Incoming)
                         .find_map(|edge| {
                             let module_ref = match edge.weight() {
@@ -185,13 +192,13 @@ pub async fn graphviz(brioche: &Brioche, options: &ProjectGraphvizOptions) -> St
         }
     }
 
-    for edge_id in projects.graph.edge_indices() {
-        let Some((source_id, target_id)) = projects.graph.edge_endpoints(edge_id) else {
+    for edge_id in graph.edge_indices() {
+        let Some((source_id, target_id)) = graph.edge_endpoints(edge_id) else {
             continue;
         };
-        let edge = &projects.graph[edge_id];
-        let source = &projects.graph[source_id];
-        let target = &projects.graph[target_id];
+        let edge = &graph[edge_id];
+        let source = &graph[source_id];
+        let target = &graph[target_id];
 
         if !options.show_modules
             && (matches!(source, ProjectNode::Module) || matches!(target, ProjectNode::Module))
