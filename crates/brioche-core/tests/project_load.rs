@@ -1225,12 +1225,12 @@ async fn test_project_load_remote_workspace_registry_dep() {
             .write_file(
                 "myworkspace/bar/project.bri",
                 r#"
-            export const project = {
-                dependencies: {
-                    foo: "*",
-                },
-            };
-        "#,
+                    export const project = {
+                        dependencies: {
+                            foo: "*",
+                        },
+                    };
+                "#,
             )
             .await;
 

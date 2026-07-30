@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Context as _;
 use bstr::{ByteSlice as _, ByteVec as _};
+use petgraph::visit::EdgeRef as _;
 
 use crate::{
     Brioche,
@@ -82,6 +83,7 @@ pub async fn create_project_artifact(
             brioche,
             &mut recipes,
             &projects,
+            &project_hashes,
             project_ref,
             &mut permit,
         )
@@ -99,6 +101,7 @@ async fn create_single_project_artifact(
     brioche: &Brioche,
     recipes: &mut crate::recipe::Recipes,
     projects: &Projects,
+    project_hashes: &HashMap<ProjectRef, ProjectHash>,
     project_ref: ProjectRef,
     permit: &mut SaveBlobPermit<'_>,
 ) -> anyhow::Result<RecipeRef> {
@@ -169,11 +172,31 @@ async fn create_single_project_artifact(
         }
     }
 
+    // Prepare the project lockfile
+    let mut lockfile = projects.projects[&project_ref]
+        .lockfile_state
+        .lockfile()
+        .clone();
+
+    // Replace the dependencies from the lockfile. This is needed because,
+    // even if the lockfile is up-to-date, the artifact version of a project
+    // may need to put dependencies in the lockfile that aren't in the actual
+    // lockfile (e.g. workspace members).
+    let dependencies = projects.graph.edges(project_ref.0).filter_map(|edge| {
+        let crate::projects::ProjectEdge::ProjectDependency(dep_name) = edge.weight() else {
+            return None;
+        };
+        let dep_ref = ProjectRef(edge.target());
+        let dep_hash = project_hashes[&dep_ref];
+
+        Some((dep_name.clone(), dep_hash))
+    });
+    lockfile.dependencies.clear();
+    lockfile.dependencies.extend(dependencies);
+
     // Add the lockfile to the artifact
-    let lockfile = &projects.projects[&project_ref].lockfile_state.lockfile();
     let lockfile_contents =
         serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
-
     let lockfile_blob = crate::blob::save_blob(
         brioche,
         permit,
