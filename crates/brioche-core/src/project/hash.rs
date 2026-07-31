@@ -6,7 +6,7 @@ use crate::{
     Brioche,
     encoding::TickEncoded,
     path::RelativePath,
-    projects::{ProjectDefinition, ProjectEdge, ProjectRef, StaticRef},
+    project::{ProjectDefinition, ProjectEdge, ProjectRef, StaticRef},
     recipe::build::{ArtifactBuilder, ArtifactPath},
 };
 
@@ -42,13 +42,13 @@ pub async fn hash_project(
     let mut graph = projects.graph.clone();
     let mut dfs_space = petgraph::algo::DfsSpace::default();
     graph.retain_nodes(|graph, index| match &graph[index] {
-        crate::projects::ProjectNode::Project => {
+        crate::project::ProjectNode::Project => {
             petgraph::algo::has_path_connecting(&*graph, project_ref.0, index, Some(&mut dfs_space))
         }
-        crate::projects::ProjectNode::Workspace
-        | crate::projects::ProjectNode::Module
-        | crate::projects::ProjectNode::Static
-        | crate::projects::ProjectNode::UnresolvedStatic => false,
+        crate::project::ProjectNode::Workspace
+        | crate::project::ProjectNode::Module
+        | crate::project::ProjectNode::Static
+        | crate::project::ProjectNode::UnresolvedStatic => false,
     });
 
     // Group nodes by finding the strongly-connected components of the graph.
@@ -100,15 +100,15 @@ pub(super) fn hash_projects_inner(
             .graph
             .edges(project_ref.0)
             .filter_map(|edge| match edge.weight() {
-                crate::projects::ProjectEdge::ProjectDependency(dep_name) => {
+                crate::project::ProjectEdge::ProjectDependency(dep_name) => {
                     let dep_hash = project_hashes[&ProjectRef(edge.target())];
                     Some((dep_name.clone(), DependencyRef::Project(dep_hash)))
                 }
-                crate::projects::ProjectEdge::ProjectWithinWorkspace
-                | crate::projects::ProjectEdge::ProjectRootModule
-                | crate::projects::ProjectEdge::ModuleImport(_)
-                | crate::projects::ProjectEdge::ModuleStatic(_)
-                | crate::projects::ProjectEdge::ResolvedStatic => None,
+                crate::project::ProjectEdge::ProjectWithinWorkspace
+                | crate::project::ProjectEdge::ProjectRootModule
+                | crate::project::ProjectEdge::ModuleImport(_)
+                | crate::project::ProjectEdge::ModuleStatic(_)
+                | crate::project::ProjectEdge::ResolvedStatic => None,
             })
             .collect();
 

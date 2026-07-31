@@ -10,7 +10,7 @@ use tokio::io::AsyncReadExt as _;
 use crate::{
     Brioche,
     path::{AbsolutePath, RelativePath},
-    projects::{
+    project::{
         DependencyDefinition, Lockfile, LockfileState, Module, ModuleRef, ModuleReferrer, Project,
         ProjectDefinition, ProjectEdge, ProjectIssue, ProjectIssueLocation, ProjectNode,
         ProjectRef, ProjectReferrer, ProjectSpecifier, SharedStatic, Static, StaticQuery,
@@ -566,7 +566,7 @@ pub async fn load_projects(
         let mut graph = projects.graph.clone();
         let mut dfs_space = petgraph::algo::DfsSpace::default();
         graph.retain_nodes(|graph, index| match &graph[index] {
-            crate::projects::ProjectNode::Project => {
+            crate::project::ProjectNode::Project => {
                 project_hashes_to_validate.keys().any(|project_ref| {
                     petgraph::algo::has_path_connecting(
                         &*graph,
@@ -576,10 +576,10 @@ pub async fn load_projects(
                     )
                 })
             }
-            crate::projects::ProjectNode::Workspace
-            | crate::projects::ProjectNode::Module
-            | crate::projects::ProjectNode::Static
-            | crate::projects::ProjectNode::UnresolvedStatic => false,
+            crate::project::ProjectNode::Workspace
+            | crate::project::ProjectNode::Module
+            | crate::project::ProjectNode::Static
+            | crate::project::ProjectNode::UnresolvedStatic => false,
         });
 
         // Group nodes by finding the strongly-connected components of the graph.
@@ -595,7 +595,7 @@ pub async fn load_projects(
             .expect("todo: failed to get save blob permit");
 
         let mut project_hashes = HashMap::new();
-        crate::projects::hash::hash_projects_inner(
+        crate::project::hash::hash_projects_inner(
             brioche,
             projects,
             &mut recipes,

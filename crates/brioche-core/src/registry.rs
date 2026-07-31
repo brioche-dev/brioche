@@ -1,4 +1,4 @@
-use crate::{Brioche, projects::hash::ProjectHash};
+use crate::{Brioche, project::hash::ProjectHash};
 
 const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);

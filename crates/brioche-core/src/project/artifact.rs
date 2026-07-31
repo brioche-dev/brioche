@@ -12,7 +12,7 @@ use crate::{
     Brioche,
     blob::SaveBlobPermit,
     path::{AbsolutePath, RelativePath, RelativePathComponent},
-    projects::{
+    project::{
         ProjectRef,
         hash::{ContentAddressedProjectEntry, WorkspaceHash},
     },
@@ -39,13 +39,13 @@ pub async fn create_project_artifact(
     let mut graph = projects.graph.clone();
     let mut dfs_space = petgraph::algo::DfsSpace::default();
     graph.retain_nodes(|graph, index| match &graph[index] {
-        crate::projects::ProjectNode::Project => {
+        crate::project::ProjectNode::Project => {
             petgraph::algo::has_path_connecting(&*graph, project_ref.0, index, Some(&mut dfs_space))
         }
-        crate::projects::ProjectNode::Workspace
-        | crate::projects::ProjectNode::Module
-        | crate::projects::ProjectNode::Static
-        | crate::projects::ProjectNode::UnresolvedStatic => false,
+        crate::project::ProjectNode::Workspace
+        | crate::project::ProjectNode::Module
+        | crate::project::ProjectNode::Static
+        | crate::project::ProjectNode::UnresolvedStatic => false,
     });
 
     // Group nodes by finding the strongly-connected components of the graph.
@@ -57,7 +57,7 @@ pub async fn create_project_artifact(
 
     // Compute hashes for each project
     let mut project_hashes = HashMap::new();
-    crate::projects::hash::hash_projects_inner(
+    crate::project::hash::hash_projects_inner(
         brioche,
         &projects,
         &mut recipes,
@@ -183,7 +183,7 @@ async fn create_single_project_artifact(
     // may need to put dependencies in the lockfile that aren't in the actual
     // lockfile (e.g. workspace members).
     let dependencies = projects.graph.edges(project_ref.0).filter_map(|edge| {
-        let crate::projects::ProjectEdge::ProjectDependency(dep_name) = edge.weight() else {
+        let crate::project::ProjectEdge::ProjectDependency(dep_name) = edge.weight() else {
             return None;
         };
         let dep_ref = ProjectRef(edge.target());

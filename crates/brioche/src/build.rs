@@ -1,6 +1,6 @@
 use std::{path::PathBuf, process::ExitCode};
 
-use brioche_core::projects::ProjectSpecifier;
+use brioche_core::project::ProjectSpecifier;
 use clap::Parser;
 use futures::{StreamExt as _, TryStreamExt as _};
 
@@ -85,7 +85,7 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         .await?;
 
     let _projects =
-        brioche_core::projects::load::load_projects(&brioche, specifiers.iter().cloned()).await?;
+        brioche_core::project::load::load_projects(&brioche, specifiers.iter().cloned()).await?;
 
     Ok(ExitCode::SUCCESS)
 

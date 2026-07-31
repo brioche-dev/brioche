@@ -8,7 +8,7 @@ use brioche_core::{
     Brioche, BriocheBuilder,
     blob::{BlobHash, SaveBlobOptions},
     path::AbsolutePath,
-    projects::{ProjectRef, ProjectSpecifier, hash::ProjectHash},
+    project::{ProjectRef, ProjectSpecifier, hash::ProjectHash},
     recipe::RecipeRef,
 };
 use bstr::ByteSlice as _;
@@ -78,10 +78,10 @@ pub async fn load_project(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
         .await
         .unwrap();
     let specifier = ProjectSpecifier::Path(project_dir);
-    let mut refs = brioche_core::projects::load::load_projects(brioche, [specifier.clone()])
+    let mut refs = brioche_core::project::load::load_projects(brioche, [specifier.clone()])
         .await
         .unwrap();
-    brioche_core::projects::load::resolve_statics(brioche)
+    brioche_core::project::load::resolve_statics(brioche)
         .await
         .unwrap();
     refs.remove(&specifier).unwrap()
@@ -268,7 +268,7 @@ impl TestContext {
     pub async fn write_lockfile(
         &self,
         path: impl AsRef<Path>,
-        contents: &brioche_core::projects::Lockfile,
+        contents: &brioche_core::project::Lockfile,
     ) -> PathBuf {
         self.write_file(path, serde_json::to_string_pretty(&contents).unwrap())
             .await
@@ -297,12 +297,12 @@ impl TestContext {
             .await
             .unwrap();
         let specifier = ProjectSpecifier::Path(project_dir);
-        let mut refs = brioche_core::projects::load::load_projects(brioche, [specifier.clone()])
+        let mut refs = brioche_core::project::load::load_projects(brioche, [specifier.clone()])
             .await
             .unwrap();
         let project_ref = refs.remove(&specifier).unwrap();
 
-        let issues = brioche_core::projects::get_all_issues(brioche).await;
+        let issues = brioche_core::project::get_all_issues(brioche).await;
         assert_matches!(&issues[..], []);
 
         (project_ref, temp_project_path)
@@ -320,12 +320,12 @@ impl TestContext {
             .unwrap();
         let specifier = ProjectSpecifier::Path(project_dir);
 
-        let mut refs = brioche_core::projects::load::load_projects(brioche, [specifier.clone()])
+        let mut refs = brioche_core::project::load::load_projects(brioche, [specifier.clone()])
             .await
             .expect("failed to load temp project");
         let project_ref = refs.remove(&specifier).unwrap();
 
-        brioche_core::projects::load::resolve_statics(brioche)
+        brioche_core::project::load::resolve_statics(brioche)
             .await
             .expect("failed to resolve temp project statics");
 
@@ -348,7 +348,7 @@ impl TestContext {
         .await;
 
         let (project_ref, temp_project_path) = temp_context.temp_project(&temp_brioche, f).await;
-        let project_hash = brioche_core::projects::hash::hash_project(&temp_brioche, project_ref)
+        let project_hash = brioche_core::project::hash::hash_project(&temp_brioche, project_ref)
             .await
             .unwrap();
 
@@ -400,11 +400,11 @@ impl TestContext {
 
         let (project_ref, _) = temp_context.temp_project_by_path(&temp_brioche, f).await;
 
-        let project_hash = brioche_core::projects::hash::hash_project(&temp_brioche, project_ref)
+        let project_hash = brioche_core::project::hash::hash_project(&temp_brioche, project_ref)
             .await
             .unwrap();
         let project_artifact =
-            brioche_core::projects::artifact::create_project_artifact(&temp_brioche, project_ref)
+            brioche_core::project::artifact::create_project_artifact(&temp_brioche, project_ref)
                 .await
                 .expect("failed to create artifact for project");
         let project_artifact_hash =

@@ -9,7 +9,7 @@ use crate::{
     Brioche,
     hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
-    projects::hash::ProjectHash,
+    project::hash::ProjectHash,
     registry::RegistryError,
     script::{
         parse::{ModuleStaticQuery, TextRange},

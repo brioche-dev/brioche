@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use assert_matches::assert_matches;
-use brioche_core::projects::{ProjectIssue, ProjectSpecifier, load::LoadModuleError};
+use brioche_core::project::{ProjectIssue, ProjectSpecifier, load::LoadModuleError};
 use pretty_assertions::assert_eq;
 
 #[tokio::test]
@@ -22,10 +22,10 @@ async fn test_project_load_simple() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], &[]);
 
-    let dependencies = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let dependencies = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert!(dependencies.is_empty());
 }
 
@@ -38,10 +38,10 @@ async fn test_project_load_simple_no_definition() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], &[]);
 
-    let dependencies = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let dependencies = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert!(dependencies.is_empty());
 }
 
@@ -52,7 +52,7 @@ async fn test_project_load_workspace_dep() {
     context
         .write_toml(
             "myworkspace/brioche_workspace.toml",
-            &brioche_core::projects::WorkspaceDefinition {
+            &brioche_core::project::WorkspaceDefinition {
                 members: vec!["./foo".parse().unwrap(), "./bar".parse().unwrap()],
             },
         )
@@ -84,19 +84,19 @@ async fn test_project_load_workspace_dep() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], &[]);
 
-    let dependencies = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let dependencies = brioche_core::project::get_dependencies(&brioche, project_ref).await;
 
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, dependencies["foo"]).await;
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, dependencies["foo"]).await;
     assert_eq!(
         foo_specifier,
         brioche_test_support::project_specifier_for_path(&workspace_foo_dir)
     );
 
     let foo_dependencies =
-        brioche_core::projects::get_dependencies(&brioche, dependencies["foo"]).await;
+        brioche_core::project::get_dependencies(&brioche, dependencies["foo"]).await;
     assert!(foo_dependencies.is_empty());
 }
 
@@ -172,10 +172,10 @@ async fn test_project_load_path_dep() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         2,
@@ -183,8 +183,8 @@ async fn test_project_load_path_dep() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
     assert_eq!(
         foo_specifier,
         brioche_test_support::project_specifier_for_path(&foo_dir)
@@ -196,8 +196,8 @@ async fn test_project_load_path_dep() {
     );
 
     let bar_ref = project_deps["bar"];
-    let bar_specifier = brioche_core::projects::get_specifier(&brioche, bar_ref).await;
-    let bar_deps = brioche_core::projects::get_dependencies(&brioche, bar_ref).await;
+    let bar_specifier = brioche_core::project::get_specifier(&brioche, bar_ref).await;
+    let bar_deps = brioche_core::project::get_dependencies(&brioche, bar_ref).await;
     assert_eq!(
         bar_specifier,
         brioche_test_support::project_specifier_for_path(&bar_dir)
@@ -210,8 +210,8 @@ async fn test_project_load_path_dep() {
 
     assert_eq!(foo_deps["baz"], bar_deps["baz"]);
     let baz_ref = foo_deps["baz"];
-    let baz_specifier = brioche_core::projects::get_specifier(&brioche, baz_ref).await;
-    let baz_deps = brioche_core::projects::get_dependencies(&brioche, baz_ref).await;
+    let baz_specifier = brioche_core::project::get_specifier(&brioche, baz_ref).await;
+    let baz_deps = brioche_core::project::get_dependencies(&brioche, baz_ref).await;
     assert_eq!(
         baz_specifier,
         brioche_test_support::project_specifier_for_path(&baz_dir)
@@ -260,10 +260,10 @@ async fn test_project_load_local_registry_dep() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -271,9 +271,9 @@ async fn test_project_load_local_registry_dep() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -321,10 +321,10 @@ async fn test_project_load_local_registry_dep_implied() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -332,9 +332,9 @@ async fn test_project_load_local_registry_dep_implied() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -390,10 +390,10 @@ async fn test_project_load_local_registry_dep_implied_nested() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -401,9 +401,9 @@ async fn test_project_load_local_registry_dep_implied_nested() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -457,10 +457,10 @@ async fn test_project_load_local_registry_dep_imported() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -468,9 +468,9 @@ async fn test_project_load_local_registry_dep_imported() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -524,10 +524,10 @@ async fn test_project_load_remote_registry_dep() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -542,9 +542,9 @@ async fn test_project_load_remote_registry_dep() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -610,10 +610,10 @@ async fn test_project_load_remote_registry_dep_with_brioche_include() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -628,9 +628,9 @@ async fn test_project_load_remote_registry_dep_with_brioche_include() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -705,10 +705,10 @@ async fn test_project_load_remote_registry_dep_with_brioche_glob() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -723,9 +723,9 @@ async fn test_project_load_remote_registry_dep_with_brioche_glob() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -822,10 +822,10 @@ async fn test_project_load_remote_registry_dep_with_subdir_brioche_glob() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -840,9 +840,9 @@ async fn test_project_load_remote_registry_dep_with_subdir_brioche_glob() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -934,10 +934,10 @@ async fn test_project_load_remote_registry_dep_with_brioche_download() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -952,9 +952,9 @@ async fn test_project_load_remote_registry_dep_with_brioche_download() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -1106,10 +1106,10 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         2,
@@ -1123,9 +1123,9 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         .canonicalize()
         .unwrap();
     let fizz_ref = project_deps["fizz"];
-    let fizz_specifier = brioche_core::projects::get_specifier(&brioche, fizz_ref).await;
-    let fizz_deps = brioche_core::projects::get_dependencies(&brioche, fizz_ref).await;
-    let fizz_local_path = brioche_core::projects::local_project_path(&brioche, fizz_ref)
+    let fizz_specifier = brioche_core::project::get_specifier(&brioche, fizz_ref).await;
+    let fizz_deps = brioche_core::project::get_dependencies(&brioche, fizz_ref).await;
+    let fizz_local_path = brioche_core::project::local_project_path(&brioche, fizz_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -1144,9 +1144,9 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         .canonicalize()
         .unwrap();
     let buzz_ref = project_deps["buzz"];
-    let buzz_specifier = brioche_core::projects::get_specifier(&brioche, buzz_ref).await;
-    let buzz_deps = brioche_core::projects::get_dependencies(&brioche, buzz_ref).await;
-    let buzz_local_path = brioche_core::projects::local_project_path(&brioche, buzz_ref)
+    let buzz_specifier = brioche_core::project::get_specifier(&brioche, buzz_ref).await;
+    let buzz_deps = brioche_core::project::get_dependencies(&brioche, buzz_ref).await;
+    let buzz_local_path = brioche_core::project::local_project_path(&brioche, buzz_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -1158,11 +1158,9 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         "expected to get 1 dependency for buzz, got: {buzz_deps:#?}"
     );
 
-    let fizz_foo_dep_ref =
-        brioche_core::projects::get_dependencies(&brioche, fizz_ref).await["foo"];
-    let buzz_foo_dep_ref =
-        brioche_core::projects::get_dependencies(&brioche, buzz_ref).await["foo"];
-    let foo_ref = brioche_core::projects::get_project_by_specifier(
+    let fizz_foo_dep_ref = brioche_core::project::get_dependencies(&brioche, fizz_ref).await["foo"];
+    let buzz_foo_dep_ref = brioche_core::project::get_dependencies(&brioche, buzz_ref).await["foo"];
+    let foo_ref = brioche_core::project::get_project_by_specifier(
         &brioche,
         &ProjectSpecifier::Hash(foo_hash),
     )
@@ -1178,9 +1176,9 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         .canonicalize()
         .unwrap();
 
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();
@@ -1209,7 +1207,7 @@ async fn test_project_load_remote_workspace_registry_dep() {
         context
             .write_toml(
                 "myworkspace/brioche_workspace.toml",
-                &brioche_core::projects::WorkspaceDefinition {
+                &brioche_core::project::WorkspaceDefinition {
                     members: vec!["./foo".parse().unwrap(), "./bar".parse().unwrap()],
                 },
             )
@@ -1237,10 +1235,10 @@ async fn test_project_load_remote_workspace_registry_dep() {
         let bar_ref = brioche_test_support::load_project(&brioche, &bar_dir).await;
         let foo_ref = brioche_test_support::load_project(&brioche, &foo_dir).await;
 
-        let issues = brioche_core::projects::get_all_issues(&brioche).await;
+        let issues = brioche_core::project::get_all_issues(&brioche).await;
         assert_matches!(&issues[..], []);
 
-        let bar_deps = brioche_core::projects::get_dependencies(&brioche, bar_ref).await;
+        let bar_deps = brioche_core::project::get_dependencies(&brioche, bar_ref).await;
         assert_eq!(
             bar_deps.len(),
             1,
@@ -1248,11 +1246,11 @@ async fn test_project_load_remote_workspace_registry_dep() {
         );
         assert_eq!(bar_deps["foo"], foo_ref);
 
-        bar_hash = brioche_core::projects::hash::hash_project(&brioche, bar_ref)
+        bar_hash = brioche_core::project::hash::hash_project(&brioche, bar_ref)
             .await
             .expect("failed to hash bar project");
         let bar_project_artifact =
-            brioche_core::projects::artifact::create_project_artifact(&brioche, bar_ref)
+            brioche_core::project::artifact::create_project_artifact(&brioche, bar_ref)
                 .await
                 .expect("failed to create artifact for bar");
         let bar_project_artifact_hash =
@@ -1293,10 +1291,10 @@ async fn test_project_load_remote_workspace_registry_dep() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -1304,7 +1302,7 @@ async fn test_project_load_remote_workspace_registry_dep() {
     );
 
     let bar_dep_ref = project_deps["bar"];
-    let bar_dep_hash = brioche_core::projects::hash::hash_project(&brioche, bar_dep_ref)
+    let bar_dep_hash = brioche_core::project::hash::hash_project(&brioche, bar_dep_ref)
         .await
         .expect("failed to hash bar");
     assert_eq!(bar_dep_hash, bar_hash);
@@ -1373,10 +1371,10 @@ async fn test_project_load_locked_registry_dep() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
-    let committed_projects = brioche_core::projects::lock::commit_all_dirty_lockfiles(&brioche)
+    let committed_projects = brioche_core::project::lock::commit_all_dirty_lockfiles(&brioche)
         .await
         .expect("failed to commit dirty lockfiles");
     assert_eq!(committed_projects, HashSet::from_iter([project_ref]));
@@ -1391,12 +1389,12 @@ async fn test_project_load_locked_registry_dep() {
     let project_lockfile_contents = tokio::fs::read_to_string(&project_lockfile_path)
         .await
         .expect("failed to read lockfile");
-    let project_lockfile: brioche_core::projects::Lockfile =
+    let project_lockfile: brioche_core::project::Lockfile =
         serde_json::from_str(&project_lockfile_contents).expect("failed to parse lockfile");
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     let foo_dep_ref = project_deps["foo"];
-    let foo_dep_hash = brioche_core::projects::hash::hash_project(&brioche, foo_dep_ref)
+    let foo_dep_hash = brioche_core::project::hash::hash_project(&brioche, foo_dep_ref)
         .await
         .unwrap();
 
@@ -1487,50 +1485,50 @@ async fn test_project_load_complex() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
     let main_dep_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, project_ref).await["depproject"];
+        brioche_core::project::get_dependencies(&brioche, project_ref).await["depproject"];
     let main_foo_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, project_ref).await["foo"];
+        brioche_core::project::get_dependencies(&brioche, project_ref).await["foo"];
     let main_dep_foo_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, main_dep_project_ref).await["foo"];
+        brioche_core::project::get_dependencies(&brioche, main_dep_project_ref).await["foo"];
     let main_foo_bar_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, main_foo_project_ref).await["bar"];
+        brioche_core::project::get_dependencies(&brioche, main_foo_project_ref).await["bar"];
     let main_dep_foo_bar_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, main_dep_foo_project_ref).await["bar"];
+        brioche_core::project::get_dependencies(&brioche, main_dep_foo_project_ref).await["bar"];
 
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_dep_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_dep_project_ref)
             .await
             .to_system_path()
             .unwrap(),
         dep_project_dir
     );
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_foo_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_foo_project_ref)
             .await
             .to_system_path()
             .unwrap(),
         foo_path
     );
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_dep_foo_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_dep_foo_project_ref)
             .await
             .to_system_path()
             .unwrap(),
         foo_path
     );
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_foo_bar_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_foo_bar_project_ref)
             .await
             .to_system_path()
             .unwrap(),
         bar_path
     );
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_dep_foo_bar_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_dep_foo_bar_project_ref)
             .await
             .to_system_path()
             .unwrap(),
@@ -1610,50 +1608,50 @@ async fn test_project_load_complex_implied() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], []);
 
     let main_dep_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, project_ref).await["depproject"];
+        brioche_core::project::get_dependencies(&brioche, project_ref).await["depproject"];
     let main_foo_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, project_ref).await["foo"];
+        brioche_core::project::get_dependencies(&brioche, project_ref).await["foo"];
     let main_dep_foo_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, main_dep_project_ref).await["foo"];
+        brioche_core::project::get_dependencies(&brioche, main_dep_project_ref).await["foo"];
     let main_foo_bar_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, main_foo_project_ref).await["bar"];
+        brioche_core::project::get_dependencies(&brioche, main_foo_project_ref).await["bar"];
     let main_dep_foo_bar_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, main_dep_foo_project_ref).await["bar"];
+        brioche_core::project::get_dependencies(&brioche, main_dep_foo_project_ref).await["bar"];
 
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_dep_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_dep_project_ref)
             .await
             .to_system_path()
             .unwrap(),
         dep_project_dir
     );
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_foo_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_foo_project_ref)
             .await
             .to_system_path()
             .unwrap(),
         foo_path
     );
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_dep_foo_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_dep_foo_project_ref)
             .await
             .to_system_path()
             .unwrap(),
         foo_path
     );
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_foo_bar_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_foo_bar_project_ref)
             .await
             .to_system_path()
             .unwrap(),
         bar_path
     );
     assert_eq!(
-        brioche_core::projects::local_project_path(&brioche, main_dep_foo_bar_project_ref)
+        brioche_core::project::local_project_path(&brioche, main_dep_foo_bar_project_ref)
             .await
             .to_system_path()
             .unwrap(),
@@ -1673,7 +1671,7 @@ async fn test_project_load_not_found() {
 
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(
         &issues[..],
         [ProjectIssue::LoadModuleError {
@@ -1729,21 +1727,21 @@ async fn test_project_load_path_dep_not_found() {
     // module. The directory `not_found_2` does not exist
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let foo_ref = brioche_core::projects::get_project_by_specifier(
+    let foo_ref = brioche_core::project::get_project_by_specifier(
         &brioche,
         &brioche_test_support::project_specifier_for_path(&foo_dir),
     )
     .await
     .unwrap();
 
-    let project_root_module = brioche_core::projects::get_root_module(&brioche, project_ref)
+    let project_root_module = brioche_core::project::get_root_module(&brioche, project_ref)
         .await
         .expect("project root module not found");
-    let foo_root_module = brioche_core::projects::get_root_module(&brioche, foo_ref)
+    let foo_root_module = brioche_core::project::get_root_module(&brioche, foo_ref)
         .await
         .expect("foo root module not found");
 
-    let mut issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let mut issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_eq!(issues.len(), 2, "expected 2 issues, got: {issues:#?}");
 
     let project_issue = brioche_test_support::take_where(&mut issues, |issue| {
@@ -1811,7 +1809,7 @@ async fn test_project_load_dep_not_found() {
 
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], [ProjectIssue::DependencyNotFound { dependency, .. }] if dependency == "foo");
 
     mock_foo_latest_not_found.assert_async().await;
@@ -1840,7 +1838,7 @@ async fn test_project_load_dep_implied_not_found() {
 
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], [ProjectIssue::DependencyNotFound { dependency, .. }] if dependency == "foo");
 
     mock_foo_latest_not_found.assert_async().await;
@@ -1873,7 +1871,7 @@ async fn test_project_load_dep_registry_error() {
 
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], [ProjectIssue::RegistryError { .. }]);
 
     mock_foo_latest_error.assert_async().await;
@@ -1902,7 +1900,7 @@ async fn test_project_load_dep_implied_registry_error() {
 
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], [ProjectIssue::RegistryError { .. }]);
 
     mock_foo_latest_error.assert_async().await;
@@ -1948,7 +1946,7 @@ async fn test_project_load_brioche_include_outside_of_project_error() {
 
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(
         &issues[..],
         [ProjectIssue::StaticIncludeEscapesProjectPath { .. }]
@@ -1995,7 +1993,7 @@ async fn test_project_load_brioche_include_directory_as_file_error() {
 
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(
         &issues[..],
         [ProjectIssue::StaticIncludeExpectedFile { .. }]
@@ -2042,7 +2040,7 @@ async fn test_project_load_brioche_include_file_as_directory_error() {
 
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(
         &issues[..],
         [ProjectIssue::StaticIncludeExpectedDirectory { .. }]
@@ -2068,13 +2066,13 @@ async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() {
             )
             .await;
         let foo_ref = brioche_test_support::load_project(&brioche, &foo_project_dir).await;
-        let foo_hash = brioche_core::projects::hash::hash_project(&brioche, foo_ref)
+        let foo_hash = brioche_core::project::hash::hash_project(&brioche, foo_ref)
             .await
             .unwrap();
 
         // Create an artifact from the project
         let foo_project_artifact_ref =
-            brioche_core::projects::artifact::create_project_artifact(&brioche, foo_ref)
+            brioche_core::project::artifact::create_project_artifact(&brioche, foo_ref)
                 .await
                 .expect("failed to create foo project artifact");
 
@@ -2163,7 +2161,7 @@ async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() {
     // have the right hash
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(
         &issues[..],
         [ProjectIssue::ProjectHashMismatch {
@@ -2227,7 +2225,7 @@ async fn test_project_load_local_registry_dep_invalid_hash() {
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    let issues = brioche_core::project::get_all_issues(&brioche).await;
     assert_matches!(
         &issues[..],
         [ProjectIssue::ProjectHashMismatch {
@@ -2236,7 +2234,7 @@ async fn test_project_load_local_registry_dep_invalid_hash() {
             actual_hash
         }] if *expected_hash == foo_hash && *actual_hash != foo_hash);
 
-    let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
+    let project_deps = brioche_core::project::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
         project_deps.len(),
         1,
@@ -2244,9 +2242,9 @@ async fn test_project_load_local_registry_dep_invalid_hash() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::projects::get_specifier(&brioche, foo_ref).await;
-    let foo_deps = brioche_core::projects::get_dependencies(&brioche, foo_ref).await;
-    let foo_local_path = brioche_core::projects::local_project_path(&brioche, foo_ref)
+    let foo_specifier = brioche_core::project::get_specifier(&brioche, foo_ref).await;
+    let foo_deps = brioche_core::project::get_dependencies(&brioche, foo_ref).await;
+    let foo_local_path = brioche_core::project::local_project_path(&brioche, foo_ref)
         .await
         .to_system_path()
         .unwrap();

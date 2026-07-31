@@ -16,7 +16,7 @@ mod hash;
 mod object_store_utils;
 pub mod path;
 pub mod platform;
-pub mod projects;
+pub mod project;
 pub mod recipe;
 pub mod registry;
 pub mod reporter;
@@ -34,7 +34,7 @@ static DEFAULT_REGISTRY_URL: std::sync::LazyLock<url::Url> =
 #[derive(Clone)]
 pub struct Brioche {
     reporter: reporter::Reporter,
-    projects: Arc<RwLock<projects::Projects>>,
+    projects: Arc<RwLock<project::Projects>>,
     recipes: Arc<RwLock<recipe::Recipes>>,
 
     /// The directory where all of Brioche's data is stored. Usually configured
@@ -269,7 +269,7 @@ impl BriocheBuilder {
 
         Ok(Brioche {
             reporter,
-            projects: Arc::new(RwLock::new(projects::Projects::default())),
+            projects: Arc::new(RwLock::new(project::Projects::default())),
             recipes: Arc::new(RwLock::new(recipe::Recipes::default())),
             data_dir,
             registry_client,

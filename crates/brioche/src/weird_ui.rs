@@ -1,7 +1,7 @@
 #![cfg(feature = "weird-ui")]
 
 use anyhow::Context as _;
-use brioche_core::projects::ProjectSpecifier;
+use brioche_core::project::ProjectSpecifier;
 use futures::{StreamExt as _, TryStreamExt as _};
 use weird_client::world::Node;
 
@@ -31,7 +31,7 @@ pub async fn launch_weird_ui(args: WeirdUiArgs) -> anyhow::Result<()> {
         .await?;
 
     let projects =
-        brioche_core::projects::load::load_projects(&brioche, specifiers.iter().cloned()).await?;
+        brioche_core::project::load::load_projects(&brioche, specifiers.iter().cloned()).await?;
 
     let weird = weird_client::WeirdClient::builder()
         .app("brioche")
@@ -44,13 +44,13 @@ pub async fn launch_weird_ui(args: WeirdUiArgs) -> anyhow::Result<()> {
         .iter()
         .map(|specifier| projects[specifier])
         .collect();
-    let mut graph_options = brioche_core::projects::debug::ProjectGraphvizOptions {
+    let mut graph_options = brioche_core::project::debug::ProjectGraphvizOptions {
         highlight_projects,
         ..Default::default()
     };
 
     loop {
-        let project_graph = brioche_core::projects::debug::graphviz(&brioche, &graph_options).await;
+        let project_graph = brioche_core::project::debug::graphviz(&brioche, &graph_options).await;
 
         weird.render(vec![
             Node::text("Show modules:"),

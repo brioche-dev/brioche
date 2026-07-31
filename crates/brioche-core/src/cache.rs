@@ -8,7 +8,7 @@ use tokio::io::AsyncWriteExt as _;
 use crate::recipe::RecipeRef;
 use crate::reporter::job::JobContext;
 use crate::{
-    Brioche, projects::hash::ProjectHash, recipe::hash::RecipeHash, reporter::job::CacheFetchKind,
+    Brioche, project::hash::ProjectHash, recipe::hash::RecipeHash, reporter::job::CacheFetchKind,
 };
 
 mod archive;

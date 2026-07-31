@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use biome_rowan::{AstNode as _, AstNodeList as _, AstSeparatedList as _};
 
-use crate::{path::RelativePath, projects::StaticQuery};
+use crate::{path::RelativePath, project::StaticQuery};
 
 pub struct ScriptAst {
     module: biome_js_syntax::JsModule,

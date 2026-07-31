@@ -4,7 +4,7 @@ use petgraph::visit::EdgeRef as _;
 
 use crate::{
     Brioche,
-    projects::{
+    project::{
         ModuleRef, ProjectEdge, ProjectNode, ProjectRef, ProjectSpecifier, Projects, StaticRef,
         WorkspaceRef,
     },

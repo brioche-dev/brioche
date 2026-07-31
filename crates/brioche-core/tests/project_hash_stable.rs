@@ -13,7 +13,7 @@ async fn test_project_hash_stable_simple() -> anyhow::Result<()> {
         .await;
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let project_hash = brioche_core::projects::hash::hash_project(&brioche, project_ref)
+    let project_hash = brioche_core::project::hash::hash_project(&brioche, project_ref)
         .await
         .unwrap();
 
@@ -33,7 +33,7 @@ async fn test_project_hash_stable_simple_no_definition() -> anyhow::Result<()> {
     context.write_file("myproject/project.bri", r"").await;
 
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let project_hash = brioche_core::projects::hash::hash_project(&brioche, project_ref)
+    let project_hash = brioche_core::project::hash::hash_project(&brioche, project_ref)
         .await
         .unwrap();
 
@@ -76,12 +76,12 @@ async fn test_project_hash_stable_with_path_dep() -> anyhow::Result<()> {
         .await;
 
     let project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
-    let project_hash = brioche_core::projects::hash::hash_project(&brioche, project_ref)
+    let project_hash = brioche_core::project::hash::hash_project(&brioche, project_ref)
         .await
         .unwrap();
     let dep_project_ref =
-        brioche_core::projects::get_dependencies(&brioche, project_ref).await["depproject"];
-    let dep_project_hash = brioche_core::projects::hash::hash_project(&brioche, dep_project_ref)
+        brioche_core::project::get_dependencies(&brioche, project_ref).await["depproject"];
+    let dep_project_hash = brioche_core::project::hash::hash_project(&brioche, dep_project_ref)
         .await
         .unwrap();
 

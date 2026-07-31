@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
     Brioche,
-    projects::{LockfileState, ProjectRef},
+    project::{LockfileState, ProjectRef},
 };
 
 pub async fn commit_all_dirty_lockfiles(
