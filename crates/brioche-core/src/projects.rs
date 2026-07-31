@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+};
 
 use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
 
@@ -8,7 +11,10 @@ use crate::{
     path::{AbsolutePath, AnyPath, RelativePath},
     projects::hash::ProjectHash,
     registry::RegistryError,
-    script::{parse::ModuleStaticQuery, specifier::ImportSpecifier},
+    script::{
+        parse::{ModuleStaticQuery, TextRange},
+        specifier::ImportSpecifier,
+    },
 };
 
 pub mod artifact;
@@ -55,12 +61,15 @@ impl Projects {
             })
     }
 
-    pub(crate) fn module_for_static(&self, static_ref: StaticRef) -> Option<ModuleRef> {
+    pub(crate) fn module_for_static(
+        &self,
+        static_ref: StaticRef,
+    ) -> Option<(ModuleRef, TextRange)> {
         self.graph
             .edges_directed(static_ref.0, petgraph::Direction::Incoming)
             .find_map(|edge| {
-                if let ProjectEdge::ModuleStatic(_) = edge.weight() {
-                    Some(ModuleRef(edge.source()))
+                if let ProjectEdge::ModuleStatic(query) = edge.weight() {
+                    Some((ModuleRef(edge.source()), query.range))
                 } else {
                     None
                 }
@@ -79,7 +88,7 @@ impl Projects {
         static_ref: StaticRef,
     ) -> Result<Option<AbsolutePath>, ProjectIssue> {
         let module_ref = self.module_for_static(static_ref);
-        let Some(module_ref) = module_ref else {
+        let Some((module_ref, range)) = module_ref else {
             return Ok(None);
         };
 
@@ -96,8 +105,10 @@ impl Projects {
                 let static_path = project_path.join_subpath(static_subpath);
                 let Ok(static_path) = static_path else {
                     return Err(ProjectIssue::StaticIncludeEscapesProjectPath {
+                        static_ref,
                         include: relative_path.clone(),
-                        module_subpath: module_subpath.clone(),
+                        module_ref,
+                        range,
                     });
                 };
 
@@ -395,13 +406,45 @@ impl std::fmt::Display for Version {
 pub struct ProjectRef(NodeIndex);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct ModuleRef(NodeIndex);
+pub struct ModuleRef(NodeIndex);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct StaticRef(NodeIndex);
+pub struct StaticRef(NodeIndex);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct WorkspaceRef(NodeIndex);
+pub struct WorkspaceRef(NodeIndex);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AnyRef {
+    Project(ProjectRef),
+    Module(ModuleRef),
+    Static(StaticRef),
+    Workspace(WorkspaceRef),
+}
+
+impl From<ProjectRef> for AnyRef {
+    fn from(value: ProjectRef) -> Self {
+        Self::Project(value)
+    }
+}
+
+impl From<ModuleRef> for AnyRef {
+    fn from(value: ModuleRef) -> Self {
+        Self::Module(value)
+    }
+}
+
+impl From<StaticRef> for AnyRef {
+    fn from(value: StaticRef) -> Self {
+        Self::Static(value)
+    }
+}
+
+impl From<WorkspaceRef> for AnyRef {
+    fn from(value: WorkspaceRef) -> Self {
+        Self::Workspace(value)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ProjectSpecifier {
@@ -415,27 +458,30 @@ enum ProjectReferrer {
     Project {
         referrer: ProjectRef,
         edge: Box<ProjectEdge>,
-        location: ProjectIssueLocation,
+        module_referrer: (ModuleRef, Option<TextRange>),
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ModuleReferrer {
     ProjectRoot {
         project_ref: ProjectRef,
+        referrer: Option<(ModuleRef, Option<TextRange>)>,
     },
     ModuleImport {
-        referrer: ModuleRef,
         specifier: ImportSpecifier,
-        location: ProjectIssueLocation,
+        referrer: (ModuleRef, TextRange),
     },
 }
 
 impl ModuleReferrer {
     const fn node_index(&self) -> NodeIndex {
         match self {
-            Self::ProjectRoot { project_ref } => project_ref.0,
-            Self::ModuleImport { referrer, .. } => referrer.0,
+            Self::ProjectRoot { project_ref, .. } => project_ref.0,
+            Self::ModuleImport {
+                referrer: (module_ref, _),
+                ..
+            } => module_ref.0,
         }
     }
 
@@ -445,11 +491,32 @@ impl ModuleReferrer {
             Self::ModuleImport { specifier, .. } => ProjectEdge::ModuleImport(specifier.clone()),
         }
     }
+
+    const fn referrer_and_range(&self) -> Option<(ModuleRef, Option<TextRange>)> {
+        match self {
+            Self::ProjectRoot { referrer, .. } => *referrer,
+            Self::ModuleImport {
+                referrer: (module_ref, range),
+                ..
+            } => Some((*module_ref, Some(*range))),
+        }
+    }
 }
 
 pub async fn local_project_path(brioche: &Brioche, project_ref: ProjectRef) -> AbsolutePath {
     let projects = brioche.projects.read().await;
     projects.local_project_paths[&project_ref].clone()
+}
+
+pub async fn get_root_module(brioche: &Brioche, project_ref: ProjectRef) -> Option<ModuleRef> {
+    let projects = brioche.projects.read().await;
+    projects.graph.edges(project_ref.0).find_map(|edge| {
+        if matches!(edge.weight(), ProjectEdge::ProjectRootModule) {
+            Some(ModuleRef(edge.target()))
+        } else {
+            None
+        }
+    })
 }
 
 pub async fn get_dependencies(
@@ -504,15 +571,17 @@ pub async fn get_all_issues(brioche: &Brioche) -> Vec<ProjectIssue> {
 pub enum ProjectIssue {
     #[error("{error}")]
     ScriptParseError {
+        #[source]
         error: crate::script::parse::ScriptParseError,
-        path: AbsolutePath,
+        module_ref: ModuleRef,
     },
 
     #[error("{error}")]
     LoadModuleError {
+        #[source]
         error: load::LoadModuleError,
-        path: AbsolutePath,
-        location: Option<ProjectIssueLocation>,
+        module_ref: ModuleRef,
+        referrer: Option<(ModuleRef, Option<TextRange>)>,
     },
 
     #[error("invalid project definition: {error_message}")]
@@ -523,10 +592,10 @@ pub enum ProjectIssue {
         location: ProjectIssueLocation,
     },
 
-    #[error("IO error at {path}: {error_message}")]
+    #[error("IO error{}: {error_message}", .path.as_ref().map(|path| format!(" at {}", path.display())).unwrap_or_default())]
     IoError {
         error_message: String,
-        path: AbsolutePath,
+        path: Option<PathBuf>,
         location: ProjectIssueLocation,
     },
 
@@ -541,6 +610,8 @@ pub enum ProjectIssue {
     CacheError {
         // TODO: Use proper error
         error_message: String,
+
+        location: ProjectIssueLocation,
     },
 
     #[error("error downloading URL '{url}': {error_message}")]
@@ -555,6 +626,7 @@ pub enum ProjectIssue {
 
     #[error("expected project with hash {expected_hash}, but got {actual_hash}")]
     ProjectHashMismatch {
+        project_ref: ProjectRef,
         expected_hash: ProjectHash,
         actual_hash: ProjectHash,
     },
@@ -570,25 +642,31 @@ pub enum ProjectIssue {
     #[error("module import '{}' escapes project path", import.specifier)]
     ModuleImportEscapesProjectPath {
         import: crate::script::parse::ScriptImport,
-        path: AbsolutePath,
+        location: ProjectIssueLocation,
     },
 
     #[error("static include '{include}' escapes project path")]
     StaticIncludeEscapesProjectPath {
+        static_ref: StaticRef,
         include: RelativePath,
-        module_subpath: RelativePath,
+        module_ref: ModuleRef,
+        range: TextRange,
     },
 
     #[error("expected static include '{include}' to be a file")]
     StaticIncludeExpectedFile {
+        static_ref: StaticRef,
         include: RelativePath,
-        module_subpath: RelativePath,
+        module_ref: ModuleRef,
+        range: TextRange,
     },
 
     #[error("expected static include '{include}' to be a directory")]
     StaticIncludeExpectedDirectory {
+        static_ref: StaticRef,
         include: RelativePath,
-        module_subpath: RelativePath,
+        module_ref: ModuleRef,
+        range: TextRange,
     },
 }
 
@@ -596,34 +674,44 @@ impl ProjectIssue {
     #[must_use]
     pub fn location(&self) -> Option<ProjectIssueLocation> {
         match self {
-            Self::LoadModuleError { location, .. } => location.clone(),
-            Self::ScriptParseError { error, path } => Some(ProjectIssueLocation {
-                path: path.clone(),
+            Self::ScriptParseError { error, module_ref } => Some(ProjectIssueLocation {
+                source: (*module_ref).into(),
                 range: Some(error.range()),
             }),
-            Self::ModuleImportEscapesProjectPath { import, path } => Some(ProjectIssueLocation {
-                path: path.clone(),
-                range: Some(import.range),
+            Self::LoadModuleError {
+                error: _,
+                module_ref: _,
+                referrer,
+            } => referrer.map(|(module_ref, range)| ProjectIssueLocation {
+                source: module_ref.into(),
+                range,
             }),
-            Self::CacheError { .. }
-            | Self::StaticIncludeEscapesProjectPath { .. }
-            | Self::StaticIncludeExpectedFile { .. }
-            | Self::StaticIncludeExpectedDirectory { .. } => {
-                // TODO: Track location
-                None
+            Self::StaticIncludeEscapesProjectPath {
+                module_ref, range, ..
             }
+            | Self::StaticIncludeExpectedFile {
+                module_ref, range, ..
+            }
+            | Self::StaticIncludeExpectedDirectory {
+                module_ref, range, ..
+            } => Some(ProjectIssueLocation {
+                source: (*module_ref).into(),
+                range: Some(*range),
+            }),
             Self::InvalidProjectDefinition { location, .. }
             | Self::IoError { location, .. }
             | Self::RegistryError { location, .. }
+            | Self::CacheError { location, .. }
             | Self::ToSystemPathError { location, .. }
-            | Self::DownloadError { location, .. } => Some(location.clone()),
+            | Self::ModuleImportEscapesProjectPath { location, .. }
+            | Self::DownloadError { location, .. } => Some(*location),
             Self::ProjectHashMismatch { .. } => None,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ProjectIssueLocation {
-    pub path: AbsolutePath,
+    pub source: AnyRef,
     pub range: Option<crate::script::parse::TextRange>,
 }

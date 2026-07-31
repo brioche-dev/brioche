@@ -60,7 +60,7 @@ pub async fn load_projects(
             .projects_by_specifier
             .insert(specifier.clone(), project_ref);
 
-        tracing::debug!(?specifier, ?referrer, "loading project");
+        tracing::debug!(?specifier, ?referrer, ?project_ref, "loading project");
 
         let (project_path, workspace_root) = match &specifier {
             ProjectSpecifier::Path(path) => {
@@ -73,7 +73,20 @@ pub async fn load_projects(
             ProjectSpecifier::Hash(project_hash) => {
                 project_hashes_to_validate.insert(project_ref, *project_hash);
 
-                match load_project_by_hash(brioche, *project_hash).await {
+                let location = match referrer {
+                    ProjectReferrer::TopLevel => ProjectIssueLocation {
+                        source: project_ref.into(),
+                        range: None,
+                    },
+                    ProjectReferrer::Project {
+                        module_referrer: (module_ref, _),
+                        ..
+                    } => ProjectIssueLocation {
+                        source: module_ref.into(),
+                        range: None,
+                    },
+                };
+                match load_project_by_hash(brioche, *project_hash, location).await {
                     Ok((path, workspace_root)) => (path, workspace_root),
                     Err(error) => {
                         todo!("add project issue: {error:#?}");
@@ -165,18 +178,24 @@ pub async fn load_projects(
         let mut new_lockfile = Lockfile::default();
 
         let root_module_subpath = RelativePath::one("project.bri");
-        let root_module_path = project_path
-            .join_subpath(root_module_subpath.clone())
-            .unwrap();
 
         let mut project_definition = ProjectDefinition::default();
         let mut project_modules = HashMap::<RelativePath, ModuleRef>::new();
         let mut external_deps = HashMap::<String, Option<ProjectSpecifier>>::new();
         let mut module_asts = HashMap::<ModuleRef, crate::script::parse::ScriptAst>::new();
 
+        let module_referrer = match referrer {
+            ProjectReferrer::TopLevel => None,
+            ProjectReferrer::Project {
+                module_referrer, ..
+            } => Some(module_referrer),
+        };
         let mut module_queue = VecDeque::from_iter([(
             root_module_subpath.clone(),
-            ModuleReferrer::ProjectRoot { project_ref },
+            ModuleReferrer::ProjectRoot {
+                project_ref,
+                referrer: module_referrer,
+            },
         )]);
         while let Some((module_subpath, module_referrer)) = module_queue.pop_front() {
             if let Some(module_ref) = project_modules.get(&module_subpath) {
@@ -209,6 +228,8 @@ pub async fn load_projects(
                 .project_by_module
                 .insert(module_ref, (project_ref, module_subpath.clone()));
 
+            tracing::trace!(?project_ref, ?module_subpath, ?module_ref, "loading module");
+
             let module_system_path = module_path.to_system_path()?;
             let module_source = load_module_source(&module_system_path).await;
             let module = Module {
@@ -240,12 +261,11 @@ pub async fn load_projects(
                         let project_definition_value = match project_definition_value {
                             Ok(value) => value,
                             Err(error) => {
-                                projects.issues.entry(module_ref.0).or_default().push(
-                                    ProjectIssue::ScriptParseError {
-                                        error,
-                                        path: root_module_path.clone(),
-                                    },
-                                );
+                                projects
+                                    .issues
+                                    .entry(module_ref.0)
+                                    .or_default()
+                                    .push(ProjectIssue::ScriptParseError { error, module_ref });
                                 None
                             }
                         };
@@ -257,7 +277,7 @@ pub async fn load_projects(
                         }
 
                         let project_definition_location = ProjectIssueLocation {
-                            path: root_module_path.clone(),
+                            source: module_ref.into(),
                             range: project_definition_value.as_ref().map(|value| value.range),
                         };
                         project_definition = project_definition_value
@@ -272,7 +292,7 @@ pub async fn load_projects(
                                                 error_message: error.to_string(),
                                                 line: error.line(),
                                                 column: error.column(),
-                                                location: project_definition_location.clone(),
+                                                location: project_definition_location,
                                             },
                                         );
                                         None
@@ -287,12 +307,11 @@ pub async fn load_projects(
                         let import = match import {
                             Ok(import) => import,
                             Err(error) => {
-                                projects.issues.entry(module_ref.0).or_default().push(
-                                    ProjectIssue::ScriptParseError {
-                                        error,
-                                        path: module_path.clone(),
-                                    },
-                                );
+                                projects
+                                    .issues
+                                    .entry(module_ref.0)
+                                    .or_default()
+                                    .push(ProjectIssue::ScriptParseError { error, module_ref });
                                 continue;
                             }
                         };
@@ -310,10 +329,14 @@ pub async fn load_projects(
                                     }
                                 };
                                 let Ok(subpath) = subpath.normalized_subpath() else {
+                                    let range = Some(import.range);
                                     projects.issues.entry(module_ref.0).or_default().push(
                                         ProjectIssue::ModuleImportEscapesProjectPath {
                                             import,
-                                            path: module_path.clone(),
+                                            location: ProjectIssueLocation {
+                                                source: module_ref.into(),
+                                                range,
+                                            },
                                         },
                                     );
                                     continue;
@@ -323,20 +346,12 @@ pub async fn load_projects(
                                 module_queue.push_back((
                                     subpath,
                                     ModuleReferrer::ModuleImport {
-                                        referrer: module_ref,
+                                        referrer: (module_ref, import.range),
                                         specifier: import_specifier,
-                                        location: ProjectIssueLocation {
-                                            path: module_path.clone(),
-                                            range: Some(import.range),
-                                        },
                                     },
                                 ));
                             }
                             ImportSpecifier::External(specifier) => {
-                                let location = ProjectIssueLocation {
-                                    path: module_path.clone(),
-                                    range: Some(import.range),
-                                };
                                 let issues = projects.issues.entry(project_ref.0).or_default();
                                 let resolved_dep = resolve_project_dependency(
                                     brioche,
@@ -350,7 +365,10 @@ pub async fn load_projects(
                                         new_lockfile: &mut new_lockfile,
                                     },
                                     specifier,
-                                    location.clone(),
+                                    ProjectIssueLocation {
+                                        source: module_ref.into(),
+                                        range: Some(import.range),
+                                    },
                                 )
                                 .await;
 
@@ -362,7 +380,7 @@ pub async fn load_projects(
                                             edge: Box::new(ProjectEdge::ProjectDependency(
                                                 specifier.clone(),
                                             )),
-                                            location,
+                                            module_referrer: (module_ref, Some(import.range)),
                                         },
                                     ));
                                 }
@@ -375,12 +393,11 @@ pub async fn load_projects(
                         let query = match query {
                             Ok(query) => query,
                             Err(error) => {
-                                projects.issues.entry(module_ref.0).or_default().push(
-                                    ProjectIssue::ScriptParseError {
-                                        error,
-                                        path: module_path.clone(),
-                                    },
-                                );
+                                projects
+                                    .issues
+                                    .entry(module_ref.0)
+                                    .or_default()
+                                    .push(ProjectIssue::ScriptParseError { error, module_ref });
                                 continue;
                             }
                         };
@@ -403,7 +420,7 @@ pub async fn load_projects(
                             }
                             PartialStatic::Unresolved(static_) => {
                                 let location = ProjectIssueLocation {
-                                    path: module_path.clone(),
+                                    source: module_ref.into(),
                                     range: Some(query.range),
                                 };
                                 let static_ref_entry = projects
@@ -436,26 +453,19 @@ pub async fn load_projects(
                     }
                 }
                 Err(error) => {
-                    let location = match module_referrer {
-                        ModuleReferrer::ProjectRoot { .. } => match &referrer {
-                            ProjectReferrer::Project { location, .. } => Some(location.clone()),
-                            ProjectReferrer::TopLevel => None,
-                        },
-                        ModuleReferrer::ModuleImport { location, .. } => Some(location),
-                    };
                     projects.issues.entry(project_ref.0).or_default().push(
                         ProjectIssue::LoadModuleError {
                             error: (*error).clone(),
-                            path: module_path,
-                            location,
+                            module_ref,
+                            referrer: module_referrer.referrer_and_range(),
                         },
                     );
                 }
             }
         }
 
-        let root_module_ref = &project_modules[&root_module_subpath];
-        let root_module_ast = module_asts.get(root_module_ref);
+        let root_module_ref = project_modules[&root_module_subpath];
+        let root_module_ast = module_asts.get(&root_module_ref);
 
         let project_definition_value = root_module_ast.map_or_else(
             || Ok(None),
@@ -467,16 +477,17 @@ pub async fn load_projects(
                 projects.issues.entry(root_module_ref.0).or_default().push(
                     ProjectIssue::ScriptParseError {
                         error,
-                        path: root_module_path.clone(),
+                        module_ref: root_module_ref,
                     },
                 );
                 None
             }
         };
 
+        let project_definition_range = project_definition_value.as_ref().map(|value| value.range);
         let project_definition_location = ProjectIssueLocation {
-            path: root_module_path.clone(),
-            range: project_definition_value.as_ref().map(|value| value.range),
+            source: root_module_ref.into(),
+            range: project_definition_range,
         };
         let project_definition = project_definition_value.and_then(|value| {
             let project_definition: Result<ProjectDefinition, _> =
@@ -489,7 +500,7 @@ pub async fn load_projects(
                             error_message: error.to_string(),
                             line: error.line(),
                             column: error.column(),
-                            location: project_definition_location.clone(),
+                            location: project_definition_location,
                         },
                     );
                     None
@@ -512,7 +523,7 @@ pub async fn load_projects(
                     new_lockfile: &mut new_lockfile,
                 },
                 specifier,
-                project_definition_location.clone(),
+                project_definition_location,
             )
             .await;
 
@@ -522,7 +533,7 @@ pub async fn load_projects(
                     ProjectReferrer::Project {
                         referrer: project_ref,
                         edge: Box::new(ProjectEdge::ProjectDependency(specifier.clone())),
-                        location: project_definition_location.clone(),
+                        module_referrer: (root_module_ref, project_definition_range),
                     },
                 ));
             }
@@ -598,6 +609,7 @@ pub async fn load_projects(
             if expected_hash != actual_hash {
                 projects.issues.entry(project_ref.0).or_default().push(
                     ProjectIssue::ProjectHashMismatch {
+                        project_ref,
                         expected_hash,
                         actual_hash,
                     },
@@ -695,7 +707,7 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
         match static_ {
             Static::IncludeFile(relative_path) => {
                 let module_ref = projects.module_for_static(*static_ref);
-                let Some(module_ref) = module_ref else {
+                let Some((module_ref, range)) = module_ref else {
                     continue;
                 };
 
@@ -707,8 +719,10 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 let Ok(static_path) = static_path else {
                     projects.issues.entry(static_ref.0).or_default().push(
                         ProjectIssue::StaticIncludeEscapesProjectPath {
+                            static_ref: *static_ref,
                             include: relative_path.clone(),
-                            module_subpath: module_subpath.clone(),
+                            module_ref,
+                            range,
                         },
                     );
                     continue;
@@ -724,15 +738,14 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 let (_file, file_metadata) = match file_with_metadata {
                     Ok(file_with_metadata) => file_with_metadata,
                     Err(error) => {
-                        // TODO: Better location tracking
                         let location = ProjectIssueLocation {
-                            path: project_path.join(module_subpath.clone()),
+                            source: (*static_ref).into(),
                             range: None,
                         };
                         projects.issues.entry(static_ref.0).or_default().push(
                             ProjectIssue::IoError {
                                 error_message: error.to_string(),
-                                path: static_path,
+                                path: Some(static_system_path),
                                 location,
                             },
                         );
@@ -745,15 +758,17 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 if !file_metadata.is_file() {
                     projects.issues.entry(static_ref.0).or_default().push(
                         ProjectIssue::StaticIncludeExpectedFile {
+                            static_ref: *static_ref,
                             include: relative_path.clone(),
-                            module_subpath: module_subpath.clone(),
+                            module_ref,
+                            range,
                         },
                     );
                 }
             }
             Static::IncludeDirectory(relative_path) => {
                 let module_ref = projects.module_for_static(*static_ref);
-                let Some(module_ref) = module_ref else {
+                let Some((module_ref, range)) = module_ref else {
                     continue;
                 };
 
@@ -765,8 +780,10 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 let Ok(static_path) = static_path else {
                     projects.issues.entry(static_ref.0).or_default().push(
                         ProjectIssue::StaticIncludeEscapesProjectPath {
+                            static_ref: *static_ref,
                             include: relative_path.clone(),
-                            module_subpath: module_subpath.clone(),
+                            module_ref,
+                            range,
                         },
                     );
                     continue;
@@ -777,15 +794,14 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 let directory_metadata = match directory_metadata {
                     Ok(directory_metadata) => directory_metadata,
                     Err(error) => {
-                        // TODO: Better location tracking
                         let location = ProjectIssueLocation {
-                            path: project_path.join(module_subpath.clone()),
+                            source: (*static_ref).into(),
                             range: None,
                         };
                         projects.issues.entry(static_ref.0).or_default().push(
                             ProjectIssue::IoError {
                                 error_message: error.to_string(),
-                                path: static_path,
+                                path: Some(static_system_path),
                                 location,
                             },
                         );
@@ -798,8 +814,10 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 if !directory_metadata.is_dir() {
                     projects.issues.entry(static_ref.0).or_default().push(
                         ProjectIssue::StaticIncludeExpectedDirectory {
+                            static_ref: *static_ref,
                             include: relative_path.clone(),
-                            module_subpath: module_subpath.clone(),
+                            module_ref,
+                            range,
                         },
                     );
                 }
@@ -832,18 +850,15 @@ async fn resolve_static(
                     .map_err(|error| ProjectIssue::DownloadError {
                         url: url.clone(),
                         error_message: error.to_string(),
-                        location: location.clone(),
+                        location,
                     })?;
             let blob_system_path = crate::blob::local_blob_path(brioche, new_blob_hash);
-            let blob_path = crate::path::canonicalize_system_path(&blob_system_path)
-                .await
-                .expect("failed to canonicalize blob path");
             let mut blob = tokio::fs::File::open(&blob_system_path)
                 .await
                 .map_err(|error| ProjectIssue::IoError {
                     error_message: error.to_string(),
-                    path: blob_path,
-                    location: location.clone(),
+                    path: Some(blob_system_path),
+                    location,
                 })?;
 
             let mut hasher = crate::hash::AnyHashHasher::new_sha256();
@@ -855,7 +870,7 @@ async fn resolve_static(
                         .map_err(|error| ProjectIssue::DownloadError {
                             url: url.clone(),
                             error_message: error.to_string(),
-                            location: location.clone(),
+                            location,
                         })?;
                 if length == 0 {
                     break;
@@ -897,8 +912,11 @@ pub enum LoadProjectError {
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum LoadModuleError {
-    #[error("IO error: {error_message}")]
-    IoError { error_message: String },
+    #[error("IO error at {}: {error_message}", .path.display())]
+    IoError {
+        error_message: String,
+        path: std::path::PathBuf,
+    },
     #[error(transparent)]
     Utf8Error(std::str::Utf8Error),
 }
@@ -969,6 +987,7 @@ async fn load_module_source(path: &std::path::Path) -> Result<String, LoadModule
         .await
         .map_err(|error| LoadModuleError::IoError {
             error_message: error.to_string(),
+            path: path.to_path_buf(),
         })?;
     let source = String::from_utf8(source)
         .map_err(|error| LoadModuleError::Utf8Error(error.utf8_error()))?;
@@ -1000,6 +1019,7 @@ async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceEr
 async fn load_project_by_hash(
     brioche: &Brioche,
     project_hash: ProjectHash,
+    location: ProjectIssueLocation,
 ) -> Result<(AbsolutePath, Option<AbsolutePath>), ProjectIssue> {
     // Use a mutex to ensure we don't try to fetch the same project more
     // than once at a time
@@ -1033,17 +1053,10 @@ async fn load_project_by_hash(
             // Directory for the local project does not exist
         }
         Err(crate::path::CanonicalSystemPathError::IoError(error)) => {
-            let projects_path = crate::path::canonicalize_system_path(&projects_system_path)
-                .await
-                .unwrap();
-            let local_path = projects_path.join_one(project_hash.to_string());
             return Err(ProjectIssue::IoError {
                 error_message: error.to_string(),
-                path: local_path.clone(),
-                location: ProjectIssueLocation {
-                    path: local_path,
-                    range: None,
-                },
+                path: Some(projects_system_path),
+                location,
             });
         }
         Err(error) => {
@@ -1058,9 +1071,11 @@ async fn load_project_by_hash(
         .await
         .map_err(|error| ProjectIssue::CacheError {
             error_message: error.to_string(),
+            location,
         })?
         .ok_or_else(|| ProjectIssue::CacheError {
             error_message: "project not found in cache".to_string(),
+            location,
         })?;
     let artifact_ref = crate::cache::load_artifact(
         brioche,
@@ -1071,21 +1086,25 @@ async fn load_project_by_hash(
     .await
     .map_err(|error| ProjectIssue::CacheError {
         error_message: error.to_string(),
+        location,
     })?
     .ok_or_else(|| ProjectIssue::CacheError {
         error_message: "no artifact found for project in cache".to_string(),
+        location,
     })?;
 
     let mut saved_projects = super::artifact::save_projects_from_artifact(brioche, artifact_ref)
         .await
         .map_err(|error| ProjectIssue::CacheError {
             error_message: error.to_string(),
+            location,
         })?;
     let Some(project_path) = saved_projects.remove(&project_hash) else {
         return Err(ProjectIssue::CacheError {
             error_message: format!(
                 "artifact for project found in cache, but it did not contain the project {project_hash}"
             ),
+            location,
         });
     };
 
@@ -1176,10 +1195,8 @@ async fn resolve_project_dependency(
         }
         Ok(None) => {}
         Err(error) => {
-            ctx.issues.push(ProjectIssue::RegistryError {
-                error,
-                location: location.clone(),
-            });
+            ctx.issues
+                .push(ProjectIssue::RegistryError { error, location });
         }
     }
 
@@ -1218,7 +1235,7 @@ async fn resolve_project_from_workspace(
                         ctx.issues.push(ProjectIssue::ToSystemPathError {
                             error,
                             path: root_module_path.into(),
-                            location: location.clone(),
+                            location: *location,
                         });
                         continue;
                     }
@@ -1231,8 +1248,8 @@ async fn resolve_project_from_workspace(
                     Err(error) => {
                         ctx.issues.push(ProjectIssue::IoError {
                             error_message: error.to_string(),
-                            path: root_module_path,
-                            location: location.clone(),
+                            path: Some(root_module_system_path),
+                            location: *location,
                         });
                     }
                 }

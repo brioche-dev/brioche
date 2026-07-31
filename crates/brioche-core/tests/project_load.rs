@@ -1688,7 +1688,7 @@ async fn test_project_load_path_dep_not_found() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
-    let project_root_module = context
+    context
         .write_file(
             "myproject/project.bri",
             r#"
@@ -1706,7 +1706,8 @@ async fn test_project_load_path_dep_not_found() {
         )
         .await;
 
-    let foo_root_module = context
+    let foo_dir = context.mkdir("foo").await;
+    context
         .write_file(
             "foo/project.bri",
             r#"
@@ -1727,48 +1728,60 @@ async fn test_project_load_path_dep_not_found() {
     // The directory `not_found_1` exists, but does not contain a root
     // module. The directory `not_found_2` does not exist
 
-    brioche_test_support::load_project(&brioche, &project_dir).await;
+    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+    let foo_ref = brioche_core::projects::get_project_by_specifier(
+        &brioche,
+        &brioche_test_support::project_specifier_for_path(&foo_dir),
+    )
+    .await
+    .unwrap();
+
+    let project_root_module = brioche_core::projects::get_root_module(&brioche, project_ref)
+        .await
+        .expect("project root module not found");
+    let foo_root_module = brioche_core::projects::get_root_module(&brioche, foo_ref)
+        .await
+        .expect("foo root module not found");
 
     let mut issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_eq!(issues.len(), 2, "expected 2 issues, got: {issues:#?}");
 
     let project_issue = brioche_test_support::take_where(&mut issues, |issue| {
-        issue.location().is_some_and(|location| {
-            location.path == brioche_test_support::absolute_path(&project_root_module)
-        })
+        issue
+            .location()
+            .is_some_and(|location| location.source == project_root_module.into())
     });
     let foo_issue = brioche_test_support::take_where(&mut issues, |issue| {
-        issue.location().is_some_and(|location| {
-            location.path == brioche_test_support::absolute_path(&foo_root_module)
-        })
+        issue
+            .location()
+            .is_some_and(|location| location.source == foo_root_module.into())
     });
     assert!(issues.is_empty());
 
     let ProjectIssue::LoadModuleError {
-        error: LoadModuleError::IoError { .. },
-        path: project_issue_path,
+        error:
+            LoadModuleError::IoError {
+                path: project_issue_path,
+                ..
+            },
         ..
     } = project_issue
     else {
         panic!("expected LoadModuleError::IoError, got: {project_issue:#?}");
     };
     let ProjectIssue::LoadModuleError {
-        error: LoadModuleError::IoError { .. },
-        path: foo_issue_path,
+        error: LoadModuleError::IoError {
+            path: foo_issue_path,
+            ..
+        },
         ..
     } = foo_issue
     else {
         panic!("expected LoadModuleError::IoError, got: {foo_issue:#?}");
     };
 
-    assert_eq!(
-        project_issue_path,
-        brioche_test_support::absolute_path(&not_found_1_dir).join_one("project.bri")
-    );
-    assert_eq!(
-        foo_issue_path,
-        brioche_test_support::absolute_path_nonexistent(&not_found_2_dir).join_one("project.bri")
-    );
+    assert_eq!(project_issue_path, not_found_1_dir.join("project.bri"));
+    assert_eq!(foo_issue_path, not_found_2_dir.join("project.bri"));
 }
 
 #[tokio::test]
@@ -2074,6 +2087,7 @@ async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() {
     assert_matches!(
         &issues[..],
         [ProjectIssue::ProjectHashMismatch {
+            project_ref: _,
             expected_hash,
             actual_hash
         }] if *expected_hash == foo_hash && *actual_hash != foo_hash
@@ -2134,9 +2148,13 @@ async fn test_project_load_local_registry_dep_invalid_hash() {
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_matches!(&issues[..], [
-        ProjectIssue::ProjectHashMismatch { expected_hash, actual_hash }
-    ] if *expected_hash == foo_hash && *actual_hash != foo_hash);
+    assert_matches!(
+        &issues[..],
+        [ProjectIssue::ProjectHashMismatch {
+            project_ref: _,
+            expected_hash,
+            actual_hash
+        }] if *expected_hash == foo_hash && *actual_hash != foo_hash);
 
     let project_deps = brioche_core::projects::get_dependencies(&brioche, project_ref).await;
     assert_eq!(
