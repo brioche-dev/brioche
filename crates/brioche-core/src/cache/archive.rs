@@ -32,7 +32,7 @@ use crate::{
     },
     reporter::{
         JobId,
-        job::{CacheFetchKind, NewJob, UpdateJob},
+        job::{CacheFetchKind, JobContext, NewJob, UpdateJob},
     },
 };
 
@@ -326,14 +326,18 @@ pub async fn read_artifact_archive(
     brioche: &Brioche,
     store: &Arc<dyn object_store::ObjectStore>,
     fetch_kind: CacheFetchKind,
+    context: JobContext,
     mut reader: &mut (impl tokio::io::AsyncRead + Unpin),
 ) -> anyhow::Result<RecipeRef> {
-    let job_id = brioche.reporter.add_job(NewJob::CacheFetch {
-        kind: fetch_kind,
-        downloaded_bytes: None,
-        total_bytes: None,
-        started_at: std::time::Instant::now(),
-    });
+    let job_id = brioche.reporter.add_job(
+        NewJob::CacheFetch {
+            kind: fetch_kind,
+            downloaded_bytes: None,
+            total_bytes: None,
+            started_at: std::time::Instant::now(),
+        },
+        context,
+    );
 
     // Read and validate the marker from the archive
     let mut marker = [0; MARKER.len()];

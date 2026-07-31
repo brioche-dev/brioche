@@ -6,7 +6,7 @@ use crate::{
     Brioche,
     hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
-    projects::{hash::ProjectHash, load::LockfileIssue},
+    projects::hash::ProjectHash,
     registry::RegistryError,
     script::{parse::ModuleStaticQuery, specifier::ImportSpecifier},
 };
@@ -414,7 +414,7 @@ enum ProjectReferrer {
     TopLevel,
     Project {
         referrer: ProjectRef,
-        edge: ProjectEdge,
+        edge: Box<ProjectEdge>,
         location: ProjectIssueLocation,
     },
 }

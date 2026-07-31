@@ -99,6 +99,43 @@ pub fn start_null_reporter() -> (Reporter, ReporterGuard) {
     (reporter, guard)
 }
 
+#[must_use]
+pub fn start_test_reporter() -> (Reporter, ReporterGuard) {
+    static TEST_TRACING_SUBSCRIBER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+    let (tx, _) = tokio::sync::mpsc::unbounded_channel();
+
+    if let Some(debug_output_path) = std::env::var_os("BRIOCHE_LOG_OUTPUT") {
+        // Ensure the tracing subscriber is initialized once
+        let () = TEST_TRACING_SUBSCRIBER.get_or_init(|| {
+            let debug_output = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(debug_output_path)
+                .expect("failed to open debug output path");
+            tracing_subscriber::fmt()
+                .json()
+                .with_writer(debug_output)
+                .with_timer(tracing_subscriber::fmt::time::uptime())
+                .with_env_filter(tracing_debug_filter())
+                .init();
+        });
+    }
+
+    let reporter = Reporter {
+        start: std::time::Instant::now(),
+        num_jobs: Arc::new(AtomicUsize::new(0)),
+        tx: tx.clone(),
+    };
+    let guard = ReporterGuard {
+        tx,
+        shutdown_rx: None,
+        // otel_provider: None,
+    };
+
+    (reporter, guard)
+}
+
 pub struct ReporterGuard {
     tx: tokio::sync::mpsc::UnboundedSender<ReportEvent>,
     shutdown_rx: Option<tokio::sync::oneshot::Receiver<()>>,
@@ -146,13 +183,13 @@ impl Reporter {
     }
 
     #[must_use]
-    pub fn add_job(&self, job: job::NewJob) -> JobId {
+    pub fn add_job(&self, job: job::NewJob, context: job::JobContext) -> JobId {
         let id = self
             .num_jobs
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let id = JobId(id);
 
-        let _ = self.tx.send(ReportEvent::AddJob { id, job });
+        let _ = self.tx.send(ReportEvent::AddJob { id, job, context });
 
         id
     }
@@ -200,10 +237,20 @@ impl std::io::Write for ReporterWriter {
     }
 }
 
+#[expect(unused)]
 enum ReportEvent {
-    Emit { lines: superconsole::Lines },
-    AddJob { id: JobId, job: job::NewJob },
-    UpdateJobState { id: JobId, update: job::UpdateJob },
+    Emit {
+        lines: superconsole::Lines,
+    },
+    AddJob {
+        id: JobId,
+        job: job::NewJob,
+        context: job::JobContext,
+    },
+    UpdateJobState {
+        id: JobId,
+        update: job::UpdateJob,
+    },
     Shutdown,
 }
 

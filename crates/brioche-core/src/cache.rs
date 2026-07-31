@@ -6,6 +6,7 @@ use object_store::ObjectStoreExt as _;
 use tokio::io::AsyncWriteExt as _;
 
 use crate::recipe::RecipeRef;
+use crate::reporter::job::JobContext;
 use crate::{
     Brioche, projects::hash::ProjectHash, recipe::hash::RecipeHash, reporter::job::CacheFetchKind,
 };
@@ -278,6 +279,7 @@ pub async fn load_artifact(
     brioche: &Brioche,
     artifact_hash: RecipeHash,
     fetch_kind: CacheFetchKind,
+    context: JobContext,
 ) -> anyhow::Result<Option<RecipeRef>> {
     // Check if this artifact should be skipped
     if SKIP_CACHE_ARTIFACTS.contains(&artifact_hash.to_string()) {
@@ -308,7 +310,8 @@ pub async fn load_artifact(
         async_compression::tokio::bufread::ZstdDecoder::new(archive_reader_buffered);
 
     let artifact =
-        archive::read_artifact_archive(brioche, &store, fetch_kind, &mut archive_reader).await?;
+        archive::read_artifact_archive(brioche, &store, fetch_kind, context, &mut archive_reader)
+            .await?;
 
     let actual_hash = crate::recipe::hash::hash_recipe(brioche, artifact).await;
     anyhow::ensure!(

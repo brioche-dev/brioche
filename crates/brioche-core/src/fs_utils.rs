@@ -76,13 +76,6 @@ cfg_select! {
             permissions.mode() & 0o100 != 0
         }
 
-        pub fn set_rwx(permissions: &mut std::fs::Permissions) {
-            use std::os::unix::fs::PermissionsExt as _;
-
-            let new_mode = permissions.mode() | 0o700;
-            permissions.set_mode(new_mode);
-        }
-
         pub async fn set_mtime(path: &Path, mtime: std::time::SystemTime) -> anyhow::Result<()> {
             let path = path.to_owned();
             tokio::task::spawn_blocking(move || {

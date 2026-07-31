@@ -1789,9 +1789,8 @@ async fn test_project_load_dep_not_found() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
-    // FIXME: fix assertion
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], [ProjectIssue::RegistryError { .. }]);
 }
@@ -1981,7 +1980,7 @@ async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() {
             .unwrap();
 
         // Create an artifact from the project
-        let mut foo_project_artifact_ref =
+        let foo_project_artifact_ref =
             brioche_core::projects::artifact::create_project_artifact(&brioche, foo_ref)
                 .await
                 .expect("failed to create foo project artifact");

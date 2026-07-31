@@ -67,7 +67,8 @@ impl Brioche {
         Self::builder().build().await.unwrap()
     }
 
-    pub fn recipes(&self) -> &Arc<RwLock<recipe::Recipes>> {
+    #[must_use]
+    pub const fn recipes(&self) -> &Arc<RwLock<recipe::Recipes>> {
         &self.recipes
     }
 }

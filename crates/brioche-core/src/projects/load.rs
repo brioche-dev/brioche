@@ -46,7 +46,7 @@ pub async fn load_projects(
                     results.insert(specifier, *project);
                 }
                 ProjectReferrer::Project { referrer, edge, .. } => {
-                    projects.graph.update_edge(referrer.0, project.0, edge);
+                    projects.graph.update_edge(referrer.0, project.0, *edge);
                 }
             }
 
@@ -94,7 +94,7 @@ pub async fn load_projects(
             ProjectReferrer::Project { referrer, edge, .. } => {
                 projects
                     .graph
-                    .update_edge(referrer.0, project_ref.0, edge.clone());
+                    .update_edge(referrer.0, project_ref.0, (**edge).clone());
             }
         }
 
@@ -359,7 +359,9 @@ pub async fn load_projects(
                                         resolved_dep,
                                         ProjectReferrer::Project {
                                             referrer: project_ref,
-                                            edge: ProjectEdge::ProjectDependency(specifier.clone()),
+                                            edge: Box::new(ProjectEdge::ProjectDependency(
+                                                specifier.clone(),
+                                            )),
                                             location,
                                         },
                                     ));
@@ -519,7 +521,7 @@ pub async fn load_projects(
                     resolved_dep,
                     ProjectReferrer::Project {
                         referrer: project_ref,
-                        edge: ProjectEdge::ProjectDependency(specifier.clone()),
+                        edge: Box::new(ProjectEdge::ProjectDependency(specifier.clone())),
                         location: project_definition_location.clone(),
                     },
                 ));
@@ -802,16 +804,12 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                     );
                 }
             }
-            Static::Glob { patterns } => {
-                // TODO: Construct artifact
-            }
-            Static::Download { url, hash } => {
-                // TODO: Construct artifact
-            }
-            Static::GitRef {
-                repository,
-                ref_,
-                commit,
+            Static::Glob { patterns: _ }
+            | Static::Download { url: _, hash: _ }
+            | Static::GitRef {
+                repository: _,
+                ref_: _,
+                commit: _,
             } => {
                 // TODO: Construct artifact
             }
@@ -871,7 +869,10 @@ async fn resolve_static(
                 hash,
             })
         }
-        UnresolvedStatic::GitRef { repository, ref_ } => todo!(),
+        UnresolvedStatic::GitRef {
+            repository: _,
+            ref_: _,
+        } => todo!(),
     }
 }
 
@@ -1065,6 +1066,7 @@ async fn load_project_by_hash(
         brioche,
         artifact_hash,
         crate::reporter::job::CacheFetchKind::Project,
+        JobContext::default(),
     )
     .await
     .map_err(|error| ProjectIssue::CacheError {
