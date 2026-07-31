@@ -141,7 +141,7 @@ pub(crate) enum ProjectNode {
 
 #[derive(Debug, Clone)]
 pub(crate) enum ProjectEdge {
-    ProjectWithinWorkspace,
+    ProjectWithinWorkspace(RelativePath),
     ProjectDependency(String),
     ProjectRootModule,
     ModuleImport(ImportSpecifier),
@@ -537,6 +537,25 @@ pub async fn get_dependencies(
             Some((dep_name.clone(), dep_ref))
         })
         .collect()
+}
+
+pub async fn get_workspace_membership(
+    brioche: &Brioche,
+    project_ref: ProjectRef,
+) -> Option<(WorkspaceRef, RelativePath)> {
+    let projects = brioche.projects.read().await;
+
+    projects
+        .graph
+        .edges_directed(project_ref.0, petgraph::Incoming)
+        .find_map(|edge| {
+            let ProjectEdge::ProjectWithinWorkspace(subpath) = edge.weight() else {
+                return None;
+            };
+
+            let workspace_ref = WorkspaceRef(edge.source());
+            Some((workspace_ref, subpath.clone()))
+        })
 }
 
 pub async fn get_specifier(brioche: &Brioche, project_ref: ProjectRef) -> ProjectSpecifier {

@@ -6,7 +6,7 @@ use crate::{
     Brioche,
     encoding::TickEncoded,
     path::RelativePath,
-    project::{ProjectDefinition, ProjectEdge, ProjectRef, StaticRef},
+    project::{ProjectDefinition, ProjectEdge, ProjectRef, StaticRef, WorkspaceRef},
     recipe::build::{ArtifactBuilder, ArtifactPath},
 };
 
@@ -37,6 +37,59 @@ pub async fn hash_project(
 ) -> Result<ProjectHash, std::convert::Infallible> {
     let projects = brioche.projects.read().await;
 
+    let node_groups = group_project_nodes(&projects, project_ref);
+
+    let mut project_hashes = HashMap::<ProjectRef, ProjectHash>::new();
+
+    let mut recipes = brioche.recipes.write().await;
+    let mut permit = crate::blob::get_save_blob_permit()
+        .await
+        .expect("todo: failed to get save blob permit");
+    hash_projects_inner(
+        brioche,
+        &projects,
+        &mut recipes,
+        &mut permit,
+        &node_groups,
+        &mut project_hashes,
+        None,
+    );
+
+    Ok(project_hashes[&project_ref])
+}
+
+pub async fn get_content_addressed_project_entries(
+    brioche: &Brioche,
+    project_ref: ProjectRef,
+) -> HashMap<ProjectRef, ContentAddressedProjectEntry> {
+    let projects = brioche.projects.read().await;
+
+    let node_groups = group_project_nodes(&projects, project_ref);
+
+    let mut project_hashes = HashMap::new();
+    let mut project_entries = HashMap::new();
+
+    let mut recipes = brioche.recipes.write().await;
+    let mut permit = crate::blob::get_save_blob_permit()
+        .await
+        .expect("todo: failed to get save blob permit");
+    hash_projects_inner(
+        brioche,
+        &projects,
+        &mut recipes,
+        &mut permit,
+        &node_groups,
+        &mut project_hashes,
+        Some(&mut project_entries),
+    );
+
+    project_entries
+}
+
+pub(super) fn group_project_nodes(
+    projects: &super::Projects,
+    project_ref: ProjectRef,
+) -> Vec<Vec<petgraph::stable_graph::NodeIndex>> {
     // Create a copy of the graph, but keeping only project nodes that
     // are reachable from the project we're hashing
     let mut graph = projects.graph.clone();
@@ -56,27 +109,9 @@ pub async fn hash_project(
     // group together, and puts acyclic projects into a group of one element.
     // The result is additionally topographically sorted, so every project
     // naturally comes after all of its dependencies
-    let node_groups = petgraph::algo::tarjan_scc(&graph);
-
-    let mut project_hashes = HashMap::<ProjectRef, ProjectHash>::new();
-
-    let mut recipes = brioche.recipes.write().await;
-    let mut permit = crate::blob::get_save_blob_permit()
-        .await
-        .expect("todo: failed to get save blob permit");
-    hash_projects_inner(
-        brioche,
-        &projects,
-        &mut recipes,
-        &mut permit,
-        &node_groups,
-        &mut project_hashes,
-    );
-
-    Ok(project_hashes[&project_ref])
+    petgraph::algo::tarjan_scc(&graph)
 }
 
-#[expect(clippy::similar_names)]
 pub(super) fn hash_projects_inner(
     brioche: &Brioche,
     projects: &super::Projects,
@@ -84,216 +119,298 @@ pub(super) fn hash_projects_inner(
     permit: &mut crate::blob::SaveBlobPermit,
     node_groups: &[Vec<petgraph::stable_graph::NodeIndex>],
     project_hashes: &mut HashMap<ProjectRef, ProjectHash>,
+    mut project_entries: Option<&mut HashMap<ProjectRef, ContentAddressedProjectEntry>>,
 ) {
     for group_nodes in node_groups {
-        let group_nodes: HashSet<_> = group_nodes.iter().copied().collect();
+        let group_projects: HashSet<_> = group_nodes.iter().copied().map(ProjectRef).collect();
 
-        if group_nodes.len() > 1 {
-            unimplemented!("cyclic project");
-        }
-
-        let project_ref = group_nodes.iter().next().unwrap();
-        let project_ref = ProjectRef(*project_ref);
-        let project = &projects.projects[&project_ref];
-
-        let dependencies = projects
-            .graph
-            .edges(project_ref.0)
-            .filter_map(|edge| match edge.weight() {
-                crate::project::ProjectEdge::ProjectDependency(dep_name) => {
-                    let dep_hash = project_hashes[&ProjectRef(edge.target())];
-                    Some((dep_name.clone(), DependencyRef::Project(dep_hash)))
-                }
-                crate::project::ProjectEdge::ProjectWithinWorkspace
-                | crate::project::ProjectEdge::ProjectRootModule
-                | crate::project::ProjectEdge::ModuleImport(_)
-                | crate::project::ProjectEdge::ModuleStatic(_)
-                | crate::project::ProjectEdge::ResolvedStatic => None,
-            })
-            .collect();
-
-        let mut modules = HashMap::<RelativePath, crate::hash::Blake3Hash>::new();
-        let mut statics =
-            HashMap::<RelativePath, BTreeMap<StaticQuery, Option<StaticOutput>>>::new();
-
-        for (module_subpath, module_ref) in &projects.modules_by_project[&project_ref] {
-            let module_source = projects.modules[module_ref]
-                .source
-                .as_deref()
-                .expect("todo: handle module load error");
-            let source_hash = blake3::hash(module_source.as_bytes());
-            modules.insert(
-                module_subpath.clone(),
-                crate::hash::Blake3Hash::from(source_hash),
+        if group_projects.len() == 1 {
+            let project_ref = group_projects.into_iter().next().unwrap();
+            let project = content_addressed_project(
+                brioche,
+                projects,
+                recipes,
+                permit,
+                project_ref,
+                project_hashes,
+                None,
             );
+            let project_entry = ContentAddressedProjectEntry::Project(project);
 
-            let module_static_refs = projects
-                .graph
-                .edges_directed(module_ref.0, petgraph::Direction::Outgoing)
-                .filter_map(|edge| {
-                    if let ProjectEdge::ModuleStatic(query) = edge.weight() {
-                        Some((query, StaticRef(edge.target())))
-                    } else {
-                        None
-                    }
-                });
-            for (query, static_ref) in module_static_refs {
-                let Some(static_) = projects.get_static(static_ref) else {
-                    todo!("handle unresolved static");
-                };
+            project_hashes.insert(project_ref, project_entry.project_hash());
 
-                let static_output = match static_ {
-                    super::Static::IncludeFile(_) => {
-                        let static_path = projects
-                            .static_path(static_ref)
-                            .unwrap()
-                            .expect("no local path for include static");
-                        let static_path = static_path
-                            .to_system_path()
-                            .expect("todo: failed to convert static path");
+            if let Some(project_entries) = &mut project_entries {
+                project_entries.insert(project_ref, project_entry);
+            }
+        } else {
+            let mut common_workspace_ref = None;
+            let group_projects_with_paths: HashMap<_, _> = group_projects
+                .iter()
+                .copied()
+                .map(|project_ref| {
+                    let (workspace_ref, workspace_path) = projects
+                        .graph
+                        .edges_directed(project_ref.0, petgraph::Incoming)
+                        .find_map(|edge| {
+                            let ProjectEdge::ProjectWithinWorkspace(subpath) = edge.weight() else {
+                                return None;
+                            };
 
-                        // TODO: Wrap with blocking!!
-                        let mut artifact = None;
-                        crate::recipe::load::load_artifact_sync(
-                            brioche,
-                            permit,
-                            &mut artifact,
-                            &static_path,
-                            ArtifactPath::default(),
-                        )
-                        .expect("todo: load artifact error");
-                        let artifact = artifact.unwrap();
-
-                        assert!(
-                            matches!(artifact, ArtifactBuilder::File { .. }),
-                            "todo: expected file artifact"
-                        );
-
-                        let recipe_ref = crate::recipe::build::build_artifact(&artifact, recipes)
-                            .expect("todo: failed to build artifact");
-                        let recipe_hash =
-                            crate::recipe::hash::hash_recipe_inner(recipes, recipe_ref);
-
-                        StaticOutput::RecipeHash(recipe_hash)
-                    }
-                    super::Static::IncludeDirectory(_) => {
-                        let static_path = projects
-                            .static_path(static_ref)
-                            .unwrap()
-                            .expect("no local path for include static");
-                        let static_path = static_path
-                            .to_system_path()
-                            .expect("todo: failed to convert static path");
-
-                        // TODO: Wrap with blocking!!
-                        let mut artifact = None;
-                        crate::recipe::load::load_artifact_sync(
-                            brioche,
-                            permit,
-                            &mut artifact,
-                            &static_path,
-                            ArtifactPath::default(),
-                        )
-                        .expect("todo: load artifact error");
-                        let artifact = artifact.unwrap();
-
-                        assert!(
-                            matches!(artifact, ArtifactBuilder::Directory { .. }),
-                            "todo: expected directory artifact"
-                        );
-
-                        let recipe_ref = crate::recipe::build::build_artifact(&artifact, recipes)
-                            .expect("todo: failed to build artifact");
-                        let recipe_hash =
-                            crate::recipe::hash::hash_recipe_inner(recipes, recipe_ref);
-
-                        StaticOutput::RecipeHash(recipe_hash)
-                    }
-                    super::Static::Glob { patterns } => {
-                        let static_path = projects
-                            .static_path(static_ref)
-                            .unwrap()
-                            .expect("no local path for include static");
-                        let static_path = static_path
-                            .to_system_path()
-                            .expect("todo: failed to convert static path");
-
-                        // TODO: Wrap with blocking!!
-                        let mut artifact = None;
-                        crate::recipe::load::load_artifact_glob_sync(
-                            brioche,
-                            permit,
-                            &mut artifact,
-                            &static_path,
-                            &ArtifactPath::default(),
-                            patterns,
-                        )
-                        .expect("todo: load artifact error");
-                        let artifact = artifact.unwrap();
-
-                        assert!(
-                            matches!(artifact, ArtifactBuilder::Directory { .. }),
-                            "todo: expected directory artifact"
-                        );
-
-                        let recipe_ref = crate::recipe::build::build_artifact(&artifact, recipes)
-                            .expect("todo: failed to build artifact");
-                        let recipe_hash =
-                            crate::recipe::hash::hash_recipe_inner(recipes, recipe_ref);
-
-                        StaticOutput::RecipeHash(recipe_hash)
-                    }
-                    super::Static::Download { url: _, hash } => {
-                        StaticOutput::Kind(StaticOutputKind::Download { hash: hash.clone() })
-                    }
-                    super::Static::GitRef {
-                        repository: _,
-                        ref_: _,
-                        commit,
-                    } => StaticOutput::Kind(StaticOutputKind::GitRef {
-                        commit: commit.clone(),
-                    }),
-                };
-
-                let query = match &query.query {
-                    super::StaticQuery::IncludeFile(path) => {
-                        StaticQuery::Include(StaticInclude::File {
-                            path: path.to_string(),
+                            let workspace_ref = WorkspaceRef(edge.source());
+                            Some((workspace_ref, subpath))
                         })
-                    }
-                    super::StaticQuery::IncludeDirectory(path) => {
-                        StaticQuery::Include(StaticInclude::Directory {
-                            path: path.to_string(),
-                        })
-                    }
-                    super::StaticQuery::Glob { patterns } => StaticQuery::Glob {
-                        patterns: patterns.clone(),
-                    },
-                    super::StaticQuery::Download { url } => {
-                        StaticQuery::Download { url: url.clone() }
-                    }
-                    super::StaticQuery::GitRef(options) => StaticQuery::GitRef(GitRefOptions {
-                        repository: options.repository.clone(),
-                        ref_: options.ref_.clone(),
-                    }),
+                        .expect("todo: cyclic node group member isn't in a workspace");
+                    let group_workspace_ref = common_workspace_ref.get_or_insert(workspace_ref);
+                    assert_eq!(
+                        *group_workspace_ref, workspace_ref,
+                        "todo: node group members aren't part of the same workspace"
+                    );
+
+                    (project_ref, workspace_path.clone())
+                })
+                .collect();
+
+            let group_workspace = ContentAddressedWorkspace {
+                members: group_projects_with_paths
+                    .iter()
+                    .map(|(project_ref, workspace_path)| {
+                        let project = content_addressed_project(
+                            brioche,
+                            projects,
+                            recipes,
+                            permit,
+                            *project_ref,
+                            project_hashes,
+                            Some(&group_projects_with_paths),
+                        );
+                        (workspace_path.clone(), project)
+                    })
+                    .collect(),
+            };
+            let group_workspace_hash = group_workspace.workspace_hash();
+
+            for (project_ref, path) in group_projects_with_paths {
+                let project_entry = ContentAddressedProjectEntry::WorkspaceMember {
+                    workspace: group_workspace_hash,
+                    path: path.clone(),
                 };
 
-                statics
-                    .entry(module_subpath.clone())
-                    .or_default()
-                    .insert(query, Some(static_output));
+                project_hashes.insert(project_ref, project_entry.project_hash());
+
+                if let Some(project_entries) = &mut project_entries {
+                    project_entries.insert(project_ref, project_entry);
+                }
             }
         }
+    }
+}
 
-        let project = ContentAddressedProject {
-            definition: project.definition.clone(),
-            dependencies,
-            modules,
-            statics,
-        };
-        let project = ContentAddressedProjectEntry::Project(project);
+#[expect(clippy::similar_names)]
+fn content_addressed_project(
+    brioche: &Brioche,
+    projects: &super::Projects,
+    recipes: &mut crate::recipe::Recipes,
+    permit: &mut crate::blob::SaveBlobPermit,
+    project_ref: ProjectRef,
+    project_hashes: &HashMap<ProjectRef, ProjectHash>,
+    workspace_group_siblings: Option<&HashMap<ProjectRef, RelativePath>>,
+) -> ContentAddressedProject {
+    let project = &projects.projects[&project_ref];
 
-        project_hashes.insert(project_ref, project.project_hash());
+    let dependencies = projects
+        .graph
+        .edges(project_ref.0)
+        .filter_map(|edge| {
+            let crate::project::ProjectEdge::ProjectDependency(dep_name) = edge.weight() else {
+                return None;
+            };
+
+            let dep_project_ref = ProjectRef(edge.target());
+
+            // Reference the dependency by hash, or by relative workspace path
+            // if the dependency is in the same group in the case of cycles
+            let dep_ref = workspace_group_siblings
+                .and_then(|siblings| siblings.get(&dep_project_ref))
+                .map_or_else(
+                    || DependencyRef::Project(project_hashes[&dep_project_ref]),
+                    |path| DependencyRef::WorkspaceMember { path: path.clone() },
+                );
+            Some((dep_name.clone(), dep_ref))
+        })
+        .collect();
+
+    let mut modules = HashMap::<RelativePath, crate::hash::Blake3Hash>::new();
+    let mut statics = HashMap::<RelativePath, BTreeMap<StaticQuery, Option<StaticOutput>>>::new();
+
+    for (module_subpath, module_ref) in &projects.modules_by_project[&project_ref] {
+        let module_source = projects.modules[module_ref]
+            .source
+            .as_deref()
+            .expect("todo: handle module load error");
+        let source_hash = blake3::hash(module_source.as_bytes());
+        modules.insert(
+            module_subpath.clone(),
+            crate::hash::Blake3Hash::from(source_hash),
+        );
+
+        let module_static_refs = projects
+            .graph
+            .edges_directed(module_ref.0, petgraph::Direction::Outgoing)
+            .filter_map(|edge| {
+                if let ProjectEdge::ModuleStatic(query) = edge.weight() {
+                    Some((query, StaticRef(edge.target())))
+                } else {
+                    None
+                }
+            });
+        for (query, static_ref) in module_static_refs {
+            let Some(static_) = projects.get_static(static_ref) else {
+                todo!("handle unresolved static");
+            };
+
+            let static_output = match static_ {
+                super::Static::IncludeFile(_) => {
+                    let static_path = projects
+                        .static_path(static_ref)
+                        .unwrap()
+                        .expect("no local path for include static");
+                    let static_path = static_path
+                        .to_system_path()
+                        .expect("todo: failed to convert static path");
+
+                    // TODO: Wrap with blocking!!
+                    let mut artifact = None;
+                    crate::recipe::load::load_artifact_sync(
+                        brioche,
+                        permit,
+                        &mut artifact,
+                        &static_path,
+                        ArtifactPath::default(),
+                    )
+                    .expect("todo: load artifact error");
+                    let artifact = artifact.unwrap();
+
+                    assert!(
+                        matches!(artifact, ArtifactBuilder::File { .. }),
+                        "todo: expected file artifact"
+                    );
+
+                    let recipe_ref = crate::recipe::build::build_artifact(&artifact, recipes)
+                        .expect("todo: failed to build artifact");
+                    let recipe_hash = crate::recipe::hash::hash_recipe_inner(recipes, recipe_ref);
+
+                    StaticOutput::RecipeHash(recipe_hash)
+                }
+                super::Static::IncludeDirectory(_) => {
+                    let static_path = projects
+                        .static_path(static_ref)
+                        .unwrap()
+                        .expect("no local path for include static");
+                    let static_path = static_path
+                        .to_system_path()
+                        .expect("todo: failed to convert static path");
+
+                    // TODO: Wrap with blocking!!
+                    let mut artifact = None;
+                    crate::recipe::load::load_artifact_sync(
+                        brioche,
+                        permit,
+                        &mut artifact,
+                        &static_path,
+                        ArtifactPath::default(),
+                    )
+                    .expect("todo: load artifact error");
+                    let artifact = artifact.unwrap();
+
+                    assert!(
+                        matches!(artifact, ArtifactBuilder::Directory { .. }),
+                        "todo: expected directory artifact"
+                    );
+
+                    let recipe_ref = crate::recipe::build::build_artifact(&artifact, recipes)
+                        .expect("todo: failed to build artifact");
+                    let recipe_hash = crate::recipe::hash::hash_recipe_inner(recipes, recipe_ref);
+
+                    StaticOutput::RecipeHash(recipe_hash)
+                }
+                super::Static::Glob { patterns } => {
+                    let static_path = projects
+                        .static_path(static_ref)
+                        .unwrap()
+                        .expect("no local path for include static");
+                    let static_path = static_path
+                        .to_system_path()
+                        .expect("todo: failed to convert static path");
+
+                    // TODO: Wrap with blocking!!
+                    let mut artifact = None;
+                    crate::recipe::load::load_artifact_glob_sync(
+                        brioche,
+                        permit,
+                        &mut artifact,
+                        &static_path,
+                        &ArtifactPath::default(),
+                        patterns,
+                    )
+                    .expect("todo: load artifact error");
+                    let artifact = artifact.unwrap();
+
+                    assert!(
+                        matches!(artifact, ArtifactBuilder::Directory { .. }),
+                        "todo: expected directory artifact"
+                    );
+
+                    let recipe_ref = crate::recipe::build::build_artifact(&artifact, recipes)
+                        .expect("todo: failed to build artifact");
+                    let recipe_hash = crate::recipe::hash::hash_recipe_inner(recipes, recipe_ref);
+
+                    StaticOutput::RecipeHash(recipe_hash)
+                }
+                super::Static::Download { url: _, hash } => {
+                    StaticOutput::Kind(StaticOutputKind::Download { hash: hash.clone() })
+                }
+                super::Static::GitRef {
+                    repository: _,
+                    ref_: _,
+                    commit,
+                } => StaticOutput::Kind(StaticOutputKind::GitRef {
+                    commit: commit.clone(),
+                }),
+            };
+
+            let query = match &query.query {
+                super::StaticQuery::IncludeFile(path) => {
+                    StaticQuery::Include(StaticInclude::File {
+                        path: path.to_string(),
+                    })
+                }
+                super::StaticQuery::IncludeDirectory(path) => {
+                    StaticQuery::Include(StaticInclude::Directory {
+                        path: path.to_string(),
+                    })
+                }
+                super::StaticQuery::Glob { patterns } => StaticQuery::Glob {
+                    patterns: patterns.clone(),
+                },
+                super::StaticQuery::Download { url } => StaticQuery::Download { url: url.clone() },
+                super::StaticQuery::GitRef(options) => StaticQuery::GitRef(GitRefOptions {
+                    repository: options.repository.clone(),
+                    ref_: options.ref_.clone(),
+                }),
+            };
+
+            statics
+                .entry(module_subpath.clone())
+                .or_default()
+                .insert(query, Some(static_output));
+        }
+    }
+
+    ContentAddressedProject {
+        definition: project.definition.clone(),
+        dependencies,
+        modules,
+        statics,
     }
 }
 
@@ -301,7 +418,7 @@ pub(super) fn hash_projects_inner(
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ContentAddressedProjectEntry {
+pub enum ContentAddressedProjectEntry {
     WorkspaceMember {
         workspace: WorkspaceHash,
         #[serde_as(as = "TickEncoded")]
@@ -312,7 +429,8 @@ pub(super) enum ContentAddressedProjectEntry {
 }
 
 impl ContentAddressedProjectEntry {
-    pub(super) fn project_hash(&self) -> ProjectHash {
+    #[must_use]
+    pub fn project_hash(&self) -> ProjectHash {
         let mut hasher = blake3::Hasher::new();
         json_canon::to_writer(&mut hasher, self).expect("failed to serialize project");
         ProjectHash(hasher.finalize().into())
@@ -404,4 +522,20 @@ enum StaticOutput {
 enum StaticOutputKind {
     Download { hash: crate::hash::AnyHash },
     GitRef { commit: String },
+}
+
+#[serde_with::serde_as]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ContentAddressedWorkspace {
+    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
+    members: BTreeMap<RelativePath, ContentAddressedProject>,
+}
+
+impl ContentAddressedWorkspace {
+    fn workspace_hash(&self) -> WorkspaceHash {
+        let mut hasher = blake3::Hasher::new();
+        json_canon::to_writer(&mut hasher, self).expect("failed to serialize workspace");
+        WorkspaceHash(hasher.finalize().into())
+    }
 }

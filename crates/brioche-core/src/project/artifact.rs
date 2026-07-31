@@ -34,26 +34,7 @@ pub async fn create_project_artifact(
 
     let mut directory = Directory::default();
 
-    // Create a copy of the graph, but keeping only project nodes that
-    // are reachable from the target project
-    let mut graph = projects.graph.clone();
-    let mut dfs_space = petgraph::algo::DfsSpace::default();
-    graph.retain_nodes(|graph, index| match &graph[index] {
-        crate::project::ProjectNode::Project => {
-            petgraph::algo::has_path_connecting(&*graph, project_ref.0, index, Some(&mut dfs_space))
-        }
-        crate::project::ProjectNode::Workspace
-        | crate::project::ProjectNode::Module
-        | crate::project::ProjectNode::Static
-        | crate::project::ProjectNode::UnresolvedStatic => false,
-    });
-
-    // Group nodes by finding the strongly-connected components of the graph.
-    // This effectively finds cyclic projects in the graph that we should
-    // group together, and puts acyclic projects into a group of one element.
-    // The result is additionally topographically sorted, so every project
-    // naturally comes after all of its dependencies
-    let node_groups = petgraph::algo::tarjan_scc(&graph);
+    let node_groups = crate::project::hash::group_project_nodes(&projects, project_ref);
 
     // Compute hashes for each project
     let mut project_hashes = HashMap::new();
@@ -64,6 +45,7 @@ pub async fn create_project_artifact(
         &mut permit,
         &node_groups,
         &mut project_hashes,
+        None,
     );
 
     for group_nodes in node_groups {

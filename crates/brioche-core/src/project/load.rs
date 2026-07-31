@@ -95,6 +95,10 @@ pub async fn load_projects(
                 }
             }
         };
+        let workspace_membership = workspace_root.map(|workspace_root| {
+            let subpath = crate::path::relative_path_between(&workspace_root, &project_path).unwrap_or_else(|error| panic!("expected project {project_path} to be within the workspace {workspace_root}, but could not get relative path: {error}"));
+            (workspace_root, subpath)
+        });
 
         projects
             .local_project_paths
@@ -112,13 +116,13 @@ pub async fn load_projects(
         }
 
         let workspace_entry;
-        let workspace = if let Some(workspace_root) = workspace_root {
+        let workspace = if let Some((workspace_root, workspace_subpath)) = workspace_membership {
             match projects.workspaces_by_path.entry(workspace_root) {
                 std::collections::hash_map::Entry::Occupied(entry) => {
                     projects.graph.update_edge(
                         entry.get().0,
                         project_ref.0,
-                        ProjectEdge::ProjectWithinWorkspace,
+                        ProjectEdge::ProjectWithinWorkspace(workspace_subpath),
                     );
 
                     let workspace_ref = *entry.get();
@@ -131,7 +135,7 @@ pub async fn load_projects(
                     projects.graph.update_edge(
                         workspace_ref.0,
                         project_ref.0,
-                        ProjectEdge::ProjectWithinWorkspace,
+                        ProjectEdge::ProjectWithinWorkspace(workspace_subpath),
                     );
 
                     let workspace = load_workspace(entry.key().clone()).await;
@@ -602,6 +606,7 @@ pub async fn load_projects(
             &mut permit,
             &node_groups,
             &mut project_hashes,
+            None,
         );
 
         for (project_ref, expected_hash) in project_hashes_to_validate {
