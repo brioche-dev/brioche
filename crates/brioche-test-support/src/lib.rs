@@ -61,8 +61,8 @@ pub async fn brioche_test_with(
         .reporter(reporter)
         .config(brioche_core::config::BriocheConfig::default())
         .cache_client(brioche_core::cache::CacheClient::default())
-        .data_dir(&brioche_data_dir)
-        .registry_url(registry_server.url().parse().unwrap());
+        .registry_client(test_registry_client(&registry_server.url()))
+        .data_dir(&brioche_data_dir);
     let builder = f(builder);
     let brioche = builder.build().await.unwrap();
     let context = TestContext {
@@ -212,6 +212,13 @@ pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]>) -> BlobHash {
     .unwrap()
 }
 
+fn test_registry_client(url: &str) -> brioche_core::registry::RegistryClient {
+    brioche_core::registry::RegistryClient::new(brioche_core::registry::RegistryClientConfig {
+        url: url.parse().expect("invalid registry URL"),
+        retry: false,
+    })
+}
+
 pub struct TestContext {
     temp: tempfile::TempDir,
     pub registry_server: mockito::ServerGuard,
@@ -334,7 +341,7 @@ impl TestContext {
         let (temp_brioche, temp_context) = brioche_test_with({
             |builder| {
                 builder
-                    .registry_url(self.registry_server.url().parse().unwrap())
+                    .registry_client(test_registry_client(&self.registry_server.url()))
                     .data_dir(self.temp.path().join("brioche-data"))
             }
         })
@@ -381,7 +388,7 @@ impl TestContext {
             let cache = cache.clone();
             |builder| {
                 builder
-                    .registry_url(self.registry_server.url().parse().unwrap())
+                    .registry_client(test_registry_client(&self.registry_server.url()))
                     .cache_client(brioche_core::cache::CacheClient {
                         store: Some(cache),
                         writable: true,

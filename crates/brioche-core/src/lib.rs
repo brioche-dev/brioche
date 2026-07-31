@@ -36,12 +36,13 @@ pub struct Brioche {
     reporter: reporter::Reporter,
     projects: Arc<RwLock<projects::Projects>>,
     recipes: Arc<RwLock<recipe::Recipes>>,
-    registry: registry::RegistryClient,
 
     /// The directory where all of Brioche's data is stored. Usually configured
     /// to follow the platform's conventions for storing application data, such
     /// as `~/.local/share/brioche` on Linux.
     pub data_dir: PathBuf,
+
+    registry_client: registry::RegistryClient,
 
     pub cache_client: cache::CacheClient,
 
@@ -58,7 +59,7 @@ impl Brioche {
             config: None,
             data_dir: None,
             cache_client: None,
-            registry_url: None,
+            registry_client: None,
         }
     }
 
@@ -78,7 +79,7 @@ pub struct BriocheBuilder {
     config: Option<config::BriocheConfig>,
     data_dir: Option<PathBuf>,
     cache_client: Option<cache::CacheClient>,
-    registry_url: Option<url::Url>,
+    registry_client: Option<registry::RegistryClient>,
 }
 
 impl BriocheBuilder {
@@ -107,8 +108,8 @@ impl BriocheBuilder {
     }
 
     #[must_use]
-    pub fn registry_url(mut self, registry_url: url::Url) -> Self {
-        self.registry_url = Some(registry_url);
+    pub fn registry_client(mut self, registry_client: registry::RegistryClient) -> Self {
+        self.registry_client = Some(registry_client);
         self
     }
 
@@ -243,10 +244,11 @@ impl BriocheBuilder {
             cache::cache_client_with_config(cache_config.as_ref()).await?
         };
 
-        let registry_url = self
-            .registry_url
-            .unwrap_or_else(|| DEFAULT_REGISTRY_URL.clone());
-        let registry = registry::RegistryClient::new(registry_url);
+        let registry_client = self.registry_client.unwrap_or_else(|| {
+            registry::RegistryClient::new(registry::RegistryClientConfig::new(
+                DEFAULT_REGISTRY_URL.clone(),
+            ))
+        });
 
         let download_retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
             .retry_bounds(
@@ -270,7 +272,7 @@ impl BriocheBuilder {
             projects: Arc::new(RwLock::new(projects::Projects::default())),
             recipes: Arc::new(RwLock::new(recipe::Recipes::default())),
             data_dir,
-            registry,
+            registry_client,
             cache_client,
             download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
             download_client,

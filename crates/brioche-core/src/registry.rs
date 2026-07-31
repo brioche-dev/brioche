@@ -4,6 +4,18 @@ const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
 
+pub struct RegistryClientConfig {
+    pub url: url::Url,
+    pub retry: bool,
+}
+
+impl RegistryClientConfig {
+    #[must_use]
+    pub const fn new(url: url::Url) -> Self {
+        Self { url, retry: true }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RegistryClient {
     reqwest: reqwest_middleware::ClientWithMiddleware,
@@ -12,27 +24,33 @@ pub struct RegistryClient {
 
 impl RegistryClient {
     #[must_use]
-    pub fn new(url: url::Url) -> Self {
-        let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
-            .retry_bounds(
-                std::time::Duration::from_millis(500),
-                std::time::Duration::from_secs(3),
-            )
-            .build_with_max_retries(5);
-        let retry_middleware =
-            reqwest_retry::RetryTransientMiddleware::new_with_policy(retry_policy);
-
+    pub fn new(config: RegistryClientConfig) -> Self {
         let reqwest = reqwest::Client::builder()
             .user_agent(crate::USER_AGENT)
             .connect_timeout(CONNECT_TIMEOUT)
             .read_timeout(READ_TIMEOUT)
             .build()
             .expect("failed to build registry client");
-        let reqwest = reqwest_middleware::ClientBuilder::new(reqwest)
-            .with(retry_middleware)
-            .build();
+        let mut reqwest = reqwest_middleware::ClientBuilder::new(reqwest);
 
-        Self { reqwest, url }
+        if config.retry {
+            let retry_policy = reqwest_retry::policies::ExponentialBackoff::builder()
+                .retry_bounds(
+                    std::time::Duration::from_millis(500),
+                    std::time::Duration::from_secs(3),
+                )
+                .build_with_max_retries(5);
+            let retry_middleware =
+                reqwest_retry::RetryTransientMiddleware::new_with_policy(retry_policy);
+            reqwest = reqwest.with(retry_middleware);
+        }
+
+        let reqwest = reqwest.build();
+
+        Self {
+            reqwest,
+            url: config.url,
+        }
     }
 
     fn request(&self, method: reqwest::Method, path: &str) -> reqwest_middleware::RequestBuilder {
@@ -56,7 +74,7 @@ pub async fn get_project_tag(
     let project_name_component = urlencoding::Encoded::new(project_name);
     let tag_component = urlencoding::Encoded::new(tag);
     let response = brioche
-        .registry
+        .registry_client
         .request(
             reqwest::Method::GET,
             &format!("v0/project-tags/{project_name_component}/{tag_component}"),
