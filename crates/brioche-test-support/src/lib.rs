@@ -423,14 +423,7 @@ impl TestContext {
         tag: &str,
         project_hash: ProjectHash,
     ) -> mockito::Mock {
-        self.registry_server
-            .mock(
-                "GET",
-                &*format!(
-                    "/v0/project-tags/{project_name}/{tag}?brioche={}",
-                    brioche_core::VERSION
-                ),
-            )
+        self.mock_registry_tag_response(project_name, tag)
             .with_header("Content-Type", "application/json")
             .with_body(
                 serde_json::to_string(&brioche_core::registry::GetProjectTagResponse {
@@ -438,6 +431,17 @@ impl TestContext {
                 })
                 .unwrap(),
             )
+    }
+
+    #[must_use]
+    pub fn mock_registry_tag_response(&mut self, project_name: &str, tag: &str) -> mockito::Mock {
+        self.registry_server.mock(
+            "GET",
+            &*format!(
+                "/v0/project-tags/{project_name}/{tag}?brioche={}",
+                brioche_core::VERSION
+            ),
+        )
     }
 
     // #[must_use]

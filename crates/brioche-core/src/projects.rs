@@ -668,6 +668,12 @@ pub enum ProjectIssue {
         module_ref: ModuleRef,
         range: TextRange,
     },
+
+    #[error("dependency not found: '{dependency}'")]
+    DependencyNotFound {
+        dependency: String,
+        location: ProjectIssueLocation,
+    },
 }
 
 impl ProjectIssue {
@@ -704,7 +710,8 @@ impl ProjectIssue {
             | Self::CacheError { location, .. }
             | Self::ToSystemPathError { location, .. }
             | Self::ModuleImportEscapesProjectPath { location, .. }
-            | Self::DownloadError { location, .. } => Some(*location),
+            | Self::DownloadError { location, .. }
+            | Self::DependencyNotFound { location, .. } => Some(*location),
             Self::ProjectHashMismatch { .. } => None,
         }
     }

@@ -1786,7 +1786,7 @@ async fn test_project_load_path_dep_not_found() {
 
 #[tokio::test]
 async fn test_project_load_dep_not_found() {
-    let (brioche, context) = brioche_test_support::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -1802,15 +1802,24 @@ async fn test_project_load_dep_not_found() {
         )
         .await;
 
+    let mock_foo_latest_not_found = context
+        .mock_registry_tag_response("foo", "latest")
+        .with_status(404)
+        .with_body("not found")
+        .create_async()
+        .await;
+
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
-    assert_matches!(&issues[..], [ProjectIssue::RegistryError { .. }]);
+    assert_matches!(&issues[..], [ProjectIssue::DependencyNotFound { dependency, .. }] if dependency == "foo");
+
+    mock_foo_latest_not_found.assert_async().await;
 }
 
 #[tokio::test]
 async fn test_project_load_dep_implied_not_found() {
-    let (brioche, context) = brioche_test_support::brioche_test().await;
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -1822,10 +1831,81 @@ async fn test_project_load_dep_implied_not_found() {
         )
         .await;
 
+    let mock_foo_latest_not_found = context
+        .mock_registry_tag_response("foo", "latest")
+        .with_status(404)
+        .with_body("not found")
+        .create_async()
+        .await;
+
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+
+    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    assert_matches!(&issues[..], [ProjectIssue::DependencyNotFound { dependency, .. }] if dependency == "foo");
+
+    mock_foo_latest_not_found.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_project_load_dep_registry_error() {
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const project = {
+                    dependencies: {
+                        foo: "*",
+                    },
+                };
+            "#,
+        )
+        .await;
+
+    let mock_foo_latest_error = context
+        .mock_registry_tag_response("foo", "latest")
+        .with_status(400)
+        .with_body("bad request")
+        .create_async()
+        .await;
+
     let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let issues = brioche_core::projects::get_all_issues(&brioche).await;
     assert_matches!(&issues[..], [ProjectIssue::RegistryError { .. }]);
+
+    mock_foo_latest_error.assert_async().await;
+}
+
+#[tokio::test]
+async fn test_project_load_dep_implied_registry_error() {
+    let (brioche, mut context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                import "foo";
+            "#,
+        )
+        .await;
+
+    let mock_foo_latest_error = context
+        .mock_registry_tag_response("foo", "latest")
+        .with_status(400)
+        .with_body("bad request")
+        .create_async()
+        .await;
+
+    let _project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+
+    let issues = brioche_core::projects::get_all_issues(&brioche).await;
+    assert_matches!(&issues[..], [ProjectIssue::RegistryError { .. }]);
+
+    mock_foo_latest_error.assert_async().await;
 }
 
 #[tokio::test]

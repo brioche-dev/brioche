@@ -1193,7 +1193,12 @@ async fn resolve_project_dependency(
                 .insert(specifier.to_string(), Some(resolved.clone()));
             return Some(resolved);
         }
-        Ok(None) => {}
+        Ok(None) => {
+            ctx.issues.push(ProjectIssue::DependencyNotFound {
+                dependency: specifier.to_string(),
+                location,
+            });
+        }
         Err(error) => {
             ctx.issues
                 .push(ProjectIssue::RegistryError { error, location });
