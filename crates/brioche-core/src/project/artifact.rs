@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
-    sync::Arc,
 };
 
 use anyhow::Context as _;
@@ -13,12 +12,12 @@ use crate::{
     blob::SaveBlobPermit,
     path::{AbsolutePath, RelativePath, RelativePathComponent},
     project::{
-        ProjectRef,
-        hash::{ContentAddressedProjectEntry, WorkspaceHash},
+        ProjectRef, WorkspaceDefinition, WorkspaceMember,
+        hash::{ContentAddressedProjectEntry, ContentAddressedWorkspacePath, WorkspaceHash},
     },
     recipe::{
-        Directory, File, Recipe, RecipeRef, Symlink,
-        build::{ArtifactBuilder, ArtifactPath, ArtifactPathComponent},
+        self, File, Recipe, RecipeRef, Symlink,
+        build::{ArtifactBuilder, ArtifactPath, ArtifactPathComponent, insert_into_artifact},
     },
 };
 
@@ -32,12 +31,13 @@ pub async fn create_project_artifact(
     let mut recipes = brioche.recipes.write().await;
     let mut permit = crate::blob::get_save_blob_permit().await?;
 
-    let mut directory = Directory::default();
+    let mut directory = Some(recipe::build::ArtifactBuilder::empty_dir());
 
     let node_groups = crate::project::hash::group_project_nodes(&projects, project_ref);
 
     // Compute hashes for each project
     let mut project_hashes = HashMap::new();
+    let mut project_entries = HashMap::new();
     crate::project::hash::hash_projects_inner(
         brioche,
         &projects,
@@ -45,48 +45,131 @@ pub async fn create_project_artifact(
         &mut permit,
         &node_groups,
         &mut project_hashes,
-        None,
+        Some(&mut project_entries),
     );
 
-    for group_nodes in node_groups {
-        let group_nodes: HashSet<_> = group_nodes.into_iter().collect();
+    let workspace_groups = node_groups.iter().filter(|group| group.len() > 1);
+    for node_group in workspace_groups {
+        let ContentAddressedProjectEntry::WorkspaceMember {
+            workspace: group_workspace_hash,
+            ..
+        } = &project_entries[&ProjectRef(node_group[0])]
+        else {
+            panic!("expected project entry to be a workspace member");
+        };
+        let workspace_path = ArtifactPath::new(format!("workspace-{group_workspace_hash}"))?;
 
-        if group_nodes.len() > 1 {
-            unimplemented!("cyclic project");
-        }
+        let mut members: Vec<_> = node_group
+            .iter()
+            .map(|node| {
+                let project_ref = ProjectRef(*node);
+                let ContentAddressedProjectEntry::WorkspaceMember {
+                    path,
+                    workspace: workspace_hash,
+                } = &project_entries[&project_ref]
+                else {
+                    panic!("expected project entry to be a workspace member");
+                };
 
-        let project_ref = group_nodes.iter().next().unwrap();
-        let project_ref = ProjectRef(*project_ref);
+                assert_eq!(
+                    workspace_hash, group_workspace_hash,
+                    "expected all project entries in group to be part of the same workspace"
+                );
 
+                path
+            })
+            .collect();
+        members.sort();
+
+        let members = members
+            .iter()
+            .map(|path| {
+                let (path, name) = path
+                    .parent_with_last_component()
+                    .expect("todo: invalid workspace path");
+                WorkspaceMember::Path(path.into(), name)
+            })
+            .collect();
+        let workspace_definition = WorkspaceDefinition { members };
+        let workspace_definition_contents = toml::to_string_pretty(&workspace_definition)
+            .context("failed to serialize lockfile")?;
+
+        let workspace_definition_blob = crate::blob::save_blob(
+            brioche,
+            &mut permit,
+            workspace_definition_contents.as_bytes(),
+            crate::blob::SaveBlobOptions::default(),
+        )
+        .await?;
+        let workspace_definition_artifact = ArtifactBuilder::File {
+            content_blob: workspace_definition_blob,
+            executable: false,
+            resources: Box::new(None),
+        };
+
+        insert_into_artifact(
+            &mut directory,
+            &workspace_path.join_one(ArtifactPathComponent::entry("brioche_workspace.toml")),
+            workspace_definition_artifact,
+        )?;
+    }
+
+    for (project_ref, project_entry) in project_entries {
         let project_hash = project_hashes[&project_ref];
         let project_path = project_hash.to_string();
 
         let project_artifact = create_single_project_artifact(
             brioche,
-            &mut recipes,
             &projects,
             &project_hashes,
             project_ref,
             &mut permit,
         )
         .await?;
-        directory
-            .entries
-            .insert(bstr::BString::from(project_path), project_artifact);
+
+        match project_entry {
+            ContentAddressedProjectEntry::Project(_) => {
+                insert_into_artifact(
+                    &mut directory,
+                    &ArtifactPath::new(&project_path)?,
+                    project_artifact,
+                )?;
+            }
+            ContentAddressedProjectEntry::WorkspaceMember {
+                workspace: workspace_hash,
+                path,
+            } => {
+                let workspace_path = ArtifactPath::new(format!("workspace-{workspace_hash}"))?;
+                let workspace_member_path =
+                    workspace_path.join(RelativePath::from(&path).try_into()?);
+
+                insert_into_artifact(&mut directory, &workspace_member_path, project_artifact)?;
+
+                // Add a symlink for the project into the workspace
+                let project_target = format!("workspace-{workspace_hash}/{path}");
+                insert_into_artifact(
+                    &mut directory,
+                    &ArtifactPath::new(project_hash.to_string())?,
+                    ArtifactBuilder::Symlink {
+                        target: project_target.into(),
+                    },
+                )?;
+            }
+        }
     }
 
-    let artifact_ref = recipes.insert_recipe(Arc::new(Recipe::Directory(directory)));
+    let directory = directory.unwrap();
+    let artifact_ref = crate::recipe::build::build_artifact(&directory, &mut recipes)?;
     Ok(artifact_ref)
 }
 
 async fn create_single_project_artifact(
     brioche: &Brioche,
-    recipes: &mut crate::recipe::Recipes,
     projects: &Projects,
     project_hashes: &HashMap<ProjectRef, ProjectHash>,
     project_ref: ProjectRef,
     permit: &mut SaveBlobPermit<'_>,
-) -> anyhow::Result<RecipeRef> {
+) -> anyhow::Result<ArtifactBuilder> {
     let mut artifact = Some(ArtifactBuilder::empty_dir());
 
     let mut files = HashMap::<ArtifactPath, AbsolutePath>::new();
@@ -120,7 +203,7 @@ async fn create_single_project_artifact(
             resources: Box::new(None),
         };
 
-        let path = crate::recipe::build::ArtifactPath::try_from(module_path.clone())?;
+        let path = ArtifactPath::try_from(module_path.clone())?;
         crate::recipe::build::insert_into_artifact(&mut artifact, &path, module_artifact)?;
 
         // Queue up any file paths referenced from statics
@@ -128,21 +211,18 @@ async fn create_single_project_artifact(
             match &static_query.query {
                 super::StaticQuery::IncludeFile(include_path) => {
                     let include_path = module_parent_path.clone().join(include_path.clone());
-                    let artifact_path =
-                        crate::recipe::build::ArtifactPath::try_from(include_path.clone())?;
+                    let artifact_path = ArtifactPath::try_from(include_path.clone())?;
                     let include_path = local_project_path.join_subpath(include_path)?;
                     files.insert(artifact_path, include_path);
                 }
                 super::StaticQuery::IncludeDirectory(include_path) => {
                     let include_path = module_parent_path.clone().join(include_path.clone());
-                    let artifact_path =
-                        crate::recipe::build::ArtifactPath::try_from(include_path.clone())?;
+                    let artifact_path = ArtifactPath::try_from(include_path.clone())?;
                     let include_path = local_project_path.join_subpath(include_path)?;
                     directories.push((artifact_path, include_path));
                 }
                 super::StaticQuery::Glob { patterns } => {
-                    let artifact_path =
-                        crate::recipe::build::ArtifactPath::try_from(module_parent_path.clone())?;
+                    let artifact_path = ArtifactPath::try_from(module_parent_path.clone())?;
                     let module_parent_path =
                         local_project_path.join_subpath(module_parent_path.clone())?;
                     globs.push((artifact_path, module_parent_path, patterns));
@@ -193,7 +273,7 @@ async fn create_single_project_artifact(
     };
 
     let lockfile_path = RelativePath::new("brioche.lock");
-    let lockfile_path = crate::recipe::build::ArtifactPath::try_from(lockfile_path)?;
+    let lockfile_path = ArtifactPath::try_from(lockfile_path)?;
     crate::recipe::build::insert_into_artifact(&mut artifact, &lockfile_path, lockfile_artifact)?;
 
     // Resolve static glob patterns into files/directories/symlinks to add
@@ -289,17 +369,17 @@ async fn create_single_project_artifact(
             let filename = entry.file_name();
             let filename = <[u8]>::from_os_str(&filename)
                 .with_context(|| format!("invalid filename: {}", filename.display()))?;
-            let filename = bstr::BString::from(filename);
+            let filename = bstr::BStr::new(filename);
             let artifact_subpath = artifact_path
                 .clone()
-                .child(ArtifactPathComponent::DirectoryEntry(filename.clone()));
+                .join_one(ArtifactPathComponent::entry(filename));
 
             let file_type = entry.file_type().await?;
             if file_type.is_file() {
-                let entry_path = path.join_one(&filename);
+                let entry_path = path.join_one(filename);
                 files.insert(artifact_subpath, entry_path);
             } else if file_type.is_dir() {
-                let entry_path = path.join_one(&filename);
+                let entry_path = path.join_one(filename);
                 directories.push((artifact_subpath, entry_path));
             } else if file_type.is_symlink() {
                 let target_path =
@@ -348,7 +428,6 @@ async fn create_single_project_artifact(
     }
 
     let artifact = artifact.unwrap();
-    let artifact = crate::recipe::build::build_artifact(&artifact, recipes)?;
     Ok(artifact)
 }
 
@@ -416,11 +495,7 @@ pub async fn save_projects_from_artifact(
                     let (workspace_path, member_path) = target.split_once('/').with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
                     let workspace_hash = workspace_path.strip_prefix("workspace-").with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
                     let workspace_hash: WorkspaceHash = workspace_hash.parse().with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
-                    let member_path = RelativePath::new(member_path);
-                    anyhow::ensure!(
-                        member_path.is_normalized_subpath(),
-                        "invlaid workspace member symlink for project {project_hash} in artifact"
-                    );
+                    let member_path: ContentAddressedWorkspacePath = member_path.parse()?;
                     needed_workspace_hashes.insert(workspace_hash);
 
                     // Validate that the project hash matches using the

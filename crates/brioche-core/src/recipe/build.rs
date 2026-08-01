@@ -158,10 +158,22 @@ pub struct ArtifactPath {
 }
 
 impl ArtifactPath {
+    pub fn new(path: impl AsRef<[u8]>) -> Result<Self, ToArtifactPathError> {
+        crate::path::RelativePath::new(path).try_into()
+    }
+
     #[must_use]
-    pub fn child(mut self, component: ArtifactPathComponent) -> Self {
-        self.components.push(component);
-        self
+    pub fn join_one(&self, component: ArtifactPathComponent) -> Self {
+        let mut new = self.clone();
+        new.components.push(component);
+        new
+    }
+
+    #[must_use]
+    pub fn join(&self, other: Self) -> Self {
+        let mut new = self.clone();
+        new.components.extend(other.components);
+        new
     }
 
     #[must_use]
@@ -211,6 +223,12 @@ impl TryFrom<crate::path::RelativePath> for ArtifactPath {
 pub enum ArtifactPathComponent {
     DirectoryEntry(bstr::BString),
     FileResources,
+}
+
+impl ArtifactPathComponent {
+    pub fn entry(name: impl AsRef<[u8]>) -> Self {
+        Self::DirectoryEntry(name.as_ref().into())
+    }
 }
 
 pub fn insert_into_artifact(

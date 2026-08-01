@@ -1,11 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use bstr::ByteSlice as _;
+use joinery::JoinableIterator as _;
 use petgraph::visit::EdgeRef as _;
 
 use crate::{
     Brioche,
     encoding::TickEncoded,
-    path::RelativePath,
+    path::{RelativePath, RelativePathComponent},
     project::{ProjectDefinition, ProjectEdge, ProjectRef, StaticRef, WorkspaceRef},
     recipe::build::{ArtifactBuilder, ArtifactPath},
 };
@@ -166,27 +168,28 @@ pub(super) fn hash_projects_inner(
                         "todo: node group members aren't part of the same workspace"
                     );
 
-                    (project_ref, workspace_path.clone())
+                    let workspace_path = ContentAddressedWorkspacePath::try_from(workspace_path)
+                        .expect("todo: invalid workspace path");
+                    (project_ref, workspace_path)
                 })
                 .collect();
 
-            let group_workspace = ContentAddressedWorkspace {
-                members: group_projects_with_paths
-                    .iter()
-                    .map(|(project_ref, workspace_path)| {
-                        let project = content_addressed_project(
-                            brioche,
-                            projects,
-                            recipes,
-                            permit,
-                            *project_ref,
-                            project_hashes,
-                            Some(&group_projects_with_paths),
-                        );
-                        (workspace_path.clone(), project)
-                    })
-                    .collect(),
-            };
+            let members = group_projects_with_paths
+                .iter()
+                .map(|(project_ref, workspace_path)| {
+                    let project = content_addressed_project(
+                        brioche,
+                        projects,
+                        recipes,
+                        permit,
+                        *project_ref,
+                        project_hashes,
+                        Some(&group_projects_with_paths),
+                    );
+                    (workspace_path.clone(), project)
+                })
+                .collect();
+            let group_workspace = ContentAddressedWorkspace { members };
             let group_workspace_hash = group_workspace.workspace_hash();
 
             for (project_ref, path) in group_projects_with_paths {
@@ -213,7 +216,7 @@ fn content_addressed_project(
     permit: &mut crate::blob::SaveBlobPermit,
     project_ref: ProjectRef,
     project_hashes: &HashMap<ProjectRef, ProjectHash>,
-    workspace_group_siblings: Option<&HashMap<ProjectRef, RelativePath>>,
+    workspace_group_siblings: Option<&HashMap<ProjectRef, ContentAddressedWorkspacePath>>,
 ) -> ContentAddressedProject {
     let project = &projects.projects[&project_ref];
 
@@ -414,15 +417,13 @@ fn content_addressed_project(
     }
 }
 
-#[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum ContentAddressedProjectEntry {
     WorkspaceMember {
         workspace: WorkspaceHash,
-        #[serde_as(as = "TickEncoded")]
-        path: RelativePath,
+        path: ContentAddressedWorkspacePath,
     },
     #[serde(untagged)]
     Project(ContentAddressedProject),
@@ -471,14 +472,12 @@ pub struct ContentAddressedProject {
     statics: HashMap<RelativePath, BTreeMap<StaticQuery, Option<StaticOutput>>>,
 }
 
-#[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 enum DependencyRef {
     WorkspaceMember {
-        #[serde_as(as = "TickEncoded")]
-        path: RelativePath,
+        path: ContentAddressedWorkspacePath,
     },
     #[serde(untagged)]
     Project(ProjectHash),
@@ -528,8 +527,7 @@ enum StaticOutputKind {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ContentAddressedWorkspace {
-    #[serde_as(as = "BTreeMap<TickEncoded, _>")]
-    members: BTreeMap<RelativePath, ContentAddressedProject>,
+    members: BTreeMap<ContentAddressedWorkspacePath, ContentAddressedProject>,
 }
 
 impl ContentAddressedWorkspace {
@@ -538,4 +536,134 @@ impl ContentAddressedWorkspace {
         json_canon::to_writer(&mut hasher, self).expect("failed to serialize workspace");
         WorkspaceHash(hasher.finalize().into())
     }
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ContentAddressedWorkspacePath {
+    components: Vec<String>,
+}
+
+impl ContentAddressedWorkspacePath {
+    #[must_use]
+    pub fn parent_with_last_component(&self) -> Option<(Self, String)> {
+        let mut parent = self.clone();
+        let last = parent.components.pop()?;
+        Some((parent, last))
+    }
+}
+
+impl std::fmt::Display for ContentAddressedWorkspacePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.components.iter().join_with('/'))
+    }
+}
+
+impl std::str::FromStr for ContentAddressedWorkspacePath {
+    type Err = InvalidWorkspacePathError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let path: RelativePath = s.parse().map_err(|error| match error {})?;
+        path.try_into()
+    }
+}
+
+impl std::fmt::Debug for ContentAddressedWorkspacePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ContentAddressedWorkspacePath({self})")
+    }
+}
+
+impl serde::Serialize for ContentAddressedWorkspacePath {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ContentAddressedWorkspacePath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = <&str>::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl TryFrom<&'_ RelativePath> for ContentAddressedWorkspacePath {
+    type Error = InvalidWorkspacePathError;
+
+    fn try_from(value: &RelativePath) -> Result<Self, Self::Error> {
+        let components = value
+            .components()
+            .map(|component| {
+                let RelativePathComponent::Normal(component) = component else {
+                    return Err(InvalidWorkspacePathError::InvalidPathComponent {
+                        path: value.clone(),
+                        component: component.clone(),
+                    });
+                };
+                let component = component
+                    .to_str()
+                    .map_err(|_| InvalidWorkspacePathError::NonStringPath(value.clone()))?;
+
+                if component.is_empty() || component.contains('/') {
+                    return Err(InvalidWorkspacePathError::InvalidName(value.clone()));
+                } else if component.contains('*') {
+                    return Err(InvalidWorkspacePathError::UnexpectedWildcard(value.clone()));
+                }
+
+                Ok(component.to_string())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self { components })
+    }
+}
+
+impl TryFrom<RelativePath> for ContentAddressedWorkspacePath {
+    type Error = InvalidWorkspacePathError;
+
+    fn try_from(value: RelativePath) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+impl From<ContentAddressedWorkspacePath> for RelativePath {
+    fn from(value: ContentAddressedWorkspacePath) -> Self {
+        (&value).into()
+    }
+}
+
+impl From<&'_ ContentAddressedWorkspacePath> for RelativePath {
+    fn from(value: &ContentAddressedWorkspacePath) -> Self {
+        value
+            .components
+            .iter()
+            .map(|component| {
+                RelativePathComponent::new(component)
+                    .expect("workspace path contained invalid component")
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidWorkspacePathError {
+    #[error("invalid component in path '{path}': '{component}'")]
+    InvalidPathComponent {
+        path: RelativePath,
+        component: RelativePathComponent,
+    },
+
+    #[error("unexpected wildcard in path '{0}'")]
+    UnexpectedWildcard(RelativePath),
+
+    #[error("path '{0}' contains a component that cannot be represented as a string")]
+    NonStringPath(RelativePath),
+
+    #[error("path '{0}' contains an invalid character")]
+    InvalidName(RelativePath),
 }

@@ -56,9 +56,8 @@ pub fn load_artifact_sync(
                     }
                 })?;
                 let filename = bstr::BString::from(filename);
-                let entry_artifact_subpath = artifact_subpath
-                    .clone()
-                    .child(ArtifactPathComponent::DirectoryEntry(filename));
+                let entry_artifact_subpath =
+                    artifact_subpath.join_one(ArtifactPathComponent::DirectoryEntry(filename));
                 queue.push_back((entry.path(), entry_artifact_subpath));
             }
 

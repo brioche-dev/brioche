@@ -80,7 +80,10 @@ pub async fn write_artifact_archive(
 
                 // If the file has any resources, enqueue it.
                 if let Some(resources) = resources {
-                    queue.push_back((path.child(ArtifactPathComponent::FileResources), *resources));
+                    queue.push_back((
+                        path.join_one(ArtifactPathComponent::FileResources),
+                        *resources,
+                    ));
                 }
             }
             Recipe::Symlink(Symlink { target }) => {
@@ -103,9 +106,8 @@ pub async fn write_artifact_archive(
                 } else {
                     // Enqueue each entry within the directory
                     for (name, entry_ref) in &directory.entries {
-                        let entry_path = path
-                            .clone()
-                            .child(ArtifactPathComponent::DirectoryEntry(name.clone()));
+                        let entry_path =
+                            path.join_one(ArtifactPathComponent::DirectoryEntry(name.clone()));
                         queue.push_back((entry_path, *entry_ref));
                     }
                 }

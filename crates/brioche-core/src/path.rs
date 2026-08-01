@@ -300,6 +300,14 @@ impl crate::encoding::ToTickBytes<'_> for RelativePath {
     }
 }
 
+impl FromIterator<RelativePathComponent> for RelativePath {
+    fn from_iter<T: IntoIterator<Item = RelativePathComponent>>(iter: T) -> Self {
+        Self {
+            components: iter.into_iter().collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RelativePathComponent {
     CurrentDir,
@@ -413,6 +421,21 @@ impl AbsolutePath {
         self.parent_with_filename().map(|(_, filename)| filename)
     }
 
+    #[must_use]
+    pub const fn root_path(&self) -> &RootPath {
+        &self.root
+    }
+
+    #[must_use]
+    pub fn subpath(&self) -> RelativePath {
+        let components = self
+            .subpath_components
+            .iter()
+            .filter_map(RelativePathComponent::new)
+            .collect();
+        RelativePath { components }
+    }
+
     pub fn to_system_path(&self) -> Result<std::path::PathBuf, ToSystemPathError> {
         to_system_path(
             Some(&BasePath::Root(self.root.clone())),
@@ -436,6 +459,15 @@ impl std::fmt::Display for AbsolutePath {
 impl std::fmt::Debug for AbsolutePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "AbsolutePath({self})")
+    }
+}
+
+impl From<RootPath> for AbsolutePath {
+    fn from(root: RootPath) -> Self {
+        Self {
+            root,
+            subpath_components: vec![],
+        }
     }
 }
 

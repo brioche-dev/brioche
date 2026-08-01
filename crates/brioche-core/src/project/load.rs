@@ -64,7 +64,7 @@ pub async fn load_projects(
 
         let (project_path, workspace_root) = match &specifier {
             ProjectSpecifier::Path(path) => {
-                let workspace_root = find_workspace_root(path).await?;
+                let workspace_root = find_workspace_root_absolute(path).await?;
 
                 tracing::trace!(?path, ?workspace_root, "searched for workspace root");
 
@@ -87,7 +87,13 @@ pub async fn load_projects(
                     },
                 };
                 match load_project_by_hash(brioche, *project_hash, location).await {
-                    Ok((path, workspace_root)) => (path, workspace_root),
+                    Ok((path, workspace_root)) => {
+                        projects
+                            .projects_by_specifier
+                            .insert(ProjectSpecifier::Path(path.clone()), project_ref);
+
+                        (path, workspace_root)
+                    }
                     Err(error) => {
                         todo!("add project issue: {error:#?}");
                         // projects.issues.entry(project_ref.0).or_default().push(ProjectIssue::IoError { error_message: (), path: (), location: () })
@@ -909,6 +915,9 @@ pub enum LoadProjectError {
     },
 
     #[error(transparent)]
+    SubpathError(#[from] crate::path::SubpathError),
+
+    #[error(transparent)]
     CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
 
     #[error(transparent)]
@@ -962,11 +971,14 @@ pub enum LockfileIssue {
 }
 
 async fn find_workspace_root(
-    path: &AbsolutePath,
-) -> Result<Option<AbsolutePath>, LoadProjectError> {
+    top: &AbsolutePath,
+    path: &RelativePath,
+) -> Result<Option<RelativePath>, LoadProjectError> {
     let mut current_path = path.clone();
     loop {
-        let workspace_definition_path = current_path.join_one("brioche_workspace.toml");
+        let workspace_definition_path = top
+            .join_subpath(current_path.clone())?
+            .join_one("brioche_workspace.toml");
         let workspace_definition_system_path = workspace_definition_path.to_system_path()?;
         let exists = tokio::fs::try_exists(&workspace_definition_system_path)
             .await
@@ -985,6 +997,19 @@ async fn find_workspace_root(
     }
 
     Ok(None)
+}
+
+async fn find_workspace_root_absolute(
+    path: &AbsolutePath,
+) -> Result<Option<AbsolutePath>, LoadProjectError> {
+    let root_path = path.root_path().clone().into();
+    let workspace_root = find_workspace_root(&root_path, &path.subpath()).await?;
+    let Some(workspace_root) = workspace_root else {
+        return Ok(None);
+    };
+
+    let workspace_root = root_path.join_subpath(workspace_root)?;
+    Ok(Some(workspace_root))
 }
 
 async fn load_module_source(path: &std::path::Path) -> Result<String, LoadModuleError> {
@@ -1042,6 +1067,9 @@ async fn load_project_by_hash(
     tokio::fs::create_dir_all(&projects_system_path)
         .await
         .unwrap();
+    let projects_path = crate::path::canonicalize_system_path(&projects_system_path)
+        .await
+        .unwrap();
     let local_system_path = projects_system_path.join(project_hash.to_string());
     let local_path = crate::path::canonicalize_system_path(&local_system_path).await;
 
@@ -1049,8 +1077,19 @@ async fn load_project_by_hash(
         Ok(local_path) => {
             // Directory for the local project exists. No need to fetch. The
             // hash is also validated later on
-            // TODO: workspace
-            return Ok((local_path, None));
+
+            let project_path = crate::path::relative_path_between(&projects_path, &local_path)
+                .expect("todo: project path escapes projects path");
+            let workspace_root = find_workspace_root(&projects_path, &project_path)
+                .await
+                .expect("todo: error finding workspace root for existing project by hash");
+            let workspace_root = workspace_root.map(|subpath| {
+                projects_path
+                    .join_subpath(subpath)
+                    .expect("expected workspace root to be a subpath")
+            });
+
+            return Ok((local_path, workspace_root));
         }
         Err(crate::path::CanonicalSystemPathError::IoError(error))
             if error.kind() == std::io::ErrorKind::NotFound =>
@@ -1113,8 +1152,18 @@ async fn load_project_by_hash(
         });
     };
 
-    // TODO: Workspace!
-    Ok((project_path, None))
+    let project_relative_path = crate::path::relative_path_between(&projects_path, &project_path)
+        .expect("todo: project path escapes projects dir");
+    let workspace_root = find_workspace_root(&projects_path, &project_relative_path)
+        .await
+        .expect("todo: error trying to find workspace root");
+    let workspace_root = workspace_root.map(|subpath| {
+        projects_path
+            .join_subpath(subpath)
+            .expect("expected workspace root to be a subpath")
+    });
+
+    Ok((project_path, workspace_root))
 }
 
 fn expand_module_subpath(subpath: RelativePath) -> RelativePath {
