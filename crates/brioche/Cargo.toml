@@ -16,7 +16,7 @@ async-compression = { version = "0.4.42", features = [
 ] }
 brioche-core = { path = "../brioche-core" }
 bstr = "1.12.1"
-clap = { version = "4.6.1", features = ["derive"] }
+clap = { version = "4.6.5", features = ["derive"] }
 csv = "1.4.0"
 futures = "0.3.32"
 hex = "0.4.3"

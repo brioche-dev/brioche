@@ -884,6 +884,7 @@ impl TestContext {
 }
 
 pub async fn brioche_lsp_test() -> (Brioche, TestContext, LspContext) {
+    #[expect(clippy::large_futures)]
     brioche_lsp_test_with(|builder| builder).await
 }
 
