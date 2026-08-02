@@ -1262,7 +1262,7 @@ async fn resolve_project_from_workspace(
         }
     }
 
-    todo!();
+    None
 }
 
 fn prepare_static(static_query: StaticQuery, lockfile: Option<&Lockfile>) -> PartialStatic {
