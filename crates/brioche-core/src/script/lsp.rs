@@ -197,6 +197,7 @@ impl LanguageServer for BriocheLspServer {
                     let local_set = tokio::task::LocalSet::new();
 
                     local_set.spawn_local(async move {
+                        #[expect(clippy::large_futures)]
                         let result = try_update_lockfile_for_module(
                             remote_brioche_builder,
                             bridge,
