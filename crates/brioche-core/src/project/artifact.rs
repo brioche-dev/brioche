@@ -33,7 +33,7 @@ pub async fn create_project_artifact(
 
     let mut directory = Some(recipe::build::ArtifactBuilder::empty_dir());
 
-    let node_groups = crate::project::hash::group_project_nodes(&projects, project_ref);
+    let project_groups = crate::project::hash::group_project_nodes(&projects, [project_ref]);
 
     // Compute hashes for each project
     let mut project_hashes = HashMap::new();
@@ -43,30 +43,29 @@ pub async fn create_project_artifact(
         &projects,
         &mut recipes,
         &mut permit,
-        &node_groups,
+        &project_groups,
         &mut project_hashes,
         Some(&mut project_entries),
     );
 
-    let workspace_groups = node_groups.iter().filter(|group| group.len() > 1);
-    for node_group in workspace_groups {
+    let workspace_groups = project_groups.iter().filter(|group| group.len() > 1);
+    for workspace_group in workspace_groups {
         let ContentAddressedProjectEntry::WorkspaceMember {
             workspace: group_workspace_hash,
             ..
-        } = &project_entries[&ProjectRef(node_group[0])]
+        } = &project_entries[workspace_group.iter().next().unwrap()]
         else {
             panic!("expected project entry to be a workspace member");
         };
         let workspace_path = ArtifactPath::new(format!("workspace-{group_workspace_hash}"))?;
 
-        let mut members: Vec<_> = node_group
+        let mut members: Vec<_> = workspace_group
             .iter()
-            .map(|node| {
-                let project_ref = ProjectRef(*node);
+            .map(|project_ref| {
                 let ContentAddressedProjectEntry::WorkspaceMember {
                     path,
                     workspace: workspace_hash,
-                } = &project_entries[&project_ref]
+                } = &project_entries[project_ref]
                 else {
                     panic!("expected project entry to be a workspace member");
                 };

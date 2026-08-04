@@ -571,33 +571,10 @@ pub async fn load_projects(
     });
 
     if !project_hashes_to_validate.is_empty() {
-        // Create a copy of the graph, but keeping only project nodes to
-        // validate
-        let mut graph = projects.graph.clone();
-        let mut dfs_space = petgraph::algo::DfsSpace::default();
-        graph.retain_nodes(|graph, index| match &graph[index] {
-            crate::project::ProjectNode::Project => {
-                project_hashes_to_validate.keys().any(|project_ref| {
-                    petgraph::algo::has_path_connecting(
-                        &*graph,
-                        project_ref.0,
-                        index,
-                        Some(&mut dfs_space),
-                    )
-                })
-            }
-            crate::project::ProjectNode::Workspace
-            | crate::project::ProjectNode::Module
-            | crate::project::ProjectNode::Static
-            | crate::project::ProjectNode::UnresolvedStatic => false,
-        });
-
-        // Group nodes by finding the strongly-connected components of the graph.
-        // This effectively finds cyclic projects in the graph that we should
-        // group together, and puts acyclic projects into a group of one element.
-        // The result is additionally topographically sorted, so every project
-        // naturally comes after all of its dependencies
-        let node_groups = petgraph::algo::tarjan_scc(&graph);
+        let project_groups = crate::project::hash::group_project_nodes(
+            projects,
+            project_hashes_to_validate.keys().copied(),
+        );
 
         let mut recipes = brioche.recipes.write().await;
         let mut permit = crate::blob::get_save_blob_permit()
@@ -610,7 +587,7 @@ pub async fn load_projects(
             projects,
             &mut recipes,
             &mut permit,
-            &node_groups,
+            &project_groups,
             &mut project_hashes,
             None,
         );

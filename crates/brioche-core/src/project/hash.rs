@@ -39,7 +39,7 @@ pub async fn hash_project(
 ) -> Result<ProjectHash, std::convert::Infallible> {
     let projects = brioche.projects.read().await;
 
-    let node_groups = group_project_nodes(&projects, project_ref);
+    let node_groups = group_project_nodes(&projects, [project_ref]);
 
     let mut project_hashes = HashMap::<ProjectRef, ProjectHash>::new();
 
@@ -66,7 +66,7 @@ pub async fn get_content_addressed_project_entries(
 ) -> HashMap<ProjectRef, ContentAddressedProjectEntry> {
     let projects = brioche.projects.read().await;
 
-    let node_groups = group_project_nodes(&projects, project_ref);
+    let node_groups = group_project_nodes(&projects, [project_ref]);
 
     let mut project_hashes = HashMap::new();
     let mut project_entries = HashMap::new();
@@ -88,17 +88,39 @@ pub async fn get_content_addressed_project_entries(
     project_entries
 }
 
+/// Return all transitive dependencies of the projects in `project_refs`
+/// (including themselves), grouped into sets of cyclic projects.
+///
+/// In the project graph, this trims the graph to nodes reachable from
+/// any `project_refs` nodes, then finds the [strongly-connected components](https://en.wikipedia.org/wiki/Strongly_connected_component)
+/// of the graph. For each group, if there is only one project, it's not part
+/// of a cycle; if there's more than one, then the projects all reference
+/// each other cyclically. The groups are topologically sorted, so each
+/// project comes after all of its dependencies.
+///
+/// This is an important part of computing a content-addressable hash of
+/// projects. For cyclic projects (groups with more than one element), the group
+/// is hashed as a whole as a workspace, then each individual project hash uses
+/// the workspace hash plus its path in the workspace.
+#[expect(clippy::needless_pass_by_value)]
 pub(super) fn group_project_nodes(
     projects: &super::Projects,
-    project_ref: ProjectRef,
-) -> Vec<Vec<petgraph::stable_graph::NodeIndex>> {
+    project_refs: impl IntoIterator<Item = ProjectRef> + Clone,
+) -> Vec<HashSet<ProjectRef>> {
     // Create a copy of the graph, but keeping only project nodes that
-    // are reachable from the project we're hashing
+    // are reachable from input projects.
     let mut graph = projects.graph.clone();
     let mut dfs_space = petgraph::algo::DfsSpace::default();
     graph.retain_nodes(|graph, index| match &graph[index] {
         crate::project::ProjectNode::Project => {
-            petgraph::algo::has_path_connecting(&*graph, project_ref.0, index, Some(&mut dfs_space))
+            project_refs.clone().into_iter().any(|project_ref| {
+                petgraph::algo::has_path_connecting(
+                    &*graph,
+                    project_ref.0,
+                    index,
+                    Some(&mut dfs_space),
+                )
+            })
         }
         crate::project::ProjectNode::Workspace
         | crate::project::ProjectNode::Module
@@ -107,11 +129,12 @@ pub(super) fn group_project_nodes(
     });
 
     // Group nodes by finding the strongly-connected components of the graph.
-    // This effectively finds cyclic projects in the graph that we should
-    // group together, and puts acyclic projects into a group of one element.
-    // The result is additionally topographically sorted, so every project
-    // naturally comes after all of its dependencies
-    petgraph::algo::tarjan_scc(&graph)
+    let node_groups = petgraph::algo::tarjan_scc(&graph);
+
+    node_groups
+        .into_iter()
+        .map(|nodes| nodes.into_iter().map(ProjectRef).collect())
+        .collect()
 }
 
 pub(super) fn hash_projects_inner(
@@ -119,15 +142,13 @@ pub(super) fn hash_projects_inner(
     projects: &super::Projects,
     recipes: &mut crate::recipe::Recipes,
     permit: &mut crate::blob::SaveBlobPermit,
-    node_groups: &[Vec<petgraph::stable_graph::NodeIndex>],
+    project_groups: &[HashSet<ProjectRef>],
     project_hashes: &mut HashMap<ProjectRef, ProjectHash>,
     mut project_entries: Option<&mut HashMap<ProjectRef, ContentAddressedProjectEntry>>,
 ) {
-    for group_nodes in node_groups {
-        let group_projects: HashSet<_> = group_nodes.iter().copied().map(ProjectRef).collect();
-
-        if group_projects.len() == 1 {
-            let project_ref = group_projects.into_iter().next().unwrap();
+    for project_group in project_groups {
+        if project_group.len() == 1 {
+            let project_ref = *project_group.iter().next().unwrap();
             let project = content_addressed_project(
                 brioche,
                 projects,
@@ -146,7 +167,7 @@ pub(super) fn hash_projects_inner(
             }
         } else {
             let mut common_workspace_ref = None;
-            let group_projects_with_paths: HashMap<_, _> = group_projects
+            let projects_with_paths: HashMap<_, _> = project_group
                 .iter()
                 .copied()
                 .map(|project_ref| {
@@ -174,7 +195,7 @@ pub(super) fn hash_projects_inner(
                 })
                 .collect();
 
-            let members = group_projects_with_paths
+            let members = projects_with_paths
                 .iter()
                 .map(|(project_ref, workspace_path)| {
                     let project = content_addressed_project(
@@ -184,7 +205,7 @@ pub(super) fn hash_projects_inner(
                         permit,
                         *project_ref,
                         project_hashes,
-                        Some(&group_projects_with_paths),
+                        Some(&projects_with_paths),
                     );
                     (workspace_path.clone(), project)
                 })
@@ -192,7 +213,7 @@ pub(super) fn hash_projects_inner(
             let group_workspace = ContentAddressedWorkspace { members };
             let group_workspace_hash = group_workspace.workspace_hash();
 
-            for (project_ref, path) in group_projects_with_paths {
+            for (project_ref, path) in projects_with_paths {
                 let project_entry = ContentAddressedProjectEntry::WorkspaceMember {
                     workspace: group_workspace_hash,
                     path: path.clone(),
