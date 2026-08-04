@@ -74,14 +74,16 @@ pub async fn brioche_test_with(
 }
 
 pub async fn load_project(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
+    let mut brioche = brioche.write().await;
+
     let project_dir = brioche_core::path::canonicalize_system_path(project_dir)
         .await
         .unwrap();
     let specifier = ProjectSpecifier::Path(project_dir);
-    let mut refs = brioche_core::project::load::load_projects(brioche, [specifier.clone()])
+    let mut refs = brioche_core::project::load::load_projects(&mut brioche, [specifier.clone()])
         .await
         .unwrap();
-    brioche_core::project::load::resolve_statics(brioche)
+    brioche_core::project::load::resolve_statics(&mut brioche)
         .await
         .unwrap();
     refs.remove(&specifier).unwrap()
@@ -122,6 +124,8 @@ pub async fn get_recipe_within(
     mut recipe_ref: RecipeRef,
     path: impl AsRef<[u8]>,
 ) -> RecipeRef {
+    let brioche = brioche.read().await;
+
     let path_components = path
         .as_ref()
         .split_str(b"/")
@@ -129,7 +133,7 @@ pub async fn get_recipe_within(
 
     for path_component in path_components {
         let path_component = bstr::BStr::new(path_component);
-        let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref).await;
+        let recipe = brioche_core::recipe::get_recipe(&brioche, recipe_ref);
         let brioche_core::recipe::Recipe::Directory(directory) = &*recipe else {
             panic!(
                 "tried to traverse into subpath '{path_component}' into non-directory recipe ({:?})",
@@ -147,12 +151,14 @@ pub async fn get_recipe_within(
 }
 
 pub async fn read_file_recipe_content(brioche: &Brioche, recipe_ref: RecipeRef) -> Vec<u8> {
-    let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref).await;
+    let brioche = brioche.read().await;
+
+    let recipe = brioche_core::recipe::get_recipe(&brioche, recipe_ref);
     let brioche_core::recipe::Recipe::File(file) = &*recipe else {
         panic!("expected recipe to be a file, was {:?}", recipe.kind());
     };
 
-    let blob_path = brioche_core::blob::local_blob_path(brioche, file.content_blob);
+    let blob_path = brioche_core::blob::local_blob_path(brioche.resources(), file.content_blob);
     tokio::fs::read(&blob_path)
         .await
         .expect("failed to read file blob")
@@ -163,6 +169,8 @@ pub async fn read_file_within(
     mut recipe_ref: RecipeRef,
     path: impl AsRef<[u8]>,
 ) -> RecipeRef {
+    let brioche = brioche.read().await;
+
     let path_components = path
         .as_ref()
         .split_str(b"/")
@@ -170,7 +178,7 @@ pub async fn read_file_within(
 
     for path_component in path_components {
         let path_component = bstr::BStr::new(path_component);
-        let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref).await;
+        let recipe = brioche_core::recipe::get_recipe(&brioche, recipe_ref);
         let brioche_core::recipe::Recipe::Directory(directory) = &*recipe else {
             panic!(
                 "tried to traverse into subpath '{path_component}' into non-directory recipe ({:?})",
@@ -203,7 +211,7 @@ pub fn artifact_path(path: impl AsRef<[u8]>) -> brioche_core::recipe::build::Art
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]>) -> BlobHash {
     let mut permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
     brioche_core::blob::save_blob(
-        brioche,
+        brioche.resources(),
         &mut permit,
         content.as_ref(),
         SaveBlobOptions::default(),
@@ -297,12 +305,15 @@ impl TestContext {
             .await
             .unwrap();
         let specifier = ProjectSpecifier::Path(project_dir);
-        let mut refs = brioche_core::project::load::load_projects(brioche, [specifier.clone()])
-            .await
-            .unwrap();
+        let mut refs = brioche_core::project::load::load_projects(
+            &mut brioche.write().await,
+            [specifier.clone()],
+        )
+        .await
+        .unwrap();
         let project_ref = refs.remove(&specifier).unwrap();
 
-        let issues = brioche_core::project::get_all_issues(brioche).await;
+        let issues = brioche_core::project::get_all_issues(&brioche.read().await);
         assert_matches!(&issues[..], []);
 
         (project_ref, temp_project_path)
@@ -320,12 +331,15 @@ impl TestContext {
             .unwrap();
         let specifier = ProjectSpecifier::Path(project_dir);
 
-        let mut refs = brioche_core::project::load::load_projects(brioche, [specifier.clone()])
-            .await
-            .expect("failed to load temp project");
+        let mut refs = brioche_core::project::load::load_projects(
+            &mut brioche.write().await,
+            [specifier.clone()],
+        )
+        .await
+        .expect("failed to load temp project");
         let project_ref = refs.remove(&specifier).unwrap();
 
-        brioche_core::project::load::resolve_statics(brioche)
+        brioche_core::project::load::resolve_statics(&mut brioche.write().await)
             .await
             .expect("failed to resolve temp project statics");
 
@@ -348,9 +362,10 @@ impl TestContext {
         .await;
 
         let (project_ref, temp_project_path) = temp_context.temp_project(&temp_brioche, f).await;
-        let project_hash = brioche_core::project::hash::hash_project(&temp_brioche, project_ref)
-            .await
-            .unwrap();
+        let project_hash =
+            brioche_core::project::hash::hash_project(&mut temp_brioche.write().await, project_ref)
+                .await
+                .unwrap();
 
         let project_path = self
             .mkdir(format!("brioche-data/projects/{project_hash}"))
@@ -400,20 +415,25 @@ impl TestContext {
 
         let (project_ref, _) = temp_context.temp_project_by_path(&temp_brioche, f).await;
 
-        let project_hash = brioche_core::project::hash::hash_project(&temp_brioche, project_ref)
-            .await
-            .unwrap();
-        let project_artifact =
-            brioche_core::project::artifact::create_project_artifact(&temp_brioche, project_ref)
+        let project_hash =
+            brioche_core::project::hash::hash_project(&mut temp_brioche.write().await, project_ref)
                 .await
-                .expect("failed to create artifact for project");
-        let project_artifact_hash =
-            brioche_core::recipe::hash::hash_recipe(&temp_brioche, project_artifact).await;
-        brioche_core::cache::save_artifact(&temp_brioche, project_artifact)
+                .unwrap();
+        let project_artifact = brioche_core::project::artifact::create_project_artifact(
+            &mut temp_brioche.write().await,
+            project_ref,
+        )
+        .await
+        .expect("failed to create artifact for project");
+        let project_artifact_hash = brioche_core::recipe::hash::hash_recipe(
+            &mut temp_brioche.write().await,
+            project_artifact,
+        );
+        brioche_core::cache::save_artifact(&mut temp_brioche.write().await, project_artifact)
             .await
             .expect("failed to save artifact to cache");
         brioche_core::cache::save_project_artifact_hash(
-            &temp_brioche,
+            &mut temp_brioche.write().await,
             project_hash,
             project_artifact_hash,
         )

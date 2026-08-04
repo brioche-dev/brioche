@@ -7,9 +7,10 @@ use std::{
 use anyhow::Context as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
-use crate::hash::AnyHashHasher;
-
-use super::{Brioche, hash::AnyHash};
+use crate::{
+    BriocheResources,
+    hash::{AnyHash, AnyHashHasher},
+};
 
 pub struct SaveBlobPermit<'a> {
     _permit: tokio::sync::SemaphorePermit<'a>,
@@ -29,7 +30,7 @@ pub async fn get_save_blob_permit<'a>() -> anyhow::Result<SaveBlobPermit<'a>> {
 }
 
 pub async fn save_blob(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     _permit: &mut SaveBlobPermit<'_>,
     bytes: &[u8],
     options: SaveBlobOptions<'_>,
@@ -80,7 +81,7 @@ pub async fn save_blob(
 }
 
 pub async fn save_blob_from_reader<R>(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     _permit: &mut SaveBlobPermit<'_>,
     mut input: R,
     mut options: SaveBlobOptions<'_>,
@@ -153,7 +154,7 @@ where
 }
 
 pub fn save_blob_from_reader_sync<R>(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     _permit: &mut SaveBlobPermit<'_>,
     mut input: R,
     mut options: SaveBlobOptions<'_>,
@@ -217,7 +218,7 @@ where
 }
 
 pub async fn save_blob_from_file(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     _permit: &mut SaveBlobPermit<'_>,
     input_path: &Path,
     options: SaveBlobOptions<'_>,
@@ -388,7 +389,7 @@ impl<'a> SaveBlobOptions<'a> {
     }
 }
 
-pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result<PathBuf> {
+pub async fn blob_path(brioche: &BriocheResources, blob_hash: BlobHash) -> anyhow::Result<PathBuf> {
     let local_path = local_blob_path(brioche, blob_hash);
 
     if tokio::fs::try_exists(&local_path).await? {
@@ -399,7 +400,7 @@ pub async fn blob_path(brioche: &Brioche, blob_hash: BlobHash) -> anyhow::Result
 }
 
 #[must_use]
-pub fn local_blob_path(brioche: &Brioche, blob_hash: BlobHash) -> PathBuf {
+pub fn local_blob_path(brioche: &BriocheResources, blob_hash: BlobHash) -> PathBuf {
     let blobs_dir = brioche.data_dir.join("blobs");
     blobs_dir.join(hex::encode(blob_hash.0.as_bytes()))
 }

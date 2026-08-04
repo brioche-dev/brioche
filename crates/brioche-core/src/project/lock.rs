@@ -1,14 +1,14 @@
 use std::collections::HashSet;
 
 use crate::{
-    Brioche,
+    BriocheMut,
     project::{LockfileState, ProjectRef},
 };
 
 pub async fn commit_all_dirty_lockfiles(
-    brioche: &Brioche,
+    brioche: &mut BriocheMut<'_>,
 ) -> Result<HashSet<ProjectRef>, CommitLockfileError> {
-    let projects = &mut *brioche.projects.write().await;
+    let projects = &mut brioche.state.projects;
     let mut updated_projects = HashSet::new();
 
     for (project_ref, project) in &mut projects.projects {

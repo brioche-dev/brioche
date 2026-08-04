@@ -6,12 +6,12 @@ use std::{
 use bstr::BString;
 
 use crate::{
-    Brioche,
+    BriocheMut,
     blob::BlobHash,
     encoding::TickEncoded,
     hash::AnyHash,
     platform::Platform,
-    recipe::{ArchiveFormat, ArtifactKind, CompressionFormat, Recipe, RecipeRef},
+    recipe::{ArchiveFormat, ArtifactKind, CompressionFormat, Recipe, RecipeRef, Recipes},
 };
 
 #[derive(
@@ -20,26 +20,24 @@ use crate::{
 #[serde(transparent)]
 pub struct RecipeHash(crate::hash::Blake3Hash);
 
-pub async fn hash_recipe(brioche: &Brioche, recipe_ref: RecipeRef) -> RecipeHash {
-    let mut recipes = brioche.recipes.write().await;
-    hash_recipe_inner(&mut recipes, recipe_ref)
+pub fn hash_recipe(brioche: &mut BriocheMut<'_>, recipe_ref: RecipeRef) -> RecipeHash {
+    hash_recipe_inner(&mut brioche.state.recipes, recipe_ref)
 }
 
-pub async fn hash_recipes(
-    brioche: &Brioche,
+pub fn hash_recipes(
+    brioche: &mut BriocheMut<'_>,
     recipe_refs: impl IntoIterator<Item = RecipeRef>,
 ) -> HashMap<RecipeRef, RecipeHash> {
-    let mut recipes = brioche.recipes.write().await;
-    hash_recipes_inner(&mut recipes, recipe_refs)
+    hash_recipes_inner(&mut brioche.state.recipes, recipe_refs)
 }
 
-pub fn hash_recipe_inner(recipes: &mut super::Recipes, recipe_ref: RecipeRef) -> RecipeHash {
+pub(crate) fn hash_recipe_inner(recipes: &mut Recipes, recipe_ref: RecipeRef) -> RecipeHash {
     let hashes = hash_recipes_inner(recipes, [recipe_ref]);
     hashes[&recipe_ref]
 }
 
-pub fn hash_recipes_inner(
-    recipes: &mut super::Recipes,
+pub(crate) fn hash_recipes_inner(
+    recipes: &mut Recipes,
     recipe_refs: impl IntoIterator<Item = RecipeRef>,
 ) -> HashMap<RecipeRef, RecipeHash> {
     let empty_dir = std::sync::LazyLock::new(|| {

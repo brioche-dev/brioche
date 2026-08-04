@@ -1,4 +1,4 @@
-use crate::{Brioche, project::hash::ProjectHash};
+use crate::{BriocheResources, project::hash::ProjectHash};
 
 const GET_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_mins(2);
@@ -67,7 +67,7 @@ impl RegistryClient {
 }
 
 pub async fn get_project_tag(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     project_name: &str,
     tag: &str,
 ) -> Result<Option<GetProjectTagResponse>, RegistryError> {

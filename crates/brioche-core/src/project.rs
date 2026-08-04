@@ -6,7 +6,7 @@ use std::{
 use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
 
 use crate::{
-    Brioche,
+    BriocheRef,
     hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
     project::hash::ProjectHash,
@@ -503,29 +503,35 @@ impl ModuleReferrer {
     }
 }
 
-pub async fn local_project_path(brioche: &Brioche, project_ref: ProjectRef) -> AbsolutePath {
-    let projects = brioche.projects.read().await;
-    projects.local_project_paths[&project_ref].clone()
+#[must_use]
+pub fn local_project_path(brioche: &BriocheRef<'_>, project_ref: ProjectRef) -> AbsolutePath {
+    brioche.state.projects.local_project_paths[&project_ref].clone()
 }
 
-pub async fn get_root_module(brioche: &Brioche, project_ref: ProjectRef) -> Option<ModuleRef> {
-    let projects = brioche.projects.read().await;
-    projects.graph.edges(project_ref.0).find_map(|edge| {
-        if matches!(edge.weight(), ProjectEdge::ProjectRootModule) {
-            Some(ModuleRef(edge.target()))
-        } else {
-            None
-        }
-    })
+#[must_use]
+pub fn get_root_module(brioche: &BriocheRef<'_>, project_ref: ProjectRef) -> Option<ModuleRef> {
+    brioche
+        .state
+        .projects
+        .graph
+        .edges(project_ref.0)
+        .find_map(|edge| {
+            if matches!(edge.weight(), ProjectEdge::ProjectRootModule) {
+                Some(ModuleRef(edge.target()))
+            } else {
+                None
+            }
+        })
 }
 
-pub async fn get_dependencies(
-    brioche: &Brioche,
+#[must_use]
+pub fn get_dependencies(
+    brioche: &BriocheRef<'_>,
     project_ref: ProjectRef,
 ) -> HashMap<String, ProjectRef> {
-    let projects = brioche.projects.read().await;
-
-    projects
+    brioche
+        .state
+        .projects
         .graph
         .edges(project_ref.0)
         .filter_map(|edge| {
@@ -539,13 +545,14 @@ pub async fn get_dependencies(
         .collect()
 }
 
-pub async fn get_workspace_membership(
-    brioche: &Brioche,
+#[must_use]
+pub fn get_workspace_membership(
+    brioche: &BriocheRef<'_>,
     project_ref: ProjectRef,
 ) -> Option<(WorkspaceRef, RelativePath)> {
-    let projects = brioche.projects.read().await;
-
-    projects
+    brioche
+        .state
+        .projects
         .graph
         .edges_directed(project_ref.0, petgraph::Incoming)
         .find_map(|edge| {
@@ -558,28 +565,31 @@ pub async fn get_workspace_membership(
         })
 }
 
-pub async fn get_specifier(brioche: &Brioche, project_ref: ProjectRef) -> ProjectSpecifier {
-    let projects = brioche.projects.read().await;
-
-    projects.projects[&project_ref].specifier.clone()
+#[must_use]
+pub fn get_specifier(brioche: &BriocheRef<'_>, project_ref: ProjectRef) -> ProjectSpecifier {
+    brioche.state.projects.projects[&project_ref]
+        .specifier
+        .clone()
 }
 
-pub async fn get_project_by_specifier(
-    brioche: &Brioche,
+#[must_use]
+pub fn get_project_by_specifier(
+    brioche: &BriocheRef<'_>,
     project_specifier: &ProjectSpecifier,
 ) -> Option<ProjectRef> {
-    let projects = brioche.projects.read().await;
-
-    projects
+    brioche
+        .state
+        .projects
         .projects_by_specifier
         .get(project_specifier)
         .copied()
 }
 
-pub async fn get_all_issues(brioche: &Brioche) -> Vec<ProjectIssue> {
-    let projects = brioche.projects.read().await;
-
-    projects
+#[must_use]
+pub fn get_all_issues(brioche: &BriocheRef<'_>) -> Vec<ProjectIssue> {
+    brioche
+        .state
+        .projects
         .issues
         .values()
         .flat_map(|issues| issues.iter().cloned())

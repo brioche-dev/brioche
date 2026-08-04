@@ -30,8 +30,11 @@ pub async fn launch_weird_ui(args: WeirdUiArgs) -> anyhow::Result<()> {
         .try_collect::<Vec<_>>()
         .await?;
 
-    let projects =
-        brioche_core::project::load::load_projects(&brioche, specifiers.iter().cloned()).await?;
+    let projects = brioche_core::project::load::load_projects(
+        &mut brioche.write().await,
+        specifiers.iter().cloned(),
+    )
+    .await?;
 
     let weird = weird_client::WeirdClient::builder()
         .app("brioche")
@@ -50,7 +53,8 @@ pub async fn launch_weird_ui(args: WeirdUiArgs) -> anyhow::Result<()> {
     };
 
     loop {
-        let project_graph = brioche_core::project::debug::graphviz(&brioche, &graph_options).await;
+        let project_graph =
+            brioche_core::project::debug::graphviz(&brioche.read().await, &graph_options);
 
         weird.render(vec![
             Node::text("Show modules:"),

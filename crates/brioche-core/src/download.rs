@@ -3,13 +3,13 @@ use futures::TryStreamExt as _;
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
 use crate::{
-    Brioche,
+    BriocheResources,
     reporter::job::{JobContext, NewJob, UpdateJob},
 };
 
 #[tracing::instrument(skip_all, fields(%url))]
 pub async fn download(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     url: &url::Url,
     expected_hash: Option<crate::hash::AnyHash>,
     context: JobContext,

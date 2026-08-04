@@ -84,8 +84,11 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
         .try_collect::<Vec<_>>()
         .await?;
 
-    let _projects =
-        brioche_core::project::load::load_projects(&brioche, specifiers.iter().cloned()).await?;
+    let _projects = brioche_core::project::load::load_projects(
+        &mut brioche.write().await,
+        specifiers.iter().cloned(),
+    )
+    .await?;
 
     Ok(ExitCode::SUCCESS)
 

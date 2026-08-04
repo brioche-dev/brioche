@@ -3,7 +3,7 @@ use std::{collections::HashSet, io::Write as _};
 use petgraph::visit::EdgeRef as _;
 
 use crate::{
-    Brioche,
+    BriocheRef,
     project::{
         ModuleRef, ProjectEdge, ProjectNode, ProjectRef, ProjectSpecifier, Projects, StaticRef,
         WorkspaceRef,
@@ -18,9 +18,13 @@ pub struct ProjectGraphvizOptions {
     pub highlight_projects: HashSet<ProjectRef>,
 }
 
-pub async fn graphviz(brioche: &Brioche, options: &ProjectGraphvizOptions) -> String {
-    let projects = brioche.projects.read().await;
-    graphviz_inner(&projects, &projects.graph, options)
+#[must_use]
+pub fn graphviz(brioche: &BriocheRef<'_>, options: &ProjectGraphvizOptions) -> String {
+    graphviz_inner(
+        &brioche.state.projects,
+        &brioche.state.projects.graph,
+        options,
+    )
 }
 
 pub(crate) fn graphviz_inner(

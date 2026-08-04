@@ -6,7 +6,7 @@ use std::{
 use bstr::BString;
 
 use crate::{
-    Brioche,
+    BriocheMut, BriocheRef,
     blob::BlobHash,
     hash::AnyHash,
     platform::Platform,
@@ -21,14 +21,13 @@ pub mod load;
 pub use graph::RecipeRef;
 pub use hash::RecipeHash;
 
-pub async fn get_recipe(brioche: &Brioche, recipe_ref: RecipeRef) -> Arc<Recipe> {
-    let recipes = brioche.recipes.read().await;
-    recipes.get_recipe(recipe_ref).clone()
+#[must_use]
+pub fn get_recipe(brioche: &BriocheRef<'_>, recipe_ref: RecipeRef) -> Arc<Recipe> {
+    brioche.state.recipes.get_recipe(recipe_ref).clone()
 }
 
-pub async fn insert_recipe(brioche: &Brioche, recipe: Arc<Recipe>) -> RecipeRef {
-    let mut recipes = brioche.recipes.write().await;
-    recipes.insert_recipe(recipe)
+pub fn insert_recipe(brioche: &mut BriocheMut<'_>, recipe: Arc<Recipe>) -> RecipeRef {
+    brioche.state.recipes.insert_recipe(recipe)
 }
 
 #[derive(Default)]
@@ -448,7 +447,7 @@ pub enum CompressionFormat {
 }
 
 #[expect(clippy::unused_async)]
-pub async fn commit_recipes(_brioche: &crate::Brioche) -> anyhow::Result<()> {
+pub async fn commit_recipes(_brioche: &crate::BriocheResources) -> anyhow::Result<()> {
     // TODO: Persist recipes!!
     Ok(())
 }

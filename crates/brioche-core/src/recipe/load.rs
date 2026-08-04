@@ -6,14 +6,14 @@ use std::{
 use bstr::{ByteSlice as _, ByteVec as _};
 
 use crate::{
-    Brioche,
+    BriocheResources,
     blob::SaveBlobOptions,
     path::RelativePathComponent,
     recipe::build::{ArtifactBuilder, ArtifactPath, ArtifactPathComponent},
 };
 
 pub fn load_artifact_sync(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     save_blob_permit: &mut crate::blob::SaveBlobPermit<'_>,
     container: &mut Option<ArtifactBuilder>,
     path: &Path,
@@ -89,7 +89,7 @@ pub fn load_artifact_sync(
 }
 
 pub fn load_artifact_glob_sync(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     save_blob_permit: &mut crate::blob::SaveBlobPermit<'_>,
     container: &mut Option<ArtifactBuilder>,
     path: &Path,

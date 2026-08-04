@@ -6,6 +6,7 @@ use std::{
 use anyhow::Context as _;
 
 use crate::{
+    BriocheMut, BriocheRef,
     blob::BlobHash,
     recipe::{Recipe, RecipeRef, Recipes, Symlink},
 };
@@ -35,12 +36,16 @@ impl ArtifactBuilder {
         }
     }
 
-    pub fn from_artifact(recipe_ref: RecipeRef, recipes: &Recipes) -> anyhow::Result<Self> {
+    pub fn from_artifact(brioche: &BriocheRef<'_>, recipe_ref: RecipeRef) -> anyhow::Result<Self> {
+        Self::from_artifact_inner(&brioche.state.recipes, recipe_ref)
+    }
+
+    fn from_artifact_inner(recipes: &Recipes, recipe_ref: RecipeRef) -> anyhow::Result<Self> {
         match &**recipes.get_recipe(recipe_ref) {
             Recipe::File(file) => {
                 let resources = file
                     .resources
-                    .map(|resources| Self::from_artifact(resources, recipes))
+                    .map(|resources| Self::from_artifact_inner(recipes, resources))
                     .transpose()?;
                 Ok(Self::File {
                     executable: file.executable,
@@ -53,7 +58,7 @@ impl ArtifactBuilder {
                     .entries
                     .iter()
                     .map(|(entry_name, entry)| {
-                        let entry = Self::from_artifact(*entry, recipes)?;
+                        let entry = Self::from_artifact_inner(recipes, *entry)?;
                         anyhow::Ok((entry_name.clone(), Some(entry)))
                     })
                     .collect::<anyhow::Result<_>>()?;
@@ -76,18 +81,28 @@ impl ArtifactBuilder {
 
 /// Build the final `Artifact` from the partial builder tree, resolving
 /// `Reference` placeholders against the same tree.
-pub fn build_artifact(root: &ArtifactBuilder, recipes: &mut Recipes) -> anyhow::Result<RecipeRef> {
+pub fn build_artifact(
+    brioche: &mut BriocheMut<'_>,
+    root: &ArtifactBuilder,
+) -> anyhow::Result<RecipeRef> {
+    build_artifact_inner(&mut brioche.state.recipes, root)
+}
+
+pub(crate) fn build_artifact_inner(
+    recipes: &mut Recipes,
+    root: &ArtifactBuilder,
+) -> anyhow::Result<RecipeRef> {
     // Identity-keyed memo so each unique subtree converts to an `Artifact`
     // exactly once, regardless of how many references resolve to it.
     let mut memo = HashMap::new();
-    build_artifact_node(root, root, &mut memo, recipes)
+    build_artifact_node(recipes, root, root, &mut memo)
 }
 
 fn build_artifact_node(
+    recipes: &mut Recipes,
     node: &ArtifactBuilder,
     root: &ArtifactBuilder,
     memo: &mut HashMap<usize, RecipeRef>,
-    recipes: &mut Recipes,
 ) -> anyhow::Result<RecipeRef> {
     let key = std::ptr::from_ref(node).addr();
     if let Some(cached) = memo.get(&key) {
@@ -105,7 +120,7 @@ fn build_artifact_node(
                 .as_ref()
                 .filter(|resources| resources.is_empty_dir());
             let resources = resources
-                .map(|resources| build_artifact_node(resources, root, memo, recipes))
+                .map(|resources| build_artifact_node(recipes, resources, root, memo))
                 .transpose()?;
             let resources = resources.filter(|resources| {
                 let resources = recipes.get_recipe(*resources);
@@ -129,7 +144,7 @@ fn build_artifact_node(
                 .iter()
                 .filter_map(|(name, entry)| Some((name, entry.as_ref()?)))
                 .map(|(name, entry)| {
-                    let entry = build_artifact_node(entry, root, memo, recipes)?;
+                    let entry = build_artifact_node(recipes, entry, root, memo)?;
                     Ok((name.clone(), entry))
                 })
                 .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
@@ -144,7 +159,7 @@ fn build_artifact_node(
                         source_path.display_pretty()
                     )
                 })?;
-            build_artifact_node(source_node, root, memo, recipes)?
+            build_artifact_node(recipes, source_node, root, memo)?
         }
     };
 

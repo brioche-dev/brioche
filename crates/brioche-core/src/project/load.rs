@@ -8,7 +8,7 @@ use petgraph::visit::EdgeRef as _;
 use tokio::io::AsyncReadExt as _;
 
 use crate::{
-    Brioche,
+    BriocheMut, BriocheResources,
     path::{AbsolutePath, RelativePath},
     project::{
         DependencyDefinition, Lockfile, LockfileState, Module, ModuleRef, ModuleReferrer, Project,
@@ -23,40 +23,50 @@ use crate::{
 
 #[tracing::instrument(skip_all)]
 pub async fn load_projects(
-    brioche: &Brioche,
+    brioche: &mut BriocheMut<'_>,
     specifiers: impl IntoIterator<Item = ProjectSpecifier>,
 ) -> Result<HashMap<ProjectSpecifier, ProjectRef>, LoadProjectError> {
     let mut queue = specifiers
         .into_iter()
         .map(|specifier| (specifier, ProjectReferrer::TopLevel))
         .collect::<VecDeque<_>>();
-    let mut projects = brioche.projects.write().await;
-    let projects = &mut *projects;
     let mut project_hashes_to_validate = HashMap::new();
     let mut results = HashMap::new();
 
     let mut shared_statics = HashMap::<SharedStatic, StaticRef>::new();
 
     while let Some((specifier, referrer)) = queue.pop_front() {
-        if let Some(project) = projects.projects_by_specifier.get(&specifier) {
+        let project = brioche
+            .state
+            .projects
+            .projects_by_specifier
+            .get(&specifier)
+            .copied();
+        if let Some(project) = project {
             tracing::trace!(?specifier, ?referrer, "project already loaded");
 
             match referrer {
                 ProjectReferrer::TopLevel => {
-                    results.insert(specifier, *project);
+                    results.insert(specifier, project);
                 }
                 ProjectReferrer::Project { referrer, edge, .. } => {
-                    projects.graph.update_edge(referrer.0, project.0, *edge);
+                    brioche
+                        .state
+                        .projects
+                        .graph
+                        .update_edge(referrer.0, project.0, *edge);
                 }
             }
 
             continue;
         }
 
-        let project_ref = projects.graph.add_node(ProjectNode::Project);
+        let project_ref = brioche.state.projects.graph.add_node(ProjectNode::Project);
         let project_ref = ProjectRef(project_ref);
 
-        projects
+        brioche
+            .state
+            .projects
             .projects_by_specifier
             .insert(specifier.clone(), project_ref);
 
@@ -88,7 +98,9 @@ pub async fn load_projects(
                 };
                 match load_project_by_hash(brioche, *project_hash, location).await {
                     Ok((path, workspace_root)) => {
-                        projects
+                        brioche
+                            .state
+                            .projects
                             .projects_by_specifier
                             .insert(ProjectSpecifier::Path(path.clone()), project_ref);
 
@@ -106,7 +118,9 @@ pub async fn load_projects(
             (workspace_root, subpath)
         });
 
-        projects
+        brioche
+            .state
+            .projects
             .local_project_paths
             .insert(project_ref, project_path.clone());
 
@@ -115,30 +129,32 @@ pub async fn load_projects(
                 results.insert(specifier.clone(), project_ref);
             }
             ProjectReferrer::Project { referrer, edge, .. } => {
-                projects
-                    .graph
-                    .update_edge(referrer.0, project_ref.0, (**edge).clone());
+                brioche.state.projects.graph.update_edge(
+                    referrer.0,
+                    project_ref.0,
+                    (**edge).clone(),
+                );
             }
         }
 
-        let workspace_entry;
-        let workspace = if let Some((workspace_root, workspace_subpath)) = workspace_membership {
-            match projects.workspaces_by_path.entry(workspace_root) {
+        let workspace_ref = if let Some((workspace_root, workspace_subpath)) = workspace_membership
+        {
+            let state = &mut *brioche.state;
+            match state.projects.workspaces_by_path.entry(workspace_root) {
                 std::collections::hash_map::Entry::Occupied(entry) => {
-                    projects.graph.update_edge(
+                    state.projects.graph.update_edge(
                         entry.get().0,
                         project_ref.0,
                         ProjectEdge::ProjectWithinWorkspace(workspace_subpath),
                     );
 
-                    let workspace_ref = *entry.get();
-                    projects.workspaces[&workspace_ref].as_ref().ok()
+                    Some(*entry.get())
                 }
                 std::collections::hash_map::Entry::Vacant(entry) => {
-                    let workspace_ref = projects.graph.add_node(ProjectNode::Workspace);
+                    let workspace_ref = state.projects.graph.add_node(ProjectNode::Workspace);
                     let workspace_ref = WorkspaceRef(workspace_ref);
 
-                    projects.graph.update_edge(
+                    state.projects.graph.update_edge(
                         workspace_ref.0,
                         project_ref.0,
                         ProjectEdge::ProjectWithinWorkspace(workspace_subpath),
@@ -149,12 +165,9 @@ pub async fn load_projects(
                     tracing::trace!(workspace = ?workspace.as_ref().map(|_| ()), "loaded new workspace");
 
                     entry.insert(workspace_ref);
+                    state.projects.workspaces.insert(workspace_ref, workspace);
 
-                    workspace_entry = projects
-                        .workspaces
-                        .entry(workspace_ref)
-                        .insert_entry(workspace);
-                    workspace_entry.get().as_ref().ok()
+                    Some(workspace_ref)
                 }
             }
         } else {
@@ -209,7 +222,7 @@ pub async fn load_projects(
         )]);
         while let Some((module_subpath, module_referrer)) = module_queue.pop_front() {
             if let Some(module_ref) = project_modules.get(&module_subpath) {
-                projects.graph.update_edge(
+                brioche.state.projects.graph.update_edge(
                     module_referrer.node_index(),
                     module_ref.0,
                     module_referrer.edge(),
@@ -226,15 +239,17 @@ pub async fn load_projects(
                     panic!("module subpath {module_subpath} escapes project path {project_path}: {error}")
                 });
 
-            let module_ref = projects.graph.add_node(ProjectNode::Module);
+            let module_ref = brioche.state.projects.graph.add_node(ProjectNode::Module);
             let module_ref = ModuleRef(module_ref);
-            projects.graph.update_edge(
+            brioche.state.projects.graph.update_edge(
                 module_referrer.node_index(),
                 module_ref.0,
                 module_referrer.edge(),
             );
             project_modules.insert(module_subpath.clone(), module_ref);
-            projects
+            brioche
+                .state
+                .projects
                 .project_by_module
                 .insert(module_ref, (project_ref, module_subpath.clone()));
 
@@ -248,13 +263,13 @@ pub async fn load_projects(
                 subpath: module_subpath,
             };
 
-            let module_entry = projects.modules.entry(module_ref).insert_entry(module);
-            let module = module_entry.get();
+            brioche.state.projects.modules.insert(module_ref, module);
 
-            let module_ast = module
+            let module_ast = brioche.state.projects.modules[&module_ref]
                 .source
                 .as_deref()
-                .map(crate::script::parse::parse_script);
+                .map(crate::script::parse::parse_script)
+                .map_err(Clone::clone);
             let module_ast_entry =
                 module_ast.map(|ast| module_asts.entry(module_ref).insert_entry(ast));
             let module_ast = module_ast_entry
@@ -271,7 +286,9 @@ pub async fn load_projects(
                         let project_definition_value = match project_definition_value {
                             Ok(value) => value,
                             Err(error) => {
-                                projects
+                                brioche
+                                    .state
+                                    .projects
                                     .issues
                                     .entry(module_ref.0)
                                     .or_default()
@@ -297,14 +314,18 @@ pub async fn load_projects(
                                 match project_definition {
                                     Ok(project_definition) => Some(project_definition),
                                     Err(error) => {
-                                        projects.issues.entry(module_ref.0).or_default().push(
-                                            ProjectIssue::InvalidProjectDefinition {
+                                        brioche
+                                            .state
+                                            .projects
+                                            .issues
+                                            .entry(module_ref.0)
+                                            .or_default()
+                                            .push(ProjectIssue::InvalidProjectDefinition {
                                                 error_message: error.to_string(),
                                                 line: error.line(),
                                                 column: error.column(),
                                                 location: project_definition_location,
-                                            },
-                                        );
+                                            });
                                         None
                                     }
                                 }
@@ -317,7 +338,9 @@ pub async fn load_projects(
                         let import = match import {
                             Ok(import) => import,
                             Err(error) => {
-                                projects
+                                brioche
+                                    .state
+                                    .projects
                                     .issues
                                     .entry(module_ref.0)
                                     .or_default()
@@ -340,15 +363,19 @@ pub async fn load_projects(
                                 };
                                 let Ok(subpath) = subpath.normalized_subpath() else {
                                     let range = Some(import.range);
-                                    projects.issues.entry(module_ref.0).or_default().push(
-                                        ProjectIssue::ModuleImportEscapesProjectPath {
+                                    brioche
+                                        .state
+                                        .projects
+                                        .issues
+                                        .entry(module_ref.0)
+                                        .or_default()
+                                        .push(ProjectIssue::ModuleImportEscapesProjectPath {
                                             import,
                                             location: ProjectIssueLocation {
                                                 source: module_ref.into(),
                                                 range,
                                             },
-                                        },
-                                    );
+                                        });
                                     continue;
                                 };
 
@@ -362,9 +389,14 @@ pub async fn load_projects(
                                 ));
                             }
                             ImportSpecifier::External(specifier) => {
-                                let issues = projects.issues.entry(project_ref.0).or_default();
+                                let state = &mut *brioche.state;
+                                let issues =
+                                    state.projects.issues.entry(project_ref.0).or_default();
+                                let workspace = workspace_ref.and_then(|workspace_ref| {
+                                    state.projects.workspaces[&workspace_ref].as_ref().ok()
+                                });
                                 let resolved_dep = resolve_project_dependency(
-                                    brioche,
+                                    brioche.resources,
                                     &mut ResolveProjectDependencyContext {
                                         project_path: &project_path,
                                         project_definition: &project_definition,
@@ -403,7 +435,9 @@ pub async fn load_projects(
                         let query = match query {
                             Ok(query) => query,
                             Err(error) => {
-                                projects
+                                brioche
+                                    .state
+                                    .projects
                                     .issues
                                     .entry(module_ref.0)
                                     .or_default()
@@ -416,24 +450,32 @@ pub async fn load_projects(
                         let static_ref = match static_ {
                             PartialStatic::Shared(static_) => {
                                 *shared_statics.entry(static_).or_insert_with_key(|static_| {
-                                    let static_ref =
-                                        StaticRef(projects.graph.add_node(ProjectNode::Static));
-                                    projects.statics.insert(static_ref, static_.clone().into());
+                                    let static_ref = StaticRef(
+                                        brioche.state.projects.graph.add_node(ProjectNode::Static),
+                                    );
+                                    brioche
+                                        .state
+                                        .projects
+                                        .statics
+                                        .insert(static_ref, static_.clone().into());
                                     static_ref
                                 })
                             }
                             PartialStatic::Unique(static_) => {
-                                let static_ref =
-                                    StaticRef(projects.graph.add_node(ProjectNode::Static));
-                                projects.statics.insert(static_ref, static_);
+                                let static_ref = StaticRef(
+                                    brioche.state.projects.graph.add_node(ProjectNode::Static),
+                                );
+                                brioche.state.projects.statics.insert(static_ref, static_);
                                 static_ref
                             }
                             PartialStatic::Unresolved(static_) => {
+                                let state = &mut *brioche.state;
                                 let location = ProjectIssueLocation {
                                     source: module_ref.into(),
                                     range: Some(query.range),
                                 };
-                                let static_ref_entry = projects
+                                let static_ref_entry = state
+                                    .projects
                                     .static_ref_by_unresolved_static
                                     .entry(static_.clone());
                                 let static_ref = match static_ref_entry {
@@ -444,18 +486,25 @@ pub async fn load_projects(
                                     }
                                     std::collections::hash_map::Entry::Vacant(entry) => {
                                         let static_ref = StaticRef(
-                                            projects.graph.add_node(ProjectNode::UnresolvedStatic),
+                                            state
+                                                .projects
+                                                .graph
+                                                .add_node(ProjectNode::UnresolvedStatic),
                                         );
                                         entry.insert((static_ref, vec![location]));
                                         static_ref
                                     }
                                 };
-                                projects.unresolved_statics.insert(static_ref, static_);
+                                brioche
+                                    .state
+                                    .projects
+                                    .unresolved_statics
+                                    .insert(static_ref, static_);
                                 static_ref
                             }
                         };
 
-                        projects.graph.add_edge(
+                        brioche.state.projects.graph.add_edge(
                             module_ref.0,
                             static_ref.0,
                             ProjectEdge::ModuleStatic(query),
@@ -463,13 +512,17 @@ pub async fn load_projects(
                     }
                 }
                 Err(error) => {
-                    projects.issues.entry(project_ref.0).or_default().push(
-                        ProjectIssue::LoadModuleError {
+                    brioche
+                        .state
+                        .projects
+                        .issues
+                        .entry(project_ref.0)
+                        .or_default()
+                        .push(ProjectIssue::LoadModuleError {
                             error: (*error).clone(),
                             module_ref,
                             referrer: module_referrer.referrer_and_range(),
-                        },
-                    );
+                        });
                 }
             }
         }
@@ -484,12 +537,16 @@ pub async fn load_projects(
         let project_definition_value = match project_definition_value {
             Ok(value) => value,
             Err(error) => {
-                projects.issues.entry(root_module_ref.0).or_default().push(
-                    ProjectIssue::ScriptParseError {
+                brioche
+                    .state
+                    .projects
+                    .issues
+                    .entry(root_module_ref.0)
+                    .or_default()
+                    .push(ProjectIssue::ScriptParseError {
                         error,
                         module_ref: root_module_ref,
-                    },
-                );
+                    });
                 None
             }
         };
@@ -505,14 +562,18 @@ pub async fn load_projects(
             match project_definition {
                 Ok(project_definition) => Some(project_definition),
                 Err(error) => {
-                    projects.issues.entry(root_module_ref.0).or_default().push(
-                        ProjectIssue::InvalidProjectDefinition {
+                    brioche
+                        .state
+                        .projects
+                        .issues
+                        .entry(root_module_ref.0)
+                        .or_default()
+                        .push(ProjectIssue::InvalidProjectDefinition {
                             error_message: error.to_string(),
                             line: error.line(),
                             column: error.column(),
                             location: project_definition_location,
-                        },
-                    );
+                        });
                     None
                 }
             }
@@ -520,9 +581,12 @@ pub async fn load_projects(
         let project_definition = project_definition.unwrap_or_default();
 
         for specifier in project_definition.dependencies.keys() {
-            let issues = projects.issues.entry(project_ref.0).or_default();
+            let state = &mut *brioche.state;
+            let issues = state.projects.issues.entry(project_ref.0).or_default();
+            let workspace = workspace_ref
+                .and_then(|workspace_ref| state.projects.workspaces[&workspace_ref].as_ref().ok());
             let resolved_dep = resolve_project_dependency(
-                brioche,
+                brioche.resources,
                 &mut ResolveProjectDependencyContext {
                     project_path: &project_path,
                     project_definition: &project_definition,
@@ -554,9 +618,11 @@ pub async fn load_projects(
             specifier,
             lockfile_state: LockfileState::new(lockfile_with_content.ok(), new_lockfile),
         };
-        projects.projects.insert(project_ref, project);
+        brioche.state.projects.projects.insert(project_ref, project);
 
-        projects
+        brioche
+            .state
+            .projects
             .modules_by_project
             .insert(project_ref, project_modules);
     }
@@ -564,7 +630,9 @@ pub async fn load_projects(
     // Skip project hash validation for any projects that already had
     // other issues
     project_hashes_to_validate.retain(|project_ref, _| {
-        projects
+        brioche
+            .state
+            .projects
             .issues
             .get(&project_ref.0)
             .is_none_or(Vec::is_empty)
@@ -572,11 +640,10 @@ pub async fn load_projects(
 
     if !project_hashes_to_validate.is_empty() {
         let project_groups = crate::project::hash::group_project_nodes(
-            projects,
+            &brioche.state.projects,
             project_hashes_to_validate.keys().copied(),
         );
 
-        let mut recipes = brioche.recipes.write().await;
         let mut permit = crate::blob::get_save_blob_permit()
             .await
             .expect("todo: failed to get save blob permit");
@@ -584,8 +651,6 @@ pub async fn load_projects(
         let mut project_hashes = HashMap::new();
         crate::project::hash::hash_projects_inner(
             brioche,
-            projects,
-            &mut recipes,
             &mut permit,
             &project_groups,
             &mut project_hashes,
@@ -595,13 +660,17 @@ pub async fn load_projects(
         for (project_ref, expected_hash) in project_hashes_to_validate {
             let actual_hash = project_hashes[&project_ref];
             if expected_hash != actual_hash {
-                projects.issues.entry(project_ref.0).or_default().push(
-                    ProjectIssue::ProjectHashMismatch {
+                brioche
+                    .state
+                    .projects
+                    .issues
+                    .entry(project_ref.0)
+                    .or_default()
+                    .push(ProjectIssue::ProjectHashMismatch {
                         project_ref,
                         expected_hash,
                         actual_hash,
-                    },
-                );
+                    });
             }
         }
     }
@@ -610,22 +679,25 @@ pub async fn load_projects(
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> {
-    let mut projects = brioche.projects.write().await;
-    let projects = &mut *projects;
+pub async fn resolve_statics(brioche: &mut BriocheMut<'_>) -> Result<(), LoadProjectError> {
+    let state = &mut *brioche.state;
 
     for (unresolved, (static_ref, mut locations)) in
-        projects.static_ref_by_unresolved_static.clone()
+        state.projects.static_ref_by_unresolved_static.clone()
     {
         let location = locations.swap_remove(0);
-        let result = resolve_static(brioche, &unresolved, location).await;
+        let result = resolve_static(brioche.resources, &unresolved, location).await;
 
         match result {
             Ok(static_) => {
-                projects.unresolved_statics.remove(&static_ref);
-                projects.static_ref_by_unresolved_static.remove(&unresolved);
+                state.projects.unresolved_statics.remove(&static_ref);
+                state
+                    .projects
+                    .static_ref_by_unresolved_static
+                    .remove(&unresolved);
 
-                let module_refs = projects
+                let module_refs = state
+                    .projects
                     .graph
                     .edges_directed(static_ref.0, petgraph::Direction::Incoming)
                     .filter_map(|edge| {
@@ -636,9 +708,9 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                         }
                     });
                 let project_refs =
-                    module_refs.map(|module_ref| &projects.project_by_module[&module_ref]);
+                    module_refs.map(|module_ref| &state.projects.project_by_module[&module_ref]);
                 for (project_ref, _) in project_refs {
-                    let Some(project) = projects.projects.get_mut(project_ref) else {
+                    let Some(project) = state.projects.projects.get_mut(project_ref) else {
                         continue;
                     };
 
@@ -660,12 +732,15 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                     });
                 }
 
-                match projects.static_ref_by_shared_static.entry(static_) {
+                match state.projects.static_ref_by_shared_static.entry(static_) {
                     std::collections::hash_map::Entry::Occupied(entry) => {
                         let resolved_ref = *entry.get();
-                        projects.resolved_statics.insert(static_ref, resolved_ref);
+                        state
+                            .projects
+                            .resolved_statics
+                            .insert(static_ref, resolved_ref);
 
-                        projects.graph.add_edge(
+                        state.projects.graph.add_edge(
                             static_ref.0,
                             resolved_ref.0,
                             ProjectEdge::ResolvedStatic,
@@ -674,9 +749,10 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         let static_ = entry.key().clone().into();
                         entry.insert(static_ref);
-                        projects.statics.insert(static_ref, static_);
+                        state.projects.statics.insert(static_ref, static_);
 
-                        let static_node = projects
+                        let static_node = state
+                            .projects
                             .graph
                             .node_weight_mut(static_ref.0)
                             .expect("node not found");
@@ -685,27 +761,31 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 }
             }
             Err(issue) => {
-                projects.issues.entry(static_ref.0).or_default().push(issue);
+                state
+                    .projects
+                    .issues
+                    .entry(static_ref.0)
+                    .or_default()
+                    .push(issue);
             }
         }
     }
 
-    let projects = &mut *projects;
-    for (static_ref, static_) in &projects.statics {
+    for (static_ref, static_) in &state.projects.statics {
         match static_ {
             Static::IncludeFile(relative_path) => {
-                let module_ref = projects.module_for_static(*static_ref);
+                let module_ref = state.projects.module_for_static(*static_ref);
                 let Some((module_ref, range)) = module_ref else {
                     continue;
                 };
 
-                let (project_ref, module_subpath) = &projects.project_by_module[&module_ref];
+                let (project_ref, module_subpath) = &state.projects.project_by_module[&module_ref];
                 let module_dir = module_subpath.parent().expect("invalid module subpath");
-                let project_path = &projects.local_project_paths[project_ref];
+                let project_path = &state.projects.local_project_paths[project_ref];
                 let static_subpath = module_dir.join(relative_path.clone());
                 let static_path = project_path.join_subpath(static_subpath);
                 let Ok(static_path) = static_path else {
-                    projects.issues.entry(static_ref.0).or_default().push(
+                    state.projects.issues.entry(static_ref.0).or_default().push(
                         ProjectIssue::StaticIncludeEscapesProjectPath {
                             static_ref: *static_ref,
                             include: relative_path.clone(),
@@ -730,7 +810,7 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                             source: (*static_ref).into(),
                             range: None,
                         };
-                        projects.issues.entry(static_ref.0).or_default().push(
+                        state.projects.issues.entry(static_ref.0).or_default().push(
                             ProjectIssue::IoError {
                                 error_message: error.to_string(),
                                 path: Some(static_system_path),
@@ -744,7 +824,7 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 // TODO: Read file into an artifact
 
                 if !file_metadata.is_file() {
-                    projects.issues.entry(static_ref.0).or_default().push(
+                    state.projects.issues.entry(static_ref.0).or_default().push(
                         ProjectIssue::StaticIncludeExpectedFile {
                             static_ref: *static_ref,
                             include: relative_path.clone(),
@@ -755,18 +835,18 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 }
             }
             Static::IncludeDirectory(relative_path) => {
-                let module_ref = projects.module_for_static(*static_ref);
+                let module_ref = state.projects.module_for_static(*static_ref);
                 let Some((module_ref, range)) = module_ref else {
                     continue;
                 };
 
-                let (project_ref, module_subpath) = &projects.project_by_module[&module_ref];
+                let (project_ref, module_subpath) = &state.projects.project_by_module[&module_ref];
                 let module_dir = module_subpath.parent().expect("invalid module subpath");
-                let project_path = &projects.local_project_paths[project_ref];
+                let project_path = &state.projects.local_project_paths[project_ref];
                 let static_subpath = module_dir.join(relative_path.clone());
                 let static_path = project_path.join_subpath(static_subpath);
                 let Ok(static_path) = static_path else {
-                    projects.issues.entry(static_ref.0).or_default().push(
+                    state.projects.issues.entry(static_ref.0).or_default().push(
                         ProjectIssue::StaticIncludeEscapesProjectPath {
                             static_ref: *static_ref,
                             include: relative_path.clone(),
@@ -786,7 +866,7 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                             source: (*static_ref).into(),
                             range: None,
                         };
-                        projects.issues.entry(static_ref.0).or_default().push(
+                        state.projects.issues.entry(static_ref.0).or_default().push(
                             ProjectIssue::IoError {
                                 error_message: error.to_string(),
                                 path: Some(static_system_path),
@@ -800,7 +880,7 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
                 // TODO: Read directory into an artifact
 
                 if !directory_metadata.is_dir() {
-                    projects.issues.entry(static_ref.0).or_default().push(
+                    state.projects.issues.entry(static_ref.0).or_default().push(
                         ProjectIssue::StaticIncludeExpectedDirectory {
                             static_ref: *static_ref,
                             include: relative_path.clone(),
@@ -826,7 +906,7 @@ pub async fn resolve_statics(brioche: &Brioche) -> Result<(), LoadProjectError> 
 }
 
 async fn resolve_static(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     static_: &UnresolvedStatic,
     location: ProjectIssueLocation,
 ) -> Result<SharedStatic, ProjectIssue> {
@@ -1024,7 +1104,7 @@ async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceEr
 }
 
 async fn load_project_by_hash(
-    brioche: &Brioche,
+    brioche: &mut BriocheMut<'_>,
     project_hash: ProjectHash,
     location: ProjectIssueLocation,
 ) -> Result<(AbsolutePath, Option<AbsolutePath>), ProjectIssue> {
@@ -1040,7 +1120,7 @@ async fn load_project_by_hash(
     let _guard = project_mutex.lock().await;
 
     // TODO: handle errors cleanly
-    let projects_system_path = brioche.data_dir.join("projects");
+    let projects_system_path = brioche.resources.data_dir.join("projects");
     tokio::fs::create_dir_all(&projects_system_path)
         .await
         .unwrap();
@@ -1167,7 +1247,7 @@ struct ResolveProjectDependencyContext<'a> {
 }
 
 async fn resolve_project_dependency(
-    brioche: &Brioche,
+    brioche: &BriocheResources,
     ctx: &mut ResolveProjectDependencyContext<'_>,
     specifier: &str,
     location: ProjectIssueLocation,

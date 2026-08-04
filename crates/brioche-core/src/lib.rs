@@ -33,22 +33,8 @@ static DEFAULT_REGISTRY_URL: std::sync::LazyLock<url::Url> =
 
 #[derive(Clone)]
 pub struct Brioche {
-    reporter: reporter::Reporter,
-    projects: Arc<RwLock<project::Projects>>,
-    recipes: Arc<RwLock<recipe::Recipes>>,
-
-    /// The directory where all of Brioche's data is stored. Usually configured
-    /// to follow the platform's conventions for storing application data, such
-    /// as `~/.local/share/brioche` on Linux.
-    pub data_dir: PathBuf,
-
-    registry_client: registry::RegistryClient,
-
-    pub cache_client: cache::CacheClient,
-
-    pub download_semaphore: Arc<tokio::sync::Semaphore>,
-
-    pub download_client: reqwest_middleware::ClientWithMiddleware,
+    resources: Arc<BriocheResources>,
+    state: Arc<RwLock<BriocheState>>,
 }
 
 impl Brioche {
@@ -68,10 +54,68 @@ impl Brioche {
         Self::builder().build().await.unwrap()
     }
 
+    /// The directory where all of Brioche's data is stored. Usually configured
+    /// to follow the platform's conventions for storing application data, such
+    /// as `~/.local/share/brioche` on Linux.
     #[must_use]
-    pub const fn recipes(&self) -> &Arc<RwLock<recipe::Recipes>> {
-        &self.recipes
+    pub fn data_dir(&self) -> &Path {
+        &self.resources.data_dir
     }
+
+    pub async fn read(&self) -> BriocheRef<'_> {
+        BriocheRef {
+            resources: &self.resources,
+            state: self.state.read().await,
+        }
+    }
+
+    pub async fn write(&self) -> BriocheMut<'_> {
+        BriocheMut {
+            resources: &self.resources,
+            state: self.state.write().await,
+        }
+    }
+
+    #[must_use]
+    pub const fn resources(&self) -> &Arc<BriocheResources> {
+        &self.resources
+    }
+}
+
+pub struct BriocheResources {
+    reporter: reporter::Reporter,
+
+    data_dir: PathBuf,
+
+    registry_client: registry::RegistryClient,
+
+    cache_client: cache::CacheClient,
+
+    download_semaphore: tokio::sync::Semaphore,
+
+    download_client: reqwest_middleware::ClientWithMiddleware,
+}
+
+pub struct BriocheRef<'a> {
+    resources: &'a Arc<BriocheResources>,
+    state: tokio::sync::RwLockReadGuard<'a, BriocheState>,
+}
+
+impl BriocheRef<'_> {
+    #[must_use]
+    pub const fn resources(&self) -> &Arc<BriocheResources> {
+        self.resources
+    }
+}
+
+pub struct BriocheMut<'a> {
+    resources: &'a Arc<BriocheResources>,
+    state: tokio::sync::RwLockWriteGuard<'a, BriocheState>,
+}
+
+struct BriocheState {
+    projects: project::Projects,
+    recipes: recipe::Recipes,
 }
 
 pub struct BriocheBuilder {
@@ -268,14 +312,18 @@ impl BriocheBuilder {
             .build();
 
         Ok(Brioche {
-            reporter,
-            projects: Arc::new(RwLock::new(project::Projects::default())),
-            recipes: Arc::new(RwLock::new(recipe::Recipes::default())),
-            data_dir,
-            registry_client,
-            cache_client,
-            download_semaphore: Arc::new(tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS)),
-            download_client,
+            resources: Arc::new(BriocheResources {
+                reporter,
+                data_dir,
+                registry_client,
+                cache_client,
+                download_semaphore: tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS),
+                download_client,
+            }),
+            state: Arc::new(RwLock::new(BriocheState {
+                projects: project::Projects::default(),
+                recipes: recipe::Recipes::default(),
+            })),
         })
     }
 }
