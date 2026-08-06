@@ -63,17 +63,11 @@ impl Brioche {
     }
 
     pub async fn read(&self) -> BriocheRef<'_> {
-        BriocheRef {
-            resources: &self.resources,
-            state: self.state.read().await,
-        }
+        BriocheRef(self.state.read().await)
     }
 
     pub async fn write(&self) -> BriocheMut<'_> {
-        BriocheMut {
-            resources: &self.resources,
-            state: self.state.write().await,
-        }
+        BriocheMut(self.state.write().await)
     }
 
     #[must_use]
@@ -96,26 +90,43 @@ pub struct BriocheResources {
     download_client: reqwest_middleware::ClientWithMiddleware,
 }
 
-pub struct BriocheRef<'a> {
-    resources: &'a Arc<BriocheResources>,
-    state: tokio::sync::RwLockReadGuard<'a, BriocheState>,
-}
+pub struct BriocheRef<'a>(tokio::sync::RwLockReadGuard<'a, BriocheState>);
 
-impl BriocheRef<'_> {
-    #[must_use]
-    pub const fn resources(&self) -> &Arc<BriocheResources> {
-        self.resources
+impl std::ops::Deref for BriocheRef<'_> {
+    type Target = BriocheState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-pub struct BriocheMut<'a> {
-    resources: &'a Arc<BriocheResources>,
-    state: tokio::sync::RwLockWriteGuard<'a, BriocheState>,
+pub struct BriocheMut<'a>(tokio::sync::RwLockWriteGuard<'a, BriocheState>);
+
+impl std::ops::Deref for BriocheMut<'_> {
+    type Target = BriocheState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
-struct BriocheState {
+impl std::ops::DerefMut for BriocheMut<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub struct BriocheState {
+    resources: Arc<BriocheResources>,
     projects: project::Projects,
     recipes: recipe::Recipes,
+}
+
+impl BriocheState {
+    #[must_use]
+    pub const fn resources(&self) -> &Arc<BriocheResources> {
+        &self.resources
+    }
 }
 
 pub struct BriocheBuilder {
@@ -311,19 +322,20 @@ impl BriocheBuilder {
             .with(download_retry_middleware)
             .build();
 
-        Ok(Brioche {
-            resources: Arc::new(BriocheResources {
-                reporter,
-                data_dir,
-                registry_client,
-                cache_client,
-                download_semaphore: tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS),
-                download_client,
-            }),
-            state: Arc::new(RwLock::new(BriocheState {
-                projects: project::Projects::default(),
-                recipes: recipe::Recipes::default(),
-            })),
-        })
+        let resources = Arc::new(BriocheResources {
+            reporter,
+            data_dir,
+            registry_client,
+            cache_client,
+            download_semaphore: tokio::sync::Semaphore::new(MAX_CONCURRENT_DOWNLOADS),
+            download_client,
+        });
+        let state = Arc::new(RwLock::new(BriocheState {
+            resources: resources.clone(),
+            projects: project::Projects::default(),
+            recipes: recipe::Recipes::default(),
+        }));
+
+        Ok(Brioche { resources, state })
     }
 }

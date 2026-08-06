@@ -8,7 +8,7 @@ use bstr::{ByteSlice as _, ByteVec as _};
 use petgraph::visit::EdgeRef as _;
 
 use crate::{
-    BriocheMut, BriocheResources,
+    BriocheResources, BriocheState,
     blob::SaveBlobPermit,
     path::{AbsolutePath, RelativePath, RelativePathComponent},
     project::{
@@ -24,7 +24,7 @@ use crate::{
 use super::{Projects, hash::ProjectHash};
 
 pub async fn create_project_artifact(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     project_ref: ProjectRef,
 ) -> anyhow::Result<RecipeRef> {
     let mut permit = crate::blob::get_save_blob_permit().await?;
@@ -32,7 +32,7 @@ pub async fn create_project_artifact(
     let mut directory = Some(recipe::build::ArtifactBuilder::empty_dir());
 
     let project_groups =
-        crate::project::hash::group_project_nodes(&brioche.state.projects, [project_ref]);
+        crate::project::hash::group_project_nodes(&brioche.projects, [project_ref]);
 
     // Compute hashes for each project
     let mut project_hashes = HashMap::new();
@@ -91,7 +91,7 @@ pub async fn create_project_artifact(
             .context("failed to serialize lockfile")?;
 
         let workspace_definition_blob = crate::blob::save_blob(
-            brioche.resources,
+            &brioche.resources,
             &mut permit,
             workspace_definition_contents.as_bytes(),
             crate::blob::SaveBlobOptions::default(),
@@ -115,8 +115,8 @@ pub async fn create_project_artifact(
         let project_path = project_hash.to_string();
 
         let project_artifact = create_single_project_artifact(
-            brioche.resources,
-            &brioche.state.projects,
+            &brioche.resources,
+            &brioche.projects,
             &project_hashes,
             project_ref,
             &mut permit,
@@ -428,14 +428,14 @@ async fn create_single_project_artifact(
 }
 
 pub async fn save_projects_from_artifact(
-    brioche: &BriocheMut<'_>,
+    brioche: &BriocheState,
     artifact_ref: RecipeRef,
 ) -> anyhow::Result<HashMap<ProjectHash, crate::path::AbsolutePath>> {
     let mut project_hashes = HashSet::new();
     let mut needed_workspace_hashes = HashSet::new();
     let mut included_workspace_hashes = HashSet::new();
 
-    let artifact = brioche.state.recipes.get_recipe(artifact_ref);
+    let artifact = brioche.recipes.get_recipe(artifact_ref);
     let Recipe::Directory(artifact) = &**artifact else {
         anyhow::bail!("expected Directory, but got {:?}", artifact.kind());
     };
@@ -457,7 +457,7 @@ pub async fn save_projects_from_artifact(
             included_workspace_hashes.insert(workspace_hash);
 
             // Validate that the workspace is stored as a directory
-            let entry = brioche.state.recipes.get_recipe(*entry_ref);
+            let entry = brioche.recipes.get_recipe(*entry_ref);
             anyhow::ensure!(
                 matches!(**entry, Recipe::Directory(_)),
                 "expected artifact entry for workspace {workspace_hash} to be a directory"
@@ -471,7 +471,7 @@ pub async fn save_projects_from_artifact(
                 .with_context(|| format!("invalid filename in artifact: {name:?}"))?;
             project_hashes.insert(project_hash);
 
-            let entry = brioche.state.recipes.get_recipe(*entry_ref);
+            let entry = brioche.recipes.get_recipe(*entry_ref);
             match &**entry {
                 Recipe::Directory(_) => {
                     // Normal project (not part of a workspace)
@@ -534,8 +534,8 @@ pub async fn save_projects_from_artifact(
 
     // Save the contents of the artifact under `projects/inner`
     write_artifact_atomic(
-        brioche.resources,
-        &brioche.state.recipes,
+        &brioche.resources,
+        &brioche.recipes,
         artifact_ref,
         &inner_dir_path,
         &project_temp_dir_path,

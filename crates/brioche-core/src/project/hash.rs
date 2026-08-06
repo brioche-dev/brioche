@@ -5,7 +5,7 @@ use joinery::JoinableIterator as _;
 use petgraph::visit::EdgeRef as _;
 
 use crate::{
-    BriocheMut,
+    BriocheState,
     encoding::TickEncoded,
     path::{RelativePath, RelativePathComponent},
     project::{ProjectDefinition, ProjectEdge, ProjectRef, StaticRef, WorkspaceRef},
@@ -34,10 +34,10 @@ impl std::str::FromStr for ProjectHash {
 }
 
 pub async fn hash_project(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     project_ref: ProjectRef,
 ) -> Result<ProjectHash, std::convert::Infallible> {
-    let node_groups = group_project_nodes(&brioche.state.projects, [project_ref]);
+    let node_groups = group_project_nodes(&brioche.projects, [project_ref]);
 
     let mut project_hashes = HashMap::<ProjectRef, ProjectHash>::new();
 
@@ -56,10 +56,10 @@ pub async fn hash_project(
 }
 
 pub async fn get_content_addressed_project_entries(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     project_ref: ProjectRef,
 ) -> HashMap<ProjectRef, ContentAddressedProjectEntry> {
-    let node_groups = group_project_nodes(&brioche.state.projects, [project_ref]);
+    let node_groups = group_project_nodes(&brioche.projects, [project_ref]);
 
     let mut project_hashes = HashMap::new();
     let mut project_entries = HashMap::new();
@@ -128,7 +128,7 @@ pub(super) fn group_project_nodes(
 }
 
 pub(super) fn hash_projects_inner(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     permit: &mut crate::blob::SaveBlobPermit,
     project_groups: &[HashSet<ProjectRef>],
     project_hashes: &mut HashMap<ProjectRef, ProjectHash>,
@@ -153,7 +153,6 @@ pub(super) fn hash_projects_inner(
                 .copied()
                 .map(|project_ref| {
                     let (workspace_ref, workspace_path) = brioche
-                        .state
                         .projects
                         .graph
                         .edges_directed(project_ref.0, petgraph::Incoming)
@@ -212,16 +211,15 @@ pub(super) fn hash_projects_inner(
 
 #[expect(clippy::similar_names)]
 fn content_addressed_project(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     permit: &mut crate::blob::SaveBlobPermit,
     project_ref: ProjectRef,
     project_hashes: &HashMap<ProjectRef, ProjectHash>,
     workspace_group_siblings: Option<&HashMap<ProjectRef, ContentAddressedWorkspacePath>>,
 ) -> ContentAddressedProject {
-    let state = &mut *brioche.state;
-    let project = &state.projects.projects[&project_ref];
+    let project = &brioche.projects.projects[&project_ref];
 
-    let dependencies = state
+    let dependencies = brioche
         .projects
         .graph
         .edges(project_ref.0)
@@ -247,8 +245,8 @@ fn content_addressed_project(
     let mut modules = HashMap::<RelativePath, crate::hash::Blake3Hash>::new();
     let mut statics = HashMap::<RelativePath, BTreeMap<StaticQuery, Option<StaticOutput>>>::new();
 
-    for (module_subpath, module_ref) in &state.projects.modules_by_project[&project_ref] {
-        let module_source = state.projects.modules[module_ref]
+    for (module_subpath, module_ref) in &brioche.projects.modules_by_project[&project_ref] {
+        let module_source = brioche.projects.modules[module_ref]
             .source
             .as_deref()
             .expect("todo: handle module load error");
@@ -258,7 +256,7 @@ fn content_addressed_project(
             crate::hash::Blake3Hash::from(source_hash),
         );
 
-        let module_static_refs = state
+        let module_static_refs = brioche
             .projects
             .graph
             .edges_directed(module_ref.0, petgraph::Direction::Outgoing)
@@ -270,13 +268,13 @@ fn content_addressed_project(
                 }
             });
         for (query, static_ref) in module_static_refs {
-            let Some(static_) = state.projects.get_static(static_ref) else {
+            let Some(static_) = brioche.projects.get_static(static_ref) else {
                 todo!("handle unresolved static");
             };
 
             let static_output = match static_ {
                 super::Static::IncludeFile(_) => {
-                    let static_path = state
+                    let static_path = brioche
                         .projects
                         .static_path(static_ref)
                         .unwrap()
@@ -288,7 +286,7 @@ fn content_addressed_project(
                     // TODO: Wrap with blocking!!
                     let mut artifact = None;
                     crate::recipe::load::load_artifact_sync(
-                        brioche.resources,
+                        &brioche.resources,
                         permit,
                         &mut artifact,
                         &static_path,
@@ -303,15 +301,15 @@ fn content_addressed_project(
                     );
 
                     let recipe_ref =
-                        crate::recipe::build::build_artifact_inner(&mut state.recipes, &artifact)
+                        crate::recipe::build::build_artifact_inner(&mut brioche.recipes, &artifact)
                             .expect("todo: failed to build artifact");
                     let recipe_hash =
-                        crate::recipe::hash::hash_recipe_inner(&mut state.recipes, recipe_ref);
+                        crate::recipe::hash::hash_recipe_inner(&mut brioche.recipes, recipe_ref);
 
                     StaticOutput::RecipeHash(recipe_hash)
                 }
                 super::Static::IncludeDirectory(_) => {
-                    let static_path = state
+                    let static_path = brioche
                         .projects
                         .static_path(static_ref)
                         .unwrap()
@@ -323,7 +321,7 @@ fn content_addressed_project(
                     // TODO: Wrap with blocking!!
                     let mut artifact = None;
                     crate::recipe::load::load_artifact_sync(
-                        brioche.resources,
+                        &brioche.resources,
                         permit,
                         &mut artifact,
                         &static_path,
@@ -338,15 +336,15 @@ fn content_addressed_project(
                     );
 
                     let recipe_ref =
-                        crate::recipe::build::build_artifact_inner(&mut state.recipes, &artifact)
+                        crate::recipe::build::build_artifact_inner(&mut brioche.recipes, &artifact)
                             .expect("todo: failed to build artifact");
                     let recipe_hash =
-                        crate::recipe::hash::hash_recipe_inner(&mut state.recipes, recipe_ref);
+                        crate::recipe::hash::hash_recipe_inner(&mut brioche.recipes, recipe_ref);
 
                     StaticOutput::RecipeHash(recipe_hash)
                 }
                 super::Static::Glob { patterns } => {
-                    let static_path = state
+                    let static_path = brioche
                         .projects
                         .static_path(static_ref)
                         .unwrap()
@@ -358,7 +356,7 @@ fn content_addressed_project(
                     // TODO: Wrap with blocking!!
                     let mut artifact = None;
                     crate::recipe::load::load_artifact_glob_sync(
-                        brioche.resources,
+                        &brioche.resources,
                         permit,
                         &mut artifact,
                         &static_path,
@@ -374,10 +372,10 @@ fn content_addressed_project(
                     );
 
                     let recipe_ref =
-                        crate::recipe::build::build_artifact_inner(&mut state.recipes, &artifact)
+                        crate::recipe::build::build_artifact_inner(&mut brioche.recipes, &artifact)
                             .expect("todo: failed to build artifact");
                     let recipe_hash =
-                        crate::recipe::hash::hash_recipe_inner(&mut state.recipes, recipe_ref);
+                        crate::recipe::hash::hash_recipe_inner(&mut brioche.recipes, recipe_ref);
 
                     StaticOutput::RecipeHash(recipe_hash)
                 }

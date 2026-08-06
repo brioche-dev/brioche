@@ -6,7 +6,7 @@ use std::{
 use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
 
 use crate::{
-    BriocheRef,
+    BriocheState,
     hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
     project::hash::ProjectHash,
@@ -504,14 +504,13 @@ impl ModuleReferrer {
 }
 
 #[must_use]
-pub fn local_project_path(brioche: &BriocheRef<'_>, project_ref: ProjectRef) -> AbsolutePath {
-    brioche.state.projects.local_project_paths[&project_ref].clone()
+pub fn local_project_path(brioche: &BriocheState, project_ref: ProjectRef) -> AbsolutePath {
+    brioche.projects.local_project_paths[&project_ref].clone()
 }
 
 #[must_use]
-pub fn get_root_module(brioche: &BriocheRef<'_>, project_ref: ProjectRef) -> Option<ModuleRef> {
+pub fn get_root_module(brioche: &BriocheState, project_ref: ProjectRef) -> Option<ModuleRef> {
     brioche
-        .state
         .projects
         .graph
         .edges(project_ref.0)
@@ -526,11 +525,10 @@ pub fn get_root_module(brioche: &BriocheRef<'_>, project_ref: ProjectRef) -> Opt
 
 #[must_use]
 pub fn get_dependencies(
-    brioche: &BriocheRef<'_>,
+    brioche: &BriocheState,
     project_ref: ProjectRef,
 ) -> HashMap<String, ProjectRef> {
     brioche
-        .state
         .projects
         .graph
         .edges(project_ref.0)
@@ -547,11 +545,10 @@ pub fn get_dependencies(
 
 #[must_use]
 pub fn get_workspace_membership(
-    brioche: &BriocheRef<'_>,
+    brioche: &BriocheState,
     project_ref: ProjectRef,
 ) -> Option<(WorkspaceRef, RelativePath)> {
     brioche
-        .state
         .projects
         .graph
         .edges_directed(project_ref.0, petgraph::Incoming)
@@ -566,19 +563,16 @@ pub fn get_workspace_membership(
 }
 
 #[must_use]
-pub fn get_specifier(brioche: &BriocheRef<'_>, project_ref: ProjectRef) -> ProjectSpecifier {
-    brioche.state.projects.projects[&project_ref]
-        .specifier
-        .clone()
+pub fn get_specifier(brioche: &BriocheState, project_ref: ProjectRef) -> ProjectSpecifier {
+    brioche.projects.projects[&project_ref].specifier.clone()
 }
 
 #[must_use]
 pub fn get_project_by_specifier(
-    brioche: &BriocheRef<'_>,
+    brioche: &BriocheState,
     project_specifier: &ProjectSpecifier,
 ) -> Option<ProjectRef> {
     brioche
-        .state
         .projects
         .projects_by_specifier
         .get(project_specifier)
@@ -586,9 +580,8 @@ pub fn get_project_by_specifier(
 }
 
 #[must_use]
-pub fn get_all_issues(brioche: &BriocheRef<'_>) -> Vec<ProjectIssue> {
+pub fn get_all_issues(brioche: &BriocheState) -> Vec<ProjectIssue> {
     brioche
-        .state
         .projects
         .issues
         .values()

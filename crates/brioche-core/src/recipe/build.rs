@@ -6,7 +6,7 @@ use std::{
 use anyhow::Context as _;
 
 use crate::{
-    BriocheMut, BriocheRef,
+    BriocheState,
     blob::BlobHash,
     recipe::{Recipe, RecipeRef, Recipes, Symlink},
 };
@@ -36,8 +36,8 @@ impl ArtifactBuilder {
         }
     }
 
-    pub fn from_artifact(brioche: &BriocheRef<'_>, recipe_ref: RecipeRef) -> anyhow::Result<Self> {
-        Self::from_artifact_inner(&brioche.state.recipes, recipe_ref)
+    pub fn from_artifact(brioche: &BriocheState, recipe_ref: RecipeRef) -> anyhow::Result<Self> {
+        Self::from_artifact_inner(&brioche.recipes, recipe_ref)
     }
 
     fn from_artifact_inner(recipes: &Recipes, recipe_ref: RecipeRef) -> anyhow::Result<Self> {
@@ -82,10 +82,10 @@ impl ArtifactBuilder {
 /// Build the final `Artifact` from the partial builder tree, resolving
 /// `Reference` placeholders against the same tree.
 pub fn build_artifact(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     root: &ArtifactBuilder,
 ) -> anyhow::Result<RecipeRef> {
-    build_artifact_inner(&mut brioche.state.recipes, root)
+    build_artifact_inner(&mut brioche.recipes, root)
 }
 
 pub(crate) fn build_artifact_inner(

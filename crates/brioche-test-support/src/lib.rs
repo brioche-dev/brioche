@@ -306,14 +306,14 @@ impl TestContext {
             .unwrap();
         let specifier = ProjectSpecifier::Path(project_dir);
         let mut refs = brioche_core::project::load::load_projects(
-            &mut brioche.write().await,
+            &mut *brioche.write().await,
             [specifier.clone()],
         )
         .await
         .unwrap();
         let project_ref = refs.remove(&specifier).unwrap();
 
-        let issues = brioche_core::project::get_all_issues(&brioche.read().await);
+        let issues = brioche_core::project::get_all_issues(&*brioche.read().await);
         assert_matches!(&issues[..], []);
 
         (project_ref, temp_project_path)
@@ -332,14 +332,14 @@ impl TestContext {
         let specifier = ProjectSpecifier::Path(project_dir);
 
         let mut refs = brioche_core::project::load::load_projects(
-            &mut brioche.write().await,
+            &mut *brioche.write().await,
             [specifier.clone()],
         )
         .await
         .expect("failed to load temp project");
         let project_ref = refs.remove(&specifier).unwrap();
 
-        brioche_core::project::load::resolve_statics(&mut brioche.write().await)
+        brioche_core::project::load::resolve_statics(&mut *brioche.write().await)
             .await
             .expect("failed to resolve temp project statics");
 
@@ -362,10 +362,12 @@ impl TestContext {
         .await;
 
         let (project_ref, temp_project_path) = temp_context.temp_project(&temp_brioche, f).await;
-        let project_hash =
-            brioche_core::project::hash::hash_project(&mut temp_brioche.write().await, project_ref)
-                .await
-                .unwrap();
+        let project_hash = brioche_core::project::hash::hash_project(
+            &mut *temp_brioche.write().await,
+            project_ref,
+        )
+        .await
+        .unwrap();
 
         let project_path = self
             .mkdir(format!("brioche-data/projects/{project_hash}"))
@@ -415,25 +417,27 @@ impl TestContext {
 
         let (project_ref, _) = temp_context.temp_project_by_path(&temp_brioche, f).await;
 
-        let project_hash =
-            brioche_core::project::hash::hash_project(&mut temp_brioche.write().await, project_ref)
-                .await
-                .unwrap();
+        let project_hash = brioche_core::project::hash::hash_project(
+            &mut *temp_brioche.write().await,
+            project_ref,
+        )
+        .await
+        .unwrap();
         let project_artifact = brioche_core::project::artifact::create_project_artifact(
-            &mut temp_brioche.write().await,
+            &mut *temp_brioche.write().await,
             project_ref,
         )
         .await
         .expect("failed to create artifact for project");
         let project_artifact_hash = brioche_core::recipe::hash::hash_recipe(
-            &mut temp_brioche.write().await,
+            &mut *temp_brioche.write().await,
             project_artifact,
         );
-        brioche_core::cache::save_artifact(&mut temp_brioche.write().await, project_artifact)
+        brioche_core::cache::save_artifact(&mut *temp_brioche.write().await, project_artifact)
             .await
             .expect("failed to save artifact to cache");
         brioche_core::cache::save_project_artifact_hash(
-            &mut temp_brioche.write().await,
+            &mut *temp_brioche.write().await,
             project_hash,
             project_artifact_hash,
         )

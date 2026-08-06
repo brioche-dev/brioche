@@ -7,7 +7,7 @@ use tokio::io::AsyncWriteExt as _;
 
 use crate::recipe::RecipeRef;
 use crate::reporter::job::JobContext;
-use crate::{BriocheMut, BriocheResources};
+use crate::{BriocheResources, BriocheState};
 use crate::{project::hash::ProjectHash, recipe::hash::RecipeHash, reporter::job::CacheFetchKind};
 
 mod archive;
@@ -275,7 +275,7 @@ pub async fn save_bake(
 
 #[tracing::instrument(skip(brioche))]
 pub async fn load_artifact(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     artifact_hash: RecipeHash,
     fetch_kind: CacheFetchKind,
     context: JobContext,
@@ -323,7 +323,7 @@ pub async fn load_artifact(
 
 #[tracing::instrument(skip_all)]
 pub async fn save_artifact(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     artifact: RecipeRef,
 ) -> anyhow::Result<bool> {
     let store = brioche.resources.cache_client.writable_store()?;
@@ -382,7 +382,7 @@ pub async fn save_artifact(
 
 #[tracing::instrument(skip(brioche))]
 pub async fn load_project_artifact_hash(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     project_hash: ProjectHash,
 ) -> anyhow::Result<Option<RecipeHash>> {
     let Some(store) = brioche.resources.cache_client.store.clone() else {
@@ -411,7 +411,7 @@ pub async fn load_project_artifact_hash(
 
 #[tracing::instrument(skip(brioche))]
 pub async fn save_project_artifact_hash(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     project_hash: ProjectHash,
     artifact_hash: RecipeHash,
 ) -> anyhow::Result<bool> {

@@ -6,7 +6,7 @@ use std::{
 use bstr::BString;
 
 use crate::{
-    BriocheMut, BriocheRef,
+    BriocheState,
     blob::BlobHash,
     hash::AnyHash,
     platform::Platform,
@@ -22,12 +22,12 @@ pub use graph::RecipeRef;
 pub use hash::RecipeHash;
 
 #[must_use]
-pub fn get_recipe(brioche: &BriocheRef<'_>, recipe_ref: RecipeRef) -> Arc<Recipe> {
-    brioche.state.recipes.get_recipe(recipe_ref).clone()
+pub fn get_recipe(brioche: &BriocheState, recipe_ref: RecipeRef) -> Arc<Recipe> {
+    brioche.recipes.get_recipe(recipe_ref).clone()
 }
 
-pub fn insert_recipe(brioche: &mut BriocheMut<'_>, recipe: Arc<Recipe>) -> RecipeRef {
-    brioche.state.recipes.insert_recipe(recipe)
+pub fn insert_recipe(brioche: &mut BriocheState, recipe: Arc<Recipe>) -> RecipeRef {
+    brioche.recipes.insert_recipe(recipe)
 }
 
 #[derive(Default)]

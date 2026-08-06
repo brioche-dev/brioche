@@ -6,7 +6,7 @@ use std::{
 use bstr::BString;
 
 use crate::{
-    BriocheMut,
+    BriocheState,
     blob::BlobHash,
     encoding::TickEncoded,
     hash::AnyHash,
@@ -20,15 +20,15 @@ use crate::{
 #[serde(transparent)]
 pub struct RecipeHash(crate::hash::Blake3Hash);
 
-pub fn hash_recipe(brioche: &mut BriocheMut<'_>, recipe_ref: RecipeRef) -> RecipeHash {
-    hash_recipe_inner(&mut brioche.state.recipes, recipe_ref)
+pub fn hash_recipe(brioche: &mut BriocheState, recipe_ref: RecipeRef) -> RecipeHash {
+    hash_recipe_inner(&mut brioche.recipes, recipe_ref)
 }
 
 pub fn hash_recipes(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     recipe_refs: impl IntoIterator<Item = RecipeRef>,
 ) -> HashMap<RecipeRef, RecipeHash> {
-    hash_recipes_inner(&mut brioche.state.recipes, recipe_refs)
+    hash_recipes_inner(&mut brioche.recipes, recipe_refs)
 }
 
 pub(crate) fn hash_recipe_inner(recipes: &mut Recipes, recipe_ref: RecipeRef) -> RecipeHash {

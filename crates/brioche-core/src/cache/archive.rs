@@ -21,7 +21,7 @@ use object_store::ObjectStoreExt as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::{
-    BriocheMut, BriocheResources,
+    BriocheResources, BriocheState,
     blob::{BlobHash, SaveBlobOptions},
     recipe::{
         File, Recipe, RecipeRef, Symlink,
@@ -45,13 +45,11 @@ const CDC_MAX_CHUNK_SIZE: usize = 8_388_608;
 
 #[expect(clippy::similar_names)]
 pub async fn write_artifact_archive(
-    brioche: &BriocheMut<'_>,
+    brioche: &BriocheState,
     artifact_ref: RecipeRef,
     store: &Arc<dyn object_store::ObjectStore>,
     writer: &mut (impl tokio::io::AsyncWrite + Unpin + Send),
 ) -> anyhow::Result<()> {
-    let recipes = &brioche.state.recipes;
-
     // Write the marker for a valid archive
     writer.write_all(MARKER).await?;
 
@@ -61,7 +59,7 @@ pub async fn write_artifact_archive(
     // Use a queue to walk through the artifact, starting from the root
     let mut queue = VecDeque::from_iter([(ArtifactPath::default(), artifact_ref)]);
     while let Some((path, artifact_ref)) = queue.pop_front() {
-        let artifact = recipes.get_recipe(artifact_ref);
+        let artifact = brioche.recipes.get_recipe(artifact_ref);
         match &**artifact {
             Recipe::File(File {
                 content_blob,
@@ -251,7 +249,7 @@ pub async fn write_artifact_archive(
 
         // Write each blob to the archive, in order
         for (blob_hash, _) in blobs {
-            let blob_path = crate::blob::local_blob_path(brioche.resources, blob_hash);
+            let blob_path = crate::blob::local_blob_path(&brioche.resources, blob_hash);
             let mut blob_reader = tokio::fs::File::open(blob_path).await?;
 
             tokio::io::copy(&mut blob_reader, writer).await?;
@@ -324,7 +322,7 @@ pub struct ChunkEntry {
 }
 
 pub async fn read_artifact_archive(
-    brioche: &mut BriocheMut<'_>,
+    brioche: &mut BriocheState,
     store: &Arc<dyn object_store::ObjectStore>,
     fetch_kind: CacheFetchKind,
     context: JobContext,
@@ -581,7 +579,7 @@ pub async fn read_artifact_archive(
 
         // Create the empty blob and validate the hash
         crate::blob::save_blob(
-            brioche.resources,
+            &brioche.resources,
             &mut permit,
             &[],
             SaveBlobOptions::new().expected_blob_hash(Some(blob_hash)),
@@ -613,7 +611,7 @@ pub async fn read_artifact_archive(
                 // Read the blob
                 let blob_reader = (&mut reader).take(length);
                 crate::blob::save_blob_from_reader(
-                    brioche.resources,
+                    &brioche.resources,
                     &mut permit,
                     blob_reader,
                     SaveBlobOptions::new().expected_blob_hash(Some(blob_hash)),
@@ -706,7 +704,7 @@ pub async fn read_artifact_archive(
             futures::stream::iter(fetches)
                 .map(Ok)
                 .try_for_each_concurrent(concurrent_chunk_fetches, |fetch| {
-                    fetch_blobs_from_chunks(brioche.resources, store.clone(), job_id, fetch)
+                    fetch_blobs_from_chunks(&brioche.resources, store.clone(), job_id, fetch)
                 })
                 .await?;
         }
@@ -745,7 +743,7 @@ pub async fn read_artifact_archive(
         },
     );
 
-    crate::recipe::commit_recipes(brioche.resources).await?;
+    crate::recipe::commit_recipes(&brioche.resources).await?;
 
     brioche.resources.reporter.update_job(
         job_id,
