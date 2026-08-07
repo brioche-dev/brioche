@@ -41,16 +41,7 @@ pub async fn hash_project(
 
     let mut project_hashes = HashMap::<ProjectRef, ProjectHash>::new();
 
-    let mut permit = crate::blob::get_save_blob_permit()
-        .await
-        .expect("todo: failed to get save blob permit");
-    hash_projects_inner(
-        brioche,
-        &mut permit,
-        &node_groups,
-        &mut project_hashes,
-        None,
-    );
+    hash_projects_inner(brioche, &node_groups, &mut project_hashes, None).await;
 
     Ok(project_hashes[&project_ref])
 }
@@ -64,16 +55,13 @@ pub async fn get_content_addressed_project_entries(
     let mut project_hashes = HashMap::new();
     let mut project_entries = HashMap::new();
 
-    let mut permit = crate::blob::get_save_blob_permit()
-        .await
-        .expect("todo: failed to get save blob permit");
     hash_projects_inner(
         brioche,
-        &mut permit,
         &node_groups,
         &mut project_hashes,
         Some(&mut project_entries),
-    );
+    )
+    .await;
 
     project_entries
 }
@@ -127,9 +115,8 @@ pub(super) fn group_project_nodes(
         .collect()
 }
 
-pub(super) fn hash_projects_inner(
+pub(super) async fn hash_projects_inner(
     brioche: &mut BriocheState,
-    permit: &mut crate::blob::SaveBlobPermit,
     project_groups: &[HashSet<ProjectRef>],
     project_hashes: &mut HashMap<ProjectRef, ProjectHash>,
     mut project_entries: Option<&mut HashMap<ProjectRef, ContentAddressedProjectEntry>>,
@@ -138,7 +125,7 @@ pub(super) fn hash_projects_inner(
         if project_group.len() == 1 {
             let project_ref = *project_group.iter().next().unwrap();
             let project =
-                content_addressed_project(brioche, permit, project_ref, project_hashes, None);
+                content_addressed_project(brioche, project_ref, project_hashes, None).await;
             let project_entry = ContentAddressedProjectEntry::Project(project);
 
             project_hashes.insert(project_ref, project_entry.project_hash());
@@ -177,19 +164,19 @@ pub(super) fn hash_projects_inner(
                 })
                 .collect();
 
-            let members = projects_with_paths
-                .iter()
-                .map(|(project_ref, workspace_path)| {
-                    let project = content_addressed_project(
-                        brioche,
-                        permit,
-                        *project_ref,
-                        project_hashes,
-                        Some(&projects_with_paths),
-                    );
-                    (workspace_path.clone(), project)
-                })
-                .collect();
+            let mut members = BTreeMap::new();
+            for (project_ref, workspace_path) in &projects_with_paths {
+                let project = content_addressed_project(
+                    brioche,
+                    *project_ref,
+                    project_hashes,
+                    Some(&projects_with_paths),
+                )
+                .await;
+
+                members.insert(workspace_path.clone(), project);
+            }
+
             let group_workspace = ContentAddressedWorkspace { members };
             let group_workspace_hash = group_workspace.workspace_hash();
 
@@ -210,9 +197,8 @@ pub(super) fn hash_projects_inner(
 }
 
 #[expect(clippy::similar_names)]
-fn content_addressed_project(
+async fn content_addressed_project(
     brioche: &mut BriocheState,
-    permit: &mut crate::blob::SaveBlobPermit,
     project_ref: ProjectRef,
     project_hashes: &HashMap<ProjectRef, ProjectHash>,
     workspace_group_siblings: Option<&HashMap<ProjectRef, ContentAddressedWorkspacePath>>,
@@ -283,17 +269,13 @@ fn content_addressed_project(
                         .to_system_path()
                         .expect("todo: failed to convert static path");
 
-                    // TODO: Wrap with blocking!!
-                    let mut artifact = None;
-                    crate::recipe::load::load_artifact_sync(
-                        &brioche.resources,
-                        permit,
-                        &mut artifact,
-                        &static_path,
+                    let artifact = crate::recipe::load::load_artifact(
+                        brioche.resources.clone(),
+                        static_path,
                         ArtifactPath::default(),
                     )
+                    .await
                     .expect("todo: load artifact error");
-                    let artifact = artifact.unwrap();
 
                     assert!(
                         matches!(artifact, ArtifactBuilder::File { .. }),
@@ -318,17 +300,13 @@ fn content_addressed_project(
                         .to_system_path()
                         .expect("todo: failed to convert static path");
 
-                    // TODO: Wrap with blocking!!
-                    let mut artifact = None;
-                    crate::recipe::load::load_artifact_sync(
-                        &brioche.resources,
-                        permit,
-                        &mut artifact,
-                        &static_path,
+                    let artifact = crate::recipe::load::load_artifact(
+                        brioche.resources.clone(),
+                        static_path,
                         ArtifactPath::default(),
                     )
+                    .await
                     .expect("todo: load artifact error");
-                    let artifact = artifact.unwrap();
 
                     assert!(
                         matches!(artifact, ArtifactBuilder::Directory { .. }),
@@ -353,18 +331,14 @@ fn content_addressed_project(
                         .to_system_path()
                         .expect("todo: failed to convert static path");
 
-                    // TODO: Wrap with blocking!!
-                    let mut artifact = None;
-                    crate::recipe::load::load_artifact_glob_sync(
-                        &brioche.resources,
-                        permit,
-                        &mut artifact,
-                        &static_path,
-                        &ArtifactPath::default(),
-                        patterns,
+                    let artifact = crate::recipe::load::load_artifact_glob(
+                        brioche.resources.clone(),
+                        static_path,
+                        ArtifactPath::default(),
+                        patterns.clone(),
                     )
+                    .await
                     .expect("todo: load artifact error");
-                    let artifact = artifact.unwrap();
 
                     assert!(
                         matches!(artifact, ArtifactBuilder::Directory { .. }),

@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use bstr::{ByteSlice as _, ByteVec as _};
@@ -11,6 +12,56 @@ use crate::{
     path::RelativePathComponent,
     recipe::build::{ArtifactBuilder, ArtifactPath, ArtifactPathComponent},
 };
+
+pub async fn load_artifact(
+    brioche: Arc<BriocheResources>,
+    path: PathBuf,
+    artifact_subpath: ArtifactPath,
+) -> Result<ArtifactBuilder, LoadArtifactError> {
+    let mut permit = crate::blob::get_save_blob_permit()
+        .await
+        .expect("todo: failed to get save_blob_permit");
+    tokio::task::spawn_blocking(move || {
+        let mut artifact = None;
+        load_artifact_sync(
+            &brioche,
+            &mut permit,
+            &mut artifact,
+            &path,
+            artifact_subpath,
+        )?;
+        let artifact = artifact.unwrap();
+        Ok(artifact)
+    })
+    .await
+    .unwrap()
+}
+
+pub async fn load_artifact_glob(
+    brioche: Arc<BriocheResources>,
+    path: PathBuf,
+    artifact_subpath: ArtifactPath,
+    patterns: Vec<String>,
+) -> Result<ArtifactBuilder, LoadArtifactError> {
+    let mut permit = crate::blob::get_save_blob_permit()
+        .await
+        .expect("todo: failed to get save_blob_permit");
+    tokio::task::spawn_blocking(move || {
+        let mut artifact = None;
+        load_artifact_glob_sync(
+            &brioche,
+            &mut permit,
+            &mut artifact,
+            &path,
+            &artifact_subpath,
+            &patterns,
+        )?;
+        let artifact = artifact.unwrap();
+        Ok(artifact)
+    })
+    .await
+    .unwrap()
+}
 
 pub fn load_artifact_sync(
     brioche: &BriocheResources,

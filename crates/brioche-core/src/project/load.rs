@@ -623,18 +623,14 @@ pub async fn load_projects(
             project_hashes_to_validate.keys().copied(),
         );
 
-        let mut permit = crate::blob::get_save_blob_permit()
-            .await
-            .expect("todo: failed to get save blob permit");
-
         let mut project_hashes = HashMap::new();
         crate::project::hash::hash_projects_inner(
             brioche,
-            &mut permit,
             &project_groups,
             &mut project_hashes,
             None,
-        );
+        )
+        .await;
 
         for (project_ref, expected_hash) in project_hashes_to_validate {
             let actual_hash = project_hashes[&project_ref];

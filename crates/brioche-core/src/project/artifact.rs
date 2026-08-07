@@ -39,11 +39,11 @@ pub async fn create_project_artifact(
     let mut project_entries = HashMap::new();
     crate::project::hash::hash_projects_inner(
         brioche,
-        &mut permit,
         &project_groups,
         &mut project_hashes,
         Some(&mut project_entries),
-    );
+    )
+    .await;
 
     let workspace_groups = project_groups.iter().filter(|group| group.len() > 1);
     for workspace_group in workspace_groups {
@@ -378,8 +378,9 @@ async fn create_single_project_artifact(
                 let entry_path = path.join_one(filename);
                 directories.push((artifact_subpath, entry_path));
             } else if file_type.is_symlink() {
-                let target_path =
-                    std::fs::read_link(entry.path()).context("failed to read symlink target")?;
+                let target_path = tokio::fs::read_link(entry.path())
+                    .await
+                    .context("failed to read symlink target")?;
                 let target = <Vec<u8>>::from_path_buf(target_path.clone()).map_err(|_| {
                     anyhow::anyhow!("invalid symlink target at {}", entry.path().display())
                 })?;
