@@ -3,12 +3,11 @@ use std::{
     sync::Arc,
 };
 
-use assert_matches::assert_matches;
 use brioche_core::{
-    Brioche, BriocheBuilder,
+    Brioche, BriocheBuilder, BriocheState,
     blob::{BlobHash, SaveBlobOptions},
     path::AbsolutePath,
-    project::{ProjectRef, ProjectSpecifier, hash::ProjectHash},
+    project::{ProjectIssue, ProjectRef, ProjectSpecifier, hash::ProjectHash},
     recipe::RecipeRef,
 };
 use bstr::ByteSlice as _;
@@ -74,6 +73,14 @@ pub async fn brioche_test_with(
 }
 
 pub async fn load_project(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
+    let project_ref = load_project_ignoring_issues(brioche, project_dir).await;
+
+    assert_no_issues(&*brioche.read().await);
+
+    project_ref
+}
+
+pub async fn load_project_ignoring_issues(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
     let mut brioche = brioche.write().await;
 
     let project_dir = brioche_core::path::canonicalize_system_path(project_dir)
@@ -103,6 +110,25 @@ pub fn absolute_path_nonexistent(path: &Path) -> AbsolutePath {
 #[must_use]
 pub fn project_specifier_for_path(project_dir: &Path) -> ProjectSpecifier {
     ProjectSpecifier::Path(absolute_path(project_dir))
+}
+
+#[must_use]
+pub fn get_all_issues(brioche: &BriocheState) -> Vec<ProjectIssue> {
+    brioche_core::project::get_all_issues(brioche)
+}
+
+#[expect(clippy::print_stderr)]
+fn assert_no_issues(brioche: &BriocheState) {
+    let issues = get_all_issues(brioche);
+
+    if !issues.is_empty() {
+        eprintln!("issues:");
+        for issue in issues {
+            eprintln!("{issue:#?}");
+        }
+
+        panic!("encountered issues after loading project");
+    }
 }
 
 pub fn take_where<T>(items: &mut Vec<T>, mut predicate: impl FnMut(&T) -> bool) -> T {
@@ -312,8 +338,7 @@ impl TestContext {
         .unwrap();
         let project_ref = refs.remove(&specifier).unwrap();
 
-        let issues = brioche_core::project::get_all_issues(&*brioche.read().await);
-        assert_matches!(&issues[..], []);
+        assert_no_issues(&*brioche.read().await);
 
         (project_ref, temp_project_path)
     }

@@ -51,9 +51,6 @@ async fn test_project_load_cyclic_simple_by_path() {
 
     let alpha_project_ref = brioche_test_support::load_project(&brioche, &alpha_project_dir).await;
 
-    let issues = brioche_core::project::get_all_issues(&*brioche.read().await);
-    assert_matches!(&issues[..], &[]);
-
     let alpha_project_entry = get_project_entry(&brioche, alpha_project_ref).await;
     let ContentAddressedProjectEntry::WorkspaceMember {
         workspace: alpha_workspace_hash,
@@ -136,9 +133,6 @@ async fn test_project_load_cyclic_simple_implied() {
         .await;
 
     let alpha_project_ref = brioche_test_support::load_project(&brioche, &alpha_project_dir).await;
-
-    let issues = brioche_core::project::get_all_issues(&*brioche.read().await);
-    assert_matches!(&issues[..], &[]);
 
     let alpha_project_entry = get_project_entry(&brioche, alpha_project_ref).await;
     let ContentAddressedProjectEntry::WorkspaceMember {
