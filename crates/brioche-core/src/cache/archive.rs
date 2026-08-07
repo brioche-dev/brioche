@@ -10,12 +10,12 @@
 //! up into similarly-sized chunks that can be fetched in parallel.
 
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     ops::Range,
     sync::Arc,
 };
 
-use anyhow::Context as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use object_store::ObjectStoreExt as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -27,7 +27,7 @@ use crate::{
         File, Recipe, RecipeRef, Symlink,
         build::{
             ArtifactBuilder, ArtifactPath, ArtifactPathComponent, build_artifact,
-            insert_into_artifact, set_subtree,
+            insert_into_artifact, insert_or_replace_in_artifact,
         },
     },
     reporter::{
@@ -49,7 +49,7 @@ pub async fn write_artifact_archive(
     artifact_ref: RecipeRef,
     store: &Arc<dyn object_store::ObjectStore>,
     writer: &mut (impl tokio::io::AsyncWrite + Unpin + Send),
-) -> anyhow::Result<()> {
+) -> Result<(), WriteArtifactError> {
     // Write the marker for a valid archive
     writer.write_all(MARKER).await?;
 
@@ -85,7 +85,12 @@ pub async fn write_artifact_archive(
                 }
             }
             Recipe::Symlink(Symlink { target }) => {
-                let target_len: u32 = target.len().try_into().context("symlink target too long")?;
+                let target_len: u32 = target.len().try_into().map_err(|error| {
+                    WriteArtifactError::TryFromIntError {
+                        error,
+                        message: "symlink target too long".into(),
+                    }
+                })?;
 
                 // Write the symlink entry: tag, path, target path
                 writer.write_all(b"s").await?;
@@ -111,7 +116,11 @@ pub async fn write_artifact_archive(
                 }
             }
             recipe => {
-                anyhow::bail!("expected artifact, got {:?}", recipe.kind());
+                return Err(WriteArtifactError::NotAnArtifact {
+                    path,
+                    recipe_ref: artifact_ref,
+                    recipe_kind: recipe.kind(),
+                });
             }
         }
     }
@@ -127,8 +136,13 @@ pub async fn write_artifact_archive(
             for blob_hash in artifact_blobs {
                 let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
 
-                let metadata = std::fs::metadata(&blob_path)
-                    .with_context(|| format!("error reading blob {blob_hash}"))?;
+                let metadata = std::fs::metadata(&blob_path).map_err(|error| {
+                    WriteArtifactError::IoErrorMessage {
+                        error,
+                        message: format!("failed to read metadata at '{}'", blob_path.display())
+                            .into(),
+                    }
+                })?;
 
                 blobs.push((blob_hash, metadata.len()));
             }
@@ -140,10 +154,11 @@ pub async fn write_artifact_archive(
             // of space compared to sorting by blob hash alone
             blobs.sort_by_key(|(blob_hash, length)| (*length, *blob_hash));
 
-            anyhow::Ok(blobs)
+            Ok::<_, WriteArtifactError>(blobs)
         }
     })
-    .await??;
+    .await
+    .unwrap()?;
 
     let mut blobs_total_length = 0;
     for (blob_hash, length) in &blobs {
@@ -170,11 +185,27 @@ pub async fn write_artifact_archive(
                     // Write each blob to the writer, in order
                     for (blob_hash, _) in blobs {
                         let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
-                        let mut blob_reader = tokio::fs::File::open(blob_path).await?;
-                        tokio::io::copy(&mut blob_reader, &mut blobs_writer).await?;
+                        let mut blob_reader =
+                            tokio::fs::File::open(&blob_path).await.map_err(|error| {
+                                WriteArtifactError::IoErrorMessage {
+                                    error,
+                                    message: format!("failed to open '{}'", blob_path.display())
+                                        .into(),
+                                }
+                            })?;
+                        tokio::io::copy(&mut blob_reader, &mut blobs_writer)
+                            .await
+                            .map_err(|error| WriteArtifactError::IoErrorMessage {
+                                error,
+                                message: format!(
+                                    "failed to copy blob at '{}'",
+                                    blob_path.display()
+                                )
+                                .into(),
+                            })?;
                     }
 
-                    anyhow::Ok(())
+                    Ok::<_, WriteArtifactError>(())
                 }
                 .await;
 
@@ -196,7 +227,14 @@ pub async fn write_artifact_archive(
         let mut chunks = std::pin::pin!(chunks);
 
         while let Some(chunk) = chunks.try_next().await? {
-            let chunk_length: u64 = chunk.length.try_into().context("chunk too long")?;
+            let chunk_length: u64 =
+                chunk
+                    .length
+                    .try_into()
+                    .map_err(|error| WriteArtifactError::TryFromIntError {
+                        error,
+                        message: "chunk too long".into(),
+                    })?;
 
             // Store the chunk in the cache based on its hash. Note that
             // we're chunking the concatenation of all the blobs together,
@@ -228,7 +266,10 @@ pub async fn write_artifact_archive(
                     // Chunk was created or already exists
                 }
                 Err(error) => {
-                    return Err(error.into());
+                    return Err(WriteArtifactError::PutObjectError {
+                        error,
+                        path: chunk_path,
+                    });
                 }
             }
 
@@ -238,7 +279,7 @@ pub async fn write_artifact_archive(
             writer.write_u64(chunk_length).await?;
         }
 
-        read_blobs_task.await??;
+        read_blobs_task.await.unwrap()?;
     } else {
         // Not much data for all the blobs, so append it directly to the
         // archive
@@ -262,22 +303,28 @@ pub async fn write_artifact_archive(
 async fn write_path(
     path: &ArtifactPath,
     writer: &mut (impl tokio::io::AsyncWrite + Unpin),
-) -> anyhow::Result<()> {
+) -> Result<(), WriteArtifactError> {
     // Write the number of components, followed by each component
-    let num_components: u32 = path
-        .components
-        .len()
-        .try_into()
-        .context("too many path components")?;
+    let num_components: u32 =
+        path.components
+            .len()
+            .try_into()
+            .map_err(|error| WriteArtifactError::TryFromIntError {
+                error,
+                message: "too many path components".into(),
+            })?;
     writer.write_u32(num_components).await?;
 
     for component in &path.components {
         match component {
             ArtifactPathComponent::DirectoryEntry(name) => {
-                let name_len: u16 = name
-                    .len()
-                    .try_into()
-                    .context("directory entry name too long")?;
+                let name_len: u16 =
+                    name.len()
+                        .try_into()
+                        .map_err(|error| WriteArtifactError::TryFromIntError {
+                            error,
+                            message: "directory entry name too long".into(),
+                        })?;
 
                 // Write a directory entry component: tag, name length, name
                 writer.write_all(b"/").await?;
@@ -327,7 +374,7 @@ pub async fn read_artifact_archive(
     fetch_kind: CacheFetchKind,
     context: JobContext,
     mut reader: &mut (impl tokio::io::AsyncRead + Unpin),
-) -> anyhow::Result<RecipeRef> {
+) -> Result<RecipeRef, ReadArtifactError> {
     let job_id = brioche.resources.reporter.add_job(
         NewJob::CacheFetch {
             kind: fetch_kind,
@@ -342,7 +389,7 @@ pub async fn read_artifact_archive(
     let mut marker = [0; MARKER.len()];
     reader.read_exact(&mut marker).await?;
     if marker != *MARKER {
-        return Err(anyhow::anyhow!("invalid artifact archive marker"));
+        return Err(ReadArtifactError::InvalidMarker);
     }
 
     let mut entries = vec![];
@@ -373,10 +420,10 @@ pub async fn read_artifact_archive(
                     b"x+" => true,
                     b"x-" => false,
                     _ => {
-                        anyhow::bail!(
-                            "invalid executable flag while reading file entry: {}",
-                            path.display_pretty()
-                        );
+                        return Err(ReadArtifactError::InvalidFileTag {
+                            path,
+                            tag: executable_tag,
+                        });
                     }
                 };
 
@@ -402,7 +449,16 @@ pub async fn read_artifact_archive(
 
                 let path = read_path(reader).await?;
 
-                let target_len: usize = reader.read_u32().await?.try_into()?;
+                let target_len: usize = reader.read_u32().await?.try_into().map_err(|error| {
+                    ReadArtifactError::TryFromIntError {
+                        error,
+                        message: format!(
+                            "invalid symlink target length at '{}'",
+                            path.display_pretty()
+                        )
+                        .into(),
+                    }
+                })?;
                 let mut target = vec![0; target_len];
                 reader.read_exact(&mut target).await?;
                 let target = bstr::BString::new(target);
@@ -437,10 +493,9 @@ pub async fn read_artifact_archive(
 
                 // Ensure we need this blob from the entries we've read
                 let is_blob_needed = artifact_blobs.remove(&blob_hash);
-                anyhow::ensure!(
-                    is_blob_needed,
-                    "archive artifact included a duplicate blob or extra blob: {blob_hash}"
-                );
+                if !is_blob_needed {
+                    return Err(ReadArtifactError::UnexpectedBlob { blob_hash });
+                }
 
                 // Calculate the range of this blob within the archive's data
                 let blob_end_offset = blob_offset + length;
@@ -460,10 +515,9 @@ pub async fn read_artifact_archive(
                 // "Start chunks" tag. Following this will be the list of
                 // chunk entries
 
-                anyhow::ensure!(
-                    data.is_none(),
-                    "unexpected chunks tag while reading artifact archive"
-                );
+                if data.is_some() {
+                    return Err(ReadArtifactError::UnexpectedChunksTag);
+                }
 
                 data = Some(DataEntry::Chunks {
                     chunks: BTreeMap::new(),
@@ -475,7 +529,7 @@ pub async fn read_artifact_archive(
                 // Get the list of chunks. This also validates that we
                 // encountered a "start chunks" tag (b"C") already.
                 let Some(DataEntry::Chunks { chunks }) = &mut data else {
-                    anyhow::bail!("unexpected chunk entry while reading artifact archive");
+                    return Err(ReadArtifactError::UnexpectedChunkEntry);
                 };
 
                 let mut chunk_hash = [0; blake3::OUT_LEN];
@@ -505,26 +559,21 @@ pub async fn read_artifact_archive(
                 // Store the reference to process after all entries are read
                 references.push((target_path, source_path));
             }
-            tag => {
+            &[tag] => {
                 // Unknown tag
 
-                anyhow::bail!(
-                    "unexpected tag byte encountered while reading artifact archive: {tag:?}",
-                );
+                return Err(ReadArtifactError::UnknownEntryTag { tag });
             }
         }
     }
 
     let Some(data) = data else {
-        return Err(anyhow::anyhow!(
-            "unexpected end of file while reading artifact archive"
-        ));
+        return Err(ReadArtifactError::UnexpectedEndOfFile);
     };
 
-    anyhow::ensure!(
-        !entries.is_empty(),
-        "artifact archive does not have any entries"
-    );
+    if entries.is_empty() {
+        return Err(ReadArtifactError::EmptyArtifact);
+    }
 
     // Determine which blobs we need to read from the archive. We skip over
     // any blobs that we already have locally
@@ -535,7 +584,18 @@ pub async fn read_artifact_archive(
             let mut empty_blobs = vec![];
             for (blob_hash, range) in blobs {
                 let blob_path = crate::blob::local_blob_path(&brioche, blob_hash);
-                if !blob_path.try_exists()? {
+                let blob_path_exists =
+                    blob_path
+                        .try_exists()
+                        .map_err(|error| ReadArtifactError::IoErrorMessage {
+                            error,
+                            message: format!(
+                                "failed to get blob at path '{}'",
+                                blob_path.display()
+                            )
+                            .into(),
+                        })?;
+                if !blob_path_exists {
                     if range.is_empty() {
                         // Blob doesn't exist locally but is empty. We'll
                         // create it separately from the rest to avoid
@@ -553,10 +613,11 @@ pub async fn read_artifact_archive(
             // in the archive, since we can't rewind the reader
             needed_blobs.sort_by_key(|(_, range)| range.start);
 
-            anyhow::Ok((needed_blobs, empty_blobs))
+            Ok::<_, ReadArtifactError>((needed_blobs, empty_blobs))
         }
     })
-    .await??;
+    .await
+    .unwrap()?;
 
     let total_needed_bytes = needed_blobs
         .iter()
@@ -575,7 +636,7 @@ pub async fn read_artifact_archive(
     // loop will run at most once, but could run multiple times if a malformed
     // archive has different hashes for the empty blob
     for blob_hash in empty_blobs {
-        let mut permit = crate::blob::get_save_blob_permit().await?;
+        let mut permit = crate::blob::get_save_blob_permit().await;
 
         // Create the empty blob and validate the hash
         crate::blob::save_blob(
@@ -592,7 +653,7 @@ pub async fn read_artifact_archive(
             // The archive data is inline in the archive, so we're reading
             // from the same reader right at the end of the archive
 
-            let mut permit = crate::blob::get_save_blob_permit().await?;
+            let mut permit = crate::blob::get_save_blob_permit().await;
 
             let mut inline_offset = 0;
             let mut buffer = vec![];
@@ -643,7 +704,7 @@ pub async fn read_artifact_archive(
                 // Get the chunk containing the first byte of the blob
                 let head_chunk = chunks.range(..=blob_range.start).next_back();
                 let Some((_, head_chunk)) = head_chunk else {
-                    anyhow::bail!("no chunk found containing data range for blob {blob_hash}");
+                    return Err(ReadArtifactError::NoChunkFoundForBlob { blob_hash });
                 };
                 let head_chunk = head_chunk.clone();
 
@@ -725,14 +786,17 @@ pub async fn read_artifact_archive(
     // resolved lazily during artifact construction, so insertion order
     // doesn't matter.
     for (target_path, source_path) in references {
-        set_subtree(
+        insert_or_replace_in_artifact(
             &mut result,
-            &target_path.components,
+            &target_path,
             ArtifactBuilder::Reference { source_path },
         )?;
     }
 
-    let result_root = result.context("no artifact entries in archive")?;
+    let Some(result_root) = result else {
+        return Err(ReadArtifactError::EmptyArtifact);
+    };
+
     let result = build_artifact(brioche, &result_root)?;
 
     brioche.resources.reporter.update_job(
@@ -743,7 +807,7 @@ pub async fn read_artifact_archive(
         },
     );
 
-    crate::recipe::commit_recipes(&brioche.resources).await?;
+    let Ok(()) = crate::recipe::commit_recipes(&brioche.resources).await;
 
     brioche.resources.reporter.update_job(
         job_id,
@@ -760,8 +824,8 @@ async fn fetch_blobs_from_chunks(
     store: Arc<dyn object_store::ObjectStore>,
     job_id: JobId,
     fetch: BlobsFetch,
-) -> anyhow::Result<()> {
-    let mut permit = crate::blob::get_save_blob_permit().await?;
+) -> Result<(), ReadArtifactError> {
+    let mut permit = crate::blob::get_save_blob_permit().await;
 
     match fetch {
         BlobsFetch::BlobsFromChunk { chunk, blobs } => {
@@ -772,7 +836,12 @@ async fn fetch_blobs_from_chunks(
             let chunk_compressed_filename = format!("{}.zst", chunk.hash);
             let chunk_path =
                 object_store::path::Path::from_iter(["chunks", &chunk_compressed_filename]);
-            let chunk_object = store.get(&chunk_path).await?;
+            let chunk_object = store.get(&chunk_path).await.map_err(|error| {
+                ReadArtifactError::GetObjectError {
+                    error,
+                    path: chunk_path,
+                }
+            })?;
             let chunk_stream_compressed = chunk_object.into_stream();
             let chunk_reader_compressed =
                 tokio_util::io::StreamReader::new(chunk_stream_compressed);
@@ -831,7 +900,12 @@ async fn fetch_blobs_from_chunks(
                             &chunk_compressed_filename,
                         ]);
 
-                        let chunk_object = store.get(&chunk_path).await?;
+                        let chunk_object = store.get(&chunk_path).await.map_err(|error| {
+                            ReadArtifactError::GetObjectError {
+                                error,
+                                path: chunk_path,
+                            }
+                        })?;
                         let chunk_stream_compressed = chunk_object.into_stream();
                         let chunk_reader_compressed =
                             tokio_util::io::StreamReader::new(chunk_stream_compressed);
@@ -865,7 +939,7 @@ async fn fetch_blobs_from_chunks(
                         );
                     }
 
-                    anyhow::Ok(())
+                    Ok::<_, ReadArtifactError>(())
                 }
                 .await;
 
@@ -892,7 +966,7 @@ async fn fetch_blobs_from_chunks(
                 },
             );
 
-            writer_task.await??;
+            writer_task.await.unwrap()?;
         }
     }
 
@@ -931,9 +1005,14 @@ enum BlobsFetch {
 
 async fn read_path(
     reader: &mut (impl tokio::io::AsyncRead + Unpin),
-) -> anyhow::Result<ArtifactPath> {
+) -> Result<ArtifactPath, ReadArtifactError> {
     // Read the number of components, then read each component
-    let num_components = reader.read_u32().await?.try_into()?;
+    let num_components = reader.read_u32().await?.try_into().map_err(|error| {
+        ReadArtifactError::TryFromIntError {
+            error,
+            message: "invalid number of path components".into(),
+        }
+    })?;
 
     let mut components = vec![];
     for _ in 0..num_components {
@@ -957,8 +1036,8 @@ async fn read_path(
 
                 components.push(ArtifactPathComponent::FileResources);
             }
-            tag => {
-                anyhow::bail!("invalid tag byte encountered while reading path: {tag:?}");
+            &[tag] => {
+                return Err(ReadArtifactError::InvalidPathTag { tag });
             }
         }
     }
@@ -981,4 +1060,111 @@ async fn reader_consume_exact(
     } else {
         Err(std::io::ErrorKind::UnexpectedEof.into())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WriteArtifactError {
+    #[error("{message}: {error}")]
+    IoErrorMessage {
+        #[source]
+        error: std::io::Error,
+
+        message: Cow<'static, str>,
+    },
+
+    #[error("{message}: {error}")]
+    TryFromIntError {
+        #[source]
+        error: std::num::TryFromIntError,
+
+        message: Cow<'static, str>,
+    },
+
+    #[error("expected artifact at '{}', but was {recipe_kind:?}", .path.display_pretty())]
+    NotAnArtifact {
+        path: ArtifactPath,
+        recipe_ref: RecipeRef,
+        recipe_kind: crate::recipe::RecipeKind,
+    },
+
+    #[error("error putting object at '{path}': {error}")]
+    PutObjectError {
+        #[source]
+        error: object_store::Error,
+        path: object_store::path::Path,
+    },
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    FastCdcError(#[from] fastcdc::v2020::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ReadArtifactError {
+    #[error("{message}: {error}")]
+    IoErrorMessage {
+        #[source]
+        error: std::io::Error,
+
+        message: Cow<'static, str>,
+    },
+
+    #[error("invalid artifact archive marker")]
+    InvalidMarker,
+
+    #[error("invalid tag byte encountered while reading path: 0x{tag:02x}")]
+    InvalidPathTag { tag: u8 },
+
+    #[error("invalid tag for file entry '{}': {tag:02x?}", .path.display_pretty())]
+    InvalidFileTag { path: ArtifactPath, tag: [u8; 2] },
+
+    #[error("artifact archive included a duplicate blob or extra blob: {blob_hash}")]
+    UnexpectedBlob { blob_hash: BlobHash },
+
+    #[error("unexpected 'chunks' tag while reading artifact archive")]
+    UnexpectedChunksTag,
+
+    #[error("unexpected chunk entry while reading artifact archive")]
+    UnexpectedChunkEntry,
+
+    #[error("unknown entry tag in artifact: {tag:02x?}")]
+    UnknownEntryTag { tag: u8 },
+
+    #[error("unexpected end of file while reading artifact archive")]
+    UnexpectedEndOfFile,
+
+    #[error("artifact archive does not have any entries")]
+    EmptyArtifact,
+
+    #[error("no chunk found containing data range for blob {blob_hash}")]
+    NoChunkFoundForBlob { blob_hash: BlobHash },
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error("{message}: {error}")]
+    TryFromIntError {
+        #[source]
+        error: std::num::TryFromIntError,
+
+        message: Cow<'static, str>,
+    },
+
+    #[error("error getting object at '{path}': {error}")]
+    GetObjectError {
+        #[source]
+        error: object_store::Error,
+        path: object_store::path::Path,
+    },
+
+    #[error(transparent)]
+    SaveBlobError(#[from] crate::blob::SaveBlobError),
+
+    #[error(transparent)]
+    ArtifactInsertError(#[from] crate::recipe::build::InsertError),
+
+    #[error(transparent)]
+    BuildArtifactError(#[from] crate::recipe::build::BuildArtifactError),
 }

@@ -18,9 +18,8 @@ pub async fn load_artifact(
     path: PathBuf,
     artifact_subpath: ArtifactPath,
 ) -> Result<ArtifactBuilder, LoadArtifactError> {
-    let mut permit = crate::blob::get_save_blob_permit()
-        .await
-        .expect("todo: failed to get save_blob_permit");
+    let mut permit = crate::blob::get_save_blob_permit().await;
+
     tokio::task::spawn_blocking(move || {
         let mut artifact = None;
         load_artifact_sync(
@@ -43,9 +42,8 @@ pub async fn load_artifact_glob(
     artifact_subpath: ArtifactPath,
     patterns: Vec<String>,
 ) -> Result<ArtifactBuilder, LoadArtifactError> {
-    let mut permit = crate::blob::get_save_blob_permit()
-        .await
-        .expect("todo: failed to get save_blob_permit");
+    let mut permit = crate::blob::get_save_blob_permit().await;
+
     tokio::task::spawn_blocking(move || {
         let mut artifact = None;
         load_artifact_glob_sync(

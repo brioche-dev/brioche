@@ -447,7 +447,9 @@ pub enum CompressionFormat {
 }
 
 #[expect(clippy::unused_async)]
-pub async fn commit_recipes(_brioche: &crate::BriocheResources) -> anyhow::Result<()> {
+pub async fn commit_recipes(
+    _brioche: &crate::BriocheResources,
+) -> Result<(), std::convert::Infallible> {
     // TODO: Persist recipes!!
     Ok(())
 }

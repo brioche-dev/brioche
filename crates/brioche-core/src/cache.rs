@@ -1,7 +1,7 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock};
 
-use anyhow::Context as _;
 use object_store::ObjectStoreExt as _;
 use tokio::io::AsyncWriteExt as _;
 
@@ -33,12 +33,8 @@ impl CacheClient {
         self.store.clone()
     }
 
-    fn writable_store(&self) -> anyhow::Result<Arc<dyn object_store::ObjectStore>> {
-        let Some(store) = self.try_writable_store() else {
-            anyhow::bail!("tried to write to cache, but no writable cache is configured");
-        };
-
-        Ok(store)
+    fn writable_store(&self) -> Result<Arc<dyn object_store::ObjectStore>, NoWritableCacheError> {
+        self.try_writable_store().ok_or(NoWritableCacheError)
     }
 
     fn try_writable_store(&self) -> Option<Arc<dyn object_store::ObjectStore>> {
@@ -52,7 +48,7 @@ impl CacheClient {
 
 pub async fn cache_client_with_config(
     config: Option<&crate::config::CacheConfig>,
-) -> anyhow::Result<CacheClient> {
+) -> Result<CacheClient, CacheError> {
     let use_default_cache = config.is_none_or(|config| config.use_default_cache);
     let default_cache_store = if use_default_cache {
         let store = build_object_store(&ObjectStoreConfig {
@@ -128,7 +124,7 @@ struct ObjectStoreConfig<'a> {
 
 async fn build_object_store(
     config: &ObjectStoreConfig<'_>,
-) -> anyhow::Result<Arc<dyn object_store::ObjectStore>> {
+) -> Result<Arc<dyn object_store::ObjectStore>, CacheError> {
     let retry_config = object_store::RetryConfig {
         backoff: object_store::BackoffConfig {
             init_backoff: std::time::Duration::from_secs(1),
@@ -157,14 +153,21 @@ async fn build_object_store(
                 .with_url(config.url.as_str())
                 .with_retry(retry_config)
                 .with_client_options(client_options)
-                .build()?;
+                .build()
+                .map_err(|error| CacheError::ObjectStoreError {
+                    message: "failed to build HTTP store".into(),
+                    error,
+                })?;
             Arc::new(store)
         }
         "s3" => {
             let bucket = config
                 .url
                 .host_str()
-                .context("S3 cache URL must include a bucket name")?;
+                .ok_or_else(|| CacheError::InvalidCacheUrl {
+                    url: config.url.clone(),
+                    message: "S3 cache URL must include a bucket name".into(),
+                })?;
             let prefix = config.url.path().trim_start_matches('/').to_string();
 
             let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
@@ -181,7 +184,11 @@ async fn build_object_store(
             .with_bucket_name(bucket)
             .with_client_options(client_options)
             .with_retry(retry_config)
-            .build()?;
+            .build()
+            .map_err(|error| CacheError::ObjectStoreError {
+                message: "failed to build S3 store".into(),
+                error,
+            })?;
             let store = object_store::prefix::PrefixStore::new(store, prefix);
 
             Arc::new(store)
@@ -190,10 +197,22 @@ async fn build_object_store(
             let path = config
                 .url
                 .to_file_path()
-                .map_err(|()| anyhow::anyhow!("invalid file:// URL for cache"))?;
+                .map_err(|()| CacheError::InvalidCacheUrl {
+                    url: config.url.clone(),
+                    message: "invalid file URL".into(),
+                })?;
 
-            let store = object_store::local::LocalFileSystem::new_with_prefix(&path)
-                .with_context(|| format!("failed to use path {} as cache", path.display()))?;
+            let store =
+                object_store::local::LocalFileSystem::new_with_prefix(&path).map_err(|error| {
+                    CacheError::ObjectStoreError {
+                        message: format!(
+                            "failed to build object store for path {}",
+                            path.display()
+                        )
+                        .into(),
+                        error,
+                    }
+                })?;
             let store = store.with_automatic_cleanup(true);
             Arc::new(store)
         }
@@ -201,8 +220,11 @@ async fn build_object_store(
             let store = object_store::memory::InMemory::new();
             Arc::new(store)
         }
-        scheme => {
-            anyhow::bail!("unknown scheme for cache: {scheme:?}");
+        _ => {
+            return Err(CacheError::InvalidCacheUrl {
+                url: config.url.clone(),
+                message: "unsupported URL scheme".into(),
+            });
         }
     };
 
@@ -213,7 +235,7 @@ async fn build_object_store(
 pub async fn load_bake(
     brioche: &BriocheResources,
     input_hash: RecipeHash,
-) -> anyhow::Result<Option<RecipeHash>> {
+) -> Result<Option<RecipeHash>, CacheError> {
     let Some(store) = brioche.cache_client.store.clone() else {
         return Ok(None);
     };
@@ -225,13 +247,29 @@ pub async fn load_bake(
         Ok(bake_output_object) => bake_output_object,
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
         Err(error) => {
-            return Err(error.into());
+            return Err(CacheError::ObjectStoreError {
+                error,
+                message: format!("failed to get bake '{bake_output_path}' in cache").into(),
+            });
         }
     };
 
-    let bake_output_json = bake_output_object.bytes().await?;
-    let bake_output: CachedBakeOutput = serde_json::from_slice(&bake_output_json[..])
-        .with_context(|| format!("failed to deserialize cache object at '{bake_output_path}'"))?;
+    let bake_output_json =
+        bake_output_object
+            .bytes()
+            .await
+            .map_err(|error| CacheError::ObjectStoreError {
+                error,
+                message: format!("failed to get bytes for bake '{bake_output_path}' in cache")
+                    .into(),
+            })?;
+    let bake_output: CachedBakeOutput =
+        serde_json::from_slice(&bake_output_json[..]).map_err(|error| {
+            CacheError::DeserializeObjectError {
+                error,
+                path: bake_output_path,
+            }
+        })?;
 
     Ok(Some(bake_output.output_hash))
 }
@@ -241,13 +279,15 @@ pub async fn save_bake(
     brioche: &BriocheResources,
     input_hash: RecipeHash,
     output_hash: RecipeHash,
-) -> anyhow::Result<bool> {
+) -> Result<bool, CacheError> {
     let store = brioche.cache_client.writable_store()?;
 
     let bake_output_path =
         object_store::path::Path::from_iter(["bakes", &input_hash.to_string(), "output.json"]);
     let bake_output = CachedBakeOutput { output_hash };
-    let bake_output_json = serde_json::to_string(&bake_output)?;
+    let bake_output_json = serde_json::to_string(&bake_output).unwrap_or_else(|error| {
+        panic!("failed to serialize bake with hash {output_hash}: {error}")
+    });
 
     let put_result = crate::object_store_utils::put_opts_with_retry(
         &store,
@@ -266,7 +306,10 @@ pub async fn save_bake(
         Ok(_) => true,
         Err(object_store::Error::AlreadyExists { .. }) => false,
         Err(error) => {
-            return Err(error.into());
+            return Err(CacheError::ObjectStoreError {
+                error,
+                message: format!("failed to put bake '{bake_output_path}' in cache").into(),
+            });
         }
     };
 
@@ -279,7 +322,7 @@ pub async fn load_artifact(
     artifact_hash: RecipeHash,
     fetch_kind: CacheFetchKind,
     context: JobContext,
-) -> anyhow::Result<Option<RecipeRef>> {
+) -> Result<Option<RecipeRef>, CacheError> {
     // Check if this artifact should be skipped
     if SKIP_CACHE_ARTIFACTS.contains(&artifact_hash.to_string()) {
         tracing::debug!(%artifact_hash, "skipping artifact due to BRIOCHE_SKIP_CACHE_ARTIFACTS");
@@ -298,7 +341,10 @@ pub async fn load_artifact(
         Ok(archive_object) => archive_object,
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
         Err(error) => {
-            return Err(error.into());
+            return Err(CacheError::ObjectStoreError {
+                error,
+                message: format!("failed to get artifact '{artifact_path}' in cache").into(),
+            });
         }
     };
 
@@ -310,13 +356,20 @@ pub async fn load_artifact(
 
     let artifact =
         archive::read_artifact_archive(brioche, &store, fetch_kind, context, &mut archive_reader)
-            .await?;
+            .await
+            .map_err(|error| CacheError::ReadArtifactError {
+                error,
+                path: artifact_path.clone(),
+            })?;
 
     let actual_hash = crate::recipe::hash::hash_recipe(brioche, artifact);
-    anyhow::ensure!(
-        actual_hash == artifact_hash,
-        "artifact from cache at {artifact_path} has hash {actual_hash}, but expected {artifact_hash}"
-    );
+    if actual_hash != artifact_hash {
+        return Err(CacheError::ArtifactHashMismatch {
+            path: artifact_path,
+            expected: artifact_hash,
+            actual: actual_hash,
+        });
+    }
 
     Ok(Some(artifact))
 }
@@ -325,7 +378,7 @@ pub async fn load_artifact(
 pub async fn save_artifact(
     brioche: &mut BriocheState,
     artifact: RecipeRef,
-) -> anyhow::Result<bool> {
+) -> Result<bool, CacheError> {
     let store = brioche.resources.cache_client.writable_store()?;
 
     let artifact_hash = crate::recipe::hash::hash_recipe(brioche, artifact);
@@ -346,15 +399,32 @@ pub async fn save_artifact(
             // The artifact doesn't exist, so we can create it
         }
         Err(error) => {
-            return Err(error.into());
+            return Err(CacheError::ObjectStoreError {
+                error,
+                message: format!(
+                    "failed to check for existing artifact '{artifact_path}' in cache"
+                )
+                .into(),
+            });
         }
     }
 
     let mut archive_compressed = vec![];
     let mut archive_writer =
         async_compression::tokio::write::ZstdEncoder::new(&mut archive_compressed);
-    archive::write_artifact_archive(brioche, artifact, &store, &mut archive_writer).await?;
-    archive_writer.shutdown().await?;
+    archive::write_artifact_archive(brioche, artifact, &store, &mut archive_writer)
+        .await
+        .map_err(|error| CacheError::WriteArtifactError {
+            error,
+            path: artifact_path.clone(),
+        })?;
+    archive_writer
+        .shutdown()
+        .await
+        .map_err(|error| CacheError::WriteArtifactError {
+            error: archive::WriteArtifactError::IoError(error),
+            path: artifact_path.clone(),
+        })?;
 
     let put_result = crate::object_store_utils::put_opts_with_retry(
         &store,
@@ -373,7 +443,10 @@ pub async fn save_artifact(
         Ok(_) => true,
         Err(object_store::Error::AlreadyExists { .. }) => false,
         Err(error) => {
-            return Err(error.into());
+            return Err(CacheError::ObjectStoreError {
+                error,
+                message: format!("failed to put artifact '{artifact_path}' in cache").into(),
+            });
         }
     };
 
@@ -384,7 +457,7 @@ pub async fn save_artifact(
 pub async fn load_project_artifact_hash(
     brioche: &mut BriocheState,
     project_hash: ProjectHash,
-) -> anyhow::Result<Option<RecipeHash>> {
+) -> Result<Option<RecipeHash>, CacheError> {
     let Some(store) = brioche.resources.cache_client.store.clone() else {
         return Ok(None);
     };
@@ -396,14 +469,31 @@ pub async fn load_project_artifact_hash(
         Ok(project_source_object) => project_source_object,
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
         Err(error) => {
-            return Err(error.into());
+            return Err(CacheError::ObjectStoreError {
+                error,
+                message: format!(
+                    "failed to check for existing project '{project_source_path}' in cache"
+                )
+                .into(),
+            });
         }
     };
 
-    let project_source_json = project_source_object.bytes().await?;
+    let project_source_json =
+        project_source_object
+            .bytes()
+            .await
+            .map_err(|error| CacheError::ObjectStoreError {
+                error,
+                message: format!(
+                    "failed to get bytes for project '{project_source_path}' in cache"
+                )
+                .into(),
+            })?;
     let project_source: CachedProjectSource = serde_json::from_slice(&project_source_json[..])
-        .with_context(|| {
-            format!("failed to deserialize cache object at '{project_source_path}'")
+        .map_err(|error| CacheError::DeserializeObjectError {
+            error,
+            path: project_source_path,
         })?;
 
     Ok(Some(project_source.artifact_hash))
@@ -414,13 +504,15 @@ pub async fn save_project_artifact_hash(
     brioche: &mut BriocheState,
     project_hash: ProjectHash,
     artifact_hash: RecipeHash,
-) -> anyhow::Result<bool> {
+) -> Result<bool, CacheError> {
     let store = brioche.resources.cache_client.writable_store()?;
 
     let project_source_path =
         object_store::path::Path::from_iter(["projects", &project_hash.to_string(), "source.json"]);
     let project_source = CachedProjectSource { artifact_hash };
-    let project_source_json = serde_json::to_string(&project_source)?;
+    let project_source_json = serde_json::to_string(&project_source).unwrap_or_else(|error| {
+        panic!("failed to serialize project source artifact with hash {artifact_hash}: {error}")
+    });
 
     let put_result = crate::object_store_utils::put_opts_with_retry(
         &store,
@@ -439,7 +531,10 @@ pub async fn save_project_artifact_hash(
         Ok(_) => true,
         Err(object_store::Error::AlreadyExists { .. }) => false,
         Err(error) => {
-            return Err(error.into());
+            return Err(CacheError::ObjectStoreError {
+                error,
+                message: format!("failed to put project '{project_source_path}' in cache").into(),
+            });
         }
     };
 
@@ -456,4 +551,69 @@ pub struct CachedBakeOutput {
 #[serde(rename_all = "camelCase")]
 pub struct CachedProjectSource {
     artifact_hash: RecipeHash,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CacheError {
+    #[error("{message}: {error}")]
+    ObjectStoreError {
+        #[source]
+        error: object_store::Error,
+
+        message: Cow<'static, str>,
+    },
+
+    #[error("error deserializing cache object '{path}': {error}")]
+    DeserializeObjectError {
+        #[source]
+        error: serde_json::Error,
+
+        path: object_store::path::Path,
+    },
+
+    #[error("cache URL '{}' is invalid: {message}", sanitize_url(.url))]
+    InvalidCacheUrl {
+        url: url::Url,
+        message: Cow<'static, str>,
+    },
+
+    #[error("error reading artifact '{path}': {error}")]
+    ReadArtifactError {
+        #[source]
+        error: archive::ReadArtifactError,
+
+        path: object_store::path::Path,
+    },
+
+    #[error("artifact from cache at '{path}' has hash {actual}, but expected {expected}")]
+    ArtifactHashMismatch {
+        path: object_store::path::Path,
+        expected: RecipeHash,
+        actual: RecipeHash,
+    },
+
+    #[error(transparent)]
+    NoWritableCacheError(#[from] NoWritableCacheError),
+
+    #[error("error writing artifact '{path}': {error}")]
+    WriteArtifactError {
+        #[source]
+        error: archive::WriteArtifactError,
+
+        path: object_store::path::Path,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("tried to write to cache, but no writable cache store is configured")]
+pub struct NoWritableCacheError;
+
+fn sanitize_url(url: &url::Url) -> Cow<'_, url::Url> {
+    if url.password().is_some_and(|password| !password.is_empty()) {
+        let mut url = url.clone();
+        let _ = url.set_password(Some("****"));
+        Cow::Owned(url)
+    } else {
+        Cow::Borrowed(url)
+    }
 }

@@ -1,4 +1,3 @@
-use anyhow::Context as _;
 use futures::TryStreamExt as _;
 use tokio_util::compat::FuturesAsyncReadCompatExt as _;
 
@@ -13,14 +12,18 @@ pub async fn download(
     url: &url::Url,
     expected_hash: Option<crate::hash::AnyHash>,
     context: JobContext,
-) -> anyhow::Result<crate::blob::BlobHash> {
+) -> Result<crate::blob::BlobHash, DownloadError> {
     // Acquire a permit to save the blob
-    let mut save_blob_permit = crate::blob::get_save_blob_permit().await?;
+    let mut save_blob_permit = crate::blob::get_save_blob_permit().await;
 
     // Acquire a permit to download
     tracing::debug!("acquiring download semaphore permit");
-    let _permit = brioche.download_semaphore.acquire().await?;
-    tracing::debug!("acquired download semaphore permit");
+    let _permit = brioche
+        .download_semaphore
+        .acquire()
+        .await
+        .expect("failed to acquire download permit");
+    tracing::debug!("acquired download permit");
 
     tracing::debug!(%url, "starting download");
 
@@ -53,10 +56,20 @@ pub async fn download(
     let download_stream = std::pin::pin!(download_stream);
 
     let mut last_num_downloaded_bytes = 0;
+    let mut on_progress_error = false;
     let save_blob_options = crate::blob::SaveBlobOptions::new()
         .expected_hash(expected_hash)
         .on_progress(|downloaded_bytes| {
-            let downloaded_bytes: u64 = downloaded_bytes.try_into()?;
+            let Ok(downloaded_bytes) = u64::try_from(downloaded_bytes) else {
+                if !on_progress_error {
+                    tracing::warn!(
+                        "downloaded_bytes is out of range, failed to report download progress"
+                    );
+                }
+                on_progress_error = true;
+
+                return;
+            };
             last_num_downloaded_bytes = downloaded_bytes;
 
             brioche.reporter.update_job(
@@ -67,8 +80,6 @@ pub async fn download(
                     finished_at: None,
                 },
             );
-
-            Ok(())
         });
 
     let blob_hash = crate::blob::save_blob_from_reader(
@@ -78,8 +89,7 @@ pub async fn download(
         save_blob_options,
         &mut Vec::new(),
     )
-    .await
-    .context("failed to save blob")?;
+    .await?;
 
     brioche.reporter.update_job(
         job_id,
@@ -91,4 +101,16 @@ pub async fn download(
     );
 
     Ok(blob_hash)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DownloadError {
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+
+    #[error(transparent)]
+    ReqwestMiddleware(#[from] reqwest_middleware::Error),
+
+    #[error(transparent)]
+    SaveBlob(#[from] crate::blob::SaveBlobError),
 }

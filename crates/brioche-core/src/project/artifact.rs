@@ -27,7 +27,7 @@ pub async fn create_project_artifact(
     brioche: &mut BriocheState,
     project_ref: ProjectRef,
 ) -> anyhow::Result<RecipeRef> {
-    let mut permit = crate::blob::get_save_blob_permit().await?;
+    let mut permit = crate::blob::get_save_blob_permit().await;
 
     let mut directory = Some(recipe::build::ArtifactBuilder::empty_dir());
 

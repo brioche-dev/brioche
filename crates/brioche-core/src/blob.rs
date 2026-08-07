@@ -1,10 +1,10 @@
 use std::{
+    borrow::Cow,
     io::{Read as _, Write as _},
     os::unix::prelude::PermissionsExt as _,
     path::{Path, PathBuf},
 };
 
-use anyhow::Context as _;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::{
@@ -21,12 +21,12 @@ pub const MAX_CONCURRENT_BLOB_SAVES: usize = 10;
 static SAVE_BLOB_SEMAPHORE: tokio::sync::Semaphore =
     tokio::sync::Semaphore::const_new(MAX_CONCURRENT_BLOB_SAVES);
 
-pub async fn get_save_blob_permit<'a>() -> anyhow::Result<SaveBlobPermit<'a>> {
+pub async fn get_save_blob_permit<'a>() -> SaveBlobPermit<'a> {
     let permit = SAVE_BLOB_SEMAPHORE
         .acquire()
         .await
-        .context("failed to acquire permit to save blob")?;
-    Ok(SaveBlobPermit { _permit: permit })
+        .expect("failed to acquire save blob permit");
+    SaveBlobPermit { _permit: permit }
 }
 
 pub async fn save_blob(
@@ -34,7 +34,7 @@ pub async fn save_blob(
     _permit: &mut SaveBlobPermit<'_>,
     bytes: &[u8],
     options: SaveBlobOptions<'_>,
-) -> anyhow::Result<BlobHash> {
+) -> Result<BlobHash, SaveBlobError> {
     let mut hasher = BlobHasher::new(&options);
     hasher.update(bytes);
     let (blob_hash, _validated_hash) = hasher.finish()?;
@@ -44,38 +44,70 @@ pub async fn save_blob(
     if let Some(parent) = blob_path.parent() {
         tokio::fs::create_dir_all(&parent)
             .await
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("failed to create dir '{}'", parent.display()).into(),
+            })?;
     }
 
-    if tokio::fs::try_exists(&blob_path).await? {
+    let already_exists =
+        tokio::fs::try_exists(&blob_path)
+            .await
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("failed to check path '{}'", blob_path.display()).into(),
+            })?;
+    if already_exists {
         return Ok(blob_hash);
     }
 
     let temp_dir = brioche.data_dir.join("blobs-temp");
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
+    tokio::fs::create_dir_all(&temp_dir)
+        .await
+        .map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!("failed to create dir '{}'", temp_dir.display()).into(),
+        })?;
     let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
 
-    let mut temp_file = tokio::fs::File::create(&temp_path)
-        .await
-        .context("failed to open temp file")?;
+    let mut temp_file =
+        tokio::fs::File::create(&temp_path)
+            .await
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("failed to create temp blob '{}'", temp_path.display()).into(),
+            })?;
     temp_file
         .write_all(bytes)
         .await
-        .context("failed to write blob to temp file")?;
-    temp_file
-        .set_permissions(blob_permissions())
-        .await
-        .context("failed to set blob permissions")?;
+        .map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!("failed to write temp blob '{}'", temp_path.display()).into(),
+        })?;
     let temp_file = temp_file.into_std().await;
     tokio::task::spawn_blocking(move || {
+        temp_file.set_permissions(blob_permissions())?;
         temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
-        anyhow::Ok(())
+        std::io::Result::Ok(())
     })
-    .await??;
+    .await
+    .unwrap()
+    .map_err(|error| SaveBlobError::IoError {
+        error,
+        message: format!("failed to set blob metadata '{}'", temp_path.display()).into(),
+    })?;
 
     tokio::fs::rename(&temp_path, &blob_path)
         .await
-        .context("failed to rename blob from temp file")?;
+        .map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!(
+                "failed to move temp blob '{}' to final path '{}'",
+                temp_path.display(),
+                blob_path.display()
+            )
+            .into(),
+        })?;
 
     Ok(blob_hash)
 }
@@ -86,27 +118,45 @@ pub async fn save_blob_from_reader<R>(
     mut input: R,
     mut options: SaveBlobOptions<'_>,
     buffer: &mut Vec<u8>,
-) -> anyhow::Result<BlobHash>
+) -> Result<BlobHash, SaveBlobError>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
-    anyhow::ensure!(!options.remove_input, "cannot remove input from reader");
+    assert!(
+        !options.remove_input,
+        "called save_blob_from_reader with remove_input set"
+    );
 
     let mut hasher = BlobHasher::new(&options);
 
     let temp_dir = brioche.data_dir.join("blobs-temp");
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
-    let mut temp_file = tokio::fs::File::create(&temp_path)
+    tokio::fs::create_dir_all(&temp_dir)
         .await
-        .context("failed to open temp file")?;
+        .map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!("failed to create dir '{}'", temp_dir.display()).into(),
+        })?;
+    let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
+    let mut temp_file =
+        tokio::fs::File::create(&temp_path)
+            .await
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("failed to create temp blob '{}'", temp_path.display()).into(),
+            })?;
 
     tracing::trace!(temp_path = %temp_path.display(), "saving blob");
 
     buffer.resize(1024 * 1024, 0);
     let mut total_bytes_read = 0;
     loop {
-        let length = input.read(buffer).await.context("failed to read")?;
+        let length = input
+            .read(buffer)
+            .await
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: "error while reading blob".into(),
+            })?;
         if length == 0 {
             break;
         }
@@ -117,12 +167,15 @@ where
         temp_file
             .write_all(buffer)
             .await
-            .context("failed to write all")?;
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("error while writing temp blob '{}'", temp_path.display()).into(),
+            })?;
 
         hasher.update(buffer);
 
         if let Some(on_progress) = &mut options.on_progress {
-            on_progress(total_bytes_read)?;
+            on_progress(total_bytes_read);
         }
     }
 
@@ -130,25 +183,40 @@ where
     let blob_path = local_blob_path(brioche, blob_hash);
 
     if let Some(parent) = blob_path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("failed to create dir '{}'", parent.display()).into(),
+            })?;
     }
 
     tracing::debug!(overwrite = blob_path.exists(), %blob_hash, "saved blob");
 
-    temp_file
-        .set_permissions(blob_permissions())
-        .await
-        .context("failed to set blob permissions")?;
     let temp_file = temp_file.into_std().await;
     tokio::task::spawn_blocking(move || {
+        temp_file.set_permissions(blob_permissions())?;
         temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
-        anyhow::Ok(())
+        std::io::Result::Ok(())
     })
-    .await??;
+    .await
+    .unwrap()
+    .map_err(|error| SaveBlobError::IoError {
+        error,
+        message: format!("failed to set blob metadata '{}'", temp_path.display()).into(),
+    })?;
 
     tokio::fs::rename(&temp_path, &blob_path)
         .await
-        .context("failed to rename blob from temp file")?;
+        .map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!(
+                "failed to move temp blob '{}' to final path '{}'",
+                temp_path.display(),
+                blob_path.display()
+            )
+            .into(),
+        })?;
 
     Ok(blob_hash)
 }
@@ -159,29 +227,42 @@ pub fn save_blob_from_reader_sync<R>(
     mut input: R,
     mut options: SaveBlobOptions<'_>,
     buffer: &mut Vec<u8>,
-) -> anyhow::Result<BlobHash>
+) -> Result<BlobHash, SaveBlobError>
 where
     R: std::io::Read,
 {
-    anyhow::ensure!(!options.remove_input, "cannot remove input from reader");
-    anyhow::ensure!(
+    assert!(
+        !options.remove_input,
+        "called save_blob_from_reader_sync with remove_input set"
+    );
+    assert!(
         options.expected_hash.is_none(),
-        "cannot validate expected hash in sync mode"
+        "called save_blob_from_reader with expected_hash, but cannot validate hash in sync mode"
     );
 
     let mut hasher = BlobHasher::new(&options);
 
     let temp_dir = brioche.data_dir.join("blobs-temp");
-    std::fs::create_dir_all(&temp_dir).unwrap();
+    std::fs::create_dir_all(&temp_dir).map_err(|error| SaveBlobError::IoError {
+        error,
+        message: format!("failed to create dir '{}'", temp_dir.display()).into(),
+    })?;
     let temp_path = temp_dir.join(ulid::Ulid::new().to_string());
-    let mut temp_file = std::fs::File::create(&temp_path).context("failed to open temp file")?;
+    let mut temp_file =
+        std::fs::File::create(&temp_path).map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!("failed to create temp blob '{}'", temp_path.display()).into(),
+        })?;
 
     tracing::trace!(temp_path = %temp_path.display(), "saving blob");
 
     buffer.resize(1024 * 1024, 0);
     let mut total_bytes_read = 0;
     loop {
-        let length = input.read(buffer).context("failed to read")?;
+        let length = input.read(buffer).map_err(|error| SaveBlobError::IoError {
+            error,
+            message: "error while reading blob".into(),
+        })?;
         if length == 0 {
             break;
         }
@@ -189,12 +270,17 @@ where
         total_bytes_read += length;
         let buffer = &buffer[..length];
 
-        temp_file.write_all(buffer).context("failed to write all")?;
+        temp_file
+            .write_all(buffer)
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("error while writing temp blob '{}'", temp_path.display()).into(),
+            })?;
 
         hasher.update(buffer);
 
         if let Some(on_progress) = &mut options.on_progress {
-            on_progress(total_bytes_read)?;
+            on_progress(total_bytes_read);
         }
     }
 
@@ -202,17 +288,36 @@ where
     let blob_path = local_blob_path(brioche, blob_hash);
 
     if let Some(parent) = blob_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent).map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!("failed to create dir '{}'", parent.display()).into(),
+        })?;
     }
 
     tracing::debug!(overwrite = blob_path.exists(), %blob_hash, "saved blob");
 
     temp_file
         .set_permissions(blob_permissions())
-        .context("failed to set blob permissions")?;
-    temp_file.set_modified(crate::fs_utils::brioche_epoch())?;
+        .map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!("failed to set blob permissions '{}'", temp_path.display()).into(),
+        })?;
+    temp_file
+        .set_modified(crate::fs_utils::brioche_epoch())
+        .map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!("failed to set blob modified time '{}'", temp_path.display()).into(),
+        })?;
 
-    std::fs::rename(&temp_path, &blob_path).context("failed to rename blob from temp file")?;
+    std::fs::rename(&temp_path, &blob_path).map_err(|error| SaveBlobError::IoError {
+        error,
+        message: format!(
+            "failed to move temp blob '{}' to final path '{}'",
+            temp_path.display(),
+            blob_path.display()
+        )
+        .into(),
+    })?;
 
     Ok(blob_hash)
 }
@@ -223,7 +328,7 @@ pub async fn save_blob_from_file(
     input_path: &Path,
     options: SaveBlobOptions<'_>,
     buffer: &mut Vec<u8>,
-) -> anyhow::Result<BlobHash> {
+) -> Result<BlobHash, SaveBlobError> {
     let mut hasher = BlobHasher::new(&options);
 
     let (mut swapped_buffer, hasher) = tokio::task::spawn_blocking({
@@ -231,10 +336,19 @@ pub async fn save_blob_from_file(
         let input_path = input_path.to_owned();
         move || {
             buffer.resize(1024 * 1024, 0);
-            let mut input_file = std::fs::File::open(&input_path)
-                .with_context(|| format!("failed to open input file {}", input_path.display()))?;
+            let mut input_file =
+                std::fs::File::open(&input_path).map_err(|error| SaveBlobError::IoError {
+                    error,
+                    message: format!("failed to open input file '{}'", input_path.display()).into(),
+                })?;
             loop {
-                let length = input_file.read(&mut buffer).context("failed to read")?;
+                let length =
+                    input_file
+                        .read(&mut buffer)
+                        .map_err(|error| SaveBlobError::IoError {
+                            error,
+                            message: "error while reading input file".into(),
+                        })?;
                 if length == 0 {
                     break;
                 }
@@ -244,10 +358,11 @@ pub async fn save_blob_from_file(
                 hasher.update(buffer);
             }
 
-            anyhow::Ok((buffer, hasher))
+            Ok::<_, SaveBlobError>((buffer, hasher))
         }
     })
-    .await??;
+    .await
+    .unwrap()?;
 
     std::mem::swap(buffer, &mut swapped_buffer);
 
@@ -257,24 +372,34 @@ pub async fn save_blob_from_file(
     if let Some(parent) = blob_path.parent() {
         tokio::fs::create_dir_all(&parent)
             .await
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("failed to create dir '{}'", parent.display()).into(),
+            })?;
     }
 
     let existing_blob_file = match tokio::fs::File::open(&blob_path).await {
         Ok(file) => Some(file),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => {
-            return Err(error)
-                .with_context(|| format!("failed to open blob file at {}", blob_path.display()));
+            return Err(SaveBlobError::IoError {
+                error,
+                message: format!("failed to open blob file '{}'", blob_path.display()).into(),
+            });
         }
     };
 
-    let input_metadata = tokio::fs::metadata(&input_path).await.with_context(|| {
-        format!(
-            "failed to get metadata for input file {}",
-            input_path.display()
-        )
-    })?;
+    let input_metadata =
+        tokio::fs::metadata(&input_path)
+            .await
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!(
+                    "failed to get metadata for input file '{}'",
+                    input_path.display()
+                )
+                .into(),
+            })?;
 
     let permissions = blob_permissions();
     if let Some(existing_blob_file) = existing_blob_file {
@@ -283,20 +408,26 @@ pub async fn save_blob_from_file(
         if options.remove_input {
             tokio::fs::remove_file(input_path)
                 .await
-                .with_context(|| format!("failed to remove input file {}", input_path.display()))?;
+                .map_err(|error| SaveBlobError::IoError {
+                    error,
+                    message: format!("failed to remove input file '{}'", input_path.display())
+                        .into(),
+                })?;
         }
 
         // Make sure the blob's permissions and modified time are set properly
-        existing_blob_file
-            .set_permissions(permissions)
-            .await
-            .context("failed to set blob permissions")?;
         let existing_blob_file = existing_blob_file.into_std().await;
         tokio::task::spawn_blocking(move || {
+            existing_blob_file.set_permissions(blob_permissions())?;
             existing_blob_file.set_modified(crate::fs_utils::brioche_epoch())?;
-            anyhow::Ok(())
+            std::io::Result::Ok(())
         })
-        .await??;
+        .await
+        .unwrap()
+        .map_err(|error| SaveBlobError::IoError {
+            error,
+            message: format!("failed to set blob metadata '{}'", blob_path.display()).into(),
+        })?;
     } else if options.remove_input && is_file_exclusive(&input_metadata) {
         // Since this file is exclusive (i.e. has no hardlinks), we can
         // change its permissions and move it into place. We need to check
@@ -305,42 +436,62 @@ pub async fn save_blob_from_file(
 
         tokio::fs::set_permissions(input_path, permissions)
             .await
-            .context("failed to set blob permissions")?;
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("failed to set blob permissions '{}'", input_path.display())
+                    .into(),
+            })?;
         crate::fs_utils::set_mtime_to_brioche_epoch(input_path)
             .await
-            .context("failed to set blob modified time")?;
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!(
+                    "failed to set blob modified time '{}'",
+                    input_path.display()
+                )
+                .into(),
+            })?;
         let move_type = crate::fs_utils::move_file(input_path, &blob_path)
             .await
-            .with_context(|| {
-                format!(
-                    "failed to move file from {} to {} to save blob",
-                    input_path.display(),
-                    blob_path.display()
-                )
+            .map_err(|error| SaveBlobError::AtomicIoError {
+                error,
+                message: "failed to move file while saving blob".into(),
             })?;
         tracing::debug!(input_path = %input_path.display(), %blob_hash, ?move_type, "saved blob by moving file");
     } else {
         crate::fs_utils::atomic_copy(input_path, &blob_path)
             .await
-            .with_context(|| {
-                format!(
-                    "failed to copy file from {} to {} to save blob",
-                    input_path.display(),
-                    blob_path.display()
-                )
+            .map_err(|error| SaveBlobError::AtomicIoError {
+                error,
+                message: "failed to copy file while saving blob".into(),
             })?;
         tokio::fs::set_permissions(&blob_path, permissions)
             .await
-            .context("failed to set blob permissions")?;
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!("failed to set blob permissions '{}'", input_path.display())
+                    .into(),
+            })?;
         crate::fs_utils::set_mtime_to_brioche_epoch(input_path)
             .await
-            .context("failed to set blob modified time")?;
+            .map_err(|error| SaveBlobError::IoError {
+                error,
+                message: format!(
+                    "failed to set blob modified time '{}'",
+                    input_path.display()
+                )
+                .into(),
+            })?;
         tracing::debug!(input_path = %input_path.display(), %blob_hash, "saved blob by copying file");
 
         if options.remove_input {
             tokio::fs::remove_file(input_path)
                 .await
-                .with_context(|| format!("failed to remove input file {}", input_path.display()))?;
+                .map_err(|error| SaveBlobError::IoError {
+                    error,
+                    message: format!("failed to remove input file '{}'", input_path.display())
+                        .into(),
+                })?;
         }
     }
 
@@ -351,7 +502,7 @@ pub async fn save_blob_from_file(
 pub struct SaveBlobOptions<'a> {
     expected_hash: Option<AnyHash>,
     expected_blob_hash: Option<BlobHash>,
-    on_progress: Option<Box<dyn FnMut(usize) -> anyhow::Result<()> + Send + 'a>>,
+    on_progress: Option<Box<dyn FnMut(usize) + Send + 'a>>,
     remove_input: bool,
 }
 
@@ -374,10 +525,7 @@ impl<'a> SaveBlobOptions<'a> {
     }
 
     #[must_use]
-    pub fn on_progress(
-        mut self,
-        on_progress: impl FnMut(usize) -> anyhow::Result<()> + Send + 'a,
-    ) -> Self {
+    pub fn on_progress(mut self, on_progress: impl FnMut(usize) + Send + 'a) -> Self {
         self.on_progress = Some(Box::new(on_progress));
         self
     }
@@ -389,14 +537,24 @@ impl<'a> SaveBlobOptions<'a> {
     }
 }
 
-pub async fn blob_path(brioche: &BriocheResources, blob_hash: BlobHash) -> anyhow::Result<PathBuf> {
+pub async fn blob_path(
+    brioche: &BriocheResources,
+    blob_hash: BlobHash,
+) -> Result<PathBuf, GetBlobError> {
     let local_path = local_blob_path(brioche, blob_hash);
 
-    if tokio::fs::try_exists(&local_path).await? {
-        return Ok(local_path);
+    let blob_exists =
+        tokio::fs::try_exists(&local_path)
+            .await
+            .map_err(|error| GetBlobError::IoError {
+                error,
+                message: format!("failed to access blob '{}'", local_path.display()).into(),
+            })?;
+    if blob_exists {
+        Ok(local_path)
+    } else {
+        Err(GetBlobError::BlobNotFoundLocally(blob_hash))
     }
-
-    anyhow::bail!("blob {blob_hash} does not exist locally");
 }
 
 #[must_use]
@@ -433,23 +591,6 @@ impl BlobHash {
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         self.0.as_bytes()
-    }
-
-    #[must_use]
-    pub fn for_content(content: &[u8]) -> Self {
-        let hash = blake3::hash(content);
-        Self(hash.into())
-    }
-
-    pub fn validate_matches(&self, content: &[u8]) -> anyhow::Result<()> {
-        let expected_hash = &self.0;
-        let actual_hash = blake3::hash(content);
-        let actual_hash = crate::hash::Blake3Hash::from(actual_hash);
-        anyhow::ensure!(
-            expected_hash == &actual_hash,
-            "blob does not match expected hash"
-        );
-        Ok(())
     }
 }
 
@@ -500,13 +641,16 @@ impl BlobHasher {
         }
     }
 
-    fn finish(self) -> anyhow::Result<(BlobHash, Option<AnyHash>)> {
+    fn finish(self) -> Result<(BlobHash, Option<AnyHash>), BlobHashMismatchError> {
         let validated_hash =
             if let Some((expected_hash, validation_hasher)) = self.validation_hash_with_hasher {
                 let actual_hash = validation_hasher.finish();
 
                 if expected_hash != actual_hash {
-                    anyhow::bail!("expected hash {expected_hash} but got {actual_hash}");
+                    return Err(BlobHashMismatchError::AnyHashMismatch {
+                        expected: expected_hash,
+                        actual: actual_hash,
+                    });
                 }
 
                 Some(actual_hash)
@@ -517,13 +661,63 @@ impl BlobHasher {
         let hash = self.hasher.finalize();
         let blob_hash = BlobHash(hash.into());
 
-        if let Some(expected_blob_hash) = self.expected_blob_hash {
-            anyhow::ensure!(
-                blob_hash == expected_blob_hash,
-                "expected hash {expected_blob_hash} but got {blob_hash}"
-            );
+        if let Some(expected_blob_hash) = self.expected_blob_hash
+            && blob_hash != expected_blob_hash
+        {
+            return Err(BlobHashMismatchError::BlobHashMismatch {
+                expected: expected_blob_hash,
+                actual: blob_hash,
+            });
         }
 
         Ok((blob_hash, validated_hash))
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BlobHashMismatchError {
+    #[error("expected hash {expected} but got {actual}")]
+    AnyHashMismatch { expected: AnyHash, actual: AnyHash },
+
+    #[error("expected hash {expected} but got {actual}")]
+    BlobHashMismatch {
+        expected: BlobHash,
+        actual: BlobHash,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum GetBlobError {
+    #[error("{message}: {error}")]
+    IoError {
+        #[source]
+        error: std::io::Error,
+
+        message: Cow<'static, str>,
+    },
+
+    #[error("could not find blob locally: {0}")]
+    BlobNotFoundLocally(BlobHash),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SaveBlobError {
+    #[error(transparent)]
+    BlobHashMismatch(#[from] BlobHashMismatchError),
+
+    #[error("{message}: {error}")]
+    IoError {
+        #[source]
+        error: std::io::Error,
+
+        message: Cow<'static, str>,
+    },
+
+    #[error("{message}: {error}")]
+    AtomicIoError {
+        #[source]
+        error: crate::fs_utils::AtomicIoError,
+
+        message: Cow<'static, str>,
+    },
 }

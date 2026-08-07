@@ -3,8 +3,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Context as _;
-
 use crate::{
     BriocheState,
     blob::BlobHash,
@@ -36,11 +34,17 @@ impl ArtifactBuilder {
         }
     }
 
-    pub fn from_artifact(brioche: &BriocheState, recipe_ref: RecipeRef) -> anyhow::Result<Self> {
+    pub fn from_artifact(
+        brioche: &BriocheState,
+        recipe_ref: RecipeRef,
+    ) -> Result<Self, NotAnArtifactError> {
         Self::from_artifact_inner(&brioche.recipes, recipe_ref)
     }
 
-    fn from_artifact_inner(recipes: &Recipes, recipe_ref: RecipeRef) -> anyhow::Result<Self> {
+    fn from_artifact_inner(
+        recipes: &Recipes,
+        recipe_ref: RecipeRef,
+    ) -> Result<Self, NotAnArtifactError> {
         match &**recipes.get_recipe(recipe_ref) {
             Recipe::File(file) => {
                 let resources = file
@@ -59,15 +63,18 @@ impl ArtifactBuilder {
                     .iter()
                     .map(|(entry_name, entry)| {
                         let entry = Self::from_artifact_inner(recipes, *entry)?;
-                        anyhow::Ok((entry_name.clone(), Some(entry)))
+                        Ok((entry_name.clone(), Some(entry)))
                     })
-                    .collect::<anyhow::Result<_>>()?;
+                    .collect::<Result<_, NotAnArtifactError>>()?;
                 Ok(Self::Directory { entries })
             }
             Recipe::Symlink(symlink) => Ok(Self::Symlink {
                 target: symlink.target.clone(),
             }),
-            recipe => anyhow::bail!("recipe is not an artifact: {:?}", recipe.kind()),
+            recipe => Err(NotAnArtifactError {
+                recipe_ref,
+                recipe_kind: recipe.kind(),
+            }),
         }
     }
 
@@ -84,14 +91,14 @@ impl ArtifactBuilder {
 pub fn build_artifact(
     brioche: &mut BriocheState,
     root: &ArtifactBuilder,
-) -> anyhow::Result<RecipeRef> {
+) -> Result<RecipeRef, BuildArtifactError> {
     build_artifact_inner(&mut brioche.recipes, root)
 }
 
 pub(crate) fn build_artifact_inner(
     recipes: &mut Recipes,
     root: &ArtifactBuilder,
-) -> anyhow::Result<RecipeRef> {
+) -> Result<RecipeRef, BuildArtifactError> {
     // Identity-keyed memo so each unique subtree converts to an `Artifact`
     // exactly once, regardless of how many references resolve to it.
     let mut memo = HashMap::new();
@@ -103,7 +110,7 @@ fn build_artifact_node(
     node: &ArtifactBuilder,
     root: &ArtifactBuilder,
     memo: &mut HashMap<usize, RecipeRef>,
-) -> anyhow::Result<RecipeRef> {
+) -> Result<RecipeRef, BuildArtifactError> {
     let key = std::ptr::from_ref(node).addr();
     if let Some(cached) = memo.get(&key) {
         return Ok(*cached);
@@ -147,17 +154,16 @@ fn build_artifact_node(
                     let entry = build_artifact_node(recipes, entry, root, memo)?;
                     Ok((name.clone(), entry))
                 })
-                .collect::<anyhow::Result<BTreeMap<_, _>>>()?;
+                .collect::<Result<BTreeMap<_, _>, BuildArtifactError>>()?;
             let artifact = Recipe::Directory(crate::recipe::Directory { entries });
             recipes.insert_recipe(Arc::new(artifact))
         }
         ArtifactBuilder::Reference { source_path } => {
             let source_node =
-                get_subtree(Some(root), &source_path.components).with_context(|| {
-                    format!(
-                        "reference source path {:?} not found",
-                        source_path.display_pretty()
-                    )
+                get_subtree(Some(root), &source_path.components).ok_or_else(|| {
+                    BuildArtifactError::ReferenceNotFound {
+                        source_path: source_path.clone(),
+                    }
                 })?;
             build_artifact_node(recipes, source_node, root, memo)?
         }
@@ -250,7 +256,7 @@ pub fn insert_into_artifact(
     container: &mut Option<ArtifactBuilder>,
     path: &ArtifactPath,
     artifact: ArtifactBuilder,
-) -> anyhow::Result<()> {
+) -> Result<(), InsertError> {
     tracing::info!(
         path = path.display_pretty(),
         kind = match artifact {
@@ -277,7 +283,7 @@ pub fn insert_or_replace_in_artifact(
     container: &mut Option<ArtifactBuilder>,
     path: &ArtifactPath,
     artifact: ArtifactBuilder,
-) -> anyhow::Result<Option<ArtifactBuilder>> {
+) -> Result<Option<ArtifactBuilder>, InsertError> {
     tracing::info!(
         path = path.display_pretty(),
         kind = match artifact {
@@ -310,15 +316,15 @@ fn insert_into_artifact_inner(
     components: &[ArtifactPathComponent],
     artifact: ArtifactBuilder,
     on_conflict: InsertOnConflict,
-) -> anyhow::Result<Option<ArtifactBuilder>> {
+) -> Result<Option<ArtifactBuilder>, InsertError> {
     let replaced = match components {
         [] => match on_conflict {
             InsertOnConflict::Error => {
-                anyhow::ensure!(
-                    container.is_none(),
-                    "archive entry tried to override path {:?}",
-                    full_path.display_pretty()
-                );
+                if container.is_some() {
+                    return Err(InsertError::AlreadyExists {
+                        full_path: full_path.clone(),
+                    });
+                }
                 *container = Some(artifact);
                 None
             }
@@ -327,26 +333,23 @@ fn insert_into_artifact_inner(
         [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
             let container = container.get_or_insert_with(ArtifactBuilder::empty_dir);
             let ArtifactBuilder::Directory { entries } = container else {
-                anyhow::bail!(
-                    "path {:?} descends into non-directory",
-                    full_path.display_pretty()
-                );
+                return Err(InsertError::NotADirectory {
+                    full_path: full_path.clone(),
+                });
             };
             let entry = entries.entry(name.to_owned()).or_default();
             insert_into_artifact_inner(entry, full_path, rest, artifact, on_conflict)?
         }
         [ArtifactPathComponent::FileResources, rest @ ..] => {
             let Some(container) = container else {
-                anyhow::bail!(
-                    "path {:?} tried to add resource to a file that doesn't exist",
-                    full_path.display_pretty()
-                );
+                return Err(InsertError::FileResourceTargetDoesNotExist {
+                    full_path: full_path.clone(),
+                });
             };
             let ArtifactBuilder::File { resources, .. } = container else {
-                anyhow::bail!(
-                    "path {:?} tried to add resource to a non-file",
-                    full_path.display_pretty()
-                );
+                return Err(InsertError::FileResourceTargetNotAFile {
+                    full_path: full_path.clone(),
+                });
             };
 
             insert_into_artifact_inner(resources.as_mut(), full_path, rest, artifact, on_conflict)?
@@ -379,39 +382,36 @@ fn get_subtree<'a>(
     }
 }
 
-/// Set a subtree at the given path components.
-pub fn set_subtree(
-    container: &mut Option<ArtifactBuilder>,
-    components: &[ArtifactPathComponent],
-    subtree: ArtifactBuilder,
-) -> anyhow::Result<()> {
-    match components {
-        [] => {
-            *container = Some(subtree);
-            Ok(())
-        }
-        [ArtifactPathComponent::DirectoryEntry(name), rest @ ..] => {
-            let container = container.get_or_insert_with(ArtifactBuilder::empty_dir);
-            let ArtifactBuilder::Directory { entries } = container else {
-                anyhow::bail!("tried to descend into non-directory");
-            };
-            let entry = entries.entry(name.to_owned()).or_default();
-            set_subtree(entry, rest, subtree)
-        }
-        [ArtifactPathComponent::FileResources, rest @ ..] => {
-            let Some(container) = container else {
-                anyhow::bail!("tried to set resources on non-existent file");
-            };
-            let ArtifactBuilder::File { resources, .. } = container else {
-                anyhow::bail!("tried to set resources on non-file");
-            };
-            set_subtree(resources.as_mut(), rest, subtree)
-        }
-    }
+#[derive(Debug, thiserror::Error)]
+pub enum BuildArtifactError {
+    #[error("reference source path '{}' not found", source_path.display_pretty())]
+    ReferenceNotFound { source_path: ArtifactPath },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InsertError {
+    #[error("conflict at '{}': already exists", .full_path.display_pretty())]
+    AlreadyExists { full_path: ArtifactPath },
+
+    #[error("path '{}' descends into non-directory", .full_path.display_pretty())]
+    NotADirectory { full_path: ArtifactPath },
+
+    #[error("path '{}' tried to add resource to a file that doesn't exist", .full_path.display_pretty())]
+    FileResourceTargetDoesNotExist { full_path: ArtifactPath },
+
+    #[error("path '{}' tried to add resource to a non-file", .full_path.display_pretty())]
+    FileResourceTargetNotAFile { full_path: ArtifactPath },
 }
 
 #[derive(Debug, Clone, Copy, thiserror::Error)]
 pub enum ToArtifactPathError {
     #[error("subpath escapes top-level path")]
     SubpathEscapesTopLevel,
+}
+
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[error("expected an artifact, recipe was {recipe_kind:?}")]
+pub struct NotAnArtifactError {
+    recipe_ref: RecipeRef,
+    recipe_kind: crate::recipe::RecipeKind,
 }

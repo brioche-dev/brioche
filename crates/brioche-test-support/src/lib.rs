@@ -209,10 +209,9 @@ pub fn artifact_path(path: impl AsRef<[u8]>) -> brioche_core::recipe::build::Art
 }
 
 pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]>) -> BlobHash {
-    let mut permit = brioche_core::blob::get_save_blob_permit().await.unwrap();
     brioche_core::blob::save_blob(
         brioche.resources(),
-        &mut permit,
+        &mut brioche_core::blob::get_save_blob_permit().await,
         content.as_ref(),
         SaveBlobOptions::default(),
     )
