@@ -113,8 +113,8 @@ pub fn project_specifier_for_path(project_dir: &Path) -> ProjectSpecifier {
 }
 
 #[must_use]
-pub fn get_all_issues(brioche: &BriocheState) -> Vec<ProjectIssue> {
-    brioche_core::project::get_all_issues(brioche)
+pub fn get_all_issues(brioche: &BriocheState) -> Vec<&ProjectIssue> {
+    brioche_core::project::get_all_issues(brioche).collect()
 }
 
 #[expect(clippy::print_stderr)]

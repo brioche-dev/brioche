@@ -579,17 +579,11 @@ pub fn get_project_by_specifier(
         .copied()
 }
 
-#[must_use]
-pub fn get_all_issues(brioche: &BriocheState) -> Vec<ProjectIssue> {
-    brioche
-        .projects
-        .issues
-        .values()
-        .flat_map(|issues| issues.iter().cloned())
-        .collect()
+pub fn get_all_issues(brioche: &BriocheState) -> impl Iterator<Item = &ProjectIssue> {
+    brioche.projects.issues.values().flatten()
 }
 
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum ProjectIssue {
     #[error("{error}")]
     ScriptParseError {
