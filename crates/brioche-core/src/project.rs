@@ -1,6 +1,6 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap},
-    path::PathBuf,
 };
 
 use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
@@ -10,6 +10,7 @@ use crate::{
     hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
     project::hash::ProjectHash,
+    recipe::RecipeHash,
     registry::RegistryError,
     script::{
         parse::{ModuleStaticQuery, TextRange},
@@ -608,10 +609,11 @@ pub enum ProjectIssue {
         location: ProjectIssueLocation,
     },
 
-    #[error("IO error{}: {error_message}", .path.as_ref().map(|path| format!(" at {}", path.display())).unwrap_or_default())]
+    #[error("{reason}: {error}")]
     IoError {
-        error_message: String,
-        path: Option<PathBuf>,
+        #[source]
+        error: std::io::Error,
+        reason: Cow<'static, str>,
         location: ProjectIssueLocation,
     },
 
@@ -622,21 +624,26 @@ pub enum ProjectIssue {
         location: ProjectIssueLocation,
     },
 
-    #[error("cache error: {error_message}")]
+    #[error("cache error: {error}")]
     CacheError {
-        // TODO: Use proper error
-        error_message: String,
-
+        #[source]
+        error: crate::cache::CacheError,
         location: ProjectIssueLocation,
     },
 
-    #[error("error downloading URL '{url}': {error_message}")]
+    #[error("error saving projects from project artifact {project_hash}: {error}")]
+    SaveProjectsFromArtifactError {
+        #[source]
+        error: artifact::SaveProjectsFromArtifactError,
+        project_hash: ProjectHash,
+        location: ProjectIssueLocation,
+    },
+
+    #[error("error downloading URL '{url}': {error}")]
     DownloadError {
+        #[source]
+        error: crate::download::DownloadError,
         url: url::Url,
-
-        // TODO: Use proper error
-        error_message: String,
-
         location: ProjectIssueLocation,
     },
 
@@ -690,6 +697,27 @@ pub enum ProjectIssue {
         dependency: String,
         location: ProjectIssueLocation,
     },
+
+    #[error("resolved project hash {project_hash} not found in cache")]
+    ProjectHashNotFoundInCache {
+        project_hash: ProjectHash,
+        location: ProjectIssueLocation,
+    },
+
+    #[error("artifact for project hash {project_hash} not found in cache")]
+    ProjectArtifactNotFoundInCache {
+        project_hash: ProjectHash,
+        artifact_hash: RecipeHash,
+        location: ProjectIssueLocation,
+    },
+
+    #[error(
+        "retrieved artifact for project but it doesn't contain the target project {project_hash}"
+    )]
+    ProjectNotFoundInProjectArtifact {
+        project_hash: ProjectHash,
+        location: ProjectIssueLocation,
+    },
 }
 
 impl ProjectIssue {
@@ -727,6 +755,10 @@ impl ProjectIssue {
             | Self::ToSystemPathError { location, .. }
             | Self::ModuleImportEscapesProjectPath { location, .. }
             | Self::DownloadError { location, .. }
+            | Self::SaveProjectsFromArtifactError { location, .. }
+            | Self::ProjectHashNotFoundInCache { location, .. }
+            | Self::ProjectArtifactNotFoundInCache { location, .. }
+            | Self::ProjectNotFoundInProjectArtifact { location, .. }
             | Self::DependencyNotFound { location, .. } => Some(*location),
             Self::ProjectHashMismatch { .. } => None,
         }

@@ -1,6 +1,7 @@
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context as _;
@@ -431,45 +432,63 @@ async fn create_single_project_artifact(
 pub async fn save_projects_from_artifact(
     brioche: &BriocheState,
     artifact_ref: RecipeRef,
-) -> anyhow::Result<HashMap<ProjectHash, crate::path::AbsolutePath>> {
+) -> Result<HashMap<ProjectHash, crate::path::AbsolutePath>, SaveProjectsFromArtifactError> {
     let mut project_hashes = HashSet::new();
     let mut needed_workspace_hashes = HashSet::new();
     let mut included_workspace_hashes = HashSet::new();
 
     let artifact = brioche.recipes.get_recipe(artifact_ref);
     let Recipe::Directory(artifact) = &**artifact else {
-        anyhow::bail!("expected Directory, but got {:?}", artifact.kind());
+        return Err(SaveProjectsFromArtifactError::UnexpectedRecipe {
+            expected: "directory".into(),
+            recipe_ref: artifact_ref,
+            recipe_kind: artifact.kind(),
+        });
     };
 
     // Validate that the projects and workspaces in the project look valid
     // based on their filenames and file types
     for (name, entry_ref) in &artifact.entries {
-        let name = name
-            .to_str()
-            .with_context(|| format!("non UTF-8 filename in artifact: {name:?}"))?;
+        let name =
+            name.to_str()
+                .map_err(|error| SaveProjectsFromArtifactError::NonUtf8Filename {
+                    error,
+                    name: name.clone(),
+                })?;
 
         if let Some(workspace_hash) = name.strip_prefix("workspace-") {
             // Artifact entry looks like a workspace ("workspace-{hash}")
 
             // Parse the workspace hash from the filename
-            let workspace_hash: WorkspaceHash = workspace_hash
-                .parse()
-                .with_context(|| format!("invalid filename in artifact: {name:?}"))?;
+            let workspace_hash: WorkspaceHash = workspace_hash.parse().map_err(|error| {
+                SaveProjectsFromArtifactError::InvalidHashInFilename {
+                    error,
+                    name: name.into(),
+                }
+            })?;
             included_workspace_hashes.insert(workspace_hash);
 
             // Validate that the workspace is stored as a directory
             let entry = brioche.recipes.get_recipe(*entry_ref);
-            anyhow::ensure!(
-                matches!(**entry, Recipe::Directory(_)),
-                "expected artifact entry for workspace {workspace_hash} to be a directory"
-            );
+            if !matches!(**entry, Recipe::Directory(_)) {
+                return Err(SaveProjectsFromArtifactError::UnexpectedRecipeAt {
+                    recipe_ref: artifact_ref,
+                    artifact_path: ArtifactPath::default()
+                        .join_one(ArtifactPathComponent::DirectoryEntry(name.into())),
+                    recipe_kind: entry.kind(),
+                    expected: "directory".into(),
+                });
+            }
         } else {
             // Artifact entry should be a project
 
             // Parse the project hash from the entry name
-            let project_hash: ProjectHash = name
-                .parse()
-                .with_context(|| format!("invalid filename in artifact: {name:?}"))?;
+            let project_hash: ProjectHash = name.parse().map_err(|error| {
+                SaveProjectsFromArtifactError::InvalidHashInFilename {
+                    error,
+                    name: name.into(),
+                }
+            })?;
             project_hashes.insert(project_hash);
 
             let entry = brioche.recipes.get_recipe(*entry_ref);
@@ -481,16 +500,47 @@ pub async fn save_projects_from_artifact(
                     // Project is a symlink, which indicates its a member
                     // of a workspace
 
-                    let target = target.to_str().with_context(|| {
-                        format!("non UTF-8 symlink target in artifact: {target:?}")
+                    let target = target.to_str().map_err(|_| {
+                        SaveProjectsFromArtifactError::InvalidProjectSymlinkTarget {
+                            project_hash,
+                            symlink_target: target.clone(),
+                            reason: "invalid UTF-8".into(),
+                        }
                     })?;
 
                     // Parse the workspace hash and member path from
                     // the symlink target
-                    let (workspace_path, member_path) = target.split_once('/').with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
-                    let workspace_hash = workspace_path.strip_prefix("workspace-").with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
-                    let workspace_hash: WorkspaceHash = workspace_hash.parse().with_context(|| format!("invalid workspace member symlink for project {project_hash} in artifact"))?;
-                    let member_path: ContentAddressedWorkspacePath = member_path.parse()?;
+                    let (workspace_path, member_path) =
+                        target.split_once('/').ok_or_else(|| {
+                            SaveProjectsFromArtifactError::InvalidProjectSymlinkTarget {
+                                project_hash,
+                                symlink_target: target.into(),
+                                reason: "expected a workspace member path".into(),
+                            }
+                        })?;
+                    let workspace_hash =
+                        workspace_path.strip_prefix("workspace-").ok_or_else(|| {
+                            SaveProjectsFromArtifactError::InvalidProjectSymlinkTarget {
+                                project_hash,
+                                symlink_target: target.into(),
+                                reason: "expected a workspace member path".into(),
+                            }
+                        })?;
+                    let workspace_hash: WorkspaceHash = workspace_hash.parse().map_err(|_| {
+                        SaveProjectsFromArtifactError::InvalidProjectSymlinkTarget {
+                            project_hash,
+                            symlink_target: target.into(),
+                            reason: "invalid workspace hash".into(),
+                        }
+                    })?;
+                    let member_path: ContentAddressedWorkspacePath =
+                        member_path.parse().map_err(|error| {
+                            SaveProjectsFromArtifactError::InvalidProjectSymlinkTarget {
+                                project_hash,
+                                symlink_target: target.into(),
+                                reason: format!("invalid workspace member path: {error}").into(),
+                            }
+                        })?;
                     needed_workspace_hashes.insert(workspace_hash);
 
                     // Validate that the project hash matches using the
@@ -500,16 +550,24 @@ pub async fn save_projects_from_artifact(
                         path: member_path,
                     };
                     let project_entry_hash = project_entry.project_hash();
-                    anyhow::ensure!(
-                        project_hash == project_entry_hash,
-                        "project hash {project_hash} did not match hash for workspace member for symlink {target}"
-                    );
+                    if project_hash != project_entry_hash {
+                        return Err(
+                            SaveProjectsFromArtifactError::WorkspaceMemberProjectHashMismatch {
+                                project_hash,
+                                project_entry_hash,
+                                symlink_target: target.into(),
+                            },
+                        );
+                    }
                 }
                 recipe => {
-                    anyhow::bail!(
-                        "unexpected recipe for project {project_hash}: {:?}",
-                        recipe.kind()
-                    );
+                    return Err(SaveProjectsFromArtifactError::UnexpectedRecipeAt {
+                        recipe_ref: artifact_ref,
+                        recipe_kind: recipe.kind(),
+                        artifact_path: ArtifactPath::default()
+                            .join_one(ArtifactPathComponent::DirectoryEntry(name.into())),
+                        expected: "directory or symlink".into(),
+                    });
                 }
             }
         }
@@ -518,20 +576,40 @@ pub async fn save_projects_from_artifact(
     // Validate that there are no missing or extra workspaces
     let missing_workspaces: HashSet<_> = needed_workspace_hashes
         .difference(&included_workspace_hashes)
+        .copied()
         .collect();
     let extra_workspaces: HashSet<_> = included_workspace_hashes
         .difference(&needed_workspace_hashes)
+        .copied()
         .collect();
-    anyhow::ensure!(
-        missing_workspaces.is_empty() && extra_workspaces.is_empty(),
-        "the set of workspaces in project artifact does not match the set of workspaces needed by the projects from the artifact (missing: {missing_workspaces:?}, extra: {extra_workspaces:?})"
-    );
+    if !missing_workspaces.is_empty() || !extra_workspaces.is_empty() {
+        return Err(
+            SaveProjectsFromArtifactError::ArtifactWorkspaceSetMismatch {
+                missing_workspaces,
+                extra_workspaces,
+            },
+        );
+    }
 
     let inner_dir_path = brioche.resources.data_dir.join("projects").join("inner");
     let project_temp_dir_path = brioche.resources.data_dir.join("projects-temp");
 
-    tokio::fs::create_dir_all(&inner_dir_path).await?;
-    tokio::fs::create_dir_all(&project_temp_dir_path).await?;
+    tokio::fs::create_dir_all(&inner_dir_path)
+        .await
+        .map_err(|error| SaveProjectsFromArtifactError::IoError {
+            error,
+            reason: format!("failed to create directory '{}'", inner_dir_path.display()).into(),
+        })?;
+    tokio::fs::create_dir_all(&project_temp_dir_path)
+        .await
+        .map_err(|error| SaveProjectsFromArtifactError::IoError {
+            error,
+            reason: format!(
+                "failed to create directory '{}'",
+                project_temp_dir_path.display()
+            )
+            .into(),
+        })?;
 
     // Save the contents of the artifact under `projects/inner`
     write_artifact_atomic(
@@ -568,7 +646,11 @@ pub async fn save_projects_from_artifact(
                 // be valid, so we can safely ignore this error
             }
             Err(error) => {
-                return Err(error.into());
+                return Err(SaveProjectsFromArtifactError::IoError {
+                    error,
+                    reason: format!("failed to create symlink '{}'", project_symlink.display())
+                        .into(),
+                });
             }
         }
 
@@ -593,14 +675,16 @@ async fn write_artifact_atomic(
     artifact_ref: RecipeRef,
     output_path: &Path,
     temp_dir: &Path,
-) -> anyhow::Result<()> {
+) -> Result<(), SaveProjectsFromArtifactError> {
     let metadata = tokio::fs::symlink_metadata(&output_path).await;
     let metadata = match metadata {
         Ok(metadata) => Some(metadata),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
         Err(error) => {
-            return Err(error).with_context(|| {
-                format!("failed to get metadata for path {}", output_path.display())
+            return Err(SaveProjectsFromArtifactError::IoError {
+                error,
+                reason: format!("failed to read output metadata '{}'", output_path.display())
+                    .into(),
             });
         }
     };
@@ -612,27 +696,37 @@ async fn write_artifact_atomic(
             executable,
             resources,
         }) => {
-            anyhow::ensure!(
-                resources.is_none(),
-                "cannot write artifact with file resources",
-            );
+            if resources.is_some() {
+                return Err(SaveProjectsFromArtifactError::FileCannotHaveResources);
+            }
 
             if let Some(metadata) = metadata {
                 // Path already exists, so validate that it's a file
                 // and return early
 
-                anyhow::ensure!(
-                    metadata.is_file(),
-                    "trying to write file for artifact, but non-file exists at {}",
-                    output_path.display()
-                );
+                if !metadata.is_file() {
+                    return Err(SaveProjectsFromArtifactError::OutputConflictError {
+                        path: output_path.to_path_buf(),
+                        reason: "saving file artifact, but non-file already exists at path".into(),
+                    });
+                }
                 return Ok(());
             }
 
             // Write the file to a temp path
             let temp_path = temp_dir.join(format!("temp-file-{}", ulid::Ulid::new()));
             let blob_path = crate::blob::local_blob_path(brioche, *content_blob);
-            tokio::fs::copy(blob_path, &temp_path).await?;
+            tokio::fs::copy(&blob_path, &temp_path)
+                .await
+                .map_err(|error| SaveProjectsFromArtifactError::IoError {
+                    error,
+                    reason: format!(
+                        "failed to copy blob '{}' to temp file '{}'",
+                        blob_path.display(),
+                        temp_path.display(),
+                    )
+                    .into(),
+                })?;
             set_file_permissions(
                 &temp_path,
                 SetFilePermissions {
@@ -640,26 +734,51 @@ async fn write_artifact_atomic(
                     readonly: false,
                 },
             )
-            .await?;
+            .await
+            .map_err(|error| SaveProjectsFromArtifactError::IoError {
+                error,
+                reason: format!(
+                    "failed to set permissions on temp file '{}'",
+                    temp_path.display(),
+                )
+                .into(),
+            })?;
 
             // Rename the file to its final path
-            tokio::fs::rename(&temp_path, output_path).await?;
+            tokio::fs::rename(&temp_path, output_path)
+                .await
+                .map_err(|error| SaveProjectsFromArtifactError::IoError {
+                    error,
+                    reason: format!(
+                        "failed to move temp file '{}' to output path '{}'",
+                        temp_path.display(),
+                        output_path.display(),
+                    )
+                    .into(),
+                })?;
         }
         Recipe::Symlink(Symlink { target }) => {
             if let Some(metadata) = metadata {
                 // Path already exists, so validate that it's a symlink
                 // and return early
 
-                anyhow::ensure!(
-                    metadata.is_symlink(),
-                    "trying to write symlink for artifact, but non-symlink exists at {}",
-                    output_path.display()
-                );
+                if !metadata.is_symlink() {
+                    return Err(SaveProjectsFromArtifactError::OutputConflictError {
+                        path: output_path.to_path_buf(),
+                        reason: "saving symlink artifact, but non-symlink already exists at path"
+                            .into(),
+                    });
+                }
                 return Ok(());
             }
 
             // Create the symlink
-            let target = target.to_path()?;
+            let target = target.to_path().map_err(|error| {
+                SaveProjectsFromArtifactError::NonUtf8Filename {
+                    error,
+                    name: target.clone(),
+                }
+            })?;
             let result = tokio::fs::symlink(&target, output_path).await;
 
             match result {
@@ -670,13 +789,11 @@ async fn write_artifact_atomic(
                     return Ok(());
                 }
                 Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!(
-                            "failed to create symlink {} -> {}",
-                            output_path.display(),
-                            target.display(),
-                        )
-                    })?;
+                    return Err(SaveProjectsFromArtifactError::IoError {
+                        error,
+                        reason: format!("failed to create symlink '{}'", output_path.display())
+                            .into(),
+                    });
                 }
             }
         }
@@ -684,11 +801,14 @@ async fn write_artifact_atomic(
             if let Some(metadata) = metadata {
                 // Path already exists, so validate that it's a directory
 
-                anyhow::ensure!(
-                    metadata.is_dir(),
-                    "trying to write directory for artifact, but non-directory exists at {}",
-                    output_path.display()
-                );
+                if !metadata.is_dir() {
+                    return Err(SaveProjectsFromArtifactError::OutputConflictError {
+                        path: output_path.to_path_buf(),
+                        reason:
+                            "saving directory artifact, but non-directory already exists at path"
+                                .into(),
+                    });
+                }
             } else {
                 // Directory doesn't exist, so create it
 
@@ -700,18 +820,26 @@ async fn write_artifact_atomic(
                         // metadata, so treat this as a success
                     }
                     Err(error) => {
-                        return Err(error).with_context(|| {
-                            format!("failed to create directory {}", output_path.display())
-                        })?;
+                        return Err(SaveProjectsFromArtifactError::IoError {
+                            error,
+                            reason: format!(
+                                "failed to create directory '{}'",
+                                output_path.display()
+                            )
+                            .into(),
+                        });
                     }
                 }
             }
 
             // Write each entry artifact
             for (name, entry_ref) in &directory.entries {
-                let name = name
-                    .to_str()
-                    .with_context(|| format!("invalid filename {name:?} in artifact"))?;
+                let name = name.to_str().map_err(|error| {
+                    SaveProjectsFromArtifactError::NonUtf8Filename {
+                        error,
+                        name: name.clone(),
+                    }
+                })?;
                 let entry_path = output_path.join(name);
                 Box::pin(write_artifact_atomic(
                     brioche,
@@ -724,7 +852,11 @@ async fn write_artifact_atomic(
             }
         }
         recipe => {
-            anyhow::bail!("expected an artifact, got {:?}", recipe.kind());
+            return Err(SaveProjectsFromArtifactError::UnexpectedRecipe {
+                recipe_ref: artifact_ref,
+                recipe_kind: recipe.kind(),
+                expected: "a recipe".into(),
+            });
         }
     }
 
@@ -738,7 +870,7 @@ struct SetFilePermissions {
 
 cfg_select! {
     unix => {
-        async fn set_file_permissions(path: &Path, permissions: SetFilePermissions) -> anyhow::Result<()> {
+        async fn set_file_permissions(path: &Path, permissions: SetFilePermissions) -> std::io::Result<()> {
             use std::os::unix::fs::PermissionsExt as _;
 
             let mode = match permissions {
@@ -753,4 +885,81 @@ cfg_select! {
         }
     }
     _ => {}
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SaveProjectsFromArtifactError {
+    #[error("expected {expected}, but got {recipe_kind:?}")]
+    UnexpectedRecipe {
+        recipe_ref: RecipeRef,
+        recipe_kind: crate::recipe::RecipeKind,
+        expected: Cow<'static, str>,
+    },
+
+    #[error("expected {expected} at {}, but got {recipe_kind:?}", artifact_path.display_pretty())]
+    UnexpectedRecipeAt {
+        recipe_ref: RecipeRef,
+        artifact_path: ArtifactPath,
+        recipe_kind: crate::recipe::RecipeKind,
+        expected: Cow<'static, str>,
+    },
+
+    #[error("conflict at '{}': {reason}", .path.display())]
+    OutputConflictError {
+        path: PathBuf,
+        reason: Cow<'static, str>,
+    },
+
+    #[error("file in project artifact cannot have resources")]
+    FileCannotHaveResources,
+
+    #[error("non-UTF-8 filename '{name}' in artifact: {error}")]
+    NonUtf8Filename {
+        #[source]
+        error: bstr::Utf8Error,
+        name: bstr::BString,
+    },
+
+    #[error("expected filename '{name}' in artifact to have a valid hash: {error}")]
+    InvalidHashInFilename {
+        #[source]
+        error: crate::hash::ParseHashError,
+        name: bstr::BString,
+    },
+
+    #[error(
+        "project {project_hash} in artifact is a symlink, but the symlink target '{symlink_target}' is not valid: {reason}"
+    )]
+    InvalidProjectSymlinkTarget {
+        project_hash: ProjectHash,
+        symlink_target: bstr::BString,
+        reason: Cow<'static, str>,
+    },
+
+    #[error(
+        "project {project_hash} has a workspace member symlink '{symlink_target}', but the project entry hash {project_entry_hash} does not match"
+    )]
+    WorkspaceMemberProjectHashMismatch {
+        project_hash: ProjectHash,
+        project_entry_hash: ProjectHash,
+        symlink_target: bstr::BString,
+    },
+
+    #[error(
+        "project artifact does not have the exact set of workspaces needed by the project (missing: {missing_workspaces:?}, extra: {extra_workspaces:?})"
+    )]
+    ArtifactWorkspaceSetMismatch {
+        missing_workspaces: HashSet<WorkspaceHash>,
+        extra_workspaces: HashSet<WorkspaceHash>,
+    },
+
+    #[error("{reason}: {error}")]
+    IoError {
+        #[source]
+        error: std::io::Error,
+        reason: Cow<'static, str>,
+    },
+
+    #[error(transparent)]
+    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
 }

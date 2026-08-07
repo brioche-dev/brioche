@@ -792,8 +792,12 @@ pub async fn resolve_statics(brioche: &mut BriocheState) -> Result<(), LoadProje
                             .entry(static_ref.0)
                             .or_default()
                             .push(ProjectIssue::IoError {
-                                error_message: error.to_string(),
-                                path: Some(static_system_path),
+                                error,
+                                reason: format!(
+                                    "failed to open static file '{}'",
+                                    static_system_path.display()
+                                )
+                                .into(),
                                 location,
                             });
                         continue;
@@ -858,8 +862,12 @@ pub async fn resolve_statics(brioche: &mut BriocheState) -> Result<(), LoadProje
                             .entry(static_ref.0)
                             .or_default()
                             .push(ProjectIssue::IoError {
-                                error_message: error.to_string(),
-                                path: Some(static_system_path),
+                                error,
+                                reason: format!(
+                                    "failed to read static directory '{}'",
+                                    static_system_path.display()
+                                )
+                                .into(),
                                 location,
                             });
                         continue;
@@ -908,16 +916,20 @@ async fn resolve_static(
                 crate::download::download(brioche, url, None, JobContext::default())
                     .await
                     .map_err(|error| ProjectIssue::DownloadError {
+                        error,
                         url: url.clone(),
-                        error_message: error.to_string(),
                         location,
                     })?;
             let blob_system_path = crate::blob::local_blob_path(brioche, new_blob_hash);
             let mut blob = tokio::fs::File::open(&blob_system_path)
                 .await
                 .map_err(|error| ProjectIssue::IoError {
-                    error_message: error.to_string(),
-                    path: Some(blob_system_path),
+                    error,
+                    reason: format!(
+                        "failed to open blob '{}' for download '{url}'",
+                        blob_system_path.display()
+                    )
+                    .into(),
                     location,
                 })?;
 
@@ -927,9 +939,13 @@ async fn resolve_static(
                 let length =
                     blob.read(&mut buffer)
                         .await
-                        .map_err(|error| ProjectIssue::DownloadError {
-                            url: url.clone(),
-                            error_message: error.to_string(),
+                        .map_err(|error| ProjectIssue::IoError {
+                            error,
+                            reason: format!(
+                                "error while reading blob '{}'",
+                                blob_system_path.display()
+                            )
+                            .into(),
                             location,
                         })?;
                 if length == 0 {
@@ -1147,8 +1163,12 @@ async fn load_project_by_hash(
         }
         Err(crate::path::CanonicalSystemPathError::IoError(error)) => {
             return Err(ProjectIssue::IoError {
-                error_message: error.to_string(),
-                path: Some(projects_system_path),
+                error,
+                reason: format!(
+                    "failed to canonicalize local project path '{}'",
+                    local_system_path.display()
+                )
+                .into(),
                 location,
             });
         }
@@ -1162,12 +1182,9 @@ async fn load_project_by_hash(
 
     let artifact_hash = crate::cache::load_project_artifact_hash(brioche, project_hash)
         .await
-        .map_err(|error| ProjectIssue::CacheError {
-            error_message: error.to_string(),
-            location,
-        })?
-        .ok_or_else(|| ProjectIssue::CacheError {
-            error_message: "project not found in cache".to_string(),
+        .map_err(|error| ProjectIssue::CacheError { error, location })?
+        .ok_or_else(|| ProjectIssue::ProjectHashNotFoundInCache {
+            project_hash,
             location,
         })?;
     let artifact_ref = crate::cache::load_artifact(
@@ -1177,26 +1194,23 @@ async fn load_project_by_hash(
         JobContext::default(),
     )
     .await
-    .map_err(|error| ProjectIssue::CacheError {
-        error_message: error.to_string(),
-        location,
-    })?
-    .ok_or_else(|| ProjectIssue::CacheError {
-        error_message: "no artifact found for project in cache".to_string(),
+    .map_err(|error| ProjectIssue::CacheError { error, location })?
+    .ok_or_else(|| ProjectIssue::ProjectArtifactNotFoundInCache {
+        project_hash,
+        artifact_hash,
         location,
     })?;
 
     let mut saved_projects = super::artifact::save_projects_from_artifact(brioche, artifact_ref)
         .await
-        .map_err(|error| ProjectIssue::CacheError {
-            error_message: error.to_string(),
+        .map_err(|error| ProjectIssue::SaveProjectsFromArtifactError {
+            error,
+            project_hash,
             location,
         })?;
     let Some(project_path) = saved_projects.remove(&project_hash) else {
-        return Err(ProjectIssue::CacheError {
-            error_message: format!(
-                "artifact for project found in cache, but it did not contain the project {project_hash}"
-            ),
+        return Err(ProjectIssue::ProjectNotFoundInProjectArtifact {
+            project_hash,
             location,
         });
     };
@@ -1355,8 +1369,12 @@ async fn resolve_project_from_workspace(
                     Ok(false) => {}
                     Err(error) => {
                         ctx.issues.push(ProjectIssue::IoError {
-                            error_message: error.to_string(),
-                            path: Some(root_module_system_path),
+                            error,
+                            reason: format!(
+                                "failed to check for wildcard workspace member at '{}'",
+                                root_module_system_path.display()
+                            )
+                            .into(),
                             location: *location,
                         });
                     }
