@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, HashMap, VecDeque},
     sync::Arc,
 };
@@ -17,6 +18,7 @@ use crate::{
         StaticRef, UnresolvedStatic, Version, Workspace, WorkspaceDefinition, WorkspaceMember,
         WorkspaceRef, hash::ProjectHash,
     },
+    recipe::RecipeHash,
     reporter::job::JobContext,
     script::specifier::{ImportSpecifier, LocalImportSpecifier},
 };
@@ -80,20 +82,7 @@ pub async fn load_projects(
             ProjectSpecifier::Hash(project_hash) => {
                 project_hashes_to_validate.insert(project_ref, *project_hash);
 
-                let location = match referrer {
-                    ProjectReferrer::TopLevel => ProjectIssueLocation {
-                        source: project_ref.into(),
-                        range: None,
-                    },
-                    ProjectReferrer::Project {
-                        module_referrer: (module_ref, _),
-                        ..
-                    } => ProjectIssueLocation {
-                        source: module_ref.into(),
-                        range: None,
-                    },
-                };
-                match load_project_by_hash(brioche, *project_hash, location).await {
+                match load_project_by_hash(brioche, *project_hash).await {
                     Ok((path, workspace_root)) => {
                         brioche
                             .projects
@@ -103,8 +92,30 @@ pub async fn load_projects(
                         (path, workspace_root)
                     }
                     Err(error) => {
-                        todo!("add project issue: {error:#?}");
-                        // projects.issues.entry(project_ref.0).or_default().push(ProjectIssue::IoError { error_message: (), path: (), location: () })
+                        let location = match referrer {
+                            ProjectReferrer::TopLevel => ProjectIssueLocation {
+                                source: project_ref.into(),
+                                range: None,
+                            },
+                            ProjectReferrer::Project {
+                                module_referrer: (module_ref, _),
+                                ..
+                            } => ProjectIssueLocation {
+                                source: module_ref.into(),
+                                range: None,
+                            },
+                        };
+                        brioche
+                            .projects
+                            .issues
+                            .entry(project_ref.0)
+                            .or_default()
+                            .push(ProjectIssue::LoadProjectByHashError {
+                                error,
+                                project_hash: *project_hash,
+                                location,
+                            });
+                        continue;
                     }
                 }
             }
@@ -1114,8 +1125,7 @@ async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceEr
 async fn load_project_by_hash(
     brioche: &mut BriocheState,
     project_hash: ProjectHash,
-    location: ProjectIssueLocation,
-) -> Result<(AbsolutePath, Option<AbsolutePath>), ProjectIssue> {
+) -> Result<(AbsolutePath, Option<AbsolutePath>), LoadProjectByHashError> {
     // Use a mutex to ensure we don't try to fetch the same project more
     // than once at a time
     static FETCH_PROJECTS_MUTEX: tokio::sync::Mutex<
@@ -1161,19 +1171,8 @@ async fn load_project_by_hash(
         {
             // Directory for the local project does not exist
         }
-        Err(crate::path::CanonicalSystemPathError::IoError(error)) => {
-            return Err(ProjectIssue::IoError {
-                error,
-                reason: format!(
-                    "failed to canonicalize local project path '{}'",
-                    local_system_path.display()
-                )
-                .into(),
-                location,
-            });
-        }
         Err(error) => {
-            panic!("path error: {error}");
+            return Err(LoadProjectByHashError::CanonicalSystemPathError(error));
         }
     }
 
@@ -1181,38 +1180,21 @@ async fn load_project_by_hash(
     // need to fetch it.
 
     let artifact_hash = crate::cache::load_project_artifact_hash(brioche, project_hash)
-        .await
-        .map_err(|error| ProjectIssue::CacheError { error, location })?
-        .ok_or_else(|| ProjectIssue::ProjectHashNotFoundInCache {
-            project_hash,
-            location,
-        })?;
+        .await?
+        .ok_or(LoadProjectByHashError::ProjectHashNotFoundInCache)?;
     let artifact_ref = crate::cache::load_artifact(
         brioche,
         artifact_hash,
         crate::reporter::job::CacheFetchKind::Project,
         JobContext::default(),
     )
-    .await
-    .map_err(|error| ProjectIssue::CacheError { error, location })?
-    .ok_or_else(|| ProjectIssue::ProjectArtifactNotFoundInCache {
-        project_hash,
-        artifact_hash,
-        location,
-    })?;
+    .await?
+    .ok_or_else(|| LoadProjectByHashError::ProjectArtifactNotFoundInCache { artifact_hash })?;
 
-    let mut saved_projects = super::artifact::save_projects_from_artifact(brioche, artifact_ref)
-        .await
-        .map_err(|error| ProjectIssue::SaveProjectsFromArtifactError {
-            error,
-            project_hash,
-            location,
-        })?;
+    let mut saved_projects =
+        super::artifact::save_projects_from_artifact(brioche, artifact_ref).await?;
     let Some(project_path) = saved_projects.remove(&project_hash) else {
-        return Err(ProjectIssue::ProjectNotFoundInProjectArtifact {
-            project_hash,
-            location,
-        });
+        return Err(LoadProjectByHashError::ProjectNotFoundInArtifact { artifact_hash });
     };
 
     let project_relative_path = crate::path::relative_path_between(&projects_path, &project_path)
@@ -1227,6 +1209,34 @@ async fn load_project_by_hash(
     });
 
     Ok((project_path, workspace_root))
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoadProjectByHashError {
+    #[error("{reason}: {error}")]
+    IoError {
+        #[source]
+        error: std::io::Error,
+        reason: Cow<'static, str>,
+    },
+
+    #[error("project hash not found in cache")]
+    ProjectHashNotFoundInCache,
+
+    #[error("resolved project to artifact {artifact_hash}, but artifact hash not found in cache")]
+    ProjectArtifactNotFoundInCache { artifact_hash: RecipeHash },
+
+    #[error("project not found in artifact {artifact_hash} retrieved from cache")]
+    ProjectNotFoundInArtifact { artifact_hash: RecipeHash },
+
+    #[error(transparent)]
+    CacheError(#[from] crate::cache::CacheError),
+
+    #[error(transparent)]
+    SaveProjectsFromArtifactError(#[from] crate::project::artifact::SaveProjectsFromArtifactError),
+
+    #[error(transparent)]
+    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
 }
 
 fn expand_module_subpath(subpath: RelativePath) -> RelativePath {

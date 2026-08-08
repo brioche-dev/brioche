@@ -10,7 +10,6 @@ use crate::{
     hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
     project::hash::ProjectHash,
-    recipe::RecipeHash,
     registry::RegistryError,
     script::{
         parse::{ModuleStaticQuery, TextRange},
@@ -631,10 +630,10 @@ pub enum ProjectIssue {
         location: ProjectIssueLocation,
     },
 
-    #[error("error saving projects from project artifact {project_hash}: {error}")]
-    SaveProjectsFromArtifactError {
+    #[error("failed to load project hash {project_hash}: {error}")]
+    LoadProjectByHashError {
         #[source]
-        error: artifact::SaveProjectsFromArtifactError,
+        error: load::LoadProjectByHashError,
         project_hash: ProjectHash,
         location: ProjectIssueLocation,
     },
@@ -697,27 +696,6 @@ pub enum ProjectIssue {
         dependency: String,
         location: ProjectIssueLocation,
     },
-
-    #[error("resolved project hash {project_hash} not found in cache")]
-    ProjectHashNotFoundInCache {
-        project_hash: ProjectHash,
-        location: ProjectIssueLocation,
-    },
-
-    #[error("artifact for project hash {project_hash} not found in cache")]
-    ProjectArtifactNotFoundInCache {
-        project_hash: ProjectHash,
-        artifact_hash: RecipeHash,
-        location: ProjectIssueLocation,
-    },
-
-    #[error(
-        "retrieved artifact for project but it doesn't contain the target project {project_hash}"
-    )]
-    ProjectNotFoundInProjectArtifact {
-        project_hash: ProjectHash,
-        location: ProjectIssueLocation,
-    },
 }
 
 impl ProjectIssue {
@@ -755,10 +733,7 @@ impl ProjectIssue {
             | Self::ToSystemPathError { location, .. }
             | Self::ModuleImportEscapesProjectPath { location, .. }
             | Self::DownloadError { location, .. }
-            | Self::SaveProjectsFromArtifactError { location, .. }
-            | Self::ProjectHashNotFoundInCache { location, .. }
-            | Self::ProjectArtifactNotFoundInCache { location, .. }
-            | Self::ProjectNotFoundInProjectArtifact { location, .. }
+            | Self::LoadProjectByHashError { location, .. }
             | Self::DependencyNotFound { location, .. } => Some(*location),
             Self::ProjectHashMismatch { .. } => None,
         }
