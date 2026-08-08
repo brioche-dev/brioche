@@ -1,17 +1,20 @@
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
 
-use anyhow::Context as _;
 use tokio::io::AsyncReadExt as _;
 
-pub async fn load_from_path(path: &Path) -> anyhow::Result<Option<BriocheConfig>> {
+pub async fn load_from_path(path: &Path) -> Result<Option<BriocheConfig>, LoadConfigError> {
     let mut file = match tokio::fs::File::open(&path).await {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(None);
         }
         Err(error) => {
-            return Err(error).with_context(|| {
-                format!("failed to open brioche config file at {}", path.display())
+            return Err(LoadConfigError::IoError {
+                error,
+                reason: format!("failed to open brioche config file '{}'", path.display()).into(),
             });
         }
     };
@@ -19,9 +22,16 @@ pub async fn load_from_path(path: &Path) -> anyhow::Result<Option<BriocheConfig>
     let mut config_toml = String::new();
     file.read_to_string(&mut config_toml)
         .await
-        .with_context(|| format!("failed to read brioche config from {}", path.display()))?;
-    let config = toml::from_str::<BriocheConfig>(&config_toml)
-        .with_context(|| format!("failed to parse brioche config from {}", path.display()))?;
+        .map_err(|error| LoadConfigError::IoError {
+            error,
+            reason: format!("failed to read brioche config file '{}'", path.display()).into(),
+        })?;
+    let config = toml::from_str::<BriocheConfig>(&config_toml).map_err(|error| {
+        LoadConfigError::DeserializeError {
+            error: Box::new(error),
+            path: path.to_path_buf(),
+        }
+    })?;
     Ok(Some(config))
 }
 
@@ -101,4 +111,20 @@ const fn default_use_default_cache() -> bool {
 
 const fn default_cache_max_concurrent_operations() -> usize {
     200
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoadConfigError {
+    #[error("{reason}: {error}")]
+    IoError {
+        #[source]
+        error: std::io::Error,
+        reason: Cow<'static, str>,
+    },
+    #[error("error deserializing config at '{}': {error}", .path.display())]
+    DeserializeError {
+        #[source]
+        error: Box<toml::de::Error>,
+        path: PathBuf,
+    },
 }

@@ -267,7 +267,7 @@ pub async fn write_artifact_archive(
                 }
                 Err(error) => {
                     return Err(WriteArtifactError::PutObjectError {
-                        error,
+                        error: Box::new(error),
                         path: chunk_path,
                     });
                 }
@@ -1090,7 +1090,7 @@ pub enum WriteArtifactError {
     #[error("error putting object at '{path}': {error}")]
     PutObjectError {
         #[source]
-        error: object_store::Error,
+        error: Box<object_store::Error>,
         path: object_store::path::Path,
     },
 

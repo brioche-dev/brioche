@@ -118,7 +118,7 @@ pub(crate) fn graphviz_inner(
                             let module = &projects.modules[&module_ref];
                             let project_path = &projects.local_project_paths[&module.project];
                             let (_, module_subpath) = &projects.project_by_module[&module_ref];
-                            project_path.join_subpath(module_subpath.clone()).ok()
+                            project_path.join_subpath(module_subpath).ok()
                         });
 
                     let label = match static_ {

@@ -179,8 +179,7 @@ pub async fn load_projects(
             None
         };
 
-        let lockfile_subpath = RelativePath::one("brioche.lock");
-        let lockfile_path = project_path.join_subpath(lockfile_subpath.clone()).unwrap();
+        let lockfile_path = project_path.join_one("brioche.lock");
         let lockfile_system_path = lockfile_path.to_system_path()?;
         let lockfile_content = tokio::fs::read(&lockfile_system_path).await;
         let lockfile_content = match lockfile_content {
@@ -239,7 +238,7 @@ pub async fn load_projects(
                 panic!("module path does not have a parent: {module_subpath}");
             };
             let module_path = project_path
-                .join_subpath(module_subpath.clone())
+                .join_subpath(&module_subpath)
                 .unwrap_or_else(|error| {
                     panic!("module subpath {module_subpath} escapes project path {project_path}: {error}")
                 });
@@ -767,7 +766,7 @@ pub async fn resolve_statics(brioche: &mut BriocheState) -> Result<(), LoadProje
                 let module_dir = module_subpath.parent().expect("invalid module subpath");
                 let project_path = &brioche.projects.local_project_paths[project_ref];
                 let static_subpath = module_dir.join(relative_path.clone());
-                let static_path = project_path.join_subpath(static_subpath);
+                let static_path = project_path.join_subpath(&static_subpath);
                 let Ok(static_path) = static_path else {
                     brioche
                         .projects
@@ -842,7 +841,7 @@ pub async fn resolve_statics(brioche: &mut BriocheState) -> Result<(), LoadProje
                 let module_dir = module_subpath.parent().expect("invalid module subpath");
                 let project_path = &brioche.projects.local_project_paths[project_ref];
                 let static_subpath = module_dir.join(relative_path.clone());
-                let static_path = project_path.join_subpath(static_subpath);
+                let static_path = project_path.join_subpath(&static_subpath);
                 let Ok(static_path) = static_path else {
                     brioche
                         .projects
@@ -1028,15 +1027,6 @@ pub(super) enum LoadWorkspaceError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum WorkspaceMemberParseError {
-    #[error("invalid glob pattern in workspace member path")]
-    InvalidGlobPattern,
-
-    #[error(transparent)]
-    SubpathError(#[from] crate::path::SubpathError),
-}
-
-#[derive(Debug, thiserror::Error)]
 pub enum LockfileIssue {
     #[error("lockfile not found")]
     NotFound,
@@ -1053,7 +1043,7 @@ async fn find_workspace_root(
     let mut current_path = path.clone();
     loop {
         let workspace_definition_path = top
-            .join_subpath(current_path.clone())?
+            .join_subpath(&current_path)?
             .join_one("brioche_workspace.toml");
         let workspace_definition_system_path = workspace_definition_path.to_system_path()?;
         let exists = tokio::fs::try_exists(&workspace_definition_system_path)
@@ -1084,7 +1074,7 @@ async fn find_workspace_root_absolute(
         return Ok(None);
     };
 
-    let workspace_root = root_path.join_subpath(workspace_root)?;
+    let workspace_root = root_path.join_subpath(&workspace_root)?;
     Ok(Some(workspace_root))
 }
 
@@ -1160,7 +1150,7 @@ async fn load_project_by_hash(
                 .expect("todo: error finding workspace root for existing project by hash");
             let workspace_root = workspace_root.map(|subpath| {
                 projects_path
-                    .join_subpath(subpath)
+                    .join_subpath(&subpath)
                     .expect("expected workspace root to be a subpath")
             });
 
@@ -1204,7 +1194,7 @@ async fn load_project_by_hash(
         .expect("todo: error trying to find workspace root");
     let workspace_root = workspace_root.map(|subpath| {
         projects_path
-            .join_subpath(subpath)
+            .join_subpath(&subpath)
             .expect("expected workspace root to be a subpath")
     });
 
@@ -1347,7 +1337,7 @@ async fn resolve_project_from_workspace(
                 if name == specifier {
                     let member_path = workspace
                         .root
-                        .join_subpath(parent.clone())
+                        .join_subpath(parent)
                         .expect("invalid workspace member subpath")
                         .join_one(name);
                     return Some(ProjectSpecifier::Path(member_path));
@@ -1356,7 +1346,7 @@ async fn resolve_project_from_workspace(
             WorkspaceMember::WildcardPath(parent) => {
                 let member_path = workspace
                     .root
-                    .join_subpath(parent.clone())
+                    .join_subpath(parent)
                     .expect("invalid workspace member subpath")
                     .join_one(specifier);
                 let root_module_path = member_path.join_one("project.bri");

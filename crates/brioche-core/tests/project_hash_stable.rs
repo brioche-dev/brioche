@@ -1,5 +1,5 @@
 #[tokio::test]
-async fn test_project_hash_stable_simple() -> anyhow::Result<()> {
+async fn test_project_hash_stable_simple() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -22,12 +22,10 @@ async fn test_project_hash_stable_simple() -> anyhow::Result<()> {
         project_hash.to_string(),
         "e9d088c8cef7d6620f313684bb4804b71a4b9dd2e1e128273ce572ef18c4e09d",
     );
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn test_project_hash_stable_simple_no_definition() -> anyhow::Result<()> {
+async fn test_project_hash_stable_simple_no_definition() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let project_dir = context.mkdir("myproject").await;
@@ -43,12 +41,10 @@ async fn test_project_hash_stable_simple_no_definition() -> anyhow::Result<()> {
         project_hash.to_string(),
         "0c5d6dcbd231292f3bc02e07154c52bd2b162ec61dd82d1ff2af08ba7e3821bf",
     );
-
-    Ok(())
 }
 
 #[tokio::test]
-async fn test_project_hash_stable_with_path_dep() -> anyhow::Result<()> {
+async fn test_project_hash_stable_with_path_dep() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
@@ -97,6 +93,4 @@ async fn test_project_hash_stable_with_path_dep() -> anyhow::Result<()> {
         project_hash.to_string(),
         "7f39fd30711614961b812cbdecf4d4a1d36862b83b7202b407c26a14b0911ff8"
     );
-
-    Ok(())
 }

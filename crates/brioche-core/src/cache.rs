@@ -156,7 +156,7 @@ async fn build_object_store(
                 .build()
                 .map_err(|error| CacheError::ObjectStoreError {
                     message: "failed to build HTTP store".into(),
-                    error,
+                    error: Box::new(error),
                 })?;
             Arc::new(store)
         }
@@ -165,7 +165,7 @@ async fn build_object_store(
                 .url
                 .host_str()
                 .ok_or_else(|| CacheError::InvalidCacheUrl {
-                    url: config.url.clone(),
+                    url: Box::new(config.url.clone()),
                     message: "S3 cache URL must include a bucket name".into(),
                 })?;
             let prefix = config.url.path().trim_start_matches('/').to_string();
@@ -187,7 +187,7 @@ async fn build_object_store(
             .build()
             .map_err(|error| CacheError::ObjectStoreError {
                 message: "failed to build S3 store".into(),
-                error,
+                error: Box::new(error),
             })?;
             let store = object_store::prefix::PrefixStore::new(store, prefix);
 
@@ -198,7 +198,7 @@ async fn build_object_store(
                 .url
                 .to_file_path()
                 .map_err(|()| CacheError::InvalidCacheUrl {
-                    url: config.url.clone(),
+                    url: Box::new(config.url.clone()),
                     message: "invalid file URL".into(),
                 })?;
 
@@ -210,7 +210,7 @@ async fn build_object_store(
                             path.display()
                         )
                         .into(),
-                        error,
+                        error: Box::new(error),
                     }
                 })?;
             let store = store.with_automatic_cleanup(true);
@@ -222,7 +222,7 @@ async fn build_object_store(
         }
         _ => {
             return Err(CacheError::InvalidCacheUrl {
-                url: config.url.clone(),
+                url: Box::new(config.url.clone()),
                 message: "unsupported URL scheme".into(),
             });
         }
@@ -248,7 +248,7 @@ pub async fn load_bake(
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
         Err(error) => {
             return Err(CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!("failed to get bake '{bake_output_path}' in cache").into(),
             });
         }
@@ -259,7 +259,7 @@ pub async fn load_bake(
             .bytes()
             .await
             .map_err(|error| CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!("failed to get bytes for bake '{bake_output_path}' in cache")
                     .into(),
             })?;
@@ -307,7 +307,7 @@ pub async fn save_bake(
         Err(object_store::Error::AlreadyExists { .. }) => false,
         Err(error) => {
             return Err(CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!("failed to put bake '{bake_output_path}' in cache").into(),
             });
         }
@@ -342,7 +342,7 @@ pub async fn load_artifact(
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
         Err(error) => {
             return Err(CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!("failed to get artifact '{artifact_path}' in cache").into(),
             });
         }
@@ -400,7 +400,7 @@ pub async fn save_artifact(
         }
         Err(error) => {
             return Err(CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!(
                     "failed to check for existing artifact '{artifact_path}' in cache"
                 )
@@ -444,7 +444,7 @@ pub async fn save_artifact(
         Err(object_store::Error::AlreadyExists { .. }) => false,
         Err(error) => {
             return Err(CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!("failed to put artifact '{artifact_path}' in cache").into(),
             });
         }
@@ -470,7 +470,7 @@ pub async fn load_project_artifact_hash(
         Err(object_store::Error::NotFound { .. }) => return Ok(None),
         Err(error) => {
             return Err(CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!(
                     "failed to check for existing project '{project_source_path}' in cache"
                 )
@@ -484,7 +484,7 @@ pub async fn load_project_artifact_hash(
             .bytes()
             .await
             .map_err(|error| CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!(
                     "failed to get bytes for project '{project_source_path}' in cache"
                 )
@@ -532,7 +532,7 @@ pub async fn save_project_artifact_hash(
         Err(object_store::Error::AlreadyExists { .. }) => false,
         Err(error) => {
             return Err(CacheError::ObjectStoreError {
-                error,
+                error: Box::new(error),
                 message: format!("failed to put project '{project_source_path}' in cache").into(),
             });
         }
@@ -558,7 +558,7 @@ pub enum CacheError {
     #[error("{message}: {error}")]
     ObjectStoreError {
         #[source]
-        error: object_store::Error,
+        error: Box<object_store::Error>,
 
         message: Cow<'static, str>,
     },
@@ -573,7 +573,7 @@ pub enum CacheError {
 
     #[error("cache URL '{}' is invalid: {message}", sanitize_url(.url))]
     InvalidCacheUrl {
-        url: url::Url,
+        url: Box<url::Url>,
         message: Cow<'static, str>,
     },
 

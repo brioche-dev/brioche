@@ -1,9 +1,9 @@
 use std::{
+    borrow::Cow,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use anyhow::Context as _;
 use tokio::sync::RwLock;
 
 pub mod blob;
@@ -168,9 +168,9 @@ impl BriocheBuilder {
         self
     }
 
-    pub async fn build(self) -> anyhow::Result<Brioche> {
+    pub async fn build(self) -> Result<Brioche, BuildBriocheError> {
         let dirs = directories::ProjectDirs::from("dev", "brioche", "brioche")
-            .context("failed to get Brioche directories (is $HOME set?)")?;
+            .ok_or(BuildBriocheError::FailedToGetDirs)?;
         let config = if let Some(config) = self.config {
             config
         } else {
@@ -195,92 +195,133 @@ impl BriocheBuilder {
         } else {
             let cache_config = match std::env::var_os("BRIOCHE_CACHE_URL") {
                 Some(url) => {
-                    let url = url.to_str().ok_or_else(|| {
-                        anyhow::anyhow!("invalid URL for $BRIOCHE_CACHE_URL: {}", url.display())
-                    })?;
+                    let url = url
+                        .to_str()
+                        .ok_or_else(|| BuildBriocheError::InvalidEnvValue {
+                            env: "BRIOCHE_CACHE_URL".into(),
+                            reason: "invalid UTF-8".into(),
+                            error: None,
+                        })?;
                     let url = url
                         .parse()
-                        .with_context(|| format!("invalid URL for $BRIOCHE_CACHE_URL: {url:?}"))?;
+                        .map_err(|error| BuildBriocheError::InvalidEnvValue {
+                            env: "BRIOCHE_CACHE_URL".into(),
+                            reason: "invalid URL".into(),
+                            error: Some(Box::new(error)),
+                        })?;
                     let write_url = std::env::var_os("BRIOCHE_CACHE_WRITE_URL")
                         .map(|write_url| {
                             let write_url = write_url.to_str().ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "invalid URL for $BRIOCHE_CACHE_WRITE_URL: {}",
-                                    write_url.display()
-                                )
+                                BuildBriocheError::InvalidEnvValue {
+                                    env: "BRIOCHE_CACHE_WRITE_URL".into(),
+                                    reason: "invalid UTF-8".into(),
+                                    error: None,
+                                }
                             })?;
-                            let write_url = write_url.parse().with_context(|| {
-                                format!("invalid URL for $BRIOCHE_CACHE_WRITE_URL: {write_url:?}")
+                            let write_url = write_url.parse().map_err(|error| {
+                                BuildBriocheError::InvalidEnvValue {
+                                    env: "BRIOCHE_CACHE_WRITE_URL".into(),
+                                    reason: "invalid URL".into(),
+                                    error: Some(Box::new(error)),
+                                }
                             })?;
-                            anyhow::Ok(write_url)
+                            Ok::<_, BuildBriocheError>(write_url)
                         })
                         .transpose()?;
                     let use_default_cache =
                         match std::env::var_os("BRIOCHE_CACHE_USE_DEFAULT_CACHE") {
                             Some(value) if value.to_str() == Some("true") => true,
                             Some(value) if value.to_str() == Some("false") => false,
-                            Some(value) => {
-                                anyhow::bail!(
-                                    "invalid value for $BRIOCHE_CACHE_USE_DEFAULT_CACHE: {}",
-                                    value.display()
-                                );
+                            Some(_) => {
+                                return Err(BuildBriocheError::InvalidEnvValue {
+                                    env: "BRIOCHE_CACHE_USE_DEFAULT_CACHE".into(),
+                                    reason: "expected 'true' or 'false'".into(),
+                                    error: None,
+                                });
                             }
                             None => true,
                         };
                     let read_only = match std::env::var_os("BRIOCHE_CACHE_READ_ONLY") {
                         Some(value) if value.to_str() == Some("true") => true,
                         Some(value) if value.to_str() == Some("false") => false,
-                        Some(value) => {
-                            anyhow::bail!(
-                                "invalid value for $BRIOCHE_CACHE_READ_ONLY: {}",
-                                value.display()
-                            );
+                        Some(_) => {
+                            return Err(BuildBriocheError::InvalidEnvValue {
+                                env: "BRIOCHE_CACHE_READ_ONLY".into(),
+                                reason: "expected 'true' or 'false'".into(),
+                                error: None,
+                            });
                         }
                         None => false,
                     };
-                    let max_concurrent_operations = match std::env::var_os(
-                        "BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS",
-                    ) {
-                        Some(value) => {
-                            let value = value.to_str().ok_or_else(|| anyhow::anyhow!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {}", value.display()))?;
-                            let value: usize = value.parse().with_context(|| format!("invalid value for $BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS: {value:?}"))?;
-                            value
-                        }
-                        None => cache::DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
-                    };
+                    let max_concurrent_operations =
+                        match std::env::var_os("BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS") {
+                            Some(value) => {
+                                let value = value.to_str().ok_or_else(|| {
+                                    BuildBriocheError::InvalidEnvValue {
+                                        env: "BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS".into(),
+                                        reason: "invalid UTF-8".into(),
+                                        error: None,
+                                    }
+                                })?;
+                                let value: usize = value.parse().map_err(|error| {
+                                    BuildBriocheError::InvalidEnvValue {
+                                        env: "BRIOCHE_CACHE_MAX_CONCURRENT_OPERATIONS".into(),
+                                        reason: "failed to parse".into(),
+                                        error: Some(Box::new(error)),
+                                    }
+                                })?;
+                                value
+                            }
+                            None => cache::DEFAULT_CACHE_MAX_CONCURRENT_OPERATIONS,
+                        };
                     let allow_http = match std::env::var_os("BRIOCHE_CACHE_ALLOW_HTTP") {
                         Some(value) if value.to_str() == Some("true") => Some(true),
                         Some(value) if value.to_str() == Some("false") => Some(false),
-                        Some(value) => {
-                            anyhow::bail!(
-                                "invalid value for $BRIOCHE_CACHE_ALLOW_HTTP: {}",
-                                value.display()
-                            );
+                        Some(_) => {
+                            return Err(BuildBriocheError::InvalidEnvValue {
+                                env: "BRIOCHE_CACHE_ALLOW_HTTP".into(),
+                                reason: "expected 'true' or 'false'".into(),
+                                error: None,
+                            });
                         }
                         None => None,
                     };
                     let timeout = std::env::var_os("BRIOCHE_CACHE_TIMEOUT")
                         .map(|value| {
                             let value = value.to_str().ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "invalid value for $BRIOCHE_CACHE_TIMEOUT: {}",
-                                    value.display()
-                                )
+                                BuildBriocheError::InvalidEnvValue {
+                                    env: "BRIOCHE_CACHE_TIMEOUT".into(),
+                                    reason: "invalid UTF-8".into(),
+                                    error: None,
+                                }
                             })?;
-                            let duration = humantime::parse_duration(value)?;
-                            anyhow::Ok(duration)
+                            let duration = humantime::parse_duration(value).map_err(|error| {
+                                BuildBriocheError::InvalidEnvValue {
+                                    env: "BRIOCHE_CACHE_TIMEOUT".into(),
+                                    reason: "invalid duration".into(),
+                                    error: Some(Box::new(error)),
+                                }
+                            })?;
+                            Ok::<_, BuildBriocheError>(duration)
                         })
                         .transpose()?;
                     let connect_timeout = std::env::var_os("BRIOCHE_CACHE_CONNECT_TIMEOUT")
                         .map(|value| {
                             let value = value.to_str().ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "invalid value for $BRIOCHE_CACHE_CONNECT_TIMEOUT: {}",
-                                    value.display()
-                                )
+                                BuildBriocheError::InvalidEnvValue {
+                                    env: "BRIOCHE_CACHE_CONNECT_TIMEOUT".into(),
+                                    reason: "invalid UTF-8".into(),
+                                    error: None,
+                                }
                             })?;
-                            let duration = humantime::parse_duration(value)?;
-                            anyhow::Ok(duration)
+                            let duration = humantime::parse_duration(value).map_err(|error| {
+                                BuildBriocheError::InvalidEnvValue {
+                                    env: "BRIOCHE_CACHE_CONNECT_TIMEOUT".into(),
+                                    reason: "invalid duration".into(),
+                                    error: Some(Box::new(error)),
+                                }
+                            })?;
+                            Ok::<_, BuildBriocheError>(duration)
                         })
                         .transpose()?;
                     Some(config::CacheConfig {
@@ -338,4 +379,28 @@ impl BriocheBuilder {
 
         Ok(Brioche { resources, state })
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum BuildBriocheError {
+    #[error("failed to get Brioche directories (is $HOME set?)")]
+    FailedToGetDirs,
+
+    #[error("invalid value for ${env}: {reason}")]
+    InvalidEnvValue {
+        env: Cow<'static, str>,
+        reason: Cow<'static, str>,
+
+        #[source]
+        error: Option<Box<dyn std::error::Error>>,
+    },
+
+    #[error(transparent)]
+    LoadConfigError(#[from] config::LoadConfigError),
+
+    #[error(transparent)]
+    CacheError(#[from] cache::CacheError),
+
+    #[error(transparent)]
+    ReqwestError(#[from] reqwest::Error),
 }

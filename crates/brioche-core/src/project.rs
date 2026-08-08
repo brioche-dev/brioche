@@ -102,7 +102,7 @@ impl Projects {
                 let module_dir = module_subpath.parent().expect("invalid module subpath");
                 let project_path = &self.local_project_paths[project_ref];
                 let static_subpath = module_dir.join(relative_path.clone());
-                let static_path = project_path.join_subpath(static_subpath);
+                let static_path = project_path.join_subpath(&static_subpath);
                 let Ok(static_path) = static_path else {
                     return Err(ProjectIssue::StaticIncludeEscapesProjectPath {
                         static_ref,
@@ -118,7 +118,7 @@ impl Projects {
                 let (project_ref, module_subpath) = &self.project_by_module[&module_ref];
                 let module_dir = module_subpath.parent().expect("invalid module subpath");
                 let project_path = &self.local_project_paths[project_ref];
-                let static_path = project_path.join_subpath(module_dir);
+                let static_path = project_path.join_subpath(&module_dir);
                 let Ok(static_path) = static_path else {
                     unreachable!("invlaid module dir path");
                 };
@@ -342,19 +342,19 @@ pub enum WorkspaceMember {
 }
 
 impl std::str::FromStr for WorkspaceMember {
-    type Err = load::WorkspaceMemberParseError;
+    type Err = WorkspaceMemberParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(wildcard_path) = s.strip_suffix("/*") {
             if wildcard_path.contains('*') {
-                return Err(load::WorkspaceMemberParseError::InvalidGlobPattern);
+                return Err(WorkspaceMemberParseError::InvalidGlobPattern);
             }
 
             let wildcard_path = RelativePath::new(wildcard_path).normalized_subpath()?;
             Ok(Self::WildcardPath(wildcard_path))
         } else {
             if s.contains('*') {
-                return Err(load::WorkspaceMemberParseError::InvalidGlobPattern);
+                return Err(WorkspaceMemberParseError::InvalidGlobPattern);
             }
 
             let (parent, name) = match s.split_once('/') {
@@ -384,12 +384,12 @@ pub enum Version {
 }
 
 impl std::str::FromStr for Version {
-    type Err = anyhow::Error;
+    type Err = VersionParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "*" => Ok(Self::Any),
-            _ => anyhow::bail!("unsupported version specifier: {s}"),
+            _ => Err(VersionParseError::InvalidVersionSpecifier(s.to_string())),
         }
     }
 }
@@ -744,4 +744,19 @@ impl ProjectIssue {
 pub struct ProjectIssueLocation {
     pub source: AnyRef,
     pub range: Option<crate::script::parse::TextRange>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WorkspaceMemberParseError {
+    #[error("invalid glob pattern in workspace member path")]
+    InvalidGlobPattern,
+
+    #[error(transparent)]
+    SubpathError(#[from] crate::path::SubpathError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum VersionParseError {
+    #[error("invalid version specifier '{0}'")]
+    InvalidVersionSpecifier(String),
 }

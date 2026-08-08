@@ -5,7 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-anyhow = { version = "1.0.102", features = ["backtrace"] }
 async-compression = { version = "0.4.42", features = [
     "tokio",
     "bzip2",
@@ -18,7 +17,6 @@ async-trait = "0.1.89"
 aws-config = "1.8.16"
 aws-credential-types = "1.2.14"
 aws-types = "1.3.15"
-
 biome_console = { git = "https://github.com/biomejs/biome.git" }
 biome_deserialize = { git = "https://github.com/biomejs/biome.git" }
 biome_deserialize_macros = { git = "https://github.com/biomejs/biome.git" }

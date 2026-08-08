@@ -1,10 +1,12 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf};
 
 use crate::serde_utils::{AsPath, TickEncoded};
 
 mod linux_namespace;
 mod serde_utils;
 mod unsandboxed;
+
+pub type SandboxResult<T> = Result<T, SandboxError>;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -153,17 +155,51 @@ impl From<std::process::ExitStatus> for ExitStatus {
 pub fn run_sandbox(
     backend: SandboxBackend,
     exec: SandboxExecutionConfig,
-) -> anyhow::Result<ExitStatus> {
+) -> SandboxResult<ExitStatus> {
     match backend {
         SandboxBackend::LinuxNamespace(sandbox) => {
             cfg_if::cfg_if! {
                 if #[cfg(target_os = "linux")] {
                     linux_namespace::run_sandbox(sandbox, exec)
                 } else {
-                    anyhow::bail!("tried to use Linux namespace sandbox backend, but it's not supported on this platform");
+                    return Err(SandboxError::UnsupportedBackend { backend: "linux_namespace".into() });
                 }
             }
         }
         SandboxBackend::Unsandboxed => unsandboxed::run_sandbox(&exec),
     }
+}
+
+#[non_exhaustive]
+#[derive(Debug, thiserror::Error)]
+pub enum SandboxError {
+    #[error("conflicting mount options for host path '{}'", .path.display())]
+    ConflictingMountOptions { path: PathBuf },
+
+    #[error("command is not an absolute path: '{}'", .program_path.display())]
+    CommandIsNotAnAbsolutePath { program_path: PathBuf },
+
+    #[error("{reason}: {error}")]
+    IoError {
+        #[source]
+        error: std::io::Error,
+        reason: Cow<'static, str>,
+    },
+
+    #[error("{reason}: {error}")]
+    InvalidUtf8 {
+        #[source]
+        error: bstr::Utf8Error,
+        reason: Cow<'static, str>,
+    },
+
+    #[error("sandbox backend '{backend}' is not supported")]
+    UnsupportedBackend { backend: Cow<'static, str> },
+
+    #[cfg(target_os = "linux")]
+    #[error("{reason} contains invalid UTF-8: {error}")]
+    UnshareError {
+        error: unshare::Error,
+        reason: Cow<'static, str>,
+    },
 }

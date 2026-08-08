@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 #[cfg(target_os = "linux")]
-use std::{collections::HashMap, ffi::OsString};
+use std::{borrow::Cow, collections::HashMap, ffi::OsString};
 
 #[cfg(target_os = "linux")]
 use bstr::ByteSlice as _;
+
+#[cfg(target_os = "linux")]
+use crate::{SandboxError, SandboxResult};
 
 #[cfg(target_os = "linux")]
 use super::{SandboxPath, SandboxPathOptions, SandboxTemplate, SandboxTemplateComponent};
@@ -24,26 +27,31 @@ pub struct LinuxNamespaceSandbox {
 pub fn run_sandbox(
     sandbox: LinuxNamespaceSandbox,
     exec: super::SandboxExecutionConfig,
-) -> anyhow::Result<super::ExitStatus> {
+) -> SandboxResult<super::ExitStatus> {
     let mut host_paths = exec.include_host_paths;
 
-    let program = build_template(&exec.command, &mut host_paths)?;
+    let program = build_template(&exec.command, &mut host_paths, &|| "command".into())?;
     let args = exec
         .args
         .iter()
-        .map(|arg| build_template(arg, &mut host_paths))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        .enumerate()
+        .map(|(n, arg)| build_template(arg, &mut host_paths, &|| format!("arg {n}").into()))
+        .collect::<SandboxResult<Vec<_>>>()?;
     let env = exec
         .env
         .iter()
         .map(|(key, value)| {
-            let key = key.to_os_str()?.to_owned();
-            let value = build_template(value, &mut host_paths)?;
-            anyhow::Ok((key, value))
+            let env_key = key.to_os_str().map_err(|error| SandboxError::InvalidUtf8 {
+                error,
+                reason: "env var".into(),
+            })?;
+            let value =
+                build_template(value, &mut host_paths, &|| format!("env var {key}").into())?;
+            SandboxResult::Ok((env_key.to_os_string(), value))
         })
-        .collect::<anyhow::Result<HashMap<_, _>>>()?;
+        .collect::<SandboxResult<HashMap<_, _>>>()?;
 
-    let current_dir = build_template(&exec.current_dir, &mut host_paths)?;
+    let current_dir = build_template(&exec.current_dir, &mut host_paths, &|| "current dir".into())?;
 
     let mut unshare_namespaces = vec![unshare::Namespace::User];
 
@@ -83,7 +91,14 @@ pub fn run_sandbox(
             command.unshare(&unshare_namespaces);
 
             let sandbox_host_dir = exec.sandbox_root.join("mnt").join("brioche-host");
-            std::fs::create_dir_all(&sandbox_host_dir)?;
+            std::fs::create_dir_all(&sandbox_host_dir).map_err(|error| SandboxError::IoError {
+                error,
+                reason: format!(
+                    "failed to create sandbox host dir '{}'",
+                    sandbox_host_dir.display()
+                )
+                .into(),
+            })?;
 
             command.pivot_root(&exec.sandbox_root, &sandbox_host_dir, true);
             command.before_chroot({
@@ -182,10 +197,17 @@ pub fn run_sandbox(
             command.arg(&current_dir);
 
             for (host_path, options) in host_paths {
+                let guest_path_hint = options.guest_path_hint.to_os_str().map_err(|error| {
+                    SandboxError::InvalidUtf8 {
+                        error,
+                        reason: "guest path is invalid UTF-8".into(),
+                    }
+                })?;
+
                 let mut arg = std::ffi::OsString::from("--bind=");
                 arg.push(host_path);
                 arg.push(":");
-                arg.push(options.guest_path_hint.to_os_str()?);
+                arg.push(guest_path_hint);
                 arg.push("!");
 
                 command.arg(arg);
@@ -219,9 +241,15 @@ pub fn run_sandbox(
 
     let mut child = command
         .spawn()
-        .map_err(|error| anyhow::anyhow!("failed to spawn sandbox: {error}"))?;
+        .map_err(|error| SandboxError::UnshareError {
+            error,
+            reason: "failed to spawn sandbox".into(),
+        })?;
 
-    let exit_status = child.wait()?;
+    let exit_status = child.wait().map_err(|error| SandboxError::IoError {
+        error,
+        reason: "sandbox process failed".into(),
+    })?;
 
     let exit_status = match exit_status {
         unshare::ExitStatus::Exited(code) => super::ExitStatus::Code(code.into()),
@@ -235,7 +263,8 @@ pub fn run_sandbox(
 fn build_template(
     template: &SandboxTemplate,
     host_paths: &mut HashMap<PathBuf, SandboxPathOptions>,
-) -> anyhow::Result<OsString> {
+    reason: &dyn Fn() -> Cow<'static, str>,
+) -> SandboxResult<OsString> {
     let mut result = bstr::BString::default();
     for component in &template.components {
         match component {
@@ -244,12 +273,12 @@ fn build_template(
             }
             SandboxTemplateComponent::Path(SandboxPath { host_path, options }) => {
                 let existing_options = host_paths.insert(host_path.clone(), options.clone());
-                if let Some(existing_options) = existing_options {
-                    anyhow::ensure!(
-                        existing_options == *options,
-                        "tried to mount host path {} with conflicting mount options",
-                        host_path.display()
-                    );
+                if let Some(existing_options) = existing_options
+                    && existing_options != *options
+                {
+                    return Err(SandboxError::ConflictingMountOptions {
+                        path: host_path.clone(),
+                    });
                 }
 
                 let guest_path = &options.guest_path_hint;
@@ -258,6 +287,11 @@ fn build_template(
         }
     }
 
-    let result = result.to_os_str()?;
+    let result = result
+        .to_os_str()
+        .map_err(|error| SandboxError::InvalidUtf8 {
+            error,
+            reason: reason(),
+        })?;
     Ok(result.to_owned())
 }

@@ -1,4 +1,7 @@
-use std::sync::{Arc, RwLock};
+use std::{
+    borrow::Cow,
+    sync::{Arc, RwLock},
+};
 
 use debug_ignore::DebugIgnore;
 
@@ -126,7 +129,7 @@ impl Job {
         }
     }
 
-    pub fn update(&mut self, update: UpdateJob) -> anyhow::Result<()> {
+    pub fn update(&mut self, update: UpdateJob) -> Result<(), UpdateJobError> {
         match update {
             UpdateJob::Download {
                 downloaded_bytes: new_downloaded_bytes,
@@ -140,7 +143,9 @@ impl Job {
                     ..
                 } = self
                 else {
-                    anyhow::bail!("tried to update a non-download job with a download update");
+                    return Err(UpdateJobError::WrongJobType {
+                        expected: "Download".into(),
+                    });
                 };
                 *downloaded_bytes = new_downloaded_bytes;
                 *total_bytes = new_total_bytes.or(*total_bytes);
@@ -158,7 +163,9 @@ impl Job {
                     ..
                 } = self
                 else {
-                    anyhow::bail!("tried to update a non-unarchive job with an unarchive update");
+                    return Err(UpdateJobError::WrongJobType {
+                        expected: "Unarchive".into(),
+                    });
                 };
                 *read_bytes = new_read_bytes;
                 *total_bytes = new_total_bytes.unwrap_or(*total_bytes);
@@ -170,12 +177,14 @@ impl Job {
                     status: _,
                 } = self
                 else {
-                    anyhow::bail!("tried to update a non-process job with a process update");
+                    return Err(UpdateJobError::WrongJobType {
+                        expected: "Process".into(),
+                    });
                 };
 
-                let mut packet_queue = packet_queue.write().map_err(|_| {
-                    anyhow::anyhow!("failed to lock process packet queue for writing")
-                })?;
+                let mut packet_queue = packet_queue
+                    .write()
+                    .map_err(|_| UpdateJobError::PacketQueueLockPoisoned)?;
                 packet_queue.push(packet.0);
             }
             UpdateJob::ProcessFlushPackets => {}
@@ -185,7 +194,9 @@ impl Job {
                     status,
                 } = self
                 else {
-                    anyhow::bail!("tried to update a non-process job with a process update");
+                    return Err(UpdateJobError::WrongJobType {
+                        expected: "Process".into(),
+                    });
                 };
 
                 *status = new_status;
@@ -197,9 +208,9 @@ impl Job {
                     downloaded_bytes, ..
                 } = self
                 else {
-                    anyhow::bail!(
-                        "tried to update a non-cache-fetch job with a cache-fetch update"
-                    );
+                    return Err(UpdateJobError::WrongJobType {
+                        expected: "CacheFetch".into(),
+                    });
                 };
 
                 if let Some(add_downloaded_bytes) = add_downloaded_bytes {
@@ -218,9 +229,9 @@ impl Job {
                     finished_at: _,
                 } = self
                 else {
-                    anyhow::bail!(
-                        "tried to update a non-cache-fetch job with a cache-fetch update"
-                    );
+                    return Err(UpdateJobError::WrongJobType {
+                        expected: "CacheFetch".into(),
+                    });
                 };
 
                 if let Some(new_downloaded_bytes) = new_downloaded_bytes {
@@ -241,9 +252,9 @@ impl Job {
                     finished_at,
                 } = self
                 else {
-                    anyhow::bail!(
-                        "tried to update a non-cache-fetch job with a cache-fetch-finish update"
-                    );
+                    return Err(UpdateJobError::WrongJobType {
+                        expected: "CacheFetch".into(),
+                    });
                 };
 
                 if let Some(total_bytes) = total_bytes {
@@ -423,9 +434,11 @@ impl ProcessStatus {
         &mut self,
         started_at: std::time::Instant,
         child_id: Option<u32>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), UpdateProcessStatusError> {
         let Self::Preparing { created_at } = *self else {
-            anyhow::bail!("expected ProcessStatus to be Preparing");
+            return Err(UpdateProcessStatusError::WrongStatus {
+                expected: "Preparing".into(),
+            });
         };
 
         *self = Self::Running {
@@ -437,14 +450,19 @@ impl ProcessStatus {
         Ok(())
     }
 
-    pub fn to_ran(&mut self, finished_at: std::time::Instant) -> anyhow::Result<()> {
+    pub fn to_ran(
+        &mut self,
+        finished_at: std::time::Instant,
+    ) -> Result<(), UpdateProcessStatusError> {
         let Self::Running {
             child_id,
             created_at,
             started_at,
         } = *self
         else {
-            anyhow::bail!("expected ProcessStatus to be Running");
+            return Err(UpdateProcessStatusError::WrongStatus {
+                expected: "Running".into(),
+            });
         };
 
         *self = Self::Ran {
@@ -457,7 +475,10 @@ impl ProcessStatus {
         Ok(())
     }
 
-    pub fn to_finalized(&mut self, finalized_at: std::time::Instant) -> anyhow::Result<()> {
+    pub fn to_finalized(
+        &mut self,
+        finalized_at: std::time::Instant,
+    ) -> Result<(), UpdateProcessStatusError> {
         let Self::Ran {
             child_id,
             created_at,
@@ -465,7 +486,9 @@ impl ProcessStatus {
             finished_at,
         } = *self
         else {
-            anyhow::bail!("expected ProcessStatus to be Ran");
+            return Err(UpdateProcessStatusError::WrongStatus {
+                expected: "Ran".into(),
+            });
         };
 
         *self = Self::Finalized {
@@ -478,4 +501,19 @@ impl ProcessStatus {
 
         Ok(())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UpdateJobError {
+    #[error("job update encountered wrong job type: expected {expected}")]
+    WrongJobType { expected: Cow<'static, str> },
+
+    #[error("failed to lock process packet queue for writing: lock was poisoned")]
+    PacketQueueLockPoisoned,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum UpdateProcessStatusError {
+    #[error("wrong process status: expected {expected}")]
+    WrongStatus { expected: Cow<'static, str> },
 }

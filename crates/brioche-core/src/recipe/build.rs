@@ -216,27 +216,37 @@ impl ArtifactPath {
     }
 }
 
-impl TryFrom<crate::path::RelativePath> for ArtifactPath {
+impl TryFrom<&'_ crate::path::RelativePath> for ArtifactPath {
     type Error = ToArtifactPathError;
 
-    fn try_from(value: crate::path::RelativePath) -> Result<Self, Self::Error> {
+    fn try_from(path: &crate::path::RelativePath) -> Result<Self, Self::Error> {
         let mut components = vec![];
-        for component in value.into_components() {
+        for component in path.components() {
             match component {
                 crate::path::RelativePathComponent::CurrentDir => {}
                 crate::path::RelativePathComponent::ParentDir => {
                     let popped = components.pop();
                     if popped.is_none() {
-                        return Err(ToArtifactPathError::SubpathEscapesTopLevel);
+                        return Err(ToArtifactPathError::SubpathEscapesTopLevel {
+                            path: path.clone(),
+                        });
                     }
                 }
                 crate::path::RelativePathComponent::Normal(bstring) => {
-                    components.push(ArtifactPathComponent::DirectoryEntry(bstring));
+                    components.push(ArtifactPathComponent::DirectoryEntry(bstring.clone()));
                 }
             }
         }
 
         Ok(Self { components })
+    }
+}
+
+impl TryFrom<crate::path::RelativePath> for ArtifactPath {
+    type Error = ToArtifactPathError;
+
+    fn try_from(path: crate::path::RelativePath) -> Result<Self, Self::Error> {
+        Self::try_from(&path)
     }
 }
 
@@ -403,10 +413,10 @@ pub enum InsertError {
     FileResourceTargetNotAFile { full_path: ArtifactPath },
 }
 
-#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ToArtifactPathError {
-    #[error("subpath escapes top-level path")]
-    SubpathEscapesTopLevel,
+    #[error("artifact path '{path}' escapes top-level path")]
+    SubpathEscapesTopLevel { path: crate::path::RelativePath },
 }
 
 #[derive(Debug, Clone, Copy, thiserror::Error)]

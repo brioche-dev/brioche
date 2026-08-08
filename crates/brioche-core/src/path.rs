@@ -183,8 +183,7 @@ impl RelativePath {
     }
 
     fn normalize_logical(&mut self) {
-        let (logical_components, ascends) =
-            logical_components(std::mem::take(&mut self.components));
+        let (logical_components, ascends) = logical_components(&self.components);
         self.components
             .extend((0..ascends).map(|_| RelativePathComponent::ParentDir));
         self.components.extend(
@@ -202,7 +201,7 @@ impl RelativePath {
     }
 
     fn normalize_subpath(&mut self) -> Result<(), SubpathError> {
-        let subpath_components = subpath_components(std::mem::take(&mut self.components))?;
+        let subpath_components = subpath_components(&self.components)?;
         self.components = subpath_components
             .into_iter()
             .map(RelativePathComponent::Normal)
@@ -392,13 +391,13 @@ impl AbsolutePath {
         new
     }
 
-    fn add_subpath(&mut self, subpath: RelativePath) -> Result<(), SubpathError> {
-        let components = subpath_components(subpath.components)?;
+    fn add_subpath(&mut self, subpath: &RelativePath) -> Result<(), SubpathError> {
+        let components = subpath_components(&subpath.components)?;
         self.subpath_components.extend(components);
         Ok(())
     }
 
-    pub fn join_subpath(&self, subpath: RelativePath) -> Result<Self, SubpathError> {
+    pub fn join_subpath(&self, subpath: &RelativePath) -> Result<Self, SubpathError> {
         let mut new = self.clone();
         new.add_subpath(subpath)?;
         Ok(new)
@@ -758,17 +757,21 @@ fn to_system_path<'a>(
 }
 
 fn subpath_components(
-    components: Vec<RelativePathComponent>,
+    components: &[RelativePathComponent],
 ) -> Result<Vec<bstr::BString>, SubpathError> {
     let (new_components, ascends) = logical_components(components);
     if ascends == 0 {
         Ok(new_components)
     } else {
-        Err(SubpathError::SubpathEscapesTopLevel)
+        Err(SubpathError::SubpathEscapesTopLevel {
+            path: RelativePath {
+                components: components.to_vec(),
+            },
+        })
     }
 }
 
-fn logical_components(components: Vec<RelativePathComponent>) -> (Vec<bstr::BString>, usize) {
+fn logical_components(components: &[RelativePathComponent]) -> (Vec<bstr::BString>, usize) {
     let mut ascends = 0;
     let mut new_components = vec![];
     for component in components {
@@ -781,7 +784,7 @@ fn logical_components(components: Vec<RelativePathComponent>) -> (Vec<bstr::BStr
                 }
             }
             RelativePathComponent::Normal(normal) => {
-                new_components.push(normal);
+                new_components.push(normal.clone());
             }
         }
     }
@@ -870,8 +873,8 @@ pub enum CanonicalSystemPathError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SubpathError {
-    #[error("subpath escapes top-level path")]
-    SubpathEscapesTopLevel,
+    #[error("subpath '{path}' escapes top-level path")]
+    SubpathEscapesTopLevel { path: crate::path::RelativePath },
 }
 
 #[derive(Debug, thiserror::Error)]

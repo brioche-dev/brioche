@@ -4,7 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Context as _;
 use bstr::{ByteSlice as _, ByteVec as _};
 use petgraph::visit::EdgeRef as _;
 
@@ -13,7 +12,7 @@ use crate::{
     blob::SaveBlobPermit,
     path::{AbsolutePath, RelativePath, RelativePathComponent},
     project::{
-        ProjectRef, WorkspaceDefinition, WorkspaceMember,
+        ModuleRef, ProjectRef, WorkspaceDefinition, WorkspaceMember,
         hash::{ContentAddressedProjectEntry, ContentAddressedWorkspacePath, WorkspaceHash},
     },
     recipe::{
@@ -27,7 +26,7 @@ use super::{Projects, hash::ProjectHash};
 pub async fn create_project_artifact(
     brioche: &mut BriocheState,
     project_ref: ProjectRef,
-) -> anyhow::Result<RecipeRef> {
+) -> Result<RecipeRef, CreateProjectArtifactError> {
     let mut permit = crate::blob::get_save_blob_permit().await;
 
     let mut directory = Some(recipe::build::ArtifactBuilder::empty_dir());
@@ -55,7 +54,9 @@ pub async fn create_project_artifact(
         else {
             panic!("expected project entry to be a workspace member");
         };
-        let workspace_path = ArtifactPath::new(format!("workspace-{group_workspace_hash}"))?;
+        let workspace_path = ArtifactPath::default().join_one(ArtifactPathComponent::entry(
+            format!("workspace-{group_workspace_hash}"),
+        ));
 
         let mut members: Vec<_> = workspace_group
             .iter()
@@ -89,7 +90,7 @@ pub async fn create_project_artifact(
             .collect();
         let workspace_definition = WorkspaceDefinition { members };
         let workspace_definition_contents = toml::to_string_pretty(&workspace_definition)
-            .context("failed to serialize lockfile")?;
+            .expect("failed to serialize workspace definition");
 
         let workspace_definition_blob = crate::blob::save_blob(
             &brioche.resources,
@@ -128,7 +129,7 @@ pub async fn create_project_artifact(
             ContentAddressedProjectEntry::Project(_) => {
                 insert_into_artifact(
                     &mut directory,
-                    &ArtifactPath::new(&project_path)?,
+                    &ArtifactPath::default().join_one(ArtifactPathComponent::entry(&project_path)),
                     project_artifact,
                 )?;
             }
@@ -136,7 +137,9 @@ pub async fn create_project_artifact(
                 workspace: workspace_hash,
                 path,
             } => {
-                let workspace_path = ArtifactPath::new(format!("workspace-{workspace_hash}"))?;
+                let workspace_path = ArtifactPath::default().join_one(
+                    ArtifactPathComponent::entry(format!("workspace-{workspace_hash}")),
+                );
                 let workspace_member_path =
                     workspace_path.join(RelativePath::from(&path).try_into()?);
 
@@ -166,7 +169,7 @@ async fn create_single_project_artifact(
     project_hashes: &HashMap<ProjectRef, ProjectHash>,
     project_ref: ProjectRef,
     permit: &mut SaveBlobPermit<'_>,
-) -> anyhow::Result<ArtifactBuilder> {
+) -> Result<ArtifactBuilder, CreateProjectArtifactError> {
     let mut artifact = Some(ArtifactBuilder::empty_dir());
 
     let mut files = HashMap::<ArtifactPath, AbsolutePath>::new();
@@ -182,10 +185,13 @@ async fn create_single_project_artifact(
             .unwrap_or_else(|| panic!("invalid module path: {module_path}"));
 
         let module = &projects.modules[module_ref];
-        let source = module
-            .source
-            .as_ref()
-            .map_err(|error| anyhow::anyhow!("error loading module: {error}"))?;
+        let source = module.source.as_ref().map_err(|error| {
+            CreateProjectArtifactError::ModuleFailedToLoad {
+                module_ref: *module_ref,
+                module_path: module_path.clone(),
+                error_message: error.to_string(),
+            }
+        })?;
         let content_blob = crate::blob::save_blob(
             brioche,
             permit,
@@ -209,19 +215,19 @@ async fn create_single_project_artifact(
                 super::StaticQuery::IncludeFile(include_path) => {
                     let include_path = module_parent_path.clone().join(include_path.clone());
                     let artifact_path = ArtifactPath::try_from(include_path.clone())?;
-                    let include_path = local_project_path.join_subpath(include_path)?;
+                    let include_path = local_project_path.join_subpath(&include_path)?;
                     files.insert(artifact_path, include_path);
                 }
                 super::StaticQuery::IncludeDirectory(include_path) => {
                     let include_path = module_parent_path.clone().join(include_path.clone());
                     let artifact_path = ArtifactPath::try_from(include_path.clone())?;
-                    let include_path = local_project_path.join_subpath(include_path)?;
+                    let include_path = local_project_path.join_subpath(&include_path)?;
                     directories.push((artifact_path, include_path));
                 }
                 super::StaticQuery::Glob { patterns } => {
                     let artifact_path = ArtifactPath::try_from(module_parent_path.clone())?;
                     let module_parent_path =
-                        local_project_path.join_subpath(module_parent_path.clone())?;
+                        local_project_path.join_subpath(&module_parent_path)?;
                     globs.push((artifact_path, module_parent_path, patterns));
                 }
                 super::StaticQuery::Download { .. } | super::StaticQuery::GitRef(_) => {
@@ -255,7 +261,7 @@ async fn create_single_project_artifact(
 
     // Add the lockfile to the artifact
     let lockfile_contents =
-        serde_json::to_string_pretty(&lockfile).context("failed to serialize lockfile")?;
+        serde_json::to_string_pretty(&lockfile).expect("failed to serialize project lockfile");
     let lockfile_blob = crate::blob::save_blob(
         brioche,
         permit,
@@ -269,8 +275,8 @@ async fn create_single_project_artifact(
         resources: Box::new(None),
     };
 
-    let lockfile_path = RelativePath::new("brioche.lock");
-    let lockfile_path = ArtifactPath::try_from(lockfile_path)?;
+    let lockfile_path =
+        ArtifactPath::default().join_one(ArtifactPathComponent::entry("brioche.lock"));
     crate::recipe::build::insert_into_artifact(&mut artifact, &lockfile_path, lockfile_artifact)?;
 
     // Resolve static glob patterns into files/directories/symlinks to add
@@ -299,12 +305,7 @@ async fn create_single_project_artifact(
                 let entry = entry?;
 
                 let entry_path = crate::path::canonicalize_system_path_sync(entry.path())?;
-                let relative_entry_path = crate::path::relative_path_between(&path, &entry_path)
-                    .with_context(|| {
-                        format!(
-                            "failed to resolve matched path {entry_path} relative to module path {path}",
-                        )
-                    })?;
+                let relative_entry_path = crate::path::relative_path_between(&path, &entry_path).unwrap_or_else(|error| panic!("failed to resolve matched glob path {entry_path} relative to module path {path}: {error}"));
 
                 let relative_entry_system_path = relative_entry_path.to_system_path()?;
                 if !glob_set.is_match(&relative_entry_system_path) {
@@ -331,19 +332,32 @@ async fn create_single_project_artifact(
                     directories.push((artifact_subpath, entry_path));
                 } else if file_type.is_symlink() {
                     tracing::debug!(path = %relative_entry_path, "matched symlink");
-                    let target_path = std::fs::read_link(entry.path())
-                        .context("failed to read symlink target")?;
+                    let target_path = std::fs::read_link(entry.path()).map_err(|error| {
+                        CreateProjectArtifactError::IoError {
+                            error,
+                            reason: format!(
+                                "error reading symlink target '{}'",
+                                entry.path().display()
+                            )
+                            .into(),
+                        }
+                    })?;
                     let target = <Vec<u8>>::from_path_buf(target_path.clone()).map_err(|_| {
-                        anyhow::anyhow!("invalid symlink target at {}", entry.path().display())
+                        CreateProjectArtifactError::InvalidFilename {
+                            name: target_path.into_os_string(),
+                        }
                     })?;
                     symlinks.insert(artifact_subpath, bstr::BString::new(target));
                 } else {
-                    anyhow::bail!("unknown file type at {}", entry.path().display());
+                    return Err(CreateProjectArtifactError::UnexpectedFileType {
+                        path: entry.path().to_path_buf(),
+                        file_type,
+                    });
                 }
             }
-            anyhow::Ok((files, directories, symlinks))
+            Ok::<_, CreateProjectArtifactError>((files, directories, symlinks))
         })
-        .await??;
+        .await.unwrap()?;
     }
 
     // Add directories from statics (recursively), and queue up files/symlinks
@@ -361,17 +375,44 @@ async fn create_single_project_artifact(
         )?;
 
         let system_path = path.to_system_path()?;
-        let mut entries = tokio::fs::read_dir(&system_path).await?;
-        while let Some(entry) = entries.next_entry().await? {
+        let mut entries = tokio::fs::read_dir(&system_path).await.map_err(|error| {
+            CreateProjectArtifactError::IoError {
+                error,
+                reason: format!("failed to read static dir '{}'", system_path.display()).into(),
+            }
+        })?;
+
+        loop {
+            let entry = entries.next_entry().await.map_err(|error| {
+                CreateProjectArtifactError::IoError {
+                    error,
+                    reason: format!("error reading static dir '{}'", system_path.display()).into(),
+                }
+            })?;
+            let Some(entry) = entry else {
+                break;
+            };
+
             let filename = entry.file_name();
-            let filename = <[u8]>::from_os_str(&filename)
-                .with_context(|| format!("invalid filename: {}", filename.display()))?;
+            let filename = <[u8]>::from_os_str(&filename).ok_or_else(|| {
+                CreateProjectArtifactError::InvalidFilename {
+                    name: filename.clone(),
+                }
+            })?;
             let filename = bstr::BStr::new(filename);
             let artifact_subpath = artifact_path
                 .clone()
                 .join_one(ArtifactPathComponent::entry(filename));
 
-            let file_type = entry.file_type().await?;
+            let file_type =
+                entry
+                    .file_type()
+                    .await
+                    .map_err(|error| CreateProjectArtifactError::IoError {
+                        error,
+                        reason: format!("error reading file metadata '{}'", entry.path().display())
+                            .into(),
+                    })?;
             if file_type.is_file() {
                 let entry_path = path.join_one(filename);
                 files.insert(artifact_subpath, entry_path);
@@ -379,15 +420,27 @@ async fn create_single_project_artifact(
                 let entry_path = path.join_one(filename);
                 directories.push((artifact_subpath, entry_path));
             } else if file_type.is_symlink() {
-                let target_path = tokio::fs::read_link(entry.path())
-                    .await
-                    .context("failed to read symlink target")?;
+                let target_path = tokio::fs::read_link(entry.path()).await.map_err(|error| {
+                    CreateProjectArtifactError::IoError {
+                        error,
+                        reason: format!(
+                            "error reading symlink target '{}'",
+                            entry.path().display()
+                        )
+                        .into(),
+                    }
+                })?;
                 let target = <Vec<u8>>::from_path_buf(target_path.clone()).map_err(|_| {
-                    anyhow::anyhow!("invalid symlink target at {}", entry.path().display())
+                    CreateProjectArtifactError::InvalidFilename {
+                        name: target_path.into_os_string(),
+                    }
                 })?;
                 symlinks.insert(artifact_subpath, bstr::BString::new(target));
             } else {
-                anyhow::bail!("unknown file type at {}", entry.path().display());
+                return Err(CreateProjectArtifactError::UnexpectedFileType {
+                    path: entry.path(),
+                    file_type,
+                });
             }
         }
     }
@@ -404,7 +457,12 @@ async fn create_single_project_artifact(
             &mut buffer,
         )
         .await?;
-        let file_metadata = tokio::fs::metadata(&system_path).await?;
+        let file_metadata = tokio::fs::metadata(&system_path).await.map_err(|error| {
+            CreateProjectArtifactError::IoError {
+                error,
+                reason: format!("error reading file metadata '{}'", system_path.display()).into(),
+            }
+        })?;
         let executable = crate::fs_utils::is_executable(&file_metadata.permissions());
 
         let file_artifact = ArtifactBuilder::File {
@@ -885,6 +943,65 @@ cfg_select! {
         }
     }
     _ => {}
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CreateProjectArtifactError {
+    #[error("module at '{module_path}' failed to load: {error_message}")]
+    ModuleFailedToLoad {
+        module_ref: ModuleRef,
+        module_path: RelativePath,
+        error_message: String,
+    },
+
+    #[error("invalid filename '{}'", .name.display())]
+    InvalidFilename { name: std::ffi::OsString },
+
+    #[error("unexpected file type {file_type:?} for '{}'", .path.display())]
+    UnexpectedFileType {
+        path: PathBuf,
+        file_type: std::fs::FileType,
+    },
+
+    #[error("error in glob patterns: {0}")]
+    GlobSetError(#[from] globset::Error),
+
+    #[error("error walking directories: {0}")]
+    WalkDirError(#[from] walkdir::Error),
+
+    #[error(transparent)]
+    ToArtifactPathError {
+        #[from]
+        error: crate::recipe::build::ToArtifactPathError,
+    },
+
+    #[error(transparent)]
+    SubpathError {
+        #[from]
+        error: crate::path::SubpathError,
+    },
+
+    #[error("{reason}: {error}")]
+    IoError {
+        #[source]
+        error: std::io::Error,
+        reason: Cow<'static, str>,
+    },
+
+    #[error(transparent)]
+    SaveBlobError(#[from] crate::blob::SaveBlobError),
+
+    #[error(transparent)]
+    ArtifactInsertError(#[from] crate::recipe::build::InsertError),
+
+    #[error(transparent)]
+    BuildArtifactError(#[from] crate::recipe::build::BuildArtifactError),
+
+    #[error(transparent)]
+    ToSystemPathError(#[from] crate::path::ToSystemPathError),
+
+    #[error(transparent)]
+    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
 }
 
 #[derive(Debug, thiserror::Error)]

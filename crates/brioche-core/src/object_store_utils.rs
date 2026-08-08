@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::Context as _;
 use aws_credential_types::provider::ProvideCredentials as _;
 use futures::StreamExt as _;
 
@@ -207,15 +206,14 @@ impl AwsS3CredentialProvider {
         Self { config }
     }
 
-    async fn get_aws_sdk_credentials(&self) -> anyhow::Result<aws_credential_types::Credentials> {
+    async fn get_aws_sdk_credentials(
+        &self,
+    ) -> Result<aws_credential_types::Credentials, AwsSdkCredentialsError> {
         let credentials_provider = self
             .config
             .credentials_provider()
-            .context("failed to get credentials provider from AWS SDK config")?;
-        let credentials = credentials_provider
-            .provide_credentials()
-            .await
-            .context("failed to load AWS credentials")?;
+            .ok_or(AwsSdkCredentialsError::FailedToGetCredentials)?;
+        let credentials = credentials_provider.provide_credentials().await?;
         Ok(credentials)
     }
 }
@@ -418,3 +416,12 @@ struct NoLayerContainedObjectError;
 #[derive(Debug, thiserror::Error)]
 #[error("no writable layer configured for LayeredObjectStore")]
 struct NoWritableLayerError;
+
+#[derive(Debug, thiserror::Error)]
+enum AwsSdkCredentialsError {
+    #[error("failed to get credentials provider from AWS SDK config")]
+    FailedToGetCredentials,
+
+    #[error("failed to load AWS credentials: {0}")]
+    AwsCredentialError(#[from] aws_credential_types::provider::error::CredentialsError),
+}

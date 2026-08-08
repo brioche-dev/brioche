@@ -1,34 +1,39 @@
-use std::{collections::HashMap, ffi::OsString};
+use std::{borrow::Cow, collections::HashMap, ffi::OsString};
 
-use anyhow::Context as _;
 use bstr::ByteSlice as _;
+
+use crate::{SandboxError, SandboxResult};
 
 use super::{SandboxPath, SandboxTemplate, SandboxTemplateComponent};
 
-pub fn run_sandbox(exec: &super::SandboxExecutionConfig) -> anyhow::Result<super::ExitStatus> {
-    let program = build_template(&exec.command)?;
+pub fn run_sandbox(exec: &super::SandboxExecutionConfig) -> SandboxResult<super::ExitStatus> {
+    let program = build_template(&exec.command, &|| "command".into())?;
     let args = exec
         .args
         .iter()
-        .map(build_template)
-        .collect::<anyhow::Result<Vec<_>>>()?;
+        .enumerate()
+        .map(|(n, arg)| build_template(arg, &|| format!("arg {n}").into()))
+        .collect::<SandboxResult<Vec<_>>>()?;
     let env = exec
         .env
         .iter()
         .map(|(key, value)| {
-            let key = key.to_os_str()?.to_owned();
-            let value = build_template(value)?;
-            anyhow::Ok((key, value))
+            let env_key = key.to_os_str().map_err(|error| SandboxError::InvalidUtf8 {
+                error,
+                reason: "env var".into(),
+            })?;
+            let value = build_template(value, &|| format!("env var {key}").into())?;
+            SandboxResult::Ok((env_key.to_os_string(), value))
         })
-        .collect::<anyhow::Result<HashMap<_, _>>>()?;
-    let current_dir = build_template(&exec.current_dir)?;
+        .collect::<SandboxResult<HashMap<_, _>>>()?;
+    let current_dir = build_template(&exec.current_dir, &|| "current dir".into())?;
 
     let program_path = std::path::Path::new(&program);
-    anyhow::ensure!(
-        program_path.is_absolute(),
-        "expected command to resolve to an absolute path: {}",
-        program.to_string_lossy()
-    );
+    if !program_path.is_absolute() {
+        return Err(SandboxError::CommandIsNotAnAbsolutePath {
+            program_path: program_path.to_path_buf(),
+        });
+    }
 
     let mut command = std::process::Command::new(program_path);
     command.args(args);
@@ -36,23 +41,33 @@ pub fn run_sandbox(exec: &super::SandboxExecutionConfig) -> anyhow::Result<super
     command.envs(env);
     command.current_dir(current_dir);
 
-    let mut child = command
-        .spawn()
-        .map_err(|error| anyhow::anyhow!("failed to spawn unsandboxed process: {error}"))?;
+    let mut child = command.spawn().map_err(|error| SandboxError::IoError {
+        error,
+        reason: "failed to spawn sandbox".into(),
+    })?;
 
-    let exit_status = child.wait()?;
+    let exit_status = child.wait().map_err(|error| SandboxError::IoError {
+        error,
+        reason: "sandbox process failed".into(),
+    })?;
 
     Ok(exit_status.into())
 }
 
-fn build_template(template: &SandboxTemplate) -> anyhow::Result<OsString> {
+fn build_template(
+    template: &SandboxTemplate,
+    reason: &dyn Fn() -> Cow<'static, str>,
+) -> SandboxResult<OsString> {
     let mut result = OsString::new();
     for component in &template.components {
         match component {
             SandboxTemplateComponent::Literal { value } => {
                 let value = value
                     .to_os_str()
-                    .context("failed to convert string to OsString")?;
+                    .map_err(|error| SandboxError::InvalidUtf8 {
+                        error,
+                        reason: reason(),
+                    })?;
                 result.push(value);
             }
             SandboxTemplateComponent::Path(SandboxPath { host_path, .. }) => {
