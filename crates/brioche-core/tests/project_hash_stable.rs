@@ -6,9 +6,9 @@ async fn test_project_hash_stable_simple() {
     context
         .write_file(
             "myproject/project.bri",
-            r"
+            indoc::indoc! {r"
                 export const project = {};
-            ",
+            "},
         )
         .await;
 
@@ -20,7 +20,7 @@ async fn test_project_hash_stable_simple() {
 
     assert_eq!(
         project_hash.to_string(),
-        "e9d088c8cef7d6620f313684bb4804b71a4b9dd2e1e128273ce572ef18c4e09d",
+        "2f320d70fbfa08613479b47f4cdb5ef6a50f491b3612df7bb3fa2f4089b80895",
     );
 }
 
@@ -51,7 +51,7 @@ async fn test_project_hash_stable_with_path_dep() {
     context
         .write_file(
             "mainproject/project.bri",
-            r#"
+            indoc::indoc! {r#"
                 import "depproject";
                 export const project = {
                     dependencies: {
@@ -60,16 +60,16 @@ async fn test_project_hash_stable_with_path_dep() {
                         },
                     },
                 };
-            "#,
+            "#},
         )
         .await;
 
     context
         .write_file(
             "depproject/project.bri",
-            r"
+            indoc::indoc! {r"
                 export const project = {};
-            ",
+            "},
         )
         .await;
 
@@ -87,10 +87,10 @@ async fn test_project_hash_stable_with_path_dep() {
 
     assert_eq!(
         dep_project_hash.to_string(),
-        "e9d088c8cef7d6620f313684bb4804b71a4b9dd2e1e128273ce572ef18c4e09d"
+        "2f320d70fbfa08613479b47f4cdb5ef6a50f491b3612df7bb3fa2f4089b80895"
     );
     assert_eq!(
         project_hash.to_string(),
-        "7f39fd30711614961b812cbdecf4d4a1d36862b83b7202b407c26a14b0911ff8"
+        "340118156a9c59ab6a5f66bdd81fb81bd698bc12accec09f107954eb0c9a96b1"
     );
 }
