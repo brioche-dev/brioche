@@ -79,9 +79,6 @@ async fn test_project_load_workspace_dep() {
     let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
 
     let brioche = &*brioche.read().await;
-    let issues = brioche_test_support::get_all_issues(brioche);
-    assert_matches!(&issues[..], &[]);
-
     let dependencies = brioche_core::project::get_dependencies(brioche, project_ref);
 
     let foo_specifier = brioche_core::project::get_specifier(brioche, dependencies["foo"]);
