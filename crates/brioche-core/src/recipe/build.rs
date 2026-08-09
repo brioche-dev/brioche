@@ -267,7 +267,7 @@ pub fn insert_into_artifact(
     path: &ArtifactPath,
     artifact: ArtifactBuilder,
 ) -> Result<(), InsertError> {
-    tracing::info!(
+    tracing::trace!(
         path = path.display_pretty(),
         kind = match artifact {
             ArtifactBuilder::File { .. } => "file",
@@ -294,7 +294,7 @@ pub fn insert_or_replace_in_artifact(
     path: &ArtifactPath,
     artifact: ArtifactBuilder,
 ) -> Result<Option<ArtifactBuilder>, InsertError> {
-    tracing::info!(
+    tracing::trace!(
         path = path.display_pretty(),
         kind = match artifact {
             ArtifactBuilder::File { .. } => "file",

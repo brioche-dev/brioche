@@ -283,7 +283,7 @@ async fn create_single_project_artifact(
 
     // Resolve static glob patterns into files/directories/symlinks to add
     for (artifact_path, path, patterns) in globs {
-        tracing::info!(
+        tracing::trace!(
             path = artifact_path.display_pretty(),
             ?patterns,
             "adding globs"
