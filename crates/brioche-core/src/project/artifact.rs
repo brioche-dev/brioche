@@ -43,7 +43,7 @@ pub async fn create_project_artifact(
         &mut project_hashes,
         Some(&mut project_entries),
     )
-    .await;
+    .await?;
 
     let workspace_groups = project_groups.iter().filter(|group| group.len() > 1);
     for workspace_group in workspace_groups {
@@ -82,12 +82,14 @@ pub async fn create_project_artifact(
         let members = members
             .iter()
             .map(|path| {
-                let (path, name) = path
-                    .parent_with_last_component()
-                    .expect("todo: invalid workspace path");
-                WorkspaceMember::Path(path.into(), name)
+                let (path, name) = path.parent_with_last_component().ok_or_else(|| {
+                    CreateProjectArtifactError::InvalidWorkspaceMemberPath {
+                        path: (*path).clone(),
+                    }
+                })?;
+                Ok(WorkspaceMember::Path(path.into(), name))
             })
-            .collect();
+            .collect::<Result<_, CreateProjectArtifactError>>()?;
         let workspace_definition = WorkspaceDefinition { members };
         let workspace_definition_contents = toml::to_string_pretty(&workspace_definition)
             .expect("failed to serialize workspace definition");
@@ -954,6 +956,9 @@ pub enum CreateProjectArtifactError {
         error_message: String,
     },
 
+    #[error("workspace member path '{path}' is invalid")]
+    InvalidWorkspaceMemberPath { path: ContentAddressedWorkspacePath },
+
     #[error("invalid filename '{}'", .name.display())]
     InvalidFilename { name: std::ffi::OsString },
 
@@ -987,6 +992,9 @@ pub enum CreateProjectArtifactError {
         error: std::io::Error,
         reason: Cow<'static, str>,
     },
+
+    #[error(transparent)]
+    ContentAddressedProjectError(#[from] crate::project::hash::ContentAddressedProjectError),
 
     #[error(transparent)]
     SaveBlobError(#[from] crate::blob::SaveBlobError),

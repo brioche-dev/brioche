@@ -2140,7 +2140,6 @@ async fn test_project_load_with_remote_registry_dep_hash_mismatch_error() {
     assert_matches!(
         &issues[..],
         [ProjectIssue::ProjectHashMismatch {
-            project_ref: _,
             expected_hash,
             actual_hash
         }] if *expected_hash == foo_hash && *actual_hash != foo_hash
@@ -2206,7 +2205,6 @@ async fn test_project_load_local_registry_dep_invalid_hash() {
     assert_matches!(
         &issues[..],
         [ProjectIssue::ProjectHashMismatch {
-            project_ref: _,
             expected_hash,
             actual_hash
         }] if *expected_hash == foo_hash && *actual_hash != foo_hash);

@@ -692,35 +692,75 @@ fn to_system_path<'a>(
             if cfg!(any(target_family = "unix", target_family = "wasm")) {
                 "/".into()
             } else {
-                return Err(ToSystemPathError::InvalidBasePathForPlatform);
+                return Err(ToSystemPathError::InvalidBasePathForPlatform {
+                    path: AnyPath {
+                        base: base_path.cloned(),
+                        subpath: subpath_components
+                            .into_iter()
+                            .filter_map(RelativePathComponent::new)
+                            .collect(),
+                    },
+                });
             }
         }
         Some(BasePath::Root(RootPath::WindowsDriveRoot { drive_letter })) => {
             if cfg!(target_family = "windows") {
                 format!(r"{}:\", char::from(*drive_letter)).into()
             } else {
-                return Err(ToSystemPathError::InvalidBasePathForPlatform);
+                return Err(ToSystemPathError::InvalidBasePathForPlatform {
+                    path: AnyPath {
+                        base: base_path.cloned(),
+                        subpath: subpath_components
+                            .into_iter()
+                            .filter_map(RelativePathComponent::new)
+                            .collect(),
+                    },
+                });
             }
         }
         Some(BasePath::Root(RootPath::WindowsUnc { host })) => {
             if cfg!(target_family = "windows") {
                 format!(r"\\{host}\").into()
             } else {
-                return Err(ToSystemPathError::InvalidBasePathForPlatform);
+                return Err(ToSystemPathError::InvalidBasePathForPlatform {
+                    path: AnyPath {
+                        base: base_path.cloned(),
+                        subpath: subpath_components
+                            .into_iter()
+                            .filter_map(RelativePathComponent::new)
+                            .collect(),
+                    },
+                });
             }
         }
         Some(BasePath::WindowsCurrentDriveRoot) => {
             if cfg!(target_family = "windows") {
                 r"\".into()
             } else {
-                return Err(ToSystemPathError::InvalidBasePathForPlatform);
+                return Err(ToSystemPathError::InvalidBasePathForPlatform {
+                    path: AnyPath {
+                        base: base_path.cloned(),
+                        subpath: subpath_components
+                            .into_iter()
+                            .filter_map(RelativePathComponent::new)
+                            .collect(),
+                    },
+                });
             }
         }
         Some(BasePath::WindowsDriveRelative { drive_letter }) => {
             if cfg!(target_family = "windows") {
                 format!(r"{}:", char::from(*drive_letter)).into()
             } else {
-                return Err(ToSystemPathError::InvalidBasePathForPlatform);
+                return Err(ToSystemPathError::InvalidBasePathForPlatform {
+                    path: AnyPath {
+                        base: base_path.cloned(),
+                        subpath: subpath_components
+                            .into_iter()
+                            .filter_map(RelativePathComponent::new)
+                            .collect(),
+                    },
+                });
             }
         }
         None => std::path::PathBuf::new(),
@@ -733,21 +773,27 @@ fn to_system_path<'a>(
             filename => {
                 if cfg!(target_family = "windows") {
                     if filename.find_byteset(b"<>:\"/\\|?*\0").is_some() {
-                        return Err(ToSystemPathError::InvalidFilenameForPlatform(
-                            filename.into(),
-                        ));
+                        return Err(ToSystemPathError::InvalidFilenameForPlatform {
+                            filename: filename.into(),
+                        });
                     }
                 } else if cfg!(any(target_family = "unix", target_family = "wasm")) {
                     if filename.find_byteset(b"/\0").is_some() {
-                        return Err(ToSystemPathError::InvalidFilenameForPlatform(
-                            filename.into(),
-                        ));
+                        return Err(ToSystemPathError::InvalidFilenameForPlatform {
+                            filename: filename.into(),
+                        });
                     }
                 } else {
                     unimplemented!("no path validation configured for the current platform");
                 }
 
-                let filename = filename.to_os_str().map_err(ToSystemPathError::Utf8Error)?;
+                let filename =
+                    filename
+                        .to_os_str()
+                        .map_err(|error| ToSystemPathError::Utf8Error {
+                            error,
+                            filename: filename.into(),
+                        })?;
                 path.push(filename);
             }
         }
@@ -805,7 +851,10 @@ pub fn relative_path_between(
 ) -> Result<RelativePath, RelativePathBetweenError> {
     // Can only diff paths if the paths share the same root
     if source.root != target.root {
-        return Err(RelativePathBetweenError::DifferentRoot);
+        return Err(RelativePathBetweenError::DifferentRoots {
+            source_path: source.clone(),
+            target_path: target.clone(),
+        });
     }
 
     let mut source_components = source.subpath_components.iter().peekable();
@@ -846,14 +895,18 @@ pub enum FromSystemPathError {
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ToSystemPathError {
-    #[error("base path is not valid for the current platform")]
-    InvalidBasePathForPlatform,
+    #[error("path '{path}' has a base path that is not valid for the current platform")]
+    InvalidBasePathForPlatform { path: AnyPath },
 
-    #[error("filename '{0}' within path is not valid for the current platform")]
-    InvalidFilenameForPlatform(bstr::BString),
+    #[error("path contains invalid filename '{filename}'")]
+    InvalidFilenameForPlatform { filename: bstr::BString },
 
-    #[error(transparent)]
-    Utf8Error(bstr::Utf8Error),
+    #[error("filename '{filename}' contains invalid UTF-8")]
+    Utf8Error {
+        #[source]
+        error: bstr::Utf8Error,
+        filename: bstr::BString,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -879,8 +932,11 @@ pub enum SubpathError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RelativePathBetweenError {
-    #[error("paths have different roots")]
-    DifferentRoot,
+    #[error("paths '{source_path}' and '{target_path}' have different roots")]
+    DifferentRoots {
+        source_path: AbsolutePath,
+        target_path: AbsolutePath,
+    },
 }
 
 #[cfg(test)]
@@ -981,19 +1037,19 @@ mod tests {
     fn test_relative_path_between_different_root_error() {
         assert_matches!(
             relative_path_between(&unix("foo"), &windows('C', "foo")),
-            Err(RelativePathBetweenError::DifferentRoot)
+            Err(RelativePathBetweenError::DifferentRoots { .. })
         );
         assert_matches!(
             relative_path_between(&windows('C', "foo"), &unix("foo")),
-            Err(RelativePathBetweenError::DifferentRoot)
+            Err(RelativePathBetweenError::DifferentRoots { .. })
         );
         assert_matches!(
             relative_path_between(&unix("foo"), &windows_unc("localhost", "foo")),
-            Err(RelativePathBetweenError::DifferentRoot)
+            Err(RelativePathBetweenError::DifferentRoots { .. })
         );
         assert_matches!(
             relative_path_between(&windows('C', "foo"), &windows_unc("localhost", "foo")),
-            Err(RelativePathBetweenError::DifferentRoot)
+            Err(RelativePathBetweenError::DifferentRoots { .. })
         );
     }
 }

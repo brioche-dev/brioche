@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap, HashSet},
+};
 
 use bstr::ByteSlice as _;
 use joinery::JoinableIterator as _;
@@ -8,7 +11,7 @@ use crate::{
     BriocheState,
     encoding::TickEncoded,
     path::{RelativePath, RelativePathComponent},
-    project::{ProjectDefinition, ProjectEdge, ProjectRef, StaticRef, WorkspaceRef},
+    project::{ModuleRef, ProjectDefinition, ProjectEdge, ProjectRef, StaticRef, WorkspaceRef},
     recipe::build::{ArtifactBuilder, ArtifactPath},
 };
 
@@ -36,12 +39,12 @@ impl std::str::FromStr for ProjectHash {
 pub async fn hash_project(
     brioche: &mut BriocheState,
     project_ref: ProjectRef,
-) -> Result<ProjectHash, std::convert::Infallible> {
+) -> Result<ProjectHash, ContentAddressedProjectError> {
     let node_groups = group_project_nodes(&brioche.projects, [project_ref]);
 
     let mut project_hashes = HashMap::<ProjectRef, ProjectHash>::new();
 
-    hash_projects_inner(brioche, &node_groups, &mut project_hashes, None).await;
+    hash_projects_inner(brioche, &node_groups, &mut project_hashes, None).await?;
 
     Ok(project_hashes[&project_ref])
 }
@@ -49,7 +52,7 @@ pub async fn hash_project(
 pub async fn get_content_addressed_project_entries(
     brioche: &mut BriocheState,
     project_ref: ProjectRef,
-) -> HashMap<ProjectRef, ContentAddressedProjectEntry> {
+) -> Result<HashMap<ProjectRef, ContentAddressedProjectEntry>, ContentAddressedProjectError> {
     let node_groups = group_project_nodes(&brioche.projects, [project_ref]);
 
     let mut project_hashes = HashMap::new();
@@ -61,9 +64,9 @@ pub async fn get_content_addressed_project_entries(
         &mut project_hashes,
         Some(&mut project_entries),
     )
-    .await;
+    .await?;
 
-    project_entries
+    Ok(project_entries)
 }
 
 /// Return all transitive dependencies of the projects in `project_refs`
@@ -120,12 +123,12 @@ pub(super) async fn hash_projects_inner(
     project_groups: &[HashSet<ProjectRef>],
     project_hashes: &mut HashMap<ProjectRef, ProjectHash>,
     mut project_entries: Option<&mut HashMap<ProjectRef, ContentAddressedProjectEntry>>,
-) {
+) -> Result<(), ContentAddressedProjectError> {
     for project_group in project_groups {
         if project_group.len() == 1 {
             let project_ref = *project_group.iter().next().unwrap();
             let project =
-                content_addressed_project(brioche, project_ref, project_hashes, None).await;
+                content_addressed_project(brioche, project_ref, project_hashes, None).await?;
             let project_entry = ContentAddressedProjectEntry::Project(project);
 
             project_hashes.insert(project_ref, project_entry.project_hash());
@@ -135,7 +138,7 @@ pub(super) async fn hash_projects_inner(
             }
         } else {
             let mut common_workspace_ref = None;
-            let projects_with_paths: HashMap<_, _> = project_group
+            let projects_with_paths = project_group
                 .iter()
                 .copied()
                 .map(|project_ref| {
@@ -151,18 +154,23 @@ pub(super) async fn hash_projects_inner(
                             let workspace_ref = WorkspaceRef(edge.source());
                             Some((workspace_ref, subpath))
                         })
-                        .expect("todo: cyclic node group member isn't in a workspace");
+                        .ok_or(ContentAddressedProjectError::CyclicProjectNotInWorkspace {
+                            project_ref,
+                        })?;
                     let group_workspace_ref = common_workspace_ref.get_or_insert(workspace_ref);
-                    assert_eq!(
-                        *group_workspace_ref, workspace_ref,
-                        "todo: node group members aren't part of the same workspace"
-                    );
+                    if *group_workspace_ref != workspace_ref {
+                        return Err(
+                            ContentAddressedProjectError::CyclicProjectInDifferentWorkspace {
+                                project_ref,
+                                other_workspace_ref: *group_workspace_ref,
+                            },
+                        );
+                    }
 
-                    let workspace_path = ContentAddressedWorkspacePath::try_from(workspace_path)
-                        .expect("todo: invalid workspace path");
-                    (project_ref, workspace_path)
+                    let workspace_path = ContentAddressedWorkspacePath::try_from(workspace_path)?;
+                    Ok((project_ref, workspace_path))
                 })
-                .collect();
+                .collect::<Result<HashMap<_, _>, ContentAddressedProjectError>>()?;
 
             let mut members = BTreeMap::new();
             for (project_ref, workspace_path) in &projects_with_paths {
@@ -172,7 +180,7 @@ pub(super) async fn hash_projects_inner(
                     project_hashes,
                     Some(&projects_with_paths),
                 )
-                .await;
+                .await?;
 
                 members.insert(workspace_path.clone(), project);
             }
@@ -194,6 +202,8 @@ pub(super) async fn hash_projects_inner(
             }
         }
     }
+
+    Ok(())
 }
 
 #[expect(clippy::similar_names)]
@@ -202,7 +212,7 @@ async fn content_addressed_project(
     project_ref: ProjectRef,
     project_hashes: &HashMap<ProjectRef, ProjectHash>,
     workspace_group_siblings: Option<&HashMap<ProjectRef, ContentAddressedWorkspacePath>>,
-) -> ContentAddressedProject {
+) -> Result<ContentAddressedProject, ContentAddressedProjectError> {
     let project = &brioche.projects.projects[&project_ref];
 
     let dependencies = brioche
@@ -235,7 +245,11 @@ async fn content_addressed_project(
         let module_source = brioche.projects.modules[module_ref]
             .source
             .as_deref()
-            .expect("todo: handle module load error");
+            .map_err(|error| ContentAddressedProjectError::ModuleFailedToLoad {
+                module_ref: *module_ref,
+                module_path: module_subpath.clone(),
+                error_message: error.to_string(),
+            })?;
         let source_hash = blake3::hash(module_source.as_bytes());
         modules.insert(
             module_subpath.clone(),
@@ -255,7 +269,7 @@ async fn content_addressed_project(
             });
         for (query, static_ref) in module_static_refs {
             let Some(static_) = brioche.projects.get_static(static_ref) else {
-                todo!("handle unresolved static");
+                return Err(ContentAddressedProjectError::UnresolvedStatic { static_ref });
             };
 
             let static_output = match static_ {
@@ -265,9 +279,9 @@ async fn content_addressed_project(
                         .static_path(static_ref)
                         .unwrap()
                         .expect("no local path for include static");
-                    let static_path = static_path
-                        .to_system_path()
-                        .expect("todo: failed to convert static path");
+                    let static_path = static_path.to_system_path().map_err(|error| {
+                        ContentAddressedProjectError::StaticToSystemPathError { error, static_ref }
+                    })?;
 
                     let artifact = crate::recipe::load::load_artifact(
                         brioche.resources.clone(),
@@ -275,16 +289,25 @@ async fn content_addressed_project(
                         ArtifactPath::default(),
                     )
                     .await
-                    .expect("todo: load artifact error");
+                    .map_err(|error| {
+                        ContentAddressedProjectError::StaticLoadArtifactError { error, static_ref }
+                    })?;
 
-                    assert!(
-                        matches!(artifact, ArtifactBuilder::File { .. }),
-                        "todo: expected file artifact"
-                    );
+                    if !matches!(artifact, ArtifactBuilder::File { .. }) {
+                        return Err(ContentAddressedProjectError::StaticIncludeWrongType {
+                            static_ref,
+                            expected: "file".into(),
+                        });
+                    }
 
                     let recipe_ref =
                         crate::recipe::build::build_artifact_inner(&mut brioche.recipes, &artifact)
-                            .expect("todo: failed to build artifact");
+                            .map_err(|error| {
+                                ContentAddressedProjectError::StaticBuildArtifactError {
+                                    error,
+                                    static_ref,
+                                }
+                            })?;
                     let recipe_hash =
                         crate::recipe::hash::hash_recipe_inner(&mut brioche.recipes, recipe_ref);
 
@@ -296,9 +319,9 @@ async fn content_addressed_project(
                         .static_path(static_ref)
                         .unwrap()
                         .expect("no local path for include static");
-                    let static_path = static_path
-                        .to_system_path()
-                        .expect("todo: failed to convert static path");
+                    let static_path = static_path.to_system_path().map_err(|error| {
+                        ContentAddressedProjectError::StaticToSystemPathError { error, static_ref }
+                    })?;
 
                     let artifact = crate::recipe::load::load_artifact(
                         brioche.resources.clone(),
@@ -306,16 +329,25 @@ async fn content_addressed_project(
                         ArtifactPath::default(),
                     )
                     .await
-                    .expect("todo: load artifact error");
+                    .map_err(|error| {
+                        ContentAddressedProjectError::StaticLoadArtifactError { error, static_ref }
+                    })?;
 
-                    assert!(
-                        matches!(artifact, ArtifactBuilder::Directory { .. }),
-                        "todo: expected directory artifact"
-                    );
+                    if !matches!(artifact, ArtifactBuilder::Directory { .. }) {
+                        return Err(ContentAddressedProjectError::StaticIncludeWrongType {
+                            static_ref,
+                            expected: "directory".into(),
+                        });
+                    }
 
                     let recipe_ref =
                         crate::recipe::build::build_artifact_inner(&mut brioche.recipes, &artifact)
-                            .expect("todo: failed to build artifact");
+                            .map_err(|error| {
+                                ContentAddressedProjectError::StaticBuildArtifactError {
+                                    error,
+                                    static_ref,
+                                }
+                            })?;
                     let recipe_hash =
                         crate::recipe::hash::hash_recipe_inner(&mut brioche.recipes, recipe_ref);
 
@@ -327,9 +359,9 @@ async fn content_addressed_project(
                         .static_path(static_ref)
                         .unwrap()
                         .expect("no local path for include static");
-                    let static_path = static_path
-                        .to_system_path()
-                        .expect("todo: failed to convert static path");
+                    let static_path = static_path.to_system_path().map_err(|error| {
+                        ContentAddressedProjectError::StaticToSystemPathError { error, static_ref }
+                    })?;
 
                     let artifact = crate::recipe::load::load_artifact_glob(
                         brioche.resources.clone(),
@@ -338,16 +370,25 @@ async fn content_addressed_project(
                         patterns.clone(),
                     )
                     .await
-                    .expect("todo: load artifact error");
+                    .map_err(|error| {
+                        ContentAddressedProjectError::StaticLoadArtifactError { error, static_ref }
+                    })?;
 
-                    assert!(
-                        matches!(artifact, ArtifactBuilder::Directory { .. }),
-                        "todo: expected directory artifact"
-                    );
+                    if !matches!(artifact, ArtifactBuilder::Directory { .. }) {
+                        return Err(ContentAddressedProjectError::StaticIncludeWrongType {
+                            static_ref,
+                            expected: "directory".into(),
+                        });
+                    }
 
                     let recipe_ref =
                         crate::recipe::build::build_artifact_inner(&mut brioche.recipes, &artifact)
-                            .expect("todo: failed to build artifact");
+                            .map_err(|error| {
+                                ContentAddressedProjectError::StaticBuildArtifactError {
+                                    error,
+                                    static_ref,
+                                }
+                            })?;
                     let recipe_hash =
                         crate::recipe::hash::hash_recipe_inner(&mut brioche.recipes, recipe_ref);
 
@@ -393,12 +434,12 @@ async fn content_addressed_project(
         }
     }
 
-    ContentAddressedProject {
+    Ok(ContentAddressedProject {
         definition: project.definition.clone(),
         dependencies,
         modules,
         statics,
-    }
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -632,6 +673,58 @@ impl From<&'_ ContentAddressedWorkspacePath> for RelativePath {
             })
             .collect()
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ContentAddressedProjectError {
+    #[error(transparent)]
+    InvalidWorkspacePath(#[from] InvalidWorkspacePathError),
+
+    #[error("project is cyclic but not part of a workspace")]
+    CyclicProjectNotInWorkspace { project_ref: ProjectRef },
+
+    #[error("cyclic projects are in different workspaces")]
+    CyclicProjectInDifferentWorkspace {
+        project_ref: ProjectRef,
+        other_workspace_ref: WorkspaceRef,
+    },
+
+    #[error("module at '{module_path}' failed to load: {error_message}")]
+    ModuleFailedToLoad {
+        module_ref: ModuleRef,
+        module_path: RelativePath,
+        error_message: String,
+    },
+
+    #[error("project contains an unresolved static")]
+    UnresolvedStatic { static_ref: StaticRef },
+
+    #[error("expected static include to return {expected}")]
+    StaticIncludeWrongType {
+        static_ref: StaticRef,
+        expected: Cow<'static, str>,
+    },
+
+    #[error("invalid path for static include: {error}")]
+    StaticToSystemPathError {
+        #[source]
+        error: crate::path::ToSystemPathError,
+        static_ref: StaticRef,
+    },
+
+    #[error("failed to load artifact for static include: {error}")]
+    StaticLoadArtifactError {
+        #[source]
+        error: crate::recipe::load::LoadArtifactError,
+        static_ref: StaticRef,
+    },
+
+    #[error("failed to build artifact for static include: {error}")]
+    StaticBuildArtifactError {
+        #[source]
+        error: crate::recipe::build::BuildArtifactError,
+        static_ref: StaticRef,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]

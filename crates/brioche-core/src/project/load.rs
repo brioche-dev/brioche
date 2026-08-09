@@ -188,7 +188,7 @@ pub async fn load_projects(
             Err(error) => {
                 return Err(LoadProjectError::IoError {
                     error,
-                    path: lockfile_path,
+                    reason: format!("failed to read lockfile '{lockfile_path}'").into(),
                 });
             }
         };
@@ -634,28 +634,49 @@ pub async fn load_projects(
         );
 
         let mut project_hashes = HashMap::new();
-        crate::project::hash::hash_projects_inner(
+        let hash_result = crate::project::hash::hash_projects_inner(
             brioche,
             &project_groups,
             &mut project_hashes,
             None,
         )
-        .await;
+        .await
+        .map_err(Arc::new);
 
+        let mut added_failed_to_hash_issue = false;
         for (project_ref, expected_hash) in project_hashes_to_validate {
-            let actual_hash = project_hashes[&project_ref];
-            if expected_hash != actual_hash {
+            if let Some(actual_hash) = project_hashes.get(&project_ref) {
+                if expected_hash != *actual_hash {
+                    brioche
+                        .projects
+                        .issues
+                        .entry(project_ref.0)
+                        .or_default()
+                        .push(ProjectIssue::ProjectHashMismatch {
+                            expected_hash,
+                            actual_hash: *actual_hash,
+                        });
+                }
+            } else if let Err(error) = &hash_result {
                 brioche
                     .projects
                     .issues
                     .entry(project_ref.0)
                     .or_default()
-                    .push(ProjectIssue::ProjectHashMismatch {
-                        project_ref,
+                    .push(ProjectIssue::FailedToValidateHash {
                         expected_hash,
-                        actual_hash,
+                        error: error.clone(),
                     });
+                added_failed_to_hash_issue = true;
+            } else {
+                unreachable!("expected either a project hash or an error while hashing");
             }
+        }
+
+        if let Err(error) = hash_result
+            && !added_failed_to_hash_issue
+        {
+            tracing::warn!("encountered unreported error while hashing projects: {error:?}");
         }
     }
 
@@ -979,15 +1000,15 @@ async fn resolve_static(
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadProjectError {
-    #[error(transparent)]
-    ToSystemPathError(#[from] crate::path::ToSystemPathError),
-
-    #[error("IO error at {path}: {error}")]
+    #[error("{reason}: {error}")]
     IoError {
         #[source]
         error: std::io::Error,
-        path: AbsolutePath,
+        reason: Cow<'static, str>,
     },
+
+    #[error(transparent)]
+    ToSystemPathError(#[from] crate::path::ToSystemPathError),
 
     #[error(transparent)]
     SubpathError(#[from] crate::path::SubpathError),
@@ -997,6 +1018,16 @@ pub enum LoadProjectError {
 
     #[error(transparent)]
     RegistryError(#[from] crate::registry::RegistryError),
+}
+
+impl From<FindWorkspaceRootError> for LoadProjectError {
+    fn from(error: FindWorkspaceRootError) -> Self {
+        match error {
+            FindWorkspaceRootError::Io { error, reason } => Self::IoError { error, reason },
+            FindWorkspaceRootError::Subpath(error) => Self::SubpathError(error),
+            FindWorkspaceRootError::ToSystemPath(error) => Self::ToSystemPathError(error),
+        }
+    }
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -1039,7 +1070,7 @@ pub enum LockfileIssue {
 async fn find_workspace_root(
     top: &AbsolutePath,
     path: &RelativePath,
-) -> Result<Option<RelativePath>, LoadProjectError> {
+) -> Result<Option<RelativePath>, FindWorkspaceRootError> {
     let mut current_path = path.clone();
     loop {
         let workspace_definition_path = top
@@ -1048,9 +1079,10 @@ async fn find_workspace_root(
         let workspace_definition_system_path = workspace_definition_path.to_system_path()?;
         let exists = tokio::fs::try_exists(&workspace_definition_system_path)
             .await
-            .map_err(|error| LoadProjectError::IoError {
+            .map_err(|error| FindWorkspaceRootError::Io {
                 error,
-                path: workspace_definition_path.clone(),
+                reason: format!("failed to check path metadata for '{workspace_definition_path}'")
+                    .into(),
             })?;
         if exists {
             return Ok(Some(current_path));
@@ -1067,7 +1099,7 @@ async fn find_workspace_root(
 
 async fn find_workspace_root_absolute(
     path: &AbsolutePath,
-) -> Result<Option<AbsolutePath>, LoadProjectError> {
+) -> Result<Option<AbsolutePath>, FindWorkspaceRootError> {
     let root_path = path.root_path().clone().into();
     let workspace_root = find_workspace_root(&root_path, &path.subpath()).await?;
     let Some(workspace_root) = workspace_root else {
@@ -1076,6 +1108,21 @@ async fn find_workspace_root_absolute(
 
     let workspace_root = root_path.join_subpath(&workspace_root)?;
     Ok(Some(workspace_root))
+}
+
+#[derive(Debug, thiserror::Error)]
+enum FindWorkspaceRootError {
+    #[error("{reason}: {error}")]
+    Io {
+        error: std::io::Error,
+        reason: Cow<'static, str>,
+    },
+
+    #[error(transparent)]
+    Subpath(#[from] crate::path::SubpathError),
+
+    #[error(transparent)]
+    ToSystemPath(#[from] crate::path::ToSystemPathError),
 }
 
 async fn load_module_source(path: &std::path::Path) -> Result<String, LoadModuleError> {
@@ -1127,14 +1174,18 @@ async fn load_project_by_hash(
     };
     let _guard = project_mutex.lock().await;
 
-    // TODO: handle errors cleanly
     let projects_system_path = brioche.resources.data_dir.join("projects");
     tokio::fs::create_dir_all(&projects_system_path)
         .await
-        .unwrap();
-    let projects_path = crate::path::canonicalize_system_path(&projects_system_path)
-        .await
-        .unwrap();
+        .map_err(|error| LoadProjectByHashError::IoError {
+            error,
+            reason: format!(
+                "failed to create directory '{}'",
+                projects_system_path.display()
+            )
+            .into(),
+        })?;
+    let projects_path = crate::path::canonicalize_system_path(&projects_system_path).await?;
     let local_system_path = projects_system_path.join(project_hash.to_string());
     let local_path = crate::path::canonicalize_system_path(&local_system_path).await;
 
@@ -1143,16 +1194,11 @@ async fn load_project_by_hash(
             // Directory for the local project exists. No need to fetch. The
             // hash is also validated later on
 
-            let project_path = crate::path::relative_path_between(&projects_path, &local_path)
-                .expect("todo: project path escapes projects path");
-            let workspace_root = find_workspace_root(&projects_path, &project_path)
-                .await
-                .expect("todo: error finding workspace root for existing project by hash");
-            let workspace_root = workspace_root.map(|subpath| {
-                projects_path
-                    .join_subpath(&subpath)
-                    .expect("expected workspace root to be a subpath")
-            });
+            let project_path = crate::path::relative_path_between(&projects_path, &local_path)?;
+            let workspace_root = find_workspace_root(&projects_path, &project_path).await?;
+            let workspace_root = workspace_root
+                .map(|subpath| projects_path.join_subpath(&subpath))
+                .transpose()?;
 
             return Ok((local_path, workspace_root));
         }
@@ -1187,16 +1233,11 @@ async fn load_project_by_hash(
         return Err(LoadProjectByHashError::ProjectNotFoundInArtifact { artifact_hash });
     };
 
-    let project_relative_path = crate::path::relative_path_between(&projects_path, &project_path)
-        .expect("todo: project path escapes projects dir");
-    let workspace_root = find_workspace_root(&projects_path, &project_relative_path)
-        .await
-        .expect("todo: error trying to find workspace root");
-    let workspace_root = workspace_root.map(|subpath| {
-        projects_path
-            .join_subpath(&subpath)
-            .expect("expected workspace root to be a subpath")
-    });
+    let project_relative_path = crate::path::relative_path_between(&projects_path, &project_path).unwrap_or_else(|error| panic!("failed to normalize project path '{project_path}' relative to projects dir '{projects_path}': {error}"));
+    let workspace_root = find_workspace_root(&projects_path, &project_relative_path).await?;
+    let workspace_root = workspace_root
+        .map(|subpath| projects_path.join_subpath(&subpath))
+        .transpose()?;
 
     Ok((project_path, workspace_root))
 }
@@ -1226,7 +1267,26 @@ pub enum LoadProjectByHashError {
     SaveProjectsFromArtifactError(#[from] crate::project::artifact::SaveProjectsFromArtifactError),
 
     #[error(transparent)]
+    SubpathError(#[from] crate::path::SubpathError),
+
+    #[error(transparent)]
+    ToSystemPathError(#[from] crate::path::ToSystemPathError),
+
+    #[error(transparent)]
     CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
+
+    #[error(transparent)]
+    RelativePathBetweenError(#[from] crate::path::RelativePathBetweenError),
+}
+
+impl From<FindWorkspaceRootError> for LoadProjectByHashError {
+    fn from(error: FindWorkspaceRootError) -> Self {
+        match error {
+            FindWorkspaceRootError::Io { error, reason } => Self::IoError { error, reason },
+            FindWorkspaceRootError::Subpath(error) => Self::SubpathError(error),
+            FindWorkspaceRootError::ToSystemPath(error) => Self::ToSystemPathError(error),
+        }
+    }
 }
 
 fn expand_module_subpath(subpath: RelativePath) -> RelativePath {

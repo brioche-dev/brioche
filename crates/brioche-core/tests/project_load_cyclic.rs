@@ -1225,6 +1225,7 @@ async fn get_project_entry(
         project_ref,
     )
     .await
+    .unwrap()
     .remove(&project_ref)
     .unwrap()
 }

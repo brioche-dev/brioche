@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashMap},
+    sync::Arc,
 };
 
 use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
@@ -648,7 +649,6 @@ pub enum ProjectIssue {
 
     #[error("expected project with hash {expected_hash}, but got {actual_hash}")]
     ProjectHashMismatch {
-        project_ref: ProjectRef,
         expected_hash: ProjectHash,
         actual_hash: ProjectHash,
     },
@@ -696,6 +696,13 @@ pub enum ProjectIssue {
         dependency: String,
         location: ProjectIssueLocation,
     },
+
+    #[error("encountered error while validating project with hash {expected_hash}")]
+    FailedToValidateHash {
+        #[source]
+        error: Arc<hash::ContentAddressedProjectError>,
+        expected_hash: ProjectHash,
+    },
 }
 
 impl ProjectIssue {
@@ -735,7 +742,7 @@ impl ProjectIssue {
             | Self::DownloadError { location, .. }
             | Self::LoadProjectByHashError { location, .. }
             | Self::DependencyNotFound { location, .. } => Some(*location),
-            Self::ProjectHashMismatch { .. } => None,
+            Self::ProjectHashMismatch { .. } | Self::FailedToValidateHash { .. } => None,
         }
     }
 }
