@@ -1009,7 +1009,7 @@ pub enum CreateProjectArtifactError {
     ToSystemPathError(#[from] crate::path::ToSystemPathError),
 
     #[error(transparent)]
-    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
+    FromSystemPathError(#[from] crate::path::FromSystemPathError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1086,5 +1086,5 @@ pub enum SaveProjectsFromArtifactError {
     },
 
     #[error(transparent)]
-    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
+    FromSystemPathError(#[from] crate::path::FromSystemPathError),
 }

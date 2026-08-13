@@ -205,10 +205,10 @@ pub enum LoadArtifactError {
     WalkdirError(#[from] walkdir::Error),
 
     #[error(transparent)]
-    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
+    RelativePathBetweenError(#[from] crate::path::RelativePathBetweenError),
 
     #[error(transparent)]
-    RelativePathBetweenError(#[from] crate::path::RelativePathBetweenError),
+    FromSystemPathError(#[from] crate::path::FromSystemPathError),
 
     #[error(transparent)]
     ToSystemPathError(#[from] crate::path::ToSystemPathError),

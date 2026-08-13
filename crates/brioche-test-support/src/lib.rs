@@ -99,12 +99,12 @@ pub async fn load_project_ignoring_issues(brioche: &Brioche, project_dir: &Path)
 #[must_use]
 pub fn absolute_path(path: &Path) -> AbsolutePath {
     let path = std::fs::canonicalize(path).unwrap();
-    brioche_core::path::from_canonical_system_path(&path).unwrap()
+    brioche_core::path::from_absolute_system_path(&path).unwrap()
 }
 
 #[must_use]
 pub fn absolute_path_nonexistent(path: &Path) -> AbsolutePath {
-    brioche_core::path::from_canonical_system_path(path).unwrap()
+    brioche_core::path::from_absolute_system_path(path).unwrap()
 }
 
 #[must_use]

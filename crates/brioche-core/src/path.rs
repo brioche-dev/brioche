@@ -10,6 +10,8 @@
 //!       for Windows)
 //!         - [`RootPath`]
 
+use std::borrow::Cow;
+
 use bstr::ByteSlice as _;
 use joinery::JoinableIterator as _;
 
@@ -564,16 +566,16 @@ pub fn from_system_path(path: &std::path::Path) -> Result<AnyPath, FromSystemPat
             std::path::Component::Prefix(prefix) => match prefix.kind() {
                 std::path::Prefix::Verbatim(component) => {
                     let component = <[u8]>::from_os_str(component)
-                        .ok_or(FromSystemPathError::Unrepresentable)?;
+                        .ok_or_else(|| FromSystemPathError::Unrepresentable(path.to_path_buf()))?;
 
                     base = Some(BasePath::Root(RootPath::WindowsUnc { host: "?".into() }));
                     subpath.add_one(component);
                 }
                 std::path::Prefix::VerbatimUNC(hostname, share) => {
                     let hostname = <[u8]>::from_os_str(hostname)
-                        .ok_or(FromSystemPathError::Unrepresentable)?;
-                    let share =
-                        <[u8]>::from_os_str(share).ok_or(FromSystemPathError::Unrepresentable)?;
+                        .ok_or_else(|| FromSystemPathError::Unrepresentable(path.to_path_buf()))?;
+                    let share = <[u8]>::from_os_str(share)
+                        .ok_or_else(|| FromSystemPathError::Unrepresentable(path.to_path_buf()))?;
 
                     base = Some(BasePath::Root(RootPath::WindowsUnc { host: "?".into() }));
                     subpath.add_one("UNC");
@@ -586,16 +588,16 @@ pub fn from_system_path(path: &std::path::Path) -> Result<AnyPath, FromSystemPat
                 }
                 std::path::Prefix::DeviceNS(component) => {
                     let component = <[u8]>::from_os_str(component)
-                        .ok_or(FromSystemPathError::Unrepresentable)?;
+                        .ok_or_else(|| FromSystemPathError::Unrepresentable(path.to_path_buf()))?;
 
                     base = Some(BasePath::Root(RootPath::WindowsUnc { host: ".".into() }));
                     subpath.add_one(component);
                 }
                 std::path::Prefix::UNC(hostname, share) => {
                     let hostname = <[u8]>::from_os_str(hostname)
-                        .ok_or(FromSystemPathError::Unrepresentable)?;
-                    let share =
-                        <[u8]>::from_os_str(share).ok_or(FromSystemPathError::Unrepresentable)?;
+                        .ok_or_else(|| FromSystemPathError::Unrepresentable(path.to_path_buf()))?;
+                    let share = <[u8]>::from_os_str(share)
+                        .ok_or_else(|| FromSystemPathError::Unrepresentable(path.to_path_buf()))?;
 
                     base = Some(BasePath::Root(RootPath::WindowsUnc {
                         host: hostname.into(),
@@ -630,8 +632,8 @@ pub fn from_system_path(path: &std::path::Path) -> Result<AnyPath, FromSystemPat
                 subpath.components.push(RelativePathComponent::ParentDir);
             }
             std::path::Component::Normal(component) => {
-                let component =
-                    <[u8]>::from_os_str(component).ok_or(FromSystemPathError::Unrepresentable)?;
+                let component = <[u8]>::from_os_str(component)
+                    .ok_or_else(|| FromSystemPathError::Unrepresentable(path.to_path_buf()))?;
                 subpath
                     .components
                     .push(RelativePathComponent::Normal(component.into()));
@@ -642,44 +644,55 @@ pub fn from_system_path(path: &std::path::Path) -> Result<AnyPath, FromSystemPat
     Ok(AnyPath { base, subpath })
 }
 
-pub fn from_canonical_system_path(
-    path: &std::path::Path,
-) -> Result<AbsolutePath, CanonicalSystemPathError> {
-    let path = from_system_path(path)?;
+pub fn from_absolute_system_path(
+    system_path: &std::path::Path,
+) -> Result<AbsolutePath, FromSystemPathError> {
+    let path = from_system_path(system_path)?;
     let subpath_components = path
         .subpath
         .components
         .into_iter()
         .map(|component| match component {
             RelativePathComponent::Normal(component) => Ok(component),
-            RelativePathComponent::CurrentDir | RelativePathComponent::ParentDir => {
-                Err(CanonicalSystemPathError::NonCanonicalPath)
-            }
+            RelativePathComponent::CurrentDir | RelativePathComponent::ParentDir => Err(
+                FromSystemPathError::ExpectedCanonicalPath(system_path.to_path_buf()),
+            ),
         })
-        .collect::<Result<Vec<_>, CanonicalSystemPathError>>()?;
+        .collect::<Result<Vec<_>, FromSystemPathError>>()?;
 
     match path.base {
         Some(BasePath::Root(root)) => Ok(AbsolutePath {
             root,
             subpath_components,
         }),
-        _ => Err(CanonicalSystemPathError::NotAnAbsolutePath),
+        _ => Err(FromSystemPathError::ExpectedAbsolutePath(
+            system_path.to_path_buf(),
+        )),
     }
 }
 
 pub async fn canonicalize_system_path(
     path: &std::path::Path,
-) -> Result<AbsolutePath, CanonicalSystemPathError> {
-    let path = tokio::fs::canonicalize(path).await?;
-    let path = from_canonical_system_path(&path)?;
+) -> Result<AbsolutePath, FromSystemPathError> {
+    let path =
+        tokio::fs::canonicalize(path)
+            .await
+            .map_err(|error| FromSystemPathError::IoError {
+                error,
+                reason: format!("failed to canonicalize path '{}'", path.display()).into(),
+            })?;
+    let path = from_absolute_system_path(&path)?;
     Ok(path)
 }
 
 pub fn canonicalize_system_path_sync(
     path: &std::path::Path,
-) -> Result<AbsolutePath, CanonicalSystemPathError> {
-    let path = std::fs::canonicalize(path)?;
-    let path = from_canonical_system_path(&path)?;
+) -> Result<AbsolutePath, FromSystemPathError> {
+    let path = std::fs::canonicalize(path).map_err(|error| FromSystemPathError::IoError {
+        error,
+        reason: format!("failed to canonicalize path '{}'", path.display()).into(),
+    })?;
+    let path = from_absolute_system_path(&path)?;
     Ok(path)
 }
 
@@ -889,8 +902,21 @@ pub fn relative_path_between(
 
 #[derive(Debug, thiserror::Error)]
 pub enum FromSystemPathError {
-    #[error("unrepresentable path")]
-    Unrepresentable,
+    #[error("unrepresentable path '{0}")]
+    Unrepresentable(std::path::PathBuf),
+
+    #[error("expected path '{0}' to be an absolute path")]
+    ExpectedAbsolutePath(std::path::PathBuf),
+
+    #[error("expected path '{0}' to be a canonical path")]
+    ExpectedCanonicalPath(std::path::PathBuf),
+
+    #[error("{reason}: {error}")]
+    IoError {
+        #[source]
+        error: std::io::Error,
+        reason: Cow<'static, str>,
+    },
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -907,21 +933,6 @@ pub enum ToSystemPathError {
         error: bstr::Utf8Error,
         filename: bstr::BString,
     },
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum CanonicalSystemPathError {
-    #[error(transparent)]
-    FromSystemPath(#[from] FromSystemPathError),
-
-    #[error(transparent)]
-    IoError(#[from] std::io::Error),
-
-    #[error("not an absolute path")]
-    NotAnAbsolutePath,
-
-    #[error("non-canonical path")]
-    NonCanonicalPath,
 }
 
 #[derive(Debug, thiserror::Error)]

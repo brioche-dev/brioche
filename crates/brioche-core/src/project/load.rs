@@ -1014,7 +1014,7 @@ pub enum LoadProjectError {
     SubpathError(#[from] crate::path::SubpathError),
 
     #[error(transparent)]
-    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
+    FromSystemPathError(#[from] crate::path::FromSystemPathError),
 
     #[error(transparent)]
     RegistryError(#[from] crate::registry::RegistryError),
@@ -1202,13 +1202,13 @@ async fn load_project_by_hash(
 
             return Ok((local_path, workspace_root));
         }
-        Err(crate::path::CanonicalSystemPathError::IoError(error))
+        Err(crate::path::FromSystemPathError::IoError { error, .. })
             if error.kind() == std::io::ErrorKind::NotFound =>
         {
             // Directory for the local project does not exist
         }
         Err(error) => {
-            return Err(LoadProjectByHashError::CanonicalSystemPathError(error));
+            return Err(LoadProjectByHashError::FromSystemPathError(error));
         }
     }
 
@@ -1273,7 +1273,7 @@ pub enum LoadProjectByHashError {
     ToSystemPathError(#[from] crate::path::ToSystemPathError),
 
     #[error(transparent)]
-    CanonicalSystemPathError(#[from] crate::path::CanonicalSystemPathError),
+    FromSystemPathError(#[from] crate::path::FromSystemPathError),
 
     #[error(transparent)]
     RelativePathBetweenError(#[from] crate::path::RelativePathBetweenError),
