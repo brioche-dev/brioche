@@ -8,6 +8,7 @@ pub struct ScriptAst {
     module: biome_js_syntax::JsModule,
 }
 
+#[must_use]
 pub fn parse_script(source: &str) -> ScriptAst {
     let module = biome_js_parser::parse_module(source, biome_js_parser::JsParserOptions::default());
     let module = module.tree();
@@ -940,6 +941,7 @@ pub enum ScriptParseError {
 }
 
 impl ScriptParseError {
+    #[must_use]
     pub const fn range(&self) -> TextRange {
         match self {
             Self::SyntaxError { range, .. }

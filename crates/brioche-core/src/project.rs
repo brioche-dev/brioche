@@ -40,6 +40,7 @@ pub struct Projects {
     modules_by_project: HashMap<ProjectRef, HashMap<RelativePath, ModuleRef>>,
     project_by_module: HashMap<ModuleRef, (ProjectRef, RelativePath)>,
     workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
+    modules_by_path: HashMap<AbsolutePath, ModuleRef>,
     static_ref_by_shared_static: HashMap<SharedStatic, StaticRef>,
     static_ref_by_unresolved_static:
         HashMap<UnresolvedStatic, (StaticRef, Vec<ProjectIssueLocation>)>,
@@ -47,6 +48,10 @@ pub struct Projects {
 }
 
 impl Projects {
+    pub(crate) fn module(&self, module_ref: ModuleRef) -> &Module {
+        &self.modules[&module_ref]
+    }
+
     pub(crate) fn module_statics(
         &self,
         module: ModuleRef,
@@ -129,6 +134,51 @@ impl Projects {
             Static::Download { .. } | Static::GitRef { .. } => Ok(None),
         }
     }
+
+    pub(crate) fn module_by_path(&self, path: &AbsolutePath) -> Option<ModuleRef> {
+        self.modules_by_path.get(path).copied()
+    }
+
+    pub(crate) fn get_root_module(&self, project_ref: ProjectRef) -> Option<ModuleRef> {
+        self.graph.edges(project_ref.0).find_map(|edge| {
+            if matches!(edge.weight(), ProjectEdge::ProjectRootModule) {
+                Some(ModuleRef(edge.target()))
+            } else {
+                None
+            }
+        })
+    }
+
+    pub(crate) fn project_module_at_subpath(
+        &self,
+        project_ref: ProjectRef,
+        module_subpath: &RelativePath,
+    ) -> Option<ModuleRef> {
+        self.modules_by_project
+            .get(&project_ref)
+            .and_then(|modules| modules.get(module_subpath))
+            .copied()
+    }
+
+    pub(crate) fn project_by_module(
+        &self,
+        module_ref: ModuleRef,
+    ) -> Option<&(ProjectRef, RelativePath)> {
+        self.project_by_module.get(&module_ref)
+    }
+
+    #[must_use]
+    pub fn local_project_path(&self, project_ref: ProjectRef) -> &AbsolutePath {
+        &self.local_project_paths[&project_ref]
+    }
+
+    #[must_use]
+    pub fn local_module_path(&self, module_ref: ModuleRef) -> AbsolutePath {
+        let (project_ref, module_subpath) = &self.project_by_module[&module_ref];
+        self.local_project_path(*project_ref)
+            .join_subpath(module_subpath)
+            .expect("invalid module subpath")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -159,7 +209,7 @@ pub struct Project {
 pub(crate) struct Module {
     project: ProjectRef,
     subpath: RelativePath,
-    source: Result<String, load::LoadModuleError>,
+    pub source: Result<String, load::LoadModuleError>,
 }
 
 pub(crate) struct Workspace {
@@ -222,7 +272,7 @@ pub(crate) enum UnresolvedStatic {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum StaticQuery {
+pub enum StaticQuery {
     IncludeFile(RelativePath),
     IncludeDirectory(RelativePath),
     Glob { patterns: Vec<String> },
@@ -231,7 +281,7 @@ pub(crate) enum StaticQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct ModuleStaticQueryGitRefOptions {
+pub struct ModuleStaticQueryGitRefOptions {
     pub repository: url::Url,
 
     #[serde(rename = "ref")]

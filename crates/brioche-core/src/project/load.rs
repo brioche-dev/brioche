@@ -255,6 +255,10 @@ pub async fn load_projects(
                 .projects
                 .project_by_module
                 .insert(module_ref, (project_ref, module_subpath.clone()));
+            brioche
+                .projects
+                .modules_by_path
+                .insert(module_path.clone(), module_ref);
 
             tracing::trace!(?project_ref, ?module_subpath, ?module_ref, "loading module");
 

@@ -20,7 +20,7 @@ pub mod project;
 pub mod recipe;
 pub mod registry;
 pub mod reporter;
-mod script;
+pub mod script;
 mod utils;
 
 const MAX_CONCURRENT_DOWNLOADS: usize = 20;

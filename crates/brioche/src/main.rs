@@ -44,12 +44,12 @@ fn main() -> anyhow::Result<ExitCode> {
                 )
                 .init();
 
-            // let js_platform = brioche_core::script::initialize_js_platform();
+            let js_platform = brioche_core::script::runtime::initialize_js_platform();
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?;
 
-            let exit_code = rt.block_on(build::build(args))?;
+            let exit_code = rt.block_on(build::build(js_platform, args))?;
 
             Ok(exit_code)
         }

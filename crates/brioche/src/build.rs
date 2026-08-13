@@ -63,12 +63,15 @@ pub struct BuildArgs {
     display: super::DisplayMode,
 }
 
-pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
+pub async fn build(
+    js_platform: brioche_core::script::runtime::JsPlatform,
+    args: BuildArgs,
+) -> anyhow::Result<ExitCode> {
     let brioche = brioche_core::Brioche::new().await;
 
     let project_refs = resolve_project_refs(args.targets, args.project, args.registry, args.export);
 
-    let specifiers = futures::stream::iter(project_refs)
+    let project_specifiers = futures::stream::iter(project_refs)
         .then(async |project_ref| {
             let specifier = match project_ref.source {
                 ProjectSource::Local(path) => {
@@ -79,16 +82,29 @@ pub async fn build(args: BuildArgs) -> anyhow::Result<ExitCode> {
                     anyhow::bail!("todo: registry project: {registry}");
                 }
             };
-            Ok(specifier)
+            Ok((specifier, project_ref.export))
         })
         .try_collect::<Vec<_>>()
         .await?;
 
-    let _projects = brioche_core::project::load::load_projects(
+    let projects = brioche_core::project::load::load_projects(
         &mut *brioche.write().await,
-        specifiers.iter().cloned(),
+        project_specifiers
+            .iter()
+            .map(|(specifier, _)| specifier)
+            .cloned(),
     )
     .await?;
+
+    let js_runtime = brioche_core::script::runtime::JsRuntime::new(&brioche, js_platform).await?;
+    for (specifier, export) in project_specifiers {
+        let project_ref = projects[&specifier];
+        let export_value = js_runtime.get_export(project_ref, &export).await?;
+        let export_type_repr = js_runtime
+            .with_context(async move |ctx| ctx.type_repr(&export_value))
+            .await?;
+        tracing::info!(?specifier, ?export, result = ?export_type_repr, "evaluated JS module");
+    }
 
     Ok(ExitCode::SUCCESS)
 
