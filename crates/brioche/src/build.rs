@@ -99,11 +99,10 @@ pub async fn build(
     let js_runtime = brioche_core::script::runtime::JsRuntime::new(&brioche, js_platform).await?;
     for (specifier, export) in project_specifiers {
         let project_ref = projects[&specifier];
-        let export_value = js_runtime.get_export(project_ref, &export).await?;
-        let export_type_repr = js_runtime
-            .with_context(async move |ctx| ctx.type_repr(&export_value))
-            .await?;
-        tracing::info!(?specifier, ?export, result = ?export_type_repr, "evaluated JS module");
+        let recipe_ref = js_runtime.get_recipe_export(project_ref, &export).await?;
+
+        let recipe = brioche_core::recipe::get_recipe(&*brioche.read().await, recipe_ref);
+        tracing::info!(?specifier, ?export, recipe_kind = ?recipe.kind(), "evaluated JS module");
     }
 
     Ok(ExitCode::SUCCESS)

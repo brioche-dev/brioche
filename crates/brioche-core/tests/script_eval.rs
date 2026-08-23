@@ -1,4 +1,7 @@
-use brioche_core::script::runtime::{JsRuntime, initialize_js_platform};
+use brioche_core::{
+    recipe::Recipe,
+    script::runtime::{JsRuntime, initialize_js_platform},
+};
 
 #[tokio::test]
 async fn test_script_eval_basic() {
@@ -11,7 +14,15 @@ async fn test_script_eval_basic() {
             "myproject/project.bri",
             r#"
                 export default function () {
-                    return "hello world!";
+                    return {
+                        briocheSerialize() {
+                            return {
+                                type: "create_file",
+                                content: "hello world",
+                                executable: false,
+                            };
+                        }
+                    };
                 }
             "#,
         )
@@ -22,12 +33,18 @@ async fn test_script_eval_basic() {
     let js_runtime = JsRuntime::new(&brioche, initialize_js_platform())
         .await
         .unwrap();
-    let default = js_runtime.get_export(project_ref, "default").await.unwrap();
-
-    let default_type = js_runtime
-        .with_context(async move |ctx| ctx.type_repr(&default))
+    let default_ref = js_runtime
+        .get_recipe_export(project_ref, "default")
         .await
         .unwrap();
+    let default = brioche_core::recipe::get_recipe(&*brioche.read().await, default_ref);
 
-    assert_eq!(default_type, "function");
+    assert_eq!(
+        *default,
+        Recipe::CreateFile {
+            content: b"hello world".into(),
+            executable: false,
+            resources: None
+        }
+    );
 }
