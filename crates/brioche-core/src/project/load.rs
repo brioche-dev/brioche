@@ -1129,7 +1129,7 @@ enum FindWorkspaceRootError {
     ToSystemPath(#[from] crate::path::ToSystemPathError),
 }
 
-async fn load_module_source(path: &std::path::Path) -> Result<String, LoadModuleError> {
+async fn load_module_source(path: &std::path::Path) -> Result<Arc<str>, LoadModuleError> {
     let source = tokio::fs::read(path)
         .await
         .map_err(|error| LoadModuleError::IoError {
@@ -1138,7 +1138,7 @@ async fn load_module_source(path: &std::path::Path) -> Result<String, LoadModule
         })?;
     let source = String::from_utf8(source)
         .map_err(|error| LoadModuleError::Utf8Error(error.utf8_error()))?;
-    Ok(source)
+    Ok(source.into())
 }
 
 async fn load_workspace(root: AbsolutePath) -> Result<Workspace, LoadWorkspaceError> {

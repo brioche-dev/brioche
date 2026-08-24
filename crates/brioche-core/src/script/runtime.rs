@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, rc::Rc};
+use std::{borrow::Cow, collections::HashMap, rc::Rc, sync::Arc};
 
 use futures::TryFutureExt as _;
 
@@ -99,6 +99,7 @@ struct JsRuntimeBridge {
 impl JsRuntimeBridge {
     fn new(brioche: crate::Brioche) -> Self {
         let (worker_tx, mut worker_rx) = tokio::sync::mpsc::unbounded_channel();
+
         tokio::task::spawn({
             let brioche = brioche.clone();
             async move {
@@ -122,6 +123,7 @@ impl JsRuntimeBridge {
 
         let module_loader = JsModuleLoader {
             brioche: brioche.clone(),
+            source_maps: Arc::new(std::sync::RwLock::new(HashMap::new())),
             worker_tx,
         };
         let js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
@@ -263,6 +265,8 @@ enum JsRuntimeBridgeWorkerMessage {
 
 struct JsModuleLoader {
     brioche: crate::Brioche,
+    source_maps:
+        Arc<std::sync::RwLock<HashMap<crate::script::specifier::ModuleSpecifier, Arc<str>>>>,
     worker_tx: tokio::sync::mpsc::UnboundedSender<JsRuntimeBridgeWorkerMessage>,
 }
 
@@ -311,13 +315,16 @@ impl JsModuleLoader {
 
     async fn load(
         brioche: crate::Brioche,
+        source_maps: Arc<
+            std::sync::RwLock<HashMap<crate::script::specifier::ModuleSpecifier, Arc<str>>>,
+        >,
         specifier_url: deno_core::ModuleSpecifier,
         specifier: crate::script::specifier::ModuleSpecifier,
         referrer: Option<deno_core::ModuleLoadReferrer>,
         options: deno_core::ModuleLoadOptions,
     ) -> Result<deno_core::ModuleSource, LoadModuleError> {
         let brioche = brioche.read().await;
-        let code = match &specifier {
+        let source = match &specifier {
             ModuleSpecifier::Runtime {
                 subpath_components: _,
             } => {
@@ -329,7 +336,6 @@ impl JsModuleLoader {
             }
             ModuleSpecifier::File { path } => {
                 // TODO: Support non-module imports
-                // TODO: Use an Arc for sources
                 let module_ref = brioche.projects.module_by_path(path).ok_or_else(|| {
                     LoadModuleError::NotFound {
                         specifier: specifier.clone(),
@@ -345,7 +351,7 @@ impl JsModuleLoader {
                     }
                 })?;
 
-                deno_core::ModuleSourceCode::String(source.clone().into())
+                source.clone()
             }
         };
         let module_type = match options.requested_module_type {
@@ -357,6 +363,55 @@ impl JsModuleLoader {
                 deno_core::ModuleType::Other(other.clone())
             }
         };
+
+        // Return JavaScript verbatim, and transpile TypeScript
+        let (source, source_map) =
+            if should_transpile_typescript(&module_type, &specifier, &specifier_url) {
+                let parsed = deno_ast::parse_module(deno_ast::ParseParams {
+                    specifier: specifier_url.clone(),
+                    text: source,
+                    media_type: deno_ast::MediaType::TypeScript,
+                    capture_tokens: false,
+                    scope_analysis: false,
+                    maybe_syntax: None,
+                })
+                .map_err(|error| LoadModuleError::ParseError {
+                    specifier: specifier.clone(),
+                    referrer: referrer.clone(),
+                    error,
+                })?;
+                let transpiled = parsed
+                    .transpile(
+                        &deno_ast::TranspileOptions {
+                            imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Preserve,
+                            ..Default::default()
+                        },
+                        &deno_ast::TranspileModuleOptions {
+                            module_kind: Some(deno_ast::ModuleKind::Esm),
+                        },
+                        &deno_ast::EmitOptions {
+                            source_map: deno_ast::SourceMapOption::Separate,
+                            ..Default::default()
+                        },
+                    )
+                    .map_err(|error| LoadModuleError::TranspileError {
+                        specifier: specifier.clone(),
+                        referrer: referrer.clone(),
+                        error,
+                    })?;
+
+                let deno_ast::EmittedSourceText { text, source_map } = transpiled.into_source();
+                let text = Arc::<str>::from(text);
+                (text, source_map)
+            } else {
+                (source, None)
+            };
+        let code = deno_core::ModuleSourceCode::String(source.into());
+
+        if let Some(source_map) = source_map {
+            let mut source_maps = source_maps.write().unwrap();
+            source_maps.insert(specifier, source_map.into());
+        }
 
         Ok(deno_core::ModuleSource::new(
             module_type,
@@ -395,6 +450,7 @@ impl deno_core::ModuleLoader for JsModuleLoader {
         };
         let module_fut = Self::load(
             self.brioche.clone(),
+            self.source_maps.clone(),
             module_specifier.clone(),
             specifier,
             maybe_referrer.cloned(),
@@ -402,6 +458,33 @@ impl deno_core::ModuleLoader for JsModuleLoader {
         )
         .map_err(deno_core::error::ModuleLoaderError::from_err);
         deno_core::ModuleLoadResponse::Async(Box::pin(module_fut))
+    }
+
+    fn source_map_source_exists(&self, source_url: &str) -> Option<bool> {
+        let Ok(specifier_url) = source_url.parse::<url::Url>() else {
+            return None;
+        };
+        let specifier = crate::script::specifier::ModuleSpecifier::try_from(&specifier_url);
+        let Ok(specifier) = specifier else {
+            return None;
+        };
+
+        let source_maps = self.source_maps.read().unwrap();
+        Some(source_maps.contains_key(&specifier))
+    }
+
+    fn get_source_map(&self, file_name: &str) -> Option<Cow<'_, [u8]>> {
+        let Ok(specifier_url) = file_name.parse::<url::Url>() else {
+            return None;
+        };
+        let specifier = crate::script::specifier::ModuleSpecifier::try_from(&specifier_url);
+        let Ok(specifier) = specifier else {
+            return None;
+        };
+
+        let source_maps = self.source_maps.read().unwrap();
+        let source_map = source_maps.get(&specifier);
+        source_map.map(|source_map| source_map.as_bytes().to_vec().into())
     }
 }
 
@@ -418,6 +501,46 @@ pub struct JsPlatform(());
 pub fn initialize_js_platform() -> JsPlatform {
     deno_core::JsRuntime::init_platform(None);
     JsPlatform(())
+}
+
+fn should_transpile_typescript(
+    module_type: &deno_core::ModuleType,
+    specifier: &ModuleSpecifier,
+    specifier_url: &deno_core::ModuleSpecifier,
+) -> bool {
+    if !matches!(module_type, deno_core::ModuleType::JavaScript) {
+        return false;
+    }
+
+    match specifier {
+        ModuleSpecifier::File { .. } => true,
+        ModuleSpecifier::Runtime { .. } => {
+            let media_type = deno_ast::MediaType::from_specifier(specifier_url);
+            match media_type {
+                deno_ast::MediaType::TypeScript
+                | deno_ast::MediaType::Mts
+                | deno_ast::MediaType::Cts
+                | deno_ast::MediaType::Dts
+                | deno_ast::MediaType::Dmts
+                | deno_ast::MediaType::Dcts
+                | deno_ast::MediaType::Tsx => true,
+                deno_ast::MediaType::Jsx
+                | deno_ast::MediaType::JavaScript
+                | deno_ast::MediaType::Mjs
+                | deno_ast::MediaType::Cjs
+                | deno_ast::MediaType::Css
+                | deno_ast::MediaType::Json
+                | deno_ast::MediaType::Jsonc
+                | deno_ast::MediaType::Json5
+                | deno_ast::MediaType::Html
+                | deno_ast::MediaType::Markdown
+                | deno_ast::MediaType::Sql
+                | deno_ast::MediaType::Wasm
+                | deno_ast::MediaType::SourceMap
+                | deno_ast::MediaType::Unknown => false,
+            }
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -550,6 +673,34 @@ pub enum LoadModuleError {
         referrer: Option<deno_core::ModuleLoadReferrer>,
         #[source]
         error: crate::project::load::LoadModuleError,
+    },
+
+    #[error(
+        "failed to parse module '{specifier}'{}: {error}",
+        referrer.as_ref().map_or_else(
+            String::new,
+            |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
+        )
+    )]
+    ParseError {
+        specifier: crate::script::specifier::ModuleSpecifier,
+        referrer: Option<deno_core::ModuleLoadReferrer>,
+        #[source]
+        error: deno_ast::ParseDiagnostic,
+    },
+
+    #[error(
+        "failed to transpile module '{specifier}'{}: {error}",
+        referrer.as_ref().map_or_else(
+            String::new,
+            |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
+        )
+    )]
+    TranspileError {
+        specifier: crate::script::specifier::ModuleSpecifier,
+        referrer: Option<deno_core::ModuleLoadReferrer>,
+        #[source]
+        error: deno_ast::TranspileError,
     },
 }
 

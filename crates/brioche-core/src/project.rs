@@ -209,7 +209,7 @@ pub struct Project {
 pub(crate) struct Module {
     project: ProjectRef,
     subpath: RelativePath,
-    pub source: Result<String, load::LoadModuleError>,
+    pub source: Result<Arc<str>, load::LoadModuleError>,
 }
 
 pub(crate) struct Workspace {
