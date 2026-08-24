@@ -6,7 +6,7 @@ use crate::{
     path::AbsolutePath,
     project::ModuleRef,
     recipe::{Recipe, RecipeKind, RecipeRef},
-    script::runtime::EvaluateError,
+    script::runtime::JsRuntimeError,
 };
 
 #[expect(clippy::mutable_key_type)]
@@ -55,7 +55,7 @@ pub(super) async fn deserialize_recipe(
         value
     } else if value.path.is_top_level() {
         return Err(DeserializeError::new(
-            EvaluateError::MissingField,
+            JsRuntimeError::MissingField,
             value.path,
         ));
     } else {
@@ -194,7 +194,7 @@ impl ValueScope {
         let key = key.into();
         let key_string = deno_core::v8::String::new(js_scope, &key).ok_or_else(|| {
             DeserializeError::new(
-                EvaluateError::InvalidJsString(key.clone()),
+                JsRuntimeError::InvalidJsString(key.clone()),
                 self.path.clone(),
             )
         })?;
@@ -232,7 +232,7 @@ impl ValueScope {
         let key = key.into();
         let key_string = deno_core::v8::String::new(js_scope, &key).ok_or_else(|| {
             DeserializeError::new(
-                EvaluateError::InvalidJsString(key.clone()),
+                JsRuntimeError::InvalidJsString(key.clone()),
                 self.path.clone(),
             )
         })?;
@@ -267,7 +267,7 @@ impl ValueScope {
         let field = self
             .try_get_field(js_runtime, key.clone())?
             .ok_or_else(|| {
-                DeserializeError::new(EvaluateError::MissingField, path.with_field(key))
+                DeserializeError::new(JsRuntimeError::MissingField, path.with_field(key))
             })?;
         Ok(field)
     }
@@ -286,7 +286,7 @@ impl ValueScope {
         let tag_key = tag_key.into();
         let tag_key_string = deno_core::v8::String::new(js_scope, &tag_key).ok_or_else(|| {
             DeserializeError::new(
-                EvaluateError::InvalidJsString(tag_key.clone()),
+                JsRuntimeError::InvalidJsString(tag_key.clone()),
                 self.path.clone(),
             )
         })?;
@@ -300,7 +300,7 @@ impl ValueScope {
         let tag_value = value.get(js_scope, tag_key_string.into());
         let Some(tag_value) = tag_value else {
             return Err(DeserializeError::new(
-                EvaluateError::MissingField,
+                JsRuntimeError::MissingField,
                 self.path.clone().with_field(tag_key),
             ));
         };
@@ -315,7 +315,7 @@ impl ValueScope {
         let tag_string = deno_core::v8::ValueView::new(js_scope, tag_value);
         let tag = T::from_str(&tag_string.to_cow_lossy()).ok_or_else(|| {
             DeserializeError::new(
-                EvaluateError::InvalidEnumVariant {
+                JsRuntimeError::InvalidEnumVariant {
                     expected: T::VALUES.iter().map(T::tag).collect(),
                     got: tag_string.to_cow_lossy().into_owned(),
                 },
@@ -359,7 +359,7 @@ impl ValueScope {
                 ));
             }
             return Err(DeserializeError::new(
-                EvaluateError::UnknownEvalError {
+                JsRuntimeError::UnknownEvalError {
                     reason: "function call failed without an exception".into(),
                 },
                 path,
@@ -397,7 +397,7 @@ impl ValueScope {
                 ));
             }
             return Err(DeserializeError::new(
-                EvaluateError::UnknownEvalError {
+                JsRuntimeError::UnknownEvalError {
                     reason: "function call failed without an exception".into(),
                 },
                 path,
@@ -607,7 +607,7 @@ pub struct DeserializeError(Box<DeserializeErrorInner>);
 impl DeserializeError {
     fn new<E>(error: E, path: ValuePath) -> Self
     where
-        E: Into<EvaluateError>,
+        E: Into<JsRuntimeError>,
     {
         Self(Box::new(DeserializeErrorInner {
             path,
@@ -618,7 +618,7 @@ impl DeserializeError {
     fn type_error(expected: &'static str, actual: &'static str, path: ValuePath) -> Self {
         Self(Box::new(DeserializeErrorInner {
             path,
-            error: EvaluateError::TypeError {
+            error: JsRuntimeError::TypeError {
                 expected: Cow::Borrowed(expected),
                 actual: actual.into(),
             },
@@ -630,5 +630,5 @@ impl DeserializeError {
 #[error("error deserializing {}: {error}", .path.display_pretty())]
 struct DeserializeErrorInner {
     path: ValuePath,
-    error: EvaluateError,
+    error: JsRuntimeError,
 }

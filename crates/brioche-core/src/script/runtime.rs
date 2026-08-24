@@ -48,8 +48,10 @@ impl JsRuntime {
 
         let (pong, pong_rx) = tokio::sync::oneshot::channel();
         tx.send(JsRuntimeMessage::Ping { pong })
-            .map_err(|_| JsRuntimeError::ChannelClosed)?;
-        pong_rx.await.map_err(|_| JsRuntimeError::NoResponse)?;
+            .map_err(|_| JsRuntimeError::SendChannelClosed)?;
+        pong_rx
+            .await
+            .map_err(|_| JsRuntimeError::RecvChannelClosed)?;
 
         Ok(Self {
             tx,
@@ -69,8 +71,10 @@ impl JsRuntime {
                 export: export.to_string(),
                 result_tx,
             })
-            .map_err(|_| EvaluateError::SendError)?;
-        result_rx.await?
+            .map_err(|_| JsRuntimeError::SendChannelClosed)?;
+        result_rx
+            .await
+            .map_err(|_| JsRuntimeError::RecvChannelClosed)?
     }
 }
 
@@ -149,7 +153,7 @@ impl JsRuntimeBridge {
         }
     }
 
-    async fn load_module(&mut self, module_ref: ModuleRef) -> Result<usize, EvaluateError> {
+    async fn load_module(&mut self, module_ref: ModuleRef) -> Result<usize, JsRuntimeError> {
         let module_id = match self.module_ids.entry(module_ref) {
             std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
             std::collections::hash_map::Entry::Vacant(entry) => {
@@ -190,7 +194,7 @@ impl JsRuntimeBridge {
                 .get_root_module(project_ref)
                 .ok_or_else(|| {
                     let project_path = brioche.projects.local_project_path(project_ref);
-                    EvaluateError::NoRootModule {
+                    JsRuntimeError::NoRootModule {
                         path: project_path.clone(),
                         project_ref,
                     }
@@ -200,7 +204,10 @@ impl JsRuntimeBridge {
 
         // Load the module
         let module_id = self.load_module(root_module_ref).await?;
-        let module_namespace = self.js_runtime.get_module_namespace(module_id)?;
+        let module_namespace = self
+            .js_runtime
+            .get_module_namespace(module_id)
+            .map_err(JsRuntimeError::from)?;
 
         // Get the export by name
         let (export_value, module_namespace) = {
@@ -209,10 +216,10 @@ impl JsRuntimeBridge {
 
             let module_namespace = deno_core::v8::Local::new(js_scope, module_namespace);
             let export_key = deno_core::v8::String::new(js_scope, &export)
-                .ok_or_else(|| EvaluateError::InvalidJsString(export.clone().into()))?;
+                .ok_or_else(|| JsRuntimeError::InvalidJsString(export.clone().into()))?;
             let export_value = module_namespace
                 .get(js_scope, export_key.into())
-                .ok_or_else(|| EvaluateError::NoExport {
+                .ok_or_else(|| JsRuntimeError::NoExport {
                     module_ref: root_module_ref,
                     module_path: root_module_path.clone(),
                     export: export.clone(),
@@ -238,8 +245,7 @@ impl JsRuntimeBridge {
             &module_namespace,
             &mut self.cached_recipes,
         )
-        .await
-        .map_err(|error| EvaluateError::DeserializeError(Box::new(error)))?;
+        .await?;
 
         Ok(recipe)
     }
@@ -416,11 +422,57 @@ pub fn initialize_js_platform() -> JsPlatform {
 
 #[derive(Debug, thiserror::Error)]
 pub enum JsRuntimeError {
-    #[error("JS runtime channel closed unexpectedly")]
-    ChannelClosed,
+    #[error("project '{path}' does not have a root module")]
+    NoRootModule {
+        path: AbsolutePath,
+        project_ref: ProjectRef,
+    },
 
-    #[error("JS runtime task did not send a response")]
-    NoResponse,
+    #[error("invalid JS string value: {0:?}")]
+    InvalidJsString(Cow<'static, str>),
+
+    #[error("module '{module_path}' does not have an export named '{export}'")]
+    NoExport {
+        module_ref: ModuleRef,
+        module_path: AbsolutePath,
+        export: String,
+    },
+
+    #[error("unknown error while evaluating JS: {reason}")]
+    UnknownEvalError { reason: Cow<'static, str> },
+
+    #[error("missing field")]
+    MissingField,
+
+    #[error("failed to send eval message to channel: channel closed")]
+    SendChannelClosed,
+
+    #[error("failed to get eval result from channel: channel closed")]
+    RecvChannelClosed,
+
+    #[error("invalid enum variant '{got}', expected one of {expected:?}")]
+    InvalidEnumVariant {
+        expected: Vec<&'static str>,
+        got: String,
+    },
+
+    #[error("expected type {expected}, got {actual}")]
+    TypeError {
+        expected: Cow<'static, str>,
+        actual: Cow<'static, str>,
+    },
+
+    #[error(transparent)]
+    ModuleSpecifierToUrlError(#[from] crate::script::specifier::ModuleSpecifierToUrlError),
+
+    #[error(transparent)]
+    JsError(#[from] Box<deno_core::error::JsError>),
+
+    #[error(transparent)]
+    DenoCoreError(#[from] deno_core::error::CoreError),
+
+    #[error(transparent)]
+    TickEncodingDecodeError(#[from] tick_encoding::DecodeError),
 }
 
 #[derive(Debug, thiserror::Error, deno_error::JsError)]
@@ -503,60 +555,11 @@ pub enum LoadModuleError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum EvaluateError {
-    #[error("project '{path}' does not have a root module")]
-    NoRootModule {
-        path: AbsolutePath,
-        project_ref: ProjectRef,
-    },
-
-    #[error("invalid JS string value: {0:?}")]
-    InvalidJsString(Cow<'static, str>),
-
-    #[error("module '{module_path}' does not have an export named '{export}'")]
-    NoExport {
-        module_ref: ModuleRef,
-        module_path: AbsolutePath,
-        export: String,
-    },
-
-    #[error("unknown error while evaluating JS: {reason}")]
-    UnknownEvalError { reason: Cow<'static, str> },
-
-    #[error("missing field")]
-    MissingField,
-
-    #[error("invalid enum variant '{got}', expected one of {expected:?}")]
-    InvalidEnumVariant {
-        expected: Vec<&'static str>,
-        got: String,
-    },
-
-    #[error("failed to send eval message to channel")]
-    SendError,
-
-    #[error("failed to get eval result from channel: {0}")]
-    RecvError(#[from] tokio::sync::oneshot::error::RecvError),
+    #[error(transparent)]
+    Runtime(#[from] JsRuntimeError),
 
     #[error(transparent)]
-    ModuleSpecifierToUrlError(#[from] crate::script::specifier::ModuleSpecifierToUrlError),
-
-    #[error(transparent)]
-    JsError(#[from] Box<deno_core::error::JsError>),
-
-    #[error(transparent)]
-    DenoCoreError(#[from] deno_core::error::CoreError),
-
-    #[error("expected type {expected}, got {actual}")]
-    TypeError {
-        expected: Cow<'static, str>,
-        actual: Cow<'static, str>,
-    },
-
-    #[error(transparent)]
-    TickEncodingDecodeError(#[from] tick_encoding::DecodeError),
-
-    #[error(transparent)]
-    DeserializeError(Box<deserialize::DeserializeError>),
+    Deserialize(#[from] deserialize::DeserializeError),
 }
 
 impl From<std::convert::Infallible> for EvaluateError {
