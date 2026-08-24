@@ -5,9 +5,11 @@ use futures::TryFutureExt as _;
 use crate::{
     path::AbsolutePath,
     project::{ModuleRef, ProjectRef},
-    recipe::{Recipe, RecipeRef},
+    recipe::RecipeRef,
     script::specifier::{ImportSpecifier, ModuleSpecifier},
 };
+
+pub mod deserialize;
 
 const MODULE_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -206,13 +208,14 @@ impl JsRuntimeBridge {
             deno_core::v8::tc_scope!(let js_scope, js_scope);
 
             let module_namespace = deno_core::v8::Local::new(js_scope, module_namespace);
-            let export_key = v8_string_inner(js_scope, &export)?;
+            let export_key = deno_core::v8::String::new(js_scope, &export)
+                .ok_or_else(|| EvaluateError::InvalidJsString(export.clone().into()))?;
             let export_value = module_namespace
                 .get(js_scope, export_key.into())
                 .ok_or_else(|| EvaluateError::NoExport {
                     module_ref: root_module_ref,
-                    module_path: root_module_path,
-                    export,
+                    module_path: root_module_path.clone(),
+                    export: export.clone(),
                 })?;
             let export_value = deno_core::v8::Global::new(js_scope, export_value);
 
@@ -224,291 +227,22 @@ impl JsRuntimeBridge {
         };
 
         let mut brioche = self.brioche.write().await;
-        let recipe = eval_recipe(
+        let export_value = deserialize::ValueScope::new(
+            export_value,
+            deserialize::ValuePath::top_level(root_module_ref, root_module_path, export),
+        );
+        let recipe = deserialize::deserialize_recipe(
             &mut brioche.recipes,
             &mut self.js_runtime,
-            &export_value,
+            export_value,
             &module_namespace,
             &mut self.cached_recipes,
-            true,
         )
-        .await?;
+        .await
+        .map_err(|error| EvaluateError::DeserializeError(Box::new(error)))?;
 
         Ok(recipe)
     }
-}
-
-#[expect(clippy::mutable_key_type)]
-async fn eval_recipe(
-    recipes: &mut crate::recipe::Recipes,
-    js_runtime: &mut deno_core::JsRuntime,
-    value: &deno_core::v8::Global<deno_core::v8::Value>,
-    module_namespace: &deno_core::v8::Global<deno_core::v8::Value>,
-    cached_recipes: &mut HashMap<deno_core::v8::Global<deno_core::v8::Value>, RecipeRef>,
-    top_level: bool,
-) -> Result<RecipeRef, EvaluateError> {
-    let mut equivalent_values = vec![];
-
-    if let Some(recipe) = cached_recipes.get(value) {
-        return Ok(*recipe);
-    }
-    equivalent_values.push(value.clone());
-
-    // If the value is a function, call it. If it returns a promise, resolve it.
-    let function: Result<deno_core::v8::Global<deno_core::v8::Function>, _> =
-        v8_cast(js_runtime, value);
-    let value = if let Ok(function) = function {
-        let value = v8_call(js_runtime, function, Some(module_namespace), [])?;
-        let value = js_runtime.resolve(value).await?;
-
-        if let Some(recipe) = cached_recipes.get(&value).copied() {
-            cached_recipes.extend(equivalent_values.into_iter().map(|value| (value, recipe)));
-            return Ok(recipe);
-        }
-        equivalent_values.push(value.clone());
-
-        value
-    } else {
-        value.clone()
-    };
-    let value_object = v8_cast::<_, deno_core::v8::Object>(js_runtime, &value)?;
-
-    // If the the value has a `briocheSerialize` method, call and resolve it.
-    let brioche_serialize = v8_get_nullish(js_runtime, &value_object, "briocheSerialize")?;
-    let value = if let Some(brioche_serialize) = brioche_serialize {
-        let brioche_serialize =
-            v8_cast::<_, deno_core::v8::Function>(js_runtime, &brioche_serialize)?;
-        let value = v8_call(js_runtime, brioche_serialize, Some(&value), [])?;
-        let value = js_runtime.resolve(value).await?;
-
-        if let Some(recipe) = cached_recipes.get(&value).copied() {
-            cached_recipes.extend(equivalent_values.into_iter().map(|value| (value, recipe)));
-            return Ok(recipe);
-        }
-        equivalent_values.push(value.clone());
-
-        v8_cast::<_, deno_core::v8::Object>(js_runtime, &value)?
-    } else if top_level {
-        return Err(EvaluateError::InvalidRecipe {
-            reason: "recipe 'briocheSerialize' method missing".into(),
-        });
-    } else {
-        value_object
-    };
-
-    let recipe = deserialize_recipe(
-        recipes,
-        js_runtime,
-        &value,
-        module_namespace,
-        cached_recipes,
-    )
-    .await?;
-    cached_recipes.extend(equivalent_values.into_iter().map(|value| (value, recipe)));
-
-    Ok(recipe)
-}
-
-#[expect(clippy::mutable_key_type)]
-async fn deserialize_recipe(
-    recipes: &mut crate::recipe::Recipes,
-    js_runtime: &mut deno_core::JsRuntime,
-    value: &deno_core::v8::Global<deno_core::v8::Object>,
-    module_namespace: &deno_core::v8::Global<deno_core::v8::Value>,
-    cached_recipes: &mut HashMap<deno_core::v8::Global<deno_core::v8::Value>, RecipeRef>,
-) -> Result<RecipeRef, EvaluateError> {
-    let ty = v8_get(js_runtime, value, "type")?;
-    let ty = v8_cast::<_, deno_core::v8::String>(js_runtime, &ty)?;
-    let ty = v8_string_to_string_lossy(js_runtime, &ty);
-    let recipe = match &*ty {
-        "create_file" => {
-            let content = v8_get(js_runtime, value, "content")?;
-            let content = v8_cast_string(js_runtime, &content)?;
-            let content = tick_encoding::decode(content.as_bytes()).map_err(|error| {
-                EvaluateError::InvalidRecipe {
-                    reason: format!("invalid property 'content': {error}").into(),
-                }
-            })?;
-            let content = bstr::BString::new(content.into_owned());
-
-            let executable = v8_get(js_runtime, value, "executable")?;
-            let executable = v8_cast_boolean(js_runtime, &executable)?;
-
-            let resources = v8_get_nullish(js_runtime, value, "resources")?;
-            let resources = if let Some(resources) = resources {
-                Some(
-                    Box::pin(eval_recipe(
-                        recipes,
-                        js_runtime,
-                        &resources,
-                        module_namespace,
-                        cached_recipes,
-                        false,
-                    ))
-                    .await?,
-                )
-            } else {
-                None
-            };
-
-            Recipe::CreateFile {
-                content,
-                executable,
-                resources,
-            }
-        }
-        _ => {
-            todo!();
-        }
-    };
-
-    Ok(recipes.insert_recipe(Arc::new(recipe)))
-}
-
-fn v8_cast<T, U>(
-    js_runtime: &mut deno_core::JsRuntime,
-    value: &deno_core::v8::Global<T>,
-) -> Result<deno_core::v8::Global<U>, EvaluateError>
-where
-    for<'s> deno_core::v8::Local<'s, U>: TryFrom<deno_core::v8::Local<'s, T>>,
-    for<'s> <deno_core::v8::Local<'s, U> as TryFrom<deno_core::v8::Local<'s, T>>>::Error:
-        Into<EvaluateError>,
-{
-    deno_core::scope!(js_scope, js_runtime);
-    deno_core::v8::tc_scope!(let js_scope, js_scope);
-
-    let value = deno_core::v8::Local::new(js_scope, value);
-    let value = deno_core::v8::Local::try_from(value).map_err(Into::into)?;
-    Ok(deno_core::v8::Global::new(js_scope, value))
-}
-
-fn v8_cast_string(
-    js_runtime: &mut deno_core::JsRuntime,
-    value: &deno_core::v8::Global<deno_core::v8::Value>,
-) -> Result<String, EvaluateError> {
-    deno_core::scope!(js_scope, js_runtime);
-    deno_core::v8::tc_scope!(let js_scope, js_scope);
-
-    let value = deno_core::v8::Local::new(js_scope, value);
-    let value = deno_core::v8::Local::<deno_core::v8::String>::try_from(value)?;
-    Ok(value.to_rust_string_lossy(js_scope))
-}
-
-fn v8_cast_boolean(
-    js_runtime: &mut deno_core::JsRuntime,
-    value: &deno_core::v8::Global<deno_core::v8::Value>,
-) -> Result<bool, EvaluateError> {
-    deno_core::scope!(js_scope, js_runtime);
-    deno_core::v8::tc_scope!(let js_scope, js_scope);
-
-    let value = deno_core::v8::Local::new(js_scope, value);
-    let value = deno_core::v8::Local::<deno_core::v8::Boolean>::try_from(value)?;
-    Ok(value.boolean_value(js_scope))
-}
-
-fn v8_call<'a>(
-    js_runtime: &mut deno_core::JsRuntime,
-    function: deno_core::v8::Global<deno_core::v8::Function>,
-    this: Option<&deno_core::v8::Global<deno_core::v8::Value>>,
-    args: impl IntoIterator<Item = &'a deno_core::v8::Global<deno_core::v8::Value>>,
-) -> Result<deno_core::v8::Global<deno_core::v8::Value>, EvaluateError> {
-    deno_core::scope!(js_scope, js_runtime);
-    deno_core::v8::tc_scope!(let js_scope, js_scope);
-
-    let function = deno_core::v8::Local::new(js_scope, function);
-    let this = this.map_or_else(
-        || deno_core::v8::undefined(js_scope).into(),
-        |this| deno_core::v8::Local::new(js_scope, this),
-    );
-    let args = args
-        .into_iter()
-        .map(|arg| deno_core::v8::Local::new(js_scope, arg))
-        .collect::<Vec<_>>();
-
-    let result = function.call(js_scope, this, &args);
-    let Some(result) = result else {
-        if let Some(exception) = js_scope.exception() {
-            return Err(deno_core::error::JsError::from_v8_exception(js_scope, exception).into());
-        }
-        return Err(EvaluateError::UnknownEvalError {
-            reason: "function call failed without an exception".into(),
-        });
-    };
-
-    Ok(deno_core::v8::Global::new(js_scope, result))
-}
-
-fn v8_string_inner<'s>(
-    js_scope: &deno_core::v8::PinnedRef<'s, deno_core::v8::HandleScope<'_>>,
-    s: &str,
-) -> Result<deno_core::v8::Local<'s, deno_core::v8::String>, EvaluateError> {
-    deno_core::v8::String::new(js_scope, s)
-        .ok_or_else(|| EvaluateError::InvalidJsString(s.to_string()))
-}
-
-fn v8_string_to_string_lossy(
-    js_runtime: &mut deno_core::JsRuntime,
-    s: &deno_core::v8::Global<deno_core::v8::String>,
-) -> String {
-    deno_core::scope!(js_scope, js_runtime);
-    deno_core::v8::tc_scope!(let js_scope, js_scope);
-
-    let s = deno_core::v8::Local::new(js_scope, s);
-    s.to_rust_string_lossy(js_scope)
-}
-
-fn v8_try_get_inner<'s>(
-    js_scope: &deno_core::v8::PinnedRef<'s, deno_core::v8::HandleScope<'_>>,
-    object: &deno_core::v8::Object,
-    key: &str,
-) -> Result<Option<deno_core::v8::Local<'s, deno_core::v8::Value>>, EvaluateError> {
-    let key = v8_string_inner(js_scope, key)?;
-    let key = key.into();
-
-    let has_key = matches!(object.has(js_scope, key), Some(true));
-    if !has_key {
-        return Ok(None);
-    }
-
-    let value = object.get(js_scope, key);
-    Ok(value)
-}
-
-fn v8_get_nullish(
-    js_runtime: &mut deno_core::JsRuntime,
-    object: &deno_core::v8::Global<deno_core::v8::Object>,
-    key: &str,
-) -> Result<Option<deno_core::v8::Global<deno_core::v8::Value>>, EvaluateError> {
-    deno_core::scope!(js_scope, js_runtime);
-    deno_core::v8::tc_scope!(let js_scope, js_scope);
-
-    let object = deno_core::v8::Local::new(js_scope, object);
-    let value = v8_try_get_inner(js_scope, &object, key)?;
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    if value.is_null_or_undefined() {
-        return Ok(None);
-    }
-    Ok(Some(deno_core::v8::Global::new(js_scope, value)))
-}
-
-fn v8_get(
-    js_runtime: &mut deno_core::JsRuntime,
-    object: &deno_core::v8::Global<deno_core::v8::Object>,
-    key: &str,
-) -> Result<deno_core::v8::Global<deno_core::v8::Value>, EvaluateError> {
-    deno_core::scope!(js_scope, js_runtime);
-    deno_core::v8::tc_scope!(let js_scope, js_scope);
-
-    let object = deno_core::v8::Local::new(js_scope, object);
-    let value = v8_try_get_inner(js_scope, &object, key)?;
-    let Some(value) = value else {
-        return Err(EvaluateError::InvalidRecipe {
-            reason: format!("object does not have property '{key}'").into(),
-        });
-    };
-    Ok(deno_core::v8::Global::new(js_scope, value))
 }
 
 #[derive(Clone)]
@@ -803,7 +537,7 @@ pub enum EvaluateError {
     },
 
     #[error("invalid JS string value: {0:?}")]
-    InvalidJsString(String),
+    InvalidJsString(Cow<'static, str>),
 
     #[error("module '{module_path}' does not have an export named '{export}'")]
     NoExport {
@@ -812,11 +546,17 @@ pub enum EvaluateError {
         export: String,
     },
 
-    #[error("invalid recipe: {reason}")]
-    InvalidRecipe { reason: Cow<'static, str> },
-
     #[error("unknown error while evaluating JS: {reason}")]
     UnknownEvalError { reason: Cow<'static, str> },
+
+    #[error("missing field")]
+    MissingField,
+
+    #[error("invalid enum variant '{got}', expected one of {expected:?}")]
+    InvalidEnumVariant {
+        expected: Vec<&'static str>,
+        got: String,
+    },
 
     #[error("failed to send eval message to channel")]
     SendError,
@@ -833,8 +573,17 @@ pub enum EvaluateError {
     #[error(transparent)]
     DenoCoreError(#[from] deno_core::error::CoreError),
 
+    #[error("expected type {expected}, got {actual}")]
+    TypeError {
+        expected: Cow<'static, str>,
+        actual: Cow<'static, str>,
+    },
+
     #[error(transparent)]
-    JsDataError(#[from] deno_core::v8::DataError),
+    TickEncodingDecodeError(#[from] tick_encoding::DecodeError),
+
+    #[error(transparent)]
+    DeserializeError(Box<deserialize::DeserializeError>),
 }
 
 impl From<std::convert::Infallible> for EvaluateError {
