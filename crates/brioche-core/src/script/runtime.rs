@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, rc::Rc, sync::Arc};
+use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use futures::TryFutureExt as _;
 
@@ -242,33 +242,6 @@ impl JsRuntimeBridge {
         .map_err(|error| EvaluateError::DeserializeError(Box::new(error)))?;
 
         Ok(recipe)
-    }
-}
-
-#[derive(Clone)]
-pub struct JsValueHandle(Arc<usize>);
-
-pub struct JsContext<'a, 'p, 'scope, 'obj, 's> {
-    js_scope: &'a deno_core::v8::PinnedRef<
-        'p,
-        deno_core::v8::TryCatch<'scope, 'obj, deno_core::v8::HandleScope<'s>>,
-    >,
-    values: &'a mut HashMap<
-        usize,
-        (
-            std::sync::Weak<usize>,
-            deno_core::v8::Global<deno_core::v8::Value>,
-        ),
-    >,
-    #[expect(unused)]
-    next_value_id: &'a mut usize,
-}
-
-impl JsContext<'_, '_, '_, '_, '_> {
-    pub fn type_repr(&mut self, value: &JsValueHandle) -> String {
-        let (_, value) = &self.values[&value.0];
-        let value = deno_core::v8::Local::new(self.js_scope, value);
-        value.type_repr().to_string()
     }
 }
 
