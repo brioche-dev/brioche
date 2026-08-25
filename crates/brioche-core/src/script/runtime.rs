@@ -23,27 +23,43 @@ impl JsRuntime {
         brioche: &crate::Brioche,
         platform: JsPlatform,
     ) -> Result<Self, JsRuntimeError> {
-        let brioche = brioche.clone();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let (worker_tx, mut worker_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build_local(tokio::runtime::LocalOptions::default());
-            let runtime = match runtime {
-                Ok(runtime) => runtime,
-                Err(error) => {
-                    tracing::error!("failed to build Tokio runtime for JS runtime: {error:#}");
-                    return;
-                }
-            };
+        std::thread::spawn({
+            let brioche = brioche.clone();
+            move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build_local(tokio::runtime::LocalOptions::default());
+                let runtime = match runtime {
+                    Ok(runtime) => runtime,
+                    Err(error) => {
+                        tracing::error!("failed to build Tokio runtime for JS runtime: {error:#}");
+                        return;
+                    }
+                };
 
-            runtime.block_on(async move {
-                let mut bridge = JsRuntimeBridge::new(brioche);
-                while let Some(message) = rx.recv().await {
-                    bridge.handle_message(message).await;
+                runtime.block_on({
+                    let brioche = brioche.clone();
+                    async move {
+                        let mut bridge = JsRuntimeBridge::new(brioche, worker_tx);
+                        while let Some(message) = rx.recv().await {
+                            bridge.handle_message(message).await;
+                        }
+                    }
+                });
+            }
+        });
+
+        tokio::spawn({
+            let brioche = brioche.clone();
+            async move {
+                let worker = JsRuntimeBridgeWorker::new(brioche);
+                while let Some(message) = worker_rx.recv().await {
+                    worker.handle_message(message).await;
                 }
-            });
+            }
         });
 
         let (pong, pong_rx) = tokio::sync::oneshot::channel();
@@ -97,30 +113,10 @@ struct JsRuntimeBridge {
 }
 
 impl JsRuntimeBridge {
-    fn new(brioche: crate::Brioche) -> Self {
-        let (worker_tx, mut worker_rx) = tokio::sync::mpsc::unbounded_channel();
-
-        tokio::task::spawn({
-            let brioche = brioche.clone();
-            async move {
-                while let Some(message) = worker_rx.recv().await {
-                    match message {
-                        JsRuntimeBridgeWorkerMessage::ResolveImportSpecifier {
-                            specifier,
-                            referrer,
-                            result_tx,
-                        } => {
-                            let brioche = brioche.read().await;
-                            let result = crate::script::specifier::resolve_import_specifier(
-                                &brioche, &specifier, &referrer,
-                            );
-                            let _ = result_tx.send(result);
-                        }
-                    }
-                }
-            }
-        });
-
+    fn new(
+        brioche: crate::Brioche,
+        worker_tx: tokio::sync::mpsc::UnboundedSender<JsRuntimeBridgeWorkerMessage>,
+    ) -> Self {
         let module_loader = JsModuleLoader {
             brioche: brioche.clone(),
             source_maps: Arc::new(std::sync::RwLock::new(HashMap::new())),
@@ -250,6 +246,32 @@ impl JsRuntimeBridge {
         .await?;
 
         Ok(recipe)
+    }
+}
+
+struct JsRuntimeBridgeWorker {
+    brioche: crate::Brioche,
+}
+
+impl JsRuntimeBridgeWorker {
+    const fn new(brioche: crate::Brioche) -> Self {
+        Self { brioche }
+    }
+
+    async fn handle_message(&self, message: JsRuntimeBridgeWorkerMessage) {
+        match message {
+            JsRuntimeBridgeWorkerMessage::ResolveImportSpecifier {
+                specifier,
+                referrer,
+                result_tx,
+            } => {
+                let brioche = self.brioche.read().await;
+                let result = crate::script::specifier::resolve_import_specifier(
+                    &brioche, &specifier, &referrer,
+                );
+                let _ = result_tx.send(result);
+            }
+        }
     }
 }
 
