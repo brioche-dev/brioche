@@ -265,7 +265,7 @@ pub fn find_statics<'a>(
                                 error,
                                 range: args.range().into(),
                             })?;
-                            let arg = arg_to_string_literal(&arg, None)?;
+                            let arg = arg_to_string_literal(&arg, Some(env))?;
                             Result::<_, ScriptParseError>::Ok(arg)
                         })
                         .collect::<Result<Vec<_>, ScriptParseError>>()?;
@@ -304,7 +304,7 @@ pub fn find_statics<'a>(
                                 error,
                                 range: args.range().into(),
                             })?;
-                            let arg = arg_to_string_literal(&arg, None)?;
+                            let arg = arg_to_string_literal(&arg, Some(env))?;
                             Result::<_, ScriptParseError>::Ok(arg)
                         })
                         .collect::<Result<Vec<_>, ScriptParseError>>()?;
@@ -343,7 +343,7 @@ pub fn find_statics<'a>(
                                 error,
                                 range: args.range().into(),
                             })?;
-                            let arg = arg_to_string_literal(&arg, None)?;
+                            let arg = arg_to_string_literal(&arg, Some(env))?;
                             Result::<_, ScriptParseError>::Ok(arg)
                         })
                         .collect::<Result<Vec<_>, ScriptParseError>>()?;
@@ -369,7 +369,7 @@ pub fn find_statics<'a>(
                                 range: args.range().into(),
                             })?;
                             let range = arg.range();
-                            let arg = arg_to_string_literal(&arg, None)?;
+                            let arg = arg_to_string_literal(&arg, Some(env))?;
                             Result::<_, ScriptParseError>::Ok((arg, range))
                         })
                         .collect::<Result<Vec<_>, ScriptParseError>>()?;
