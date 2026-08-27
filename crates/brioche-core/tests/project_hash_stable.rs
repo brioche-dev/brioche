@@ -1,6 +1,7 @@
 #[tokio::test]
 async fn test_project_hash_stable_simple() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     let project_dir = context.mkdir("myproject").await;
     context
@@ -12,11 +13,10 @@ async fn test_project_hash_stable_simple() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
+    let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
 
     assert_eq!(
         project_hash.to_string(),
@@ -27,15 +27,15 @@ async fn test_project_hash_stable_simple() {
 #[tokio::test]
 async fn test_project_hash_stable_simple_no_definition() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     let project_dir = context.mkdir("myproject").await;
     context.write_file("myproject/project.bri", r"").await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
+    let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
 
     assert_eq!(
         project_hash.to_string(),
@@ -45,6 +45,7 @@ async fn test_project_hash_stable_simple_no_definition() {
 #[tokio::test]
 async fn test_project_hash_stable_workspace_dep() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     context
         .write_toml(
@@ -79,18 +80,15 @@ async fn test_project_hash_stable_workspace_dep() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
+    let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
 
-    let foo_project_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, project_ref)["foo"];
-    let foo_project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, foo_project_ref)
-            .await
-            .unwrap();
+    let foo_project_ref = brioche_core::project::get_dependencies(brioche, project_ref)["foo"];
+    let foo_project_hash = brioche_core::project::hash::hash_project(brioche, foo_project_ref)
+        .await
+        .unwrap();
 
     assert_eq!(
         project_hash.to_string(),
@@ -105,6 +103,7 @@ async fn test_project_hash_stable_workspace_dep() {
 #[tokio::test]
 async fn test_project_hash_stable_path_dep() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
     context
@@ -132,17 +131,15 @@ async fn test_project_hash_stable_path_dep() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
+    let project_ref = brioche_test_support::load_project(brioche, &main_project_dir).await;
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
     let dep_project_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, project_ref)["depproject"];
-    let dep_project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, dep_project_ref)
-            .await
-            .unwrap();
+        brioche_core::project::get_dependencies(brioche, project_ref)["depproject"];
+    let dep_project_hash = brioche_core::project::hash::hash_project(brioche, dep_project_ref)
+        .await
+        .unwrap();
 
     assert_eq!(
         dep_project_hash.to_string(),
@@ -159,6 +156,7 @@ async fn test_project_hash_stable_registry_dep() {
     let cache = brioche_test_support::new_cache();
     let (brioche, mut context) =
         brioche_test_support::brioche_test_with_cache(cache.clone(), false).await;
+    let brioche = &mut *brioche.write().await;
 
     let foo_hash = context
         .cached_registry_project(&cache, async |path| {
@@ -191,11 +189,10 @@ async fn test_project_hash_stable_registry_dep() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
+    let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
 
     mock_foo_latest.assert_async().await;
 
@@ -214,6 +211,7 @@ async fn test_project_hash_stable_registry_dep_with_brioche_include() {
     let cache = brioche_test_support::new_cache();
     let (brioche, mut context) =
         brioche_test_support::brioche_test_with_cache(cache.clone(), false).await;
+    let brioche = &mut *brioche.write().await;
 
     let foo_hash = context
         .cached_registry_project(&cache, async |path| {
@@ -258,11 +256,10 @@ async fn test_project_hash_stable_registry_dep_with_brioche_include() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
+    let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
 
     mock_foo_latest.assert_async().await;
 
@@ -281,6 +278,7 @@ async fn test_project_hash_stable_registry_dep_with_brioche_glob() {
     let cache = brioche_test_support::new_cache();
     let (brioche, mut context) =
         brioche_test_support::brioche_test_with_cache(cache.clone(), false).await;
+    let brioche = &mut *brioche.write().await;
 
     let foo_hash = context
         .cached_registry_project(&cache, async |path| {
@@ -328,11 +326,10 @@ async fn test_project_hash_stable_registry_dep_with_brioche_glob() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
+    let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
 
     mock_foo_latest.assert_async().await;
 
@@ -354,6 +351,7 @@ async fn test_project_hash_stable_remote_workspace_registry_dep() {
     {
         let (brioche, context) =
             brioche_test_support::brioche_test_with_cache(cache.clone(), true).await;
+        let brioche = &mut *brioche.write().await;
 
         context
             .write_toml(
@@ -383,10 +381,10 @@ async fn test_project_hash_stable_remote_workspace_registry_dep() {
             )
             .await;
 
-        let bar_ref = brioche_test_support::load_project(&brioche, &bar_dir).await;
-        let foo_ref = brioche_test_support::load_project(&brioche, &foo_dir).await;
+        let bar_ref = brioche_test_support::load_project(brioche, &bar_dir).await;
+        let foo_ref = brioche_test_support::load_project(brioche, &foo_dir).await;
 
-        let bar_deps = brioche_core::project::get_dependencies(&*brioche.read().await, bar_ref);
+        let bar_deps = brioche_core::project::get_dependencies(brioche, bar_ref);
         assert_eq!(
             bar_deps.len(),
             1,
@@ -394,24 +392,20 @@ async fn test_project_hash_stable_remote_workspace_registry_dep() {
         );
         assert_eq!(bar_deps["foo"], foo_ref);
 
-        bar_hash = brioche_core::project::hash::hash_project(&mut *brioche.write().await, bar_ref)
+        bar_hash = brioche_core::project::hash::hash_project(brioche, bar_ref)
             .await
             .expect("failed to hash bar project");
-        let bar_project_artifact = brioche_core::project::artifact::create_project_artifact(
-            &mut *brioche.write().await,
-            bar_ref,
-        )
-        .await
-        .expect("failed to create artifact for bar");
-        let bar_project_artifact_hash = brioche_core::recipe::hash::hash_recipe(
-            &mut *brioche.write().await,
-            bar_project_artifact,
-        );
-        brioche_core::cache::save_artifact(&mut *brioche.write().await, bar_project_artifact)
+        let bar_project_artifact =
+            brioche_core::project::artifact::create_project_artifact(brioche, bar_ref)
+                .await
+                .expect("failed to create artifact for bar");
+        let bar_project_artifact_hash =
+            brioche_core::recipe::hash::hash_recipe(brioche, bar_project_artifact);
+        brioche_core::cache::save_artifact(brioche, bar_project_artifact)
             .await
             .expect("failed to save bar project artifact to cache");
         brioche_core::cache::save_project_artifact_hash(
-            &mut *brioche.write().await,
+            brioche,
             bar_hash,
             bar_project_artifact_hash,
         )
@@ -421,6 +415,7 @@ async fn test_project_hash_stable_remote_workspace_registry_dep() {
 
     let (brioche, mut context) =
         brioche_test_support::brioche_test_with_cache(cache.clone(), false).await;
+    let brioche = &mut *brioche.write().await;
 
     let mock_bar_latest = context
         .mock_registry_publish_tag("bar", "latest", bar_hash)
@@ -441,19 +436,17 @@ async fn test_project_hash_stable_remote_workspace_registry_dep() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
-    let bar_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, project_ref)["bar"];
-    let foo_ref = brioche_core::project::get_dependencies(&*brioche.read().await, bar_ref)["foo"];
+    let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
+    let bar_ref = brioche_core::project::get_dependencies(brioche, project_ref)["bar"];
+    let foo_ref = brioche_core::project::get_dependencies(brioche, bar_ref)["foo"];
 
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
-    let bar_hash = brioche_core::project::hash::hash_project(&mut *brioche.write().await, bar_ref)
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
+    let bar_hash = brioche_core::project::hash::hash_project(brioche, bar_ref)
         .await
         .expect("failed to hash bar");
-    let foo_hash = brioche_core::project::hash::hash_project(&mut *brioche.write().await, foo_ref)
+    let foo_hash = brioche_core::project::hash::hash_project(brioche, foo_ref)
         .await
         .expect("failed to hash foo");
 
@@ -476,6 +469,7 @@ async fn test_project_hash_stable_remote_workspace_registry_dep() {
 #[tokio::test]
 async fn test_project_hash_stable_complex() {
     let (brioche, mut context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     let main_project_dir = context.mkdir("mainproject").await;
     context
@@ -540,12 +534,11 @@ async fn test_project_hash_stable_complex() {
         .create_async()
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
+    let project_ref = brioche_test_support::load_project(brioche, &main_project_dir).await;
 
-    let project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, project_ref)
-            .await
-            .unwrap();
+    let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
+        .await
+        .unwrap();
 
     assert_eq!(
         project_hash.to_string(),
@@ -556,6 +549,7 @@ async fn test_project_hash_stable_complex() {
 #[tokio::test]
 async fn test_project_hash_stable_cyclic_simple() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     context
         .write_toml(
@@ -587,18 +581,16 @@ async fn test_project_hash_stable_cyclic_simple() {
         )
         .await;
 
-    let alpha_project_ref = brioche_test_support::load_project(&brioche, &alpha_project_dir).await;
-    let alpha_project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, alpha_project_ref)
-            .await
-            .unwrap();
+    let alpha_project_ref = brioche_test_support::load_project(brioche, &alpha_project_dir).await;
+    let alpha_project_hash = brioche_core::project::hash::hash_project(brioche, alpha_project_ref)
+        .await
+        .unwrap();
 
     let beta_project_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, alpha_project_ref)["beta"];
-    let beta_project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, beta_project_ref)
-            .await
-            .unwrap();
+        brioche_core::project::get_dependencies(brioche, alpha_project_ref)["beta"];
+    let beta_project_hash = brioche_core::project::hash::hash_project(brioche, beta_project_ref)
+        .await
+        .unwrap();
 
     assert_eq!(
         alpha_project_hash.to_string(),
@@ -613,6 +605,7 @@ async fn test_project_hash_stable_cyclic_simple() {
 #[tokio::test]
 async fn test_project_hash_stable_cyclic_complex() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     // Project structure:
     //
@@ -868,11 +861,10 @@ async fn test_project_hash_stable_cyclic_complex() {
         )
         .await;
 
-    let main_project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
-    let main_project_hash =
-        brioche_core::project::hash::hash_project(&mut *brioche.write().await, main_project_ref)
-            .await
-            .unwrap();
+    let main_project_ref = brioche_test_support::load_project(brioche, &main_project_dir).await;
+    let main_project_hash = brioche_core::project::hash::hash_project(brioche, main_project_ref)
+        .await
+        .unwrap();
 
     assert_eq!(
         main_project_hash.to_string(),

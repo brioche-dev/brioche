@@ -28,7 +28,8 @@ async fn test_script_eval_basic() {
         )
         .await;
 
-    let project_ref = brioche_test_support::load_project(&brioche, &project_dir).await;
+    let project_ref =
+        brioche_test_support::load_project(&mut *brioche.write().await, &project_dir).await;
 
     let js_runtime = JsRuntime::new(&brioche, initialize_js_platform())
         .await

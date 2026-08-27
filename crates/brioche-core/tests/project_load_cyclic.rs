@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
-use brioche_core::{Brioche, project::hash::ContentAddressedProjectEntry};
+use brioche_core::{Brioche, BriocheState, project::hash::ContentAddressedProjectEntry};
 use brioche_test_support::TestContext;
 
 #[tokio::test]
 async fn test_project_load_cyclic_simple_by_path() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     context
         .write_toml(
@@ -49,9 +50,9 @@ async fn test_project_load_cyclic_simple_by_path() {
         )
         .await;
 
-    let alpha_project_ref = brioche_test_support::load_project(&brioche, &alpha_project_dir).await;
+    let alpha_project_ref = brioche_test_support::load_project(brioche, &alpha_project_dir).await;
 
-    let alpha_project_entry = get_project_entry(&brioche, alpha_project_ref).await;
+    let alpha_project_entry = get_project_entry(brioche, alpha_project_ref).await;
     let ContentAddressedProjectEntry::WorkspaceMember {
         workspace: alpha_workspace_hash,
         path: alpha_member_path,
@@ -61,8 +62,8 @@ async fn test_project_load_cyclic_simple_by_path() {
     };
 
     let beta_project_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, alpha_project_ref)["beta"];
-    let beta_project_entry = get_project_entry(&brioche, beta_project_ref).await;
+        brioche_core::project::get_dependencies(brioche, alpha_project_ref)["beta"];
+    let beta_project_entry = get_project_entry(brioche, beta_project_ref).await;
     let ContentAddressedProjectEntry::WorkspaceMember {
         workspace: beta_workspace_hash,
         path: beta_member_path,
@@ -75,17 +76,15 @@ async fn test_project_load_cyclic_simple_by_path() {
     assert_eq!(alpha_workspace_hash, beta_workspace_hash);
 
     let beta_alpha_project_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, beta_project_ref)["alpha"];
+        brioche_core::project::get_dependencies(brioche, beta_project_ref)["alpha"];
     assert_eq!(alpha_project_ref, beta_alpha_project_ref);
 
     // Paths should be relative to the workspace root
     assert_eq!(alpha_member_path, "alpha".parse().unwrap());
     assert_eq!(beta_member_path, "beta".parse().unwrap());
 
-    let alpha_specifier =
-        brioche_core::project::get_specifier(&*brioche.read().await, alpha_project_ref);
-    let beta_specifier =
-        brioche_core::project::get_specifier(&*brioche.read().await, beta_project_ref);
+    let alpha_specifier = brioche_core::project::get_specifier(brioche, alpha_project_ref);
+    let beta_specifier = brioche_core::project::get_specifier(brioche, beta_project_ref);
 
     assert_eq!(
         alpha_specifier,
@@ -100,6 +99,7 @@ async fn test_project_load_cyclic_simple_by_path() {
 #[tokio::test]
 async fn test_project_load_cyclic_simple_implied() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     context
         .write_toml(
@@ -132,9 +132,9 @@ async fn test_project_load_cyclic_simple_implied() {
         )
         .await;
 
-    let alpha_project_ref = brioche_test_support::load_project(&brioche, &alpha_project_dir).await;
+    let alpha_project_ref = brioche_test_support::load_project(brioche, &alpha_project_dir).await;
 
-    let alpha_project_entry = get_project_entry(&brioche, alpha_project_ref).await;
+    let alpha_project_entry = get_project_entry(brioche, alpha_project_ref).await;
     let ContentAddressedProjectEntry::WorkspaceMember {
         workspace: alpha_workspace_hash,
         path: alpha_member_path,
@@ -144,8 +144,8 @@ async fn test_project_load_cyclic_simple_implied() {
     };
 
     let beta_project_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, alpha_project_ref)["beta"];
-    let beta_project_entry = get_project_entry(&brioche, beta_project_ref).await;
+        brioche_core::project::get_dependencies(brioche, alpha_project_ref)["beta"];
+    let beta_project_entry = get_project_entry(brioche, beta_project_ref).await;
     let ContentAddressedProjectEntry::WorkspaceMember {
         workspace: beta_workspace_hash,
         path: beta_member_path,
@@ -158,17 +158,15 @@ async fn test_project_load_cyclic_simple_implied() {
     assert_eq!(alpha_workspace_hash, beta_workspace_hash);
 
     let beta_alpha_project_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, beta_project_ref)["alpha"];
+        brioche_core::project::get_dependencies(brioche, beta_project_ref)["alpha"];
     assert_eq!(alpha_project_ref, beta_alpha_project_ref);
 
     // Paths should be relative to the workspace root
     assert_eq!(alpha_member_path, "alpha".parse().unwrap());
     assert_eq!(beta_member_path, "beta".parse().unwrap());
 
-    let alpha_specifier =
-        brioche_core::project::get_specifier(&*brioche.read().await, alpha_project_ref);
-    let beta_specifier =
-        brioche_core::project::get_specifier(&*brioche.read().await, beta_project_ref);
+    let alpha_specifier = brioche_core::project::get_specifier(brioche, alpha_project_ref);
+    let beta_specifier = brioche_core::project::get_specifier(brioche, beta_project_ref);
 
     assert_eq!(
         alpha_specifier,
@@ -184,6 +182,7 @@ async fn test_project_load_cyclic_simple_implied() {
 #[tokio::test]
 async fn test_project_load_cyclic_complex() {
     let (brioche, context) = brioche_test_support::brioche_test().await;
+    let brioche = &mut *brioche.write().await;
 
     // Project structure:
     //
@@ -452,87 +451,87 @@ async fn test_project_load_cyclic_complex() {
         )
         .await;
 
-    let main_project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
+    let main_project_ref = brioche_test_support::load_project(brioche, &main_project_dir).await;
     let foo_a1_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&foo_a1_project_dir),
     )
     .unwrap();
     let foo_a2_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&foo_a2_project_dir),
     )
     .unwrap();
     let foo_a3_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&foo_a3_project_dir),
     )
     .unwrap();
     let bar_b_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_b_project_dir),
     )
     .unwrap();
     let bar_c1_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_c1_project_dir),
     )
     .unwrap();
     let bar_c2_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_c2_project_dir),
     )
     .unwrap();
     let bar_c3_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_c3_project_dir),
     )
     .unwrap();
     let bar_d_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_d_project_dir),
     )
     .unwrap();
     let bar_e1_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_e1_project_dir),
     )
     .unwrap();
     let bar_e2_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_e2_project_dir),
     )
     .unwrap();
     let bar_f_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_f_project_dir),
     )
     .unwrap();
     let baz_g_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&baz_g_project_dir),
     )
     .unwrap();
     let baz_h_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&baz_h_project_dir),
     )
     .unwrap();
 
-    let main_project_entry = get_project_entry(&brioche, main_project_ref).await;
-    let foo_a1_project_entry = get_project_entry(&brioche, foo_a1_project_ref).await;
-    let foo_a2_project_entry = get_project_entry(&brioche, foo_a2_project_ref).await;
-    let foo_a3_project_entry = get_project_entry(&brioche, foo_a3_project_ref).await;
-    let bar_b_project_entry = get_project_entry(&brioche, bar_b_project_ref).await;
-    let bar_c1_project_entry = get_project_entry(&brioche, bar_c1_project_ref).await;
-    let bar_c2_project_entry = get_project_entry(&brioche, bar_c2_project_ref).await;
-    let bar_c3_project_entry = get_project_entry(&brioche, bar_c3_project_ref).await;
-    let bar_d_project_entry = get_project_entry(&brioche, bar_d_project_ref).await;
-    let bar_e1_project_entry = get_project_entry(&brioche, bar_e1_project_ref).await;
-    let bar_e2_project_entry = get_project_entry(&brioche, bar_e2_project_ref).await;
-    let bar_f_project_entry = get_project_entry(&brioche, bar_f_project_ref).await;
-    let baz_g_project_entry = get_project_entry(&brioche, baz_g_project_ref).await;
-    let baz_h_project_entry = get_project_entry(&brioche, baz_h_project_ref).await;
+    let main_project_entry = get_project_entry(brioche, main_project_ref).await;
+    let foo_a1_project_entry = get_project_entry(brioche, foo_a1_project_ref).await;
+    let foo_a2_project_entry = get_project_entry(brioche, foo_a2_project_ref).await;
+    let foo_a3_project_entry = get_project_entry(brioche, foo_a3_project_ref).await;
+    let bar_b_project_entry = get_project_entry(brioche, bar_b_project_ref).await;
+    let bar_c1_project_entry = get_project_entry(brioche, bar_c1_project_ref).await;
+    let bar_c2_project_entry = get_project_entry(brioche, bar_c2_project_ref).await;
+    let bar_c3_project_entry = get_project_entry(brioche, bar_c3_project_ref).await;
+    let bar_d_project_entry = get_project_entry(brioche, bar_d_project_ref).await;
+    let bar_e1_project_entry = get_project_entry(brioche, bar_e1_project_ref).await;
+    let bar_e2_project_entry = get_project_entry(brioche, bar_e2_project_ref).await;
+    let bar_f_project_entry = get_project_entry(brioche, bar_f_project_ref).await;
+    let baz_g_project_entry = get_project_entry(brioche, baz_g_project_ref).await;
+    let baz_h_project_entry = get_project_entry(brioche, baz_h_project_ref).await;
 
     assert_matches!(main_project_entry, ContentAddressedProjectEntry::Project(_));
 
@@ -648,26 +647,23 @@ async fn test_project_load_cyclic_complex() {
     // Ensure that loading bar/e1 as the root returns the same hash
     {
         let (brioche, _context) = brioche_test_support::brioche_test().await;
+        let brioche = &mut *brioche.write().await;
         let fresh_bar_e1_project_ref =
-            brioche_test_support::load_project(&brioche, &bar_e1_project_dir).await;
+            brioche_test_support::load_project(brioche, &bar_e1_project_dir).await;
         let fresh_bar_e2_project_ref = brioche_core::project::get_project_by_specifier(
-            &*brioche.read().await,
+            brioche,
             &brioche_test_support::project_specifier_for_path(&bar_e2_project_dir),
         )
         .unwrap();
 
-        let fresh_bar_e1_project_hash = brioche_core::project::hash::hash_project(
-            &mut *brioche.write().await,
-            fresh_bar_e1_project_ref,
-        )
-        .await
-        .unwrap();
-        let fresh_bar_e2_project_hash = brioche_core::project::hash::hash_project(
-            &mut *brioche.write().await,
-            fresh_bar_e2_project_ref,
-        )
-        .await
-        .unwrap();
+        let fresh_bar_e1_project_hash =
+            brioche_core::project::hash::hash_project(brioche, fresh_bar_e1_project_ref)
+                .await
+                .unwrap();
+        let fresh_bar_e2_project_hash =
+            brioche_core::project::hash::hash_project(brioche, fresh_bar_e2_project_ref)
+                .await
+                .unwrap();
 
         assert_eq!(
             bar_e1_project_entry.project_hash(),
@@ -682,26 +678,24 @@ async fn test_project_load_cyclic_complex() {
     // Ensure that loading bar/e2 as the root returns the same hash
     {
         let (brioche, _context) = brioche_test_support::brioche_test().await;
+        let brioche = &mut *brioche.write().await;
+
         let fresh_bar_e2_project_ref =
-            brioche_test_support::load_project(&brioche, &bar_e2_project_dir).await;
+            brioche_test_support::load_project(brioche, &bar_e2_project_dir).await;
         let fresh_bar_e1_project_ref = brioche_core::project::get_project_by_specifier(
-            &*brioche.read().await,
+            brioche,
             &brioche_test_support::project_specifier_for_path(&bar_e1_project_dir),
         )
         .unwrap();
 
-        let fresh_bar_e1_project_hash = brioche_core::project::hash::hash_project(
-            &mut *brioche.write().await,
-            fresh_bar_e1_project_ref,
-        )
-        .await
-        .unwrap();
-        let fresh_bar_e2_project_hash = brioche_core::project::hash::hash_project(
-            &mut *brioche.write().await,
-            fresh_bar_e2_project_ref,
-        )
-        .await
-        .unwrap();
+        let fresh_bar_e1_project_hash =
+            brioche_core::project::hash::hash_project(brioche, fresh_bar_e1_project_ref)
+                .await
+                .unwrap();
+        let fresh_bar_e2_project_hash =
+            brioche_core::project::hash::hash_project(brioche, fresh_bar_e2_project_ref)
+                .await
+                .unwrap();
 
         assert_eq!(
             bar_e1_project_entry.project_hash(),
@@ -719,6 +713,7 @@ async fn test_project_load_cyclic_complex() {
 async fn test_project_load_cyclic_complex_remote() {
     let cache = brioche_test_support::new_cache();
     let (brioche, mut context) = brioche_test_with_cache(cache.clone(), false).await;
+    let brioche = &mut *brioche.write().await;
 
     // Project structure:
     //
@@ -998,84 +993,84 @@ async fn test_project_load_cyclic_complex_remote() {
         .create_async()
         .await;
 
-    let main_project_ref = brioche_test_support::load_project(&brioche, &main_project_dir).await;
+    let main_project_ref = brioche_test_support::load_project(brioche, &main_project_dir).await;
     let foo_a1_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&foo_a1_project_dir),
     )
     .unwrap();
     let foo_a2_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&foo_a2_project_dir),
     )
     .unwrap();
     let foo_a3_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&foo_a3_project_dir),
     )
     .unwrap();
     let bar_b_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_b_project_dir),
     )
     .unwrap();
     let bar_c1_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_c1_project_dir),
     )
     .unwrap();
     let bar_c2_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_c2_project_dir),
     )
     .unwrap();
     let bar_c3_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_c3_project_dir),
     )
     .unwrap();
     let bar_d_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_d_project_dir),
     )
     .unwrap();
     let bar_e1_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_e1_project_dir),
     )
     .unwrap();
     let bar_e2_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_e2_project_dir),
     )
     .unwrap();
     let bar_f_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_test_support::project_specifier_for_path(&bar_f_project_dir),
     )
     .unwrap();
     let baz_g1_project_ref = brioche_core::project::get_project_by_specifier(
-        &*brioche.read().await,
+        brioche,
         &brioche_core::project::ProjectSpecifier::Hash(baz_g1_project_hash),
     )
     .unwrap();
     let baz_g2_project_ref =
-        brioche_core::project::get_dependencies(&*brioche.read().await, baz_g1_project_ref)["g2"];
+        brioche_core::project::get_dependencies(brioche, baz_g1_project_ref)["g2"];
 
-    let main_project_entry = get_project_entry(&brioche, main_project_ref).await;
-    let foo_a1_project_entry = get_project_entry(&brioche, foo_a1_project_ref).await;
-    let foo_a2_project_entry = get_project_entry(&brioche, foo_a2_project_ref).await;
-    let foo_a3_project_entry = get_project_entry(&brioche, foo_a3_project_ref).await;
-    let bar_b_project_entry = get_project_entry(&brioche, bar_b_project_ref).await;
-    let bar_c1_project_entry = get_project_entry(&brioche, bar_c1_project_ref).await;
-    let bar_c2_project_entry = get_project_entry(&brioche, bar_c2_project_ref).await;
-    let bar_c3_project_entry = get_project_entry(&brioche, bar_c3_project_ref).await;
-    let bar_d_project_entry = get_project_entry(&brioche, bar_d_project_ref).await;
-    let bar_e1_project_entry = get_project_entry(&brioche, bar_e1_project_ref).await;
-    let bar_e2_project_entry = get_project_entry(&brioche, bar_e2_project_ref).await;
-    let bar_f_project_entry = get_project_entry(&brioche, bar_f_project_ref).await;
-    let baz_g1_project_entry = get_project_entry(&brioche, baz_g1_project_ref).await;
-    let baz_g2_project_entry = get_project_entry(&brioche, baz_g2_project_ref).await;
+    let main_project_entry = get_project_entry(brioche, main_project_ref).await;
+    let foo_a1_project_entry = get_project_entry(brioche, foo_a1_project_ref).await;
+    let foo_a2_project_entry = get_project_entry(brioche, foo_a2_project_ref).await;
+    let foo_a3_project_entry = get_project_entry(brioche, foo_a3_project_ref).await;
+    let bar_b_project_entry = get_project_entry(brioche, bar_b_project_ref).await;
+    let bar_c1_project_entry = get_project_entry(brioche, bar_c1_project_ref).await;
+    let bar_c2_project_entry = get_project_entry(brioche, bar_c2_project_ref).await;
+    let bar_c3_project_entry = get_project_entry(brioche, bar_c3_project_ref).await;
+    let bar_d_project_entry = get_project_entry(brioche, bar_d_project_ref).await;
+    let bar_e1_project_entry = get_project_entry(brioche, bar_e1_project_ref).await;
+    let bar_e2_project_entry = get_project_entry(brioche, bar_e2_project_ref).await;
+    let bar_f_project_entry = get_project_entry(brioche, bar_f_project_ref).await;
+    let baz_g1_project_entry = get_project_entry(brioche, baz_g1_project_ref).await;
+    let baz_g2_project_entry = get_project_entry(brioche, baz_g2_project_ref).await;
 
     assert_matches!(main_project_entry, ContentAddressedProjectEntry::Project(_));
 
@@ -1217,15 +1212,12 @@ async fn brioche_test_with_cache(
 }
 
 async fn get_project_entry(
-    brioche: &Brioche,
+    brioche: &mut BriocheState,
     project_ref: brioche_core::project::ProjectRef,
 ) -> ContentAddressedProjectEntry {
-    brioche_core::project::hash::get_content_addressed_project_entries(
-        &mut *brioche.write().await,
-        project_ref,
-    )
-    .await
-    .unwrap()
-    .remove(&project_ref)
-    .unwrap()
+    brioche_core::project::hash::get_content_addressed_project_entries(brioche, project_ref)
+        .await
+        .unwrap()
+        .remove(&project_ref)
+        .unwrap()
 }

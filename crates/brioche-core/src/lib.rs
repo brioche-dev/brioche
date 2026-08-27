@@ -90,6 +90,12 @@ pub struct BriocheResources {
     download_client: reqwest_middleware::ClientWithMiddleware,
 }
 
+impl BriocheResources {
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+}
+
 pub struct BriocheRef<'a>(tokio::sync::RwLockReadGuard<'a, BriocheState>);
 
 impl std::ops::Deref for BriocheRef<'_> {

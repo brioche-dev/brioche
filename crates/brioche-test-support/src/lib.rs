@@ -72,25 +72,26 @@ pub async fn brioche_test_with(
     (brioche, context)
 }
 
-pub async fn load_project(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
+pub async fn load_project(brioche: &mut BriocheState, project_dir: &Path) -> ProjectRef {
     let project_ref = load_project_ignoring_issues(brioche, project_dir).await;
 
-    assert_no_issues(&*brioche.read().await);
+    assert_no_issues(brioche);
 
     project_ref
 }
 
-pub async fn load_project_ignoring_issues(brioche: &Brioche, project_dir: &Path) -> ProjectRef {
-    let mut brioche = brioche.write().await;
-
+pub async fn load_project_ignoring_issues(
+    brioche: &mut BriocheState,
+    project_dir: &Path,
+) -> ProjectRef {
     let project_dir = brioche_core::path::canonicalize_system_path(project_dir)
         .await
         .unwrap();
     let specifier = ProjectSpecifier::Path(project_dir);
-    let mut refs = brioche_core::project::load::load_projects(&mut brioche, [specifier.clone()])
+    let mut refs = brioche_core::project::load::load_projects(brioche, [specifier.clone()])
         .await
         .unwrap();
-    brioche_core::project::load::resolve_statics(&mut brioche)
+    brioche_core::project::load::resolve_statics(brioche)
         .await
         .unwrap();
     refs.remove(&specifier).unwrap()
@@ -145,13 +146,11 @@ pub fn new_cache() -> Arc<dyn object_store::ObjectStore> {
     Arc::new(object_store::memory::InMemory::new())
 }
 
-pub async fn get_recipe_within(
-    brioche: &Brioche,
+pub fn get_recipe_within(
+    brioche: &BriocheState,
     mut recipe_ref: RecipeRef,
     path: impl AsRef<[u8]>,
 ) -> RecipeRef {
-    let brioche = brioche.read().await;
-
     let path_components = path
         .as_ref()
         .split_str(b"/")
@@ -159,7 +158,7 @@ pub async fn get_recipe_within(
 
     for path_component in path_components {
         let path_component = bstr::BStr::new(path_component);
-        let recipe = brioche_core::recipe::get_recipe(&brioche, recipe_ref);
+        let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref);
         let brioche_core::recipe::Recipe::Directory(directory) = &*recipe else {
             panic!(
                 "tried to traverse into subpath '{path_component}' into non-directory recipe ({:?})",
@@ -176,10 +175,8 @@ pub async fn get_recipe_within(
     recipe_ref
 }
 
-pub async fn read_file_recipe_content(brioche: &Brioche, recipe_ref: RecipeRef) -> Vec<u8> {
-    let brioche = brioche.read().await;
-
-    let recipe = brioche_core::recipe::get_recipe(&brioche, recipe_ref);
+pub async fn read_file_recipe_content(brioche: &BriocheState, recipe_ref: RecipeRef) -> Vec<u8> {
+    let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref);
     let brioche_core::recipe::Recipe::File(file) = &*recipe else {
         panic!("expected recipe to be a file, was {:?}", recipe.kind());
     };
@@ -234,7 +231,7 @@ pub fn artifact_path(path: impl AsRef<[u8]>) -> brioche_core::recipe::build::Art
     brioche_core::recipe::build::ArtifactPath { components }
 }
 
-pub async fn blob(brioche: &Brioche, content: impl AsRef<[u8]>) -> BlobHash {
+pub async fn blob(brioche: &BriocheState, content: impl AsRef<[u8]>) -> BlobHash {
     brioche_core::blob::save_blob(
         brioche.resources(),
         &mut brioche_core::blob::get_save_blob_permit().await,
