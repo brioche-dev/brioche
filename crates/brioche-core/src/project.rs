@@ -52,7 +52,7 @@ impl Projects {
         &self.modules[&module_ref]
     }
 
-    pub(crate) fn module_statics(
+    pub fn module_statics(
         &self,
         module: ModuleRef,
     ) -> impl Iterator<Item = (&ModuleStaticQuery, StaticRef)> {
@@ -372,7 +372,7 @@ pub(crate) enum UnresolvedStatic {
     GitRef { repository: url::Url, ref_: String },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StaticQuery {
     IncludeFile(RelativePath),
     IncludeDirectory(RelativePath),

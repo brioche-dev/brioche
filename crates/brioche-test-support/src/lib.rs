@@ -97,6 +97,31 @@ pub async fn load_project_ignoring_issues(
     refs.remove(&specifier).unwrap()
 }
 
+pub async fn load_project_without_resolving(
+    brioche: &mut BriocheState,
+    project_dir: &Path,
+) -> ProjectRef {
+    let project_ref = load_project_without_resolving_ignoring_issues(brioche, project_dir).await;
+
+    assert_no_issues(brioche);
+
+    project_ref
+}
+
+pub async fn load_project_without_resolving_ignoring_issues(
+    brioche: &mut BriocheState,
+    project_dir: &Path,
+) -> ProjectRef {
+    let project_dir = brioche_core::path::canonicalize_system_path(project_dir)
+        .await
+        .unwrap();
+    let specifier = ProjectSpecifier::Path(project_dir);
+    let mut refs = brioche_core::project::load::load_projects(brioche, [specifier.clone()])
+        .await
+        .unwrap();
+    refs.remove(&specifier).unwrap()
+}
+
 #[must_use]
 pub fn absolute_path(path: &Path) -> AbsolutePath {
     let path = std::fs::canonicalize(path).unwrap();
