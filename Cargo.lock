@@ -1309,6 +1309,7 @@ dependencies = [
  "json-canon",
  "lazy_format",
  "libmount",
+ "line-column",
  "mockito",
  "nix 0.31.2",
  "num_enum",
@@ -4947,6 +4948,12 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "line-column"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c849e48a6e9c3e18995e4b92b3521f12d3803988152f98ffefa683f98a98f3bf"
 
 [[package]]
 name = "linux-raw-sys"

@@ -63,6 +63,7 @@ pub struct BuildArgs {
     display: super::DisplayMode,
 }
 
+#[expect(clippy::print_stdout)]
 pub async fn build(
     js_platform: brioche_core::script::runtime::JsPlatform,
     args: BuildArgs,
@@ -87,14 +88,37 @@ pub async fn build(
         .try_collect::<Vec<_>>()
         .await?;
 
-    let projects = brioche_core::project::load::load_projects(
-        &mut *brioche.write().await,
-        project_specifiers
-            .iter()
-            .map(|(specifier, _)| specifier)
-            .cloned(),
-    )
-    .await?;
+    let projects = {
+        let mut brioche = brioche.write().await;
+
+        let projects = brioche_core::project::load::load_projects(
+            &mut brioche,
+            project_specifiers
+                .iter()
+                .map(|(specifier, _)| specifier)
+                .cloned(),
+        )
+        .await?;
+
+        let mut issues = brioche_core::project::get_all_issues(&brioche).peekable();
+        if issues.peek().is_some() {
+            println!("Issues while loading projects:");
+            for issue in issues {
+                let location = issue
+                    .location()
+                    .and_then(|location| brioche.projects().display_location(location));
+                if let Some(location) = location {
+                    println!("{location}: {issue:#}");
+                } else {
+                    println!("{issue:#}");
+                }
+            }
+
+            return Ok(ExitCode::FAILURE);
+        }
+
+        projects
+    };
 
     let js_runtime = brioche_core::script::runtime::JsRuntime::new(&brioche, js_platform).await?;
     for (specifier, export) in project_specifiers {

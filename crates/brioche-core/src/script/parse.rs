@@ -955,8 +955,8 @@ impl ScriptParseError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TextRange {
-    start: usize,
-    end: usize,
+    pub start: usize,
+    pub end: usize,
 }
 
 impl From<biome_text_size::TextRange> for TextRange {

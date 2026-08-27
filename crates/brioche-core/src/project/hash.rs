@@ -276,7 +276,7 @@ async fn content_addressed_project(
                 super::Static::IncludeFile(_) => {
                     let static_path = brioche
                         .projects
-                        .static_path(static_ref)
+                        .local_static_path(static_ref)
                         .unwrap()
                         .expect("no local path for include static");
                     let static_path = static_path.to_system_path().map_err(|error| {
@@ -316,7 +316,7 @@ async fn content_addressed_project(
                 super::Static::IncludeDirectory(_) => {
                     let static_path = brioche
                         .projects
-                        .static_path(static_ref)
+                        .local_static_path(static_ref)
                         .unwrap()
                         .expect("no local path for include static");
                     let static_path = static_path.to_system_path().map_err(|error| {
@@ -356,7 +356,7 @@ async fn content_addressed_project(
                 super::Static::Glob { patterns } => {
                     let static_path = brioche
                         .projects
-                        .static_path(static_ref)
+                        .local_static_path(static_ref)
                         .unwrap()
                         .expect("no local path for include static");
                     let static_path = static_path.to_system_path().map_err(|error| {

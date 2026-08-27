@@ -127,6 +127,11 @@ impl BriocheState {
     pub const fn resources(&self) -> &Arc<BriocheResources> {
         &self.resources
     }
+
+    #[must_use]
+    pub const fn projects(&self) -> &project::Projects {
+        &self.projects
+    }
 }
 
 pub struct BriocheBuilder {

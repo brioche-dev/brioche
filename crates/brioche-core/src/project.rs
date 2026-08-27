@@ -37,6 +37,7 @@ pub struct Projects {
     resolved_statics: HashMap<StaticRef, StaticRef>,
     projects_by_specifier: HashMap<ProjectSpecifier, ProjectRef>,
     local_project_paths: HashMap<ProjectRef, AbsolutePath>,
+    local_workspace_paths: HashMap<WorkspaceRef, AbsolutePath>,
     modules_by_project: HashMap<ProjectRef, HashMap<RelativePath, ModuleRef>>,
     project_by_module: HashMap<ModuleRef, (ProjectRef, RelativePath)>,
     workspaces_by_path: HashMap<AbsolutePath, WorkspaceRef>,
@@ -67,10 +68,8 @@ impl Projects {
             })
     }
 
-    pub(crate) fn module_for_static(
-        &self,
-        static_ref: StaticRef,
-    ) -> Option<(ModuleRef, TextRange)> {
+    #[must_use]
+    pub fn module_for_static(&self, static_ref: StaticRef) -> Option<(ModuleRef, TextRange)> {
         self.graph
             .edges_directed(static_ref.0, petgraph::Direction::Incoming)
             .find_map(|edge| {
@@ -89,7 +88,7 @@ impl Projects {
     }
 
     #[expect(clippy::result_large_err)]
-    pub(crate) fn static_path(
+    pub fn local_static_path(
         &self,
         static_ref: StaticRef,
     ) -> Result<Option<AbsolutePath>, ProjectIssue> {
@@ -178,6 +177,62 @@ impl Projects {
         self.local_project_path(*project_ref)
             .join_subpath(module_subpath)
             .expect("invalid module subpath")
+    }
+
+    #[must_use]
+    pub fn local_workspace_path(&self, workspace_ref: WorkspaceRef) -> &AbsolutePath {
+        &self.local_workspace_paths[&workspace_ref]
+    }
+
+    #[must_use]
+    pub fn display_location(
+        &self,
+        location: ProjectIssueLocation,
+    ) -> Option<ProjectIssueLocationDisplay> {
+        match location.source {
+            AnyRef::Project(project_ref) => Some(ProjectIssueLocationDisplay {
+                path: self.local_project_path(project_ref).clone(),
+                line_col: None,
+            }),
+            AnyRef::Module(module_ref) => {
+                let module = self.module(module_ref);
+                let path = self.local_module_path(module_ref);
+                let source = module.source.as_deref().ok();
+                if let Some(source) = source
+                    && let Some(range) = location.range
+                {
+                    let line_col = line_column::line_column(source, range.start);
+                    Some(ProjectIssueLocationDisplay {
+                        path,
+                        line_col: Some((line_col.line(), line_col.column())),
+                    })
+                } else {
+                    Some(ProjectIssueLocationDisplay {
+                        path,
+                        line_col: None,
+                    })
+                }
+            }
+            AnyRef::Static(static_ref) => {
+                if let Some((module_ref, range)) = self.module_for_static(static_ref) {
+                    self.display_location(ProjectIssueLocation {
+                        source: module_ref.into(),
+                        range: Some(range),
+                    })
+                } else if let Ok(Some(path)) = self.local_static_path(static_ref) {
+                    Some(ProjectIssueLocationDisplay {
+                        path,
+                        line_col: None,
+                    })
+                } else {
+                    None
+                }
+            }
+            AnyRef::Workspace(workspace_ref) => Some(ProjectIssueLocationDisplay {
+                path: self.local_workspace_path(workspace_ref).clone(),
+                line_col: None,
+            }),
+        }
     }
 }
 
@@ -801,6 +856,22 @@ impl ProjectIssue {
 pub struct ProjectIssueLocation {
     pub source: AnyRef,
     pub range: Option<crate::script::parse::TextRange>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectIssueLocationDisplay {
+    path: AbsolutePath,
+    line_col: Option<(u32, u32)>,
+}
+
+impl std::fmt::Display for ProjectIssueLocationDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some((line, col)) = self.line_col {
+            write!(f, "{}:{line}:{col}", self.path)
+        } else {
+            write!(f, "{}", self.path)
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
