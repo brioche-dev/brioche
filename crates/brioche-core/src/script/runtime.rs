@@ -187,16 +187,13 @@ impl JsRuntimeBridge {
         // Get the root module for the project
         {
             let brioche = self.brioche.read().await;
-            root_module_ref = brioche
-                .projects
-                .get_root_module(project_ref)
-                .ok_or_else(|| {
-                    let project_path = brioche.projects.local_project_path(project_ref);
-                    JsRuntimeError::NoRootModule {
-                        path: project_path.clone(),
-                        project_ref,
-                    }
-                })?;
+            root_module_ref = brioche.projects.root_module(project_ref).ok_or_else(|| {
+                let project_path = brioche.projects.local_project_path(project_ref);
+                JsRuntimeError::NoRootModule {
+                    path: project_path.clone(),
+                    project_ref,
+                }
+            })?;
             root_module_path = brioche.projects.local_module_path(root_module_ref);
         }
 

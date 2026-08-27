@@ -85,7 +85,7 @@ async fn test_project_hash_stable_workspace_dep() {
         .await
         .unwrap();
 
-    let foo_project_ref = brioche_core::project::get_dependencies(brioche, project_ref)["foo"];
+    let foo_project_ref = brioche.projects().project_dependencies(project_ref)["foo"];
     let foo_project_hash = brioche_core::project::hash::hash_project(brioche, foo_project_ref)
         .await
         .unwrap();
@@ -135,8 +135,7 @@ async fn test_project_hash_stable_path_dep() {
     let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
         .await
         .unwrap();
-    let dep_project_ref =
-        brioche_core::project::get_dependencies(brioche, project_ref)["depproject"];
+    let dep_project_ref = brioche.projects().project_dependencies(project_ref)["depproject"];
     let dep_project_hash = brioche_core::project::hash::hash_project(brioche, dep_project_ref)
         .await
         .unwrap();
@@ -384,7 +383,7 @@ async fn test_project_hash_stable_remote_workspace_registry_dep() {
         let bar_ref = brioche_test_support::load_project(brioche, &bar_dir).await;
         let foo_ref = brioche_test_support::load_project(brioche, &foo_dir).await;
 
-        let bar_deps = brioche_core::project::get_dependencies(brioche, bar_ref);
+        let bar_deps = brioche.projects().project_dependencies(bar_ref);
         assert_eq!(
             bar_deps.len(),
             1,
@@ -437,8 +436,8 @@ async fn test_project_hash_stable_remote_workspace_registry_dep() {
         .await;
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
-    let bar_ref = brioche_core::project::get_dependencies(brioche, project_ref)["bar"];
-    let foo_ref = brioche_core::project::get_dependencies(brioche, bar_ref)["foo"];
+    let bar_ref = brioche.projects().project_dependencies(project_ref)["bar"];
+    let foo_ref = brioche.projects().project_dependencies(bar_ref)["foo"];
 
     let project_hash = brioche_core::project::hash::hash_project(brioche, project_ref)
         .await
@@ -586,8 +585,7 @@ async fn test_project_hash_stable_cyclic_simple() {
         .await
         .unwrap();
 
-    let beta_project_ref =
-        brioche_core::project::get_dependencies(brioche, alpha_project_ref)["beta"];
+    let beta_project_ref = brioche.projects().project_dependencies(alpha_project_ref)["beta"];
     let beta_project_hash = brioche_core::project::hash::hash_project(brioche, beta_project_ref)
         .await
         .unwrap();

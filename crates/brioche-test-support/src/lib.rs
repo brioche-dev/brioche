@@ -115,7 +115,7 @@ pub fn project_specifier_for_path(project_dir: &Path) -> ProjectSpecifier {
 
 #[must_use]
 pub fn get_all_issues(brioche: &BriocheState) -> Vec<&ProjectIssue> {
-    brioche_core::project::get_all_issues(brioche).collect()
+    brioche.projects().all_issues().collect()
 }
 
 #[expect(clippy::print_stderr)]
@@ -158,8 +158,8 @@ pub fn get_recipe_within(
 
     for path_component in path_components {
         let path_component = bstr::BStr::new(path_component);
-        let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref);
-        let brioche_core::recipe::Recipe::Directory(directory) = &*recipe else {
+        let recipe = brioche.recipes().get_recipe(recipe_ref);
+        let brioche_core::recipe::Recipe::Directory(directory) = &**recipe else {
             panic!(
                 "tried to traverse into subpath '{path_component}' into non-directory recipe ({:?})",
                 recipe.kind()
@@ -176,8 +176,8 @@ pub fn get_recipe_within(
 }
 
 pub async fn read_file_recipe_content(brioche: &BriocheState, recipe_ref: RecipeRef) -> Vec<u8> {
-    let recipe = brioche_core::recipe::get_recipe(brioche, recipe_ref);
-    let brioche_core::recipe::Recipe::File(file) = &*recipe else {
+    let recipe = brioche.recipes().get_recipe(recipe_ref);
+    let brioche_core::recipe::Recipe::File(file) = &**recipe else {
         panic!("expected recipe to be a file, was {:?}", recipe.kind());
     };
 
@@ -201,8 +201,8 @@ pub async fn read_file_within(
 
     for path_component in path_components {
         let path_component = bstr::BStr::new(path_component);
-        let recipe = brioche_core::recipe::get_recipe(&brioche, recipe_ref);
-        let brioche_core::recipe::Recipe::Directory(directory) = &*recipe else {
+        let recipe = brioche.recipes().get_recipe(recipe_ref);
+        let brioche_core::recipe::Recipe::Directory(directory) = &**recipe else {
             panic!(
                 "tried to traverse into subpath '{path_component}' into non-directory recipe ({:?})",
                 recipe.kind()

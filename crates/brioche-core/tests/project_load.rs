@@ -23,7 +23,7 @@ async fn test_project_load_simple() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let dependencies = brioche_core::project::get_dependencies(brioche, project_ref);
+    let dependencies = brioche.projects().project_dependencies(project_ref);
     assert!(dependencies.is_empty());
 }
 
@@ -37,7 +37,7 @@ async fn test_project_load_simple_no_definition() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let dependencies = brioche_core::project::get_dependencies(brioche, project_ref);
+    let dependencies = brioche.projects().project_dependencies(project_ref);
     assert!(dependencies.is_empty());
 }
 
@@ -81,15 +81,15 @@ async fn test_project_load_workspace_dep() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let dependencies = brioche_core::project::get_dependencies(brioche, project_ref);
+    let dependencies = brioche.projects().project_dependencies(project_ref);
 
-    let foo_specifier = brioche_core::project::get_specifier(brioche, dependencies["foo"]);
+    let foo_specifier = brioche.projects().project_specifier(dependencies["foo"]);
     assert_eq!(
         foo_specifier,
         brioche_test_support::project_specifier_for_path(&workspace_foo_dir)
     );
 
-    let foo_dependencies = brioche_core::project::get_dependencies(brioche, dependencies["foo"]);
+    let foo_dependencies = brioche.projects().project_dependencies(dependencies["foo"]);
     assert!(foo_dependencies.is_empty());
 }
 
@@ -166,7 +166,7 @@ async fn test_project_load_path_dep() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         2,
@@ -174,8 +174,8 @@ async fn test_project_load_path_dep() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
     assert_eq!(
         foo_specifier,
         brioche_test_support::project_specifier_for_path(&foo_dir)
@@ -187,8 +187,8 @@ async fn test_project_load_path_dep() {
     );
 
     let bar_ref = project_deps["bar"];
-    let bar_specifier = brioche_core::project::get_specifier(brioche, bar_ref);
-    let bar_deps = brioche_core::project::get_dependencies(brioche, bar_ref);
+    let bar_specifier = brioche.projects().project_specifier(bar_ref);
+    let bar_deps = brioche.projects().project_dependencies(bar_ref);
     assert_eq!(
         bar_specifier,
         brioche_test_support::project_specifier_for_path(&bar_dir)
@@ -201,8 +201,8 @@ async fn test_project_load_path_dep() {
 
     assert_eq!(foo_deps["baz"], bar_deps["baz"]);
     let baz_ref = foo_deps["baz"];
-    let baz_specifier = brioche_core::project::get_specifier(brioche, baz_ref);
-    let baz_deps = brioche_core::project::get_dependencies(brioche, baz_ref);
+    let baz_specifier = brioche.projects().project_specifier(baz_ref);
+    let baz_deps = brioche.projects().project_dependencies(baz_ref);
     assert_eq!(
         baz_specifier,
         brioche_test_support::project_specifier_for_path(&baz_dir)
@@ -252,7 +252,7 @@ async fn test_project_load_local_registry_dep() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -260,9 +260,11 @@ async fn test_project_load_local_registry_dep() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -310,7 +312,7 @@ async fn test_project_load_local_registry_dep_implied() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -318,9 +320,11 @@ async fn test_project_load_local_registry_dep_implied() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -376,7 +380,7 @@ async fn test_project_load_local_registry_dep_implied_nested() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -384,9 +388,11 @@ async fn test_project_load_local_registry_dep_implied_nested() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -440,7 +446,7 @@ async fn test_project_load_local_registry_dep_imported() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -448,9 +454,11 @@ async fn test_project_load_local_registry_dep_imported() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -504,7 +512,7 @@ async fn test_project_load_remote_registry_dep() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -520,9 +528,11 @@ async fn test_project_load_remote_registry_dep() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -588,7 +598,7 @@ async fn test_project_load_remote_registry_dep_with_brioche_include() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -604,9 +614,11 @@ async fn test_project_load_remote_registry_dep_with_brioche_include() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -681,7 +693,7 @@ async fn test_project_load_remote_registry_dep_with_brioche_glob() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -697,9 +709,11 @@ async fn test_project_load_remote_registry_dep_with_brioche_glob() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -796,7 +810,7 @@ async fn test_project_load_remote_registry_dep_with_subdir_brioche_glob() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -812,9 +826,11 @@ async fn test_project_load_remote_registry_dep_with_subdir_brioche_glob() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -906,7 +922,7 @@ async fn test_project_load_remote_registry_dep_with_brioche_download() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -922,9 +938,11 @@ async fn test_project_load_remote_registry_dep_with_brioche_download() {
         .unwrap();
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -1077,7 +1095,7 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         2,
@@ -1092,9 +1110,11 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         .canonicalize()
         .unwrap();
     let fizz_ref = project_deps["fizz"];
-    let fizz_specifier = brioche_core::project::get_specifier(brioche, fizz_ref);
-    let fizz_deps = brioche_core::project::get_dependencies(brioche, fizz_ref);
-    let fizz_local_path = brioche_core::project::local_project_path(brioche, fizz_ref)
+    let fizz_specifier = brioche.projects().project_specifier(fizz_ref);
+    let fizz_deps = brioche.projects().project_dependencies(fizz_ref);
+    let fizz_local_path = brioche
+        .projects()
+        .local_project_path(fizz_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(fizz_specifier, ProjectSpecifier::Hash(fizz_hash));
@@ -1113,9 +1133,11 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         .canonicalize()
         .unwrap();
     let buzz_ref = project_deps["buzz"];
-    let buzz_specifier = brioche_core::project::get_specifier(brioche, buzz_ref);
-    let buzz_deps = brioche_core::project::get_dependencies(brioche, buzz_ref);
-    let buzz_local_path = brioche_core::project::local_project_path(brioche, buzz_ref)
+    let buzz_specifier = brioche.projects().project_specifier(buzz_ref);
+    let buzz_deps = brioche.projects().project_dependencies(buzz_ref);
+    let buzz_local_path = brioche
+        .projects()
+        .local_project_path(buzz_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(buzz_specifier, ProjectSpecifier::Hash(buzz_hash));
@@ -1126,11 +1148,12 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         "expected to get 1 dependency for buzz, got: {buzz_deps:#?}"
     );
 
-    let fizz_foo_dep_ref = brioche_core::project::get_dependencies(brioche, fizz_ref)["foo"];
-    let buzz_foo_dep_ref = brioche_core::project::get_dependencies(brioche, buzz_ref)["foo"];
-    let foo_ref =
-        brioche_core::project::get_project_by_specifier(brioche, &ProjectSpecifier::Hash(foo_hash))
-            .unwrap();
+    let fizz_foo_dep_ref = brioche.projects().project_dependencies(fizz_ref)["foo"];
+    let buzz_foo_dep_ref = brioche.projects().project_dependencies(buzz_ref)["foo"];
+    let foo_ref = brioche
+        .projects()
+        .project_by_specifier(&ProjectSpecifier::Hash(foo_hash))
+        .unwrap();
     assert_eq!(fizz_foo_dep_ref, buzz_foo_dep_ref);
     assert_eq!(fizz_foo_dep_ref, foo_ref);
 
@@ -1142,9 +1165,11 @@ async fn test_project_load_remote_registry_deps_with_common_children() {
         .canonicalize()
         .unwrap();
 
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));
@@ -1201,7 +1226,7 @@ async fn test_project_load_remote_workspace_registry_dep() {
         let bar_ref = brioche_test_support::load_project(brioche, &bar_dir).await;
         let foo_ref = brioche_test_support::load_project(brioche, &foo_dir).await;
 
-        let bar_deps = brioche_core::project::get_dependencies(brioche, bar_ref);
+        let bar_deps = brioche.projects().project_dependencies(bar_ref);
         assert_eq!(
             bar_deps.len(),
             1,
@@ -1255,7 +1280,7 @@ async fn test_project_load_remote_workspace_registry_dep() {
 
     let project_ref = brioche_test_support::load_project(brioche, &project_dir).await;
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -1351,7 +1376,7 @@ async fn test_project_load_locked_registry_dep() {
     let project_lockfile: brioche_core::project::Lockfile =
         serde_json::from_str(&project_lockfile_contents).expect("failed to parse lockfile");
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     let foo_dep_ref = project_deps["foo"];
     let foo_dep_hash = brioche_core::project::hash::hash_project(brioche, foo_dep_ref)
         .await
@@ -1445,42 +1470,54 @@ async fn test_project_load_complex() {
 
     let project_ref = brioche_test_support::load_project(brioche, &main_project_dir).await;
 
-    let main_dep_project_ref =
-        brioche_core::project::get_dependencies(brioche, project_ref)["depproject"];
-    let main_foo_project_ref = brioche_core::project::get_dependencies(brioche, project_ref)["foo"];
-    let main_dep_foo_project_ref =
-        brioche_core::project::get_dependencies(brioche, main_dep_project_ref)["foo"];
-    let main_foo_bar_project_ref =
-        brioche_core::project::get_dependencies(brioche, main_foo_project_ref)["bar"];
-    let main_dep_foo_bar_project_ref =
-        brioche_core::project::get_dependencies(brioche, main_dep_foo_project_ref)["bar"];
+    let main_dep_project_ref = brioche.projects().project_dependencies(project_ref)["depproject"];
+    let main_foo_project_ref = brioche.projects().project_dependencies(project_ref)["foo"];
+    let main_dep_foo_project_ref = brioche
+        .projects()
+        .project_dependencies(main_dep_project_ref)["foo"];
+    let main_foo_bar_project_ref = brioche
+        .projects()
+        .project_dependencies(main_foo_project_ref)["bar"];
+    let main_dep_foo_bar_project_ref = brioche
+        .projects()
+        .project_dependencies(main_dep_foo_project_ref)["bar"];
 
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_dep_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_dep_project_ref)
             .to_system_path()
             .unwrap(),
         dep_project_dir
     );
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_foo_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_foo_project_ref)
             .to_system_path()
             .unwrap(),
         foo_path
     );
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_dep_foo_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_dep_foo_project_ref)
             .to_system_path()
             .unwrap(),
         foo_path
     );
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_foo_bar_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_foo_bar_project_ref)
             .to_system_path()
             .unwrap(),
         bar_path
     );
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_dep_foo_bar_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_dep_foo_bar_project_ref)
             .to_system_path()
             .unwrap(),
         bar_path
@@ -1560,42 +1597,54 @@ async fn test_project_load_complex_implied() {
 
     let project_ref = brioche_test_support::load_project(brioche, &main_project_dir).await;
 
-    let main_dep_project_ref =
-        brioche_core::project::get_dependencies(brioche, project_ref)["depproject"];
-    let main_foo_project_ref = brioche_core::project::get_dependencies(brioche, project_ref)["foo"];
-    let main_dep_foo_project_ref =
-        brioche_core::project::get_dependencies(brioche, main_dep_project_ref)["foo"];
-    let main_foo_bar_project_ref =
-        brioche_core::project::get_dependencies(brioche, main_foo_project_ref)["bar"];
-    let main_dep_foo_bar_project_ref =
-        brioche_core::project::get_dependencies(brioche, main_dep_foo_project_ref)["bar"];
+    let main_dep_project_ref = brioche.projects().project_dependencies(project_ref)["depproject"];
+    let main_foo_project_ref = brioche.projects().project_dependencies(project_ref)["foo"];
+    let main_dep_foo_project_ref = brioche
+        .projects()
+        .project_dependencies(main_dep_project_ref)["foo"];
+    let main_foo_bar_project_ref = brioche
+        .projects()
+        .project_dependencies(main_foo_project_ref)["bar"];
+    let main_dep_foo_bar_project_ref = brioche
+        .projects()
+        .project_dependencies(main_dep_foo_project_ref)["bar"];
 
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_dep_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_dep_project_ref)
             .to_system_path()
             .unwrap(),
         dep_project_dir
     );
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_foo_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_foo_project_ref)
             .to_system_path()
             .unwrap(),
         foo_path
     );
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_dep_foo_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_dep_foo_project_ref)
             .to_system_path()
             .unwrap(),
         foo_path
     );
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_foo_bar_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_foo_bar_project_ref)
             .to_system_path()
             .unwrap(),
         bar_path
     );
     assert_eq!(
-        brioche_core::project::local_project_path(brioche, main_dep_foo_bar_project_ref)
+        brioche
+            .projects()
+            .local_project_path(main_dep_foo_bar_project_ref)
             .to_system_path()
             .unwrap(),
         bar_path
@@ -1674,15 +1723,18 @@ async fn test_project_load_path_dep_not_found() {
     let project_ref =
         brioche_test_support::load_project_ignoring_issues(brioche, &project_dir).await;
 
-    let foo_ref = brioche_core::project::get_project_by_specifier(
-        brioche,
-        &brioche_test_support::project_specifier_for_path(&foo_dir),
-    )
-    .unwrap();
+    let foo_ref = brioche
+        .projects()
+        .project_by_specifier(&brioche_test_support::project_specifier_for_path(&foo_dir))
+        .unwrap();
 
-    let project_root_module = brioche_core::project::get_root_module(brioche, project_ref)
+    let project_root_module = brioche
+        .projects()
+        .root_module(project_ref)
         .expect("project root module not found");
-    let foo_root_module = brioche_core::project::get_root_module(brioche, foo_ref)
+    let foo_root_module = brioche
+        .projects()
+        .root_module(foo_ref)
         .expect("foo root module not found");
 
     let mut issues = brioche_test_support::get_all_issues(brioche);
@@ -2180,7 +2232,7 @@ async fn test_project_load_local_registry_dep_invalid_hash() {
             actual_hash
         }] if *expected_hash == foo_hash && *actual_hash != foo_hash);
 
-    let project_deps = brioche_core::project::get_dependencies(brioche, project_ref);
+    let project_deps = brioche.projects().project_dependencies(project_ref);
     assert_eq!(
         project_deps.len(),
         1,
@@ -2188,9 +2240,11 @@ async fn test_project_load_local_registry_dep_invalid_hash() {
     );
 
     let foo_ref = project_deps["foo"];
-    let foo_specifier = brioche_core::project::get_specifier(brioche, foo_ref);
-    let foo_deps = brioche_core::project::get_dependencies(brioche, foo_ref);
-    let foo_local_path = brioche_core::project::local_project_path(brioche, foo_ref)
+    let foo_specifier = brioche.projects().project_specifier(foo_ref);
+    let foo_deps = brioche.projects().project_dependencies(foo_ref);
+    let foo_local_path = brioche
+        .projects()
+        .local_project_path(foo_ref)
         .to_system_path()
         .unwrap();
     assert_eq!(foo_specifier, ProjectSpecifier::Hash(foo_hash));

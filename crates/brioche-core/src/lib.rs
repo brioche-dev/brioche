@@ -138,6 +138,11 @@ impl BriocheState {
     pub const fn projects(&self) -> &project::Projects {
         &self.projects
     }
+
+    #[must_use]
+    pub const fn recipes(&self) -> &recipe::Recipes {
+        &self.recipes
+    }
 }
 
 pub struct BriocheBuilder {

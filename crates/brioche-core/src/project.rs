@@ -7,7 +7,6 @@ use std::{
 use petgraph::{stable_graph::NodeIndex, visit::EdgeRef as _};
 
 use crate::{
-    BriocheState,
     hash::AnyHash,
     path::{AbsolutePath, AnyPath, RelativePath},
     project::hash::ProjectHash,
@@ -138,7 +137,8 @@ impl Projects {
         self.modules_by_path.get(path).copied()
     }
 
-    pub(crate) fn get_root_module(&self, project_ref: ProjectRef) -> Option<ModuleRef> {
+    #[must_use]
+    pub fn root_module(&self, project_ref: ProjectRef) -> Option<ModuleRef> {
         self.graph.edges(project_ref.0).find_map(|edge| {
             if matches!(edge.weight(), ProjectEdge::ProjectRootModule) {
                 Some(ModuleRef(edge.target()))
@@ -172,6 +172,31 @@ impl Projects {
     }
 
     #[must_use]
+    pub fn project_dependencies(&self, project_ref: ProjectRef) -> HashMap<String, ProjectRef> {
+        self.graph
+            .edges(project_ref.0)
+            .filter_map(|edge| {
+                let ProjectEdge::ProjectDependency(dep_name) = edge.weight() else {
+                    return None;
+                };
+
+                let dep_ref = ProjectRef(edge.target());
+                Some((dep_name.clone(), dep_ref))
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn project_specifier(&self, project_ref: ProjectRef) -> ProjectSpecifier {
+        self.projects[&project_ref].specifier.clone()
+    }
+
+    #[must_use]
+    pub fn project_by_specifier(&self, project_specifier: &ProjectSpecifier) -> Option<ProjectRef> {
+        self.projects_by_specifier.get(project_specifier).copied()
+    }
+
+    #[must_use]
     pub fn local_module_path(&self, module_ref: ModuleRef) -> AbsolutePath {
         let (project_ref, module_subpath) = &self.project_by_module[&module_ref];
         self.local_project_path(*project_ref)
@@ -182,6 +207,27 @@ impl Projects {
     #[must_use]
     pub fn local_workspace_path(&self, workspace_ref: WorkspaceRef) -> &AbsolutePath {
         &self.local_workspace_paths[&workspace_ref]
+    }
+
+    #[must_use]
+    pub fn workspace_membership(
+        &self,
+        project_ref: ProjectRef,
+    ) -> Option<(WorkspaceRef, RelativePath)> {
+        self.graph
+            .edges_directed(project_ref.0, petgraph::Incoming)
+            .find_map(|edge| {
+                let ProjectEdge::ProjectWithinWorkspace(subpath) = edge.weight() else {
+                    return None;
+                };
+
+                let workspace_ref = WorkspaceRef(edge.source());
+                Some((workspace_ref, subpath.clone()))
+            })
+    }
+
+    pub fn all_issues(&self) -> impl Iterator<Item = &ProjectIssue> {
+        self.issues.values().flatten()
     }
 
     #[must_use]
@@ -607,86 +653,6 @@ impl ModuleReferrer {
             } => Some((*module_ref, Some(*range))),
         }
     }
-}
-
-#[must_use]
-pub fn local_project_path(brioche: &BriocheState, project_ref: ProjectRef) -> AbsolutePath {
-    brioche.projects.local_project_paths[&project_ref].clone()
-}
-
-#[must_use]
-pub fn get_root_module(brioche: &BriocheState, project_ref: ProjectRef) -> Option<ModuleRef> {
-    brioche
-        .projects
-        .graph
-        .edges(project_ref.0)
-        .find_map(|edge| {
-            if matches!(edge.weight(), ProjectEdge::ProjectRootModule) {
-                Some(ModuleRef(edge.target()))
-            } else {
-                None
-            }
-        })
-}
-
-#[must_use]
-pub fn get_dependencies(
-    brioche: &BriocheState,
-    project_ref: ProjectRef,
-) -> HashMap<String, ProjectRef> {
-    brioche
-        .projects
-        .graph
-        .edges(project_ref.0)
-        .filter_map(|edge| {
-            let ProjectEdge::ProjectDependency(dep_name) = edge.weight() else {
-                return None;
-            };
-
-            let dep_ref = ProjectRef(edge.target());
-            Some((dep_name.clone(), dep_ref))
-        })
-        .collect()
-}
-
-#[must_use]
-pub fn get_workspace_membership(
-    brioche: &BriocheState,
-    project_ref: ProjectRef,
-) -> Option<(WorkspaceRef, RelativePath)> {
-    brioche
-        .projects
-        .graph
-        .edges_directed(project_ref.0, petgraph::Incoming)
-        .find_map(|edge| {
-            let ProjectEdge::ProjectWithinWorkspace(subpath) = edge.weight() else {
-                return None;
-            };
-
-            let workspace_ref = WorkspaceRef(edge.source());
-            Some((workspace_ref, subpath.clone()))
-        })
-}
-
-#[must_use]
-pub fn get_specifier(brioche: &BriocheState, project_ref: ProjectRef) -> ProjectSpecifier {
-    brioche.projects.projects[&project_ref].specifier.clone()
-}
-
-#[must_use]
-pub fn get_project_by_specifier(
-    brioche: &BriocheState,
-    project_specifier: &ProjectSpecifier,
-) -> Option<ProjectRef> {
-    brioche
-        .projects
-        .projects_by_specifier
-        .get(project_specifier)
-        .copied()
-}
-
-pub fn get_all_issues(brioche: &BriocheState) -> impl Iterator<Item = &ProjectIssue> {
-    brioche.projects.issues.values().flatten()
 }
 
 #[derive(Debug, thiserror::Error)]

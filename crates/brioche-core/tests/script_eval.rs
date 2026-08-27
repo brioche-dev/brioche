@@ -38,7 +38,12 @@ async fn test_script_eval_basic() {
         .get_recipe_export(project_ref, "default")
         .await
         .unwrap();
-    let default = brioche_core::recipe::get_recipe(&*brioche.read().await, default_ref);
+    let default = brioche
+        .read()
+        .await
+        .recipes()
+        .get_recipe(default_ref)
+        .clone();
 
     assert_eq!(
         *default,

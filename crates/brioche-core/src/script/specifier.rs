@@ -140,7 +140,7 @@ pub fn resolve_import_specifier(
                 }
                 ImportSpecifier::External(dep) => {
                     let project_dependencies =
-                        crate::project::get_dependencies(brioche, *project_ref);
+                        brioche.projects().project_dependencies(*project_ref);
                     let dependency_ref = project_dependencies.get(dep).ok_or_else(|| {
                         ResolveSpecifierError::DependencyNotFound {
                             specifier: specifier.clone(),
@@ -148,8 +148,7 @@ pub fn resolve_import_specifier(
                             referrer_project_ref: *project_ref,
                         }
                     })?;
-                    let dependency_root_module_ref =
-                        crate::project::get_root_module(brioche, *project_ref);
+                    let dependency_root_module_ref = brioche.projects().root_module(*project_ref);
 
                     let path = dependency_root_module_ref.map_or_else(
                         || {

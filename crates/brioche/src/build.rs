@@ -100,7 +100,7 @@ pub async fn build(
         )
         .await?;
 
-        let mut issues = brioche_core::project::get_all_issues(&brioche).peekable();
+        let mut issues = brioche.projects().all_issues().peekable();
         if issues.peek().is_some() {
             println!("Issues while loading projects:");
             for issue in issues {
@@ -125,7 +125,12 @@ pub async fn build(
         let project_ref = projects[&specifier];
         let recipe_ref = js_runtime.get_recipe_export(project_ref, &export).await?;
 
-        let recipe = brioche_core::recipe::get_recipe(&*brioche.read().await, recipe_ref);
+        let recipe = brioche
+            .read()
+            .await
+            .recipes()
+            .get_recipe(recipe_ref)
+            .clone();
         tracing::info!(?specifier, ?export, recipe_kind = ?recipe.kind(), "evaluated JS module");
     }
 
