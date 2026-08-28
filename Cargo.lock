@@ -1334,6 +1334,7 @@ dependencies = [
  "biome_json_factory",
  "biome_json_parser",
  "biome_json_syntax",
+ "biome_languages",
  "biome_markup",
  "biome_parser",
  "biome_rowan",

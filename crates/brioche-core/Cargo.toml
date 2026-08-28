@@ -31,6 +31,7 @@ biome_js_syntax = { git = "https://github.com/biomejs/biome.git" }
 biome_json_factory = { git = "https://github.com/biomejs/biome.git" }
 biome_json_parser = { git = "https://github.com/biomejs/biome.git" }
 biome_json_syntax = { git = "https://github.com/biomejs/biome.git" }
+biome_languages = { git = "https://github.com/biomejs/biome.git" }
 biome_markup = { git = "https://github.com/biomejs/biome.git" }
 biome_parser = { git = "https://github.com/biomejs/biome.git" }
 biome_rowan = { git = "https://github.com/biomejs/biome.git" }

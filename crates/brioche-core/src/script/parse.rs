@@ -10,7 +10,13 @@ pub struct ScriptAst {
 
 #[must_use]
 pub fn parse_script(source: &str) -> ScriptAst {
-    let module = biome_js_parser::parse_module(source, biome_js_parser::JsParserOptions::default());
+    let module = biome_js_parser::parse(
+        source,
+        biome_languages::JsFileSource::ts_restricted(),
+        biome_js_parser::JsParserOptions::default(),
+    )
+    .cast::<biome_js_syntax::JsModule>()
+    .unwrap();
     let module = module.tree();
     ScriptAst { module }
 }
