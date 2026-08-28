@@ -1283,6 +1283,7 @@ dependencies = [
  "brioche-sandbox",
  "bstr",
  "clap",
+ "console-subscriber",
  "csv",
  "futures",
  "hex",

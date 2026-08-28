@@ -1,7 +1,7 @@
 use std::{path::PathBuf, process::ExitCode};
 
 use clap::Parser;
-use tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _};
+use tracing_subscriber::{Layer as _, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
 use crate::utils::{ProjectRefs, ProjectRefsParser};
 
@@ -35,12 +35,17 @@ fn main() -> anyhow::Result<ExitCode> {
                     tracing_subscriber::fmt::layer()
                         .compact()
                         .with_target(false)
-                        .without_time(),
+                        .without_time()
+                        .with_filter(
+                            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(
+                                |_| tracing_subscriber::EnvFilter::new("brioche=info,warn"),
+                            ),
+                        ),
                 )
                 .with(
-                    tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                        tracing_subscriber::EnvFilter::new("brioche=info,warn")
-                    }),
+                    std::env::var("BRIOCHE_CONSOLE")
+                        .ok()
+                        .map(|_| console_subscriber::spawn()),
                 )
                 .init();
 
