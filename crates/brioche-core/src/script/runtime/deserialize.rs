@@ -415,8 +415,9 @@ impl ValueScope {
         self,
         js_runtime: &mut deno_core::JsRuntime,
     ) -> Result<Self, DeserializeError> {
+        let value_fut = js_runtime.resolve(self.value);
         let value = js_runtime
-            .resolve(self.value)
+            .with_event_loop_promise(value_fut, deno_core::PollEventLoopOptions::default())
             .await
             .map_err(|error| DeserializeError::new(error, self.path.clone()))?;
         Ok(Self {
