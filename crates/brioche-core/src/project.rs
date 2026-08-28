@@ -48,6 +48,10 @@ pub struct Projects {
 }
 
 impl Projects {
+    pub(crate) fn project(&self, project_ref: ProjectRef) -> &Project {
+        &self.projects[&project_ref]
+    }
+
     pub(crate) fn module(&self, module_ref: ModuleRef) -> &Module {
         &self.modules[&module_ref]
     }

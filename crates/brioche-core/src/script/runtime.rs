@@ -1,5 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, rc::Rc, sync::Arc};
 
+use bstr::ByteSlice as _;
 use futures::TryFutureExt as _;
 
 use crate::{
@@ -10,6 +11,10 @@ use crate::{
 };
 
 pub mod deserialize;
+mod js_extension;
+
+type JsRuntimeBridgeWorkerMessageSender =
+    tokio::sync::mpsc::UnboundedSender<JsRuntimeBridgeWorkerMessage>;
 
 const MODULE_RESOLVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
@@ -113,17 +118,15 @@ struct JsRuntimeBridge {
 }
 
 impl JsRuntimeBridge {
-    fn new(
-        brioche: crate::Brioche,
-        worker_tx: tokio::sync::mpsc::UnboundedSender<JsRuntimeBridgeWorkerMessage>,
-    ) -> Self {
+    fn new(brioche: crate::Brioche, worker_tx: JsRuntimeBridgeWorkerMessageSender) -> Self {
         let module_loader = JsModuleLoader {
             brioche: brioche.clone(),
             source_maps: Arc::new(std::sync::RwLock::new(HashMap::new())),
-            worker_tx,
+            worker_tx: worker_tx.clone(),
         };
         let js_runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions {
             module_loader: Some(Rc::new(module_loader)),
+            extensions: vec![js_extension::brioche_extension::init(worker_tx)],
             ..Default::default()
         });
 
@@ -267,6 +270,14 @@ impl JsRuntimeBridgeWorker {
                 );
                 let _ = result_tx.send(result);
             }
+            JsRuntimeBridgeWorkerMessage::EnrichStackFrames { frames, result_tx } => {
+                let brioche = self.brioche.read().await;
+                let frames = frames
+                    .into_iter()
+                    .map(|frame| enrich_stack_frame(brioche.projects(), frame))
+                    .collect();
+                let _ = result_tx.send(frames);
+            }
         }
     }
 }
@@ -279,13 +290,17 @@ enum JsRuntimeBridgeWorkerMessage {
             Result<ModuleSpecifier, crate::script::specifier::ResolveSpecifierError>,
         >,
     },
+    EnrichStackFrames {
+        frames: Vec<deno_core::error::JsStackFrame>,
+        result_tx: std::sync::mpsc::Sender<Vec<StackFrame>>,
+    },
 }
 
 struct JsModuleLoader {
     brioche: crate::Brioche,
     source_maps:
         Arc<std::sync::RwLock<HashMap<crate::script::specifier::ModuleSpecifier, Arc<str>>>>,
-    worker_tx: tokio::sync::mpsc::UnboundedSender<JsRuntimeBridgeWorkerMessage>,
+    worker_tx: JsRuntimeBridgeWorkerMessageSender,
 }
 
 impl JsModuleLoader {
@@ -519,6 +534,82 @@ pub struct JsPlatform(());
 pub fn initialize_js_platform() -> JsPlatform {
     deno_core::JsRuntime::init_platform(None);
     JsPlatform(())
+}
+
+fn enrich_stack_frame(
+    projects: &crate::project::Projects,
+    frame: deno_core::error::JsStackFrame,
+) -> StackFrame {
+    let (project_name, module_path) =
+        resolve_frame_project_context(projects, frame.file_name.as_deref()).unzip();
+    StackFrame {
+        file_name: frame.file_name,
+        line_number: frame.line_number,
+        column_number: frame.column_number,
+        project_name,
+        module_path,
+    }
+}
+
+fn resolve_frame_project_context(
+    projects: &crate::project::Projects,
+    file_name: Option<&str>,
+) -> Option<(String, String)> {
+    let file_name = file_name?;
+    let url: url::Url = file_name.parse().ok()?;
+    let specifier = ModuleSpecifier::try_from(&url).ok()?;
+    let path = match specifier {
+        ModuleSpecifier::File { path } => path,
+        ModuleSpecifier::Runtime { .. } => return None,
+    };
+
+    let module_ref = projects.module_by_path(&path)?;
+    let (project_ref, module_subpath) = projects.project_by_module(module_ref)?;
+
+    let project = projects.project(*project_ref);
+
+    let project_name = project.definition.name.clone().or_else(|| {
+        Some(
+            projects
+                .local_project_path(*project_ref)
+                .filename()?
+                .to_str_lossy()
+                .into_owned(),
+        )
+    })?;
+    let module_subpath = module_subpath.to_string();
+
+    Some((project_name, module_subpath))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StackFrame {
+    pub file_name: Option<String>,
+    pub line_number: Option<i64>,
+    pub column_number: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_path: Option<String>,
+}
+
+impl std::fmt::Display for StackFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let path: std::borrow::Cow<'_, str> = match (&self.project_name, &self.module_path) {
+            (Some(project), Some(module)) => std::borrow::Cow::Owned(format!("{project}/{module}")),
+            (None, Some(module)) => std::borrow::Cow::Borrowed(module),
+            _ => self.file_name.as_deref().map_or(
+                std::borrow::Cow::Borrowed("<unknown>"),
+                std::borrow::Cow::Borrowed,
+            ),
+        };
+        match (self.line_number, self.column_number) {
+            (Some(line), Some(column)) => write!(f, "{path}:{line}:{column}"),
+            (Some(line), None) => write!(f, "{path}:{line}"),
+            (None, _) => write!(f, "{path}"),
+        }
+    }
 }
 
 fn should_transpile_typescript(
