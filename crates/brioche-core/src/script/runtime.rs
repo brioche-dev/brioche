@@ -228,13 +228,12 @@ impl JsRuntimeBridge {
             (export_value, module_namespace)
         };
 
-        let mut brioche = self.brioche.write().await;
         let export_value = deserialize::ValueScope::new(
             export_value,
             deserialize::ValuePath::top_level(root_module_ref, root_module_path, export),
         );
         let recipe = deserialize::deserialize_recipe(
-            &mut brioche.recipes,
+            &self.brioche,
             &mut self.js_runtime,
             export_value,
             &module_namespace,

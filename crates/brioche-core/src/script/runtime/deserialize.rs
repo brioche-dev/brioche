@@ -11,7 +11,7 @@ use crate::{
 
 #[expect(clippy::mutable_key_type)]
 pub(super) async fn deserialize_recipe(
-    recipes: &mut crate::recipe::Recipes,
+    brioche: &crate::Brioche,
     js_runtime: &mut deno_core::JsRuntime,
     value: ValueScope,
     module_namespace: &deno_core::v8::Global<deno_core::v8::Value>,
@@ -63,7 +63,7 @@ pub(super) async fn deserialize_recipe(
     };
 
     let recipe = Box::pin(deserialize_recipe_value(
-        recipes,
+        brioche,
         js_runtime,
         value,
         module_namespace,
@@ -77,7 +77,7 @@ pub(super) async fn deserialize_recipe(
 
 #[expect(clippy::mutable_key_type)]
 async fn deserialize_recipe_value(
-    recipes: &mut crate::recipe::Recipes,
+    brioche: &crate::Brioche,
     js_runtime: &mut deno_core::JsRuntime,
     value: ValueScope,
     module_namespace: &deno_core::v8::Global<deno_core::v8::Value>,
@@ -97,7 +97,7 @@ async fn deserialize_recipe_value(
             let resources = if let Some(resources) = resources {
                 Some(
                     deserialize_recipe(
-                        recipes,
+                        brioche,
                         js_runtime,
                         resources,
                         module_namespace,
@@ -133,7 +133,8 @@ async fn deserialize_recipe_value(
         RecipeKind::Sync => todo!(),
     };
 
-    Ok(recipes.insert_recipe(Arc::new(recipe)))
+    let mut brioche = brioche.write().await;
+    Ok(brioche.recipes.insert_recipe(Arc::new(recipe)))
 }
 
 #[derive(Debug, Clone)]
