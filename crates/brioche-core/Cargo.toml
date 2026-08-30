@@ -48,9 +48,9 @@ deno_ast = { version = "0.53.2", features = ["transpiling"] }
 deno_core = "0.410.0"
 deno_error = "0.7.1"
 directories = "6.0.0"
-fastcdc = { version = "4.0.1", features = ["tokio"] }
+fastcdc = { version = "5.0.0", features = ["tokio"] }
 futures = "0.3.32"
-gix = { version = "0.86.0", features = [
+gix = { version = "0.87.1", features = [
     "blocking-network-client",
     "blocking-http-transport-reqwest",
     "sha256",
