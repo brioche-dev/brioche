@@ -19,6 +19,8 @@ deno_core::extension!(brioche_extension,
         op_brioche_utf8_decode,
         op_brioche_tick_encode,
         op_brioche_tick_decode,
+        op_brioche_create_proxy,
+        op_brioche_get_static,
         op_brioche_stack_frames_from_exception,
     ],
     options = {
@@ -128,6 +130,123 @@ fn op_brioche_tick_decode<'a>(
     let encoded_array = v8::Uint8Array::new(scope, encoded_buffer, 0, encoded_buffer.byte_length())
         .ok_or(JsRuntimeError::FailedToCreate("Uint8Array".into()))?;
     Ok(encoded_array)
+}
+
+#[deno_core::op2]
+pub fn op_brioche_create_proxy(
+    js_scope: &v8::PinScope<'_, '_>,
+    recipe: v8::Local<'_, v8::Value>,
+) -> Result<v8::Global<v8::Value>, JsRuntimeError> {
+    // TODO: Overhaul this
+
+    let resolver = v8::PromiseResolver::new(js_scope)
+        .ok_or_else(|| JsRuntimeError::FailedToCreate("Promise".into()))?;
+
+    resolver.resolve(js_scope, recipe);
+
+    let promise = v8::Local::<v8::Value>::from(resolver.get_promise(js_scope));
+    let promise = v8::Global::new(js_scope, promise);
+    Ok(promise)
+}
+
+#[deno_core::op2]
+#[serde]
+pub async fn op_brioche_get_static(
+    state: Rc<RefCell<OpState>>,
+    #[string] url: String,
+    #[serde] options: GetStaticOptions,
+) -> Result<GetStaticResult, JsRuntimeError> {
+    let op_tx = state
+        .borrow()
+        .borrow::<super::JsRuntimeBridgeWorkerMessageSender>()
+        .clone();
+
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+
+    let specifier: crate::script::specifier::ModuleSpecifier = url.parse()?;
+
+    op_tx
+        .send(super::JsRuntimeBridgeWorkerMessage::GetStatic {
+            specifier,
+            callee: options.callee,
+            query: options.query.into(),
+            result_tx,
+        })
+        .map_err(|_| JsRuntimeError::ChannelSendError {
+            reason: "worker channel closed".into(),
+        })?;
+
+    let static_ = result_rx
+        .await
+        .map_err(|_| JsRuntimeError::ChannelRecvError {
+            reason: "channel closed".into(),
+        })??;
+    Ok(static_)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetStaticOptions {
+    callee: Option<String>,
+    #[serde(flatten)]
+    query: GetStaticQuery,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum GetStaticQuery {
+    Include(GetStaticInclude),
+    Glob { patterns: Vec<String> },
+    Download { url: url::Url },
+    GitRef(GetStaticGitRefOptions),
+}
+
+impl From<GetStaticQuery> for crate::project::StaticQuery {
+    fn from(query: GetStaticQuery) -> Self {
+        match query {
+            GetStaticQuery::Include(GetStaticInclude::File { path }) => {
+                Self::IncludeFile(crate::path::RelativePath::new(path))
+            }
+            GetStaticQuery::Include(GetStaticInclude::Directory { path }) => {
+                Self::IncludeDirectory(crate::path::RelativePath::new(path))
+            }
+            GetStaticQuery::Glob { patterns } => Self::Glob { patterns },
+            GetStaticQuery::Download { url } => Self::Download { url },
+            GetStaticQuery::GitRef(options) => {
+                Self::GitRef(crate::project::ModuleStaticQueryGitRefOptions {
+                    repository: options.repository,
+                    ref_: options.ref_,
+                })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "include")]
+#[serde(rename_all = "snake_case")]
+pub enum GetStaticInclude {
+    File { path: String },
+    Directory { path: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub struct GetStaticGitRefOptions {
+    pub repository: url::Url,
+
+    #[serde(rename = "ref")]
+    pub ref_: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "staticKind", rename_all = "snake_case")]
+pub enum GetStaticResult {
+    Recipe(crate::recipe::hash::ContentAddressedRecipe),
+    GitRef {
+        repository: url::Url,
+        commit: String,
+    },
 }
 
 #[deno_core::op2(reentrant)]

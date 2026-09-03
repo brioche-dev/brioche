@@ -428,7 +428,7 @@ impl std::fmt::Display for RecipeHash {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ContentAddressedRecipe {
+pub(crate) enum ContentAddressedRecipe {
     #[serde(rename_all = "camelCase")]
     File {
         content_blob: BlobHash,
@@ -527,7 +527,7 @@ pub(super) enum ContentAddressedRecipe {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ContentAddressedProcessRecipe {
+pub(crate) struct ContentAddressedProcessRecipe {
     pub command: ContentAddressedProcessTemplate,
 
     pub args: Vec<ContentAddressedProcessTemplate>,
@@ -564,7 +564,7 @@ pub(super) struct ContentAddressedProcessRecipe {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct ContentAddressedProcessTemplate {
+pub(crate) struct ContentAddressedProcessTemplate {
     pub components: Vec<ContentAddressedProcessTemplateComponent>,
 }
 
@@ -586,7 +586,7 @@ impl ContentAddressedProcessTemplate {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ContentAddressedProcessTemplateComponent {
+pub(crate) enum ContentAddressedProcessTemplateComponent {
     Literal {
         #[serde_as(as = "TickEncoded")]
         value: BString,
@@ -604,7 +604,7 @@ pub(super) enum ContentAddressedProcessTemplateComponent {
 #[serde_with::serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
-pub(super) enum ContentAddressedProcessTemplateInputComponent {
+pub(crate) enum ContentAddressedProcessTemplateInputComponent {
     Recipe {
         recipe: Arc<ContentAddressedRecipe>,
     },

@@ -278,6 +278,15 @@ impl JsRuntimeBridgeWorker {
                 );
                 let _ = result_tx.send(result);
             }
+            JsRuntimeBridgeWorkerMessage::GetStatic {
+                specifier,
+                callee,
+                query,
+                result_tx,
+            } => {
+                let result = self.get_static(specifier, callee, query).await;
+                let _ = result_tx.send(result);
+            }
             JsRuntimeBridgeWorkerMessage::EnrichStackFrames { frames, result_tx } => {
                 let brioche = self.brioche.read().await;
                 let frames = frames
@@ -288,6 +297,107 @@ impl JsRuntimeBridgeWorker {
             }
         }
     }
+
+    async fn get_static(
+        &self,
+        specifier: ModuleSpecifier,
+        callee: Option<String>,
+        query: crate::project::StaticQuery,
+    ) -> Result<js_extension::GetStaticResult, JsRuntimeError> {
+        let brioche = self.brioche.read().await;
+        let module_path = match &specifier {
+            ModuleSpecifier::Runtime { .. } => {
+                return Err(GetStaticError {
+                    specifier: specifier.clone(),
+                    callee: callee.clone(),
+                    query: query.clone(),
+                    reason: "statics are not allowed here".into(),
+                }
+                .into());
+            }
+            ModuleSpecifier::File { path } => path,
+        };
+        let module_ref = brioche
+            .projects()
+            .module_by_path(module_path)
+            .ok_or_else(|| GetStaticError {
+                specifier: specifier.clone(),
+                callee: callee.clone(),
+                query: query.clone(),
+                reason: "module not found".into(),
+            })?;
+        let static_ref = brioche
+            .projects()
+            .module_statics(module_ref)
+            .find_map(|(module_query, static_)| {
+                if module_query.query == query {
+                    Some(static_)
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| GetStaticError {
+                specifier: specifier.clone(),
+                callee: callee.clone(),
+                query: query.clone(),
+                reason: "static not found (were the arguments passed in as literals?)".into(),
+            })?;
+        let static_ = brioche
+            .projects()
+            .get_static(static_ref)
+            .ok_or_else(|| GetStaticError {
+                specifier: specifier.clone(),
+                callee: callee.clone(),
+                query: query.clone(),
+                reason: "static not resolved".into(),
+            })?;
+
+        let result = match static_ {
+            crate::project::Static::IncludeFile(_) => {
+                // TODO: Actually load the real file recipe!
+                js_extension::GetStaticResult::Recipe(
+                    crate::recipe::hash::ContentAddressedRecipe::File {
+                        content_blob: crate::blob::BlobHash::from_blake3(
+                            "716f6e863f744b9ac22c97ec7b76ea5f5908bc5b2f67c61510bfc4751384ea7a"
+                                .parse()
+                                .unwrap(),
+                        ),
+                        executable: false,
+                        resources: Arc::new(
+                            crate::recipe::hash::ContentAddressedRecipe::Directory {
+                                entries: std::collections::BTreeMap::new(),
+                            },
+                        ),
+                    },
+                )
+            }
+            crate::project::Static::IncludeDirectory(_) | crate::project::Static::Glob { .. } => {
+                // TODO: Actually load the real directory recipe!
+                js_extension::GetStaticResult::Recipe(
+                    crate::recipe::hash::ContentAddressedRecipe::Directory {
+                        entries: std::collections::BTreeMap::new(),
+                    },
+                )
+            }
+            crate::project::Static::Download { url, hash } => {
+                js_extension::GetStaticResult::Recipe(
+                    crate::recipe::hash::ContentAddressedRecipe::Download {
+                        url: url.clone(),
+                        hash: hash.clone(),
+                    },
+                )
+            }
+            crate::project::Static::GitRef {
+                repository,
+                commit,
+                ref_: _,
+            } => js_extension::GetStaticResult::GitRef {
+                repository: repository.clone(),
+                commit: commit.clone(),
+            },
+        };
+        Ok(result)
+    }
 }
 
 enum JsRuntimeBridgeWorkerMessage {
@@ -297,6 +407,13 @@ enum JsRuntimeBridgeWorkerMessage {
         result_tx: std::sync::mpsc::Sender<
             Result<ModuleSpecifier, crate::script::specifier::ResolveSpecifierError>,
         >,
+    },
+    GetStatic {
+        specifier: ModuleSpecifier,
+        callee: Option<String>,
+        query: crate::project::StaticQuery,
+        result_tx:
+            tokio::sync::oneshot::Sender<Result<js_extension::GetStaticResult, JsRuntimeError>>,
     },
     EnrichStackFrames {
         frames: Vec<deno_core::error::JsStackFrame>,
@@ -700,6 +817,9 @@ pub enum JsRuntimeError {
     #[error(transparent)]
     ModuleNotFound(Box<ModuleNotFoundError>),
 
+    #[error(transparent)]
+    GetStaticError(Box<GetStaticError>),
+
     #[error("project '{path}' does not have a root module")]
     NoRootModule {
         path: AbsolutePath,
@@ -777,6 +897,12 @@ impl From<ModuleNotFoundError> for JsRuntimeError {
     }
 }
 
+impl From<GetStaticError> for JsRuntimeError {
+    fn from(error: GetStaticError) -> Self {
+        Self::GetStaticError(Box::new(error))
+    }
+}
+
 impl From<ProjectLoadModuleError> for JsRuntimeError {
     fn from(error: ProjectLoadModuleError) -> Self {
         Self::ProjectLoadModuleError(Box::new(error))
@@ -806,6 +932,44 @@ impl From<ModuleTranspileError> for JsRuntimeError {
 pub struct ModuleNotFoundError {
     specifier: crate::script::specifier::ModuleSpecifier,
     referrer: Option<deno_core::ModuleLoadReferrer>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub struct GetStaticError {
+    specifier: crate::script::specifier::ModuleSpecifier,
+    callee: Option<String>,
+    query: crate::project::StaticQuery,
+    reason: Cow<'static, str>,
+}
+
+impl std::fmt::Display for GetStaticError {
+    #[expect(clippy::literal_string_with_formatting_args)]
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let args = lazy_format::lazy_format!(match (&self.query) {
+            crate::project::StaticQuery::IncludeFile(path)
+            | crate::project::StaticQuery::IncludeDirectory(path) => "({path})",
+            crate::project::StaticQuery::Glob { patterns } => "({patterns:?})",
+            crate::project::StaticQuery::Download { url } => "({url})",
+            crate::project::StaticQuery::GitRef(options) => (
+                "({{ repository: \"{}\", ref: \"{}\" }})",
+                options.repository,
+                options.ref_
+            ),
+        });
+        let callee = match (&self.callee, &self.query) {
+            (Some(callee), _) => callee,
+            (_, crate::project::StaticQuery::IncludeFile(_)) => "Brioche.includeFile",
+            (_, crate::project::StaticQuery::IncludeDirectory(_)) => "Brioche.includeDirectory",
+            (_, crate::project::StaticQuery::Glob { .. }) => "Brioche.glob",
+            (_, crate::project::StaticQuery::Download { .. }) => "Brioche.download",
+            (_, crate::project::StaticQuery::GitRef(_)) => "Brioche.gitRef",
+        };
+        write!(
+            f,
+            "failed to resolve static {callee}{args} from {}: {}",
+            self.specifier, self.reason
+        )
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
