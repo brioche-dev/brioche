@@ -69,10 +69,14 @@ impl JsRuntime {
 
         let (pong, pong_rx) = tokio::sync::oneshot::channel();
         tx.send(JsRuntimeMessage::Ping { pong })
-            .map_err(|_| JsRuntimeError::SendChannelClosed)?;
+            .map_err(|_| JsRuntimeError::ChannelSendError {
+                reason: "bridge channel closed".into(),
+            })?;
         pong_rx
             .await
-            .map_err(|_| JsRuntimeError::RecvChannelClosed)?;
+            .map_err(|_| JsRuntimeError::ChannelRecvError {
+                reason: "result channel closed".into(),
+            })?;
 
         Ok(Self {
             tx,
@@ -84,7 +88,7 @@ impl JsRuntime {
         &self,
         project_ref: ProjectRef,
         export: &str,
-    ) -> Result<RecipeRef, EvaluateError> {
+    ) -> Result<RecipeRef, JsRuntimeError> {
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         self.tx
             .send(JsRuntimeMessage::GetRecipeExport {
@@ -92,10 +96,14 @@ impl JsRuntime {
                 export: export.to_string(),
                 result_tx,
             })
-            .map_err(|_| JsRuntimeError::SendChannelClosed)?;
+            .map_err(|_| JsRuntimeError::ChannelSendError {
+                reason: "bridge channel closed".into(),
+            })?;
         result_rx
             .await
-            .map_err(|_| JsRuntimeError::RecvChannelClosed)?
+            .map_err(|_| JsRuntimeError::ChannelRecvError {
+                reason: "result channel closed".into(),
+            })?
     }
 }
 
@@ -106,7 +114,7 @@ enum JsRuntimeMessage {
     GetRecipeExport {
         project_ref: ProjectRef,
         export: String,
-        result_tx: tokio::sync::oneshot::Sender<Result<RecipeRef, EvaluateError>>,
+        result_tx: tokio::sync::oneshot::Sender<Result<RecipeRef, JsRuntimeError>>,
     },
 }
 
@@ -183,7 +191,7 @@ impl JsRuntimeBridge {
         &mut self,
         project_ref: ProjectRef,
         export: String,
-    ) -> Result<RecipeRef, EvaluateError> {
+    ) -> Result<RecipeRef, JsRuntimeError> {
         let root_module_ref;
         let root_module_path;
 
@@ -310,7 +318,7 @@ impl JsModuleLoader {
         referrer: &str,
         kind: &deno_core::ResolutionKind,
         timeout: Option<std::time::Duration>,
-    ) -> Result<deno_core::ModuleSpecifier, ResolveModuleError> {
+    ) -> Result<deno_core::ModuleSpecifier, JsRuntimeError> {
         if matches!(kind, deno_core::ResolutionKind::MainModule) {
             let resolved = specifier.parse().map_err(|error| {
                 crate::script::specifier::ModuleSpecifierParseError::UrlParseError {
@@ -323,9 +331,7 @@ impl JsModuleLoader {
         }
 
         let referrer: ModuleSpecifier = referrer.parse()?;
-        let specifier: ImportSpecifier = specifier
-            .parse()
-            .map_err(|error| -> ResolveModuleError { match error {} })?;
+        let specifier: ImportSpecifier = specifier.parse()?;
 
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         self.worker_tx
@@ -334,13 +340,21 @@ impl JsModuleLoader {
                 referrer,
                 result_tx,
             })
-            .map_err(|_| ResolveModuleError::Send)?;
+            .map_err(|_| JsRuntimeError::ChannelSendError {
+                reason: "worker channel closed".into(),
+            })?;
         let resolved = if let Some(timeout) = timeout {
-            result_rx
-                .recv_timeout(timeout)
-                .map_err(|error| ResolveModuleError::from_recv_timeout(error, timeout))??
+            result_rx.recv_timeout(timeout).map_err(|error| {
+                JsRuntimeError::ChannelRecvError {
+                    reason: error.to_string().into(),
+                }
+            })??
         } else {
-            result_rx.recv()??
+            result_rx
+                .recv()
+                .map_err(|_| JsRuntimeError::ChannelRecvError {
+                    reason: "receive channel closed".into(),
+                })??
         };
         let resolved = resolved.try_into()?;
         Ok(resolved)
@@ -355,34 +369,38 @@ impl JsModuleLoader {
         specifier: crate::script::specifier::ModuleSpecifier,
         referrer: Option<deno_core::ModuleLoadReferrer>,
         options: deno_core::ModuleLoadOptions,
-    ) -> Result<deno_core::ModuleSource, LoadModuleError> {
+    ) -> Result<deno_core::ModuleSource, JsRuntimeError> {
         let brioche = brioche.read().await;
         let source = match &specifier {
             ModuleSpecifier::Runtime {
                 subpath_components: _,
             } => {
                 // TODO: Implement loading runtime modules
-                return Err(LoadModuleError::NotFound {
+                return Err(ModuleNotFoundError {
                     specifier,
                     referrer,
-                });
+                }
+                .into());
             }
             ModuleSpecifier::File { path } => {
                 // TODO: Support non-module imports
-                let module_ref = brioche.projects.module_by_path(path).ok_or_else(|| {
-                    LoadModuleError::NotFound {
-                        specifier: specifier.clone(),
-                        referrer: referrer.clone(),
-                    }
-                })?;
+                let module_ref =
+                    brioche
+                        .projects
+                        .module_by_path(path)
+                        .ok_or_else(|| ModuleNotFoundError {
+                            specifier: specifier.clone(),
+                            referrer: referrer.clone(),
+                        })?;
                 let module = brioche.projects.module(module_ref);
-                let source = module.source.as_ref().map_err(|error| {
-                    LoadModuleError::ProjectLoadModuleError {
+                let source = module
+                    .source
+                    .as_ref()
+                    .map_err(|error| ProjectLoadModuleError {
                         specifier: specifier.clone(),
                         referrer: referrer.clone(),
                         error: error.clone(),
-                    }
-                })?;
+                    })?;
 
                 source.clone()
             }
@@ -408,7 +426,7 @@ impl JsModuleLoader {
                     scope_analysis: false,
                     maybe_syntax: None,
                 })
-                .map_err(|error| LoadModuleError::ParseError {
+                .map_err(|error| ModuleParseError {
                     specifier: specifier.clone(),
                     referrer: referrer.clone(),
                     error,
@@ -427,7 +445,7 @@ impl JsModuleLoader {
                             ..Default::default()
                         },
                     )
-                    .map_err(|error| LoadModuleError::TranspileError {
+                    .map_err(|error| ModuleTranspileError {
                         specifier: specifier.clone(),
                         referrer: referrer.clone(),
                         error,
@@ -477,7 +495,7 @@ impl deno_core::ModuleLoader for JsModuleLoader {
             Ok(specifier) => specifier,
             Err(error) => {
                 return deno_core::ModuleLoadResponse::Sync(Err(
-                    deno_core::error::ModuleLoaderError::from_err(LoadModuleError::from(error)),
+                    deno_core::error::ModuleLoaderError::from_err(JsRuntimeError::from(error)),
                 ));
             }
         };
@@ -652,13 +670,50 @@ fn should_transpile_typescript(
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(generic)]
 pub enum JsRuntimeError {
+    #[error(transparent)]
+    ModuleSpecifierParseError(#[from] crate::script::specifier::ModuleSpecifierParseError),
+
+    #[error(transparent)]
+    ModuleSpecifierToUrlError(#[from] crate::script::specifier::ModuleSpecifierToUrlError),
+
+    #[error(transparent)]
+    ResolveSpecifierError(#[from] Box<crate::script::specifier::ResolveSpecifierError>),
+
+    #[error(transparent)]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
+
+    #[error(transparent)]
+    JsError(#[from] Box<deno_core::error::JsError>),
+
+    #[error(transparent)]
+    DenoCoreError(#[from] deno_core::error::CoreError),
+
+    #[error(transparent)]
+    TickEncodingDecodeError(#[from] tick_encoding::DecodeError),
+
+    #[error(transparent)]
+    DeserializeError(#[from] deserialize::DeserializeError),
+
+    #[error(transparent)]
+    ModuleNotFound(Box<ModuleNotFoundError>),
+
     #[error("project '{path}' does not have a root module")]
     NoRootModule {
         path: AbsolutePath,
         project_ref: ProjectRef,
     },
+
+    #[error(transparent)]
+    ProjectLoadModuleError(Box<ProjectLoadModuleError>),
+
+    #[error(transparent)]
+    ModuleParseError(Box<ModuleParseError>),
+
+    #[error(transparent)]
+    ModuleTranspileError(Box<ModuleTranspileError>),
 
     #[error("invalid JS string value: {0:?}")]
     InvalidJsString(Cow<'static, str>),
@@ -676,11 +731,20 @@ pub enum JsRuntimeError {
     #[error("missing field")]
     MissingField,
 
-    #[error("failed to send eval message to channel: channel closed")]
-    SendChannelClosed,
+    #[error("failed to receive value from channel: {reason}")]
+    ChannelRecvError { reason: Cow<'static, str> },
 
-    #[error("failed to get eval result from channel: channel closed")]
-    RecvChannelClosed,
+    #[error("failed to send value to channel: {reason}")]
+    ChannelSendError { reason: Cow<'static, str> },
+
+    #[error("invalid console log level: {level}")]
+    InvalidConsoleLogLevel { level: String },
+
+    #[error("failed to create {0}")]
+    FailedToCreate(Cow<'static, str>),
+
+    #[error("failed to copy bytes: expected length {expected}, copied {actual} ")]
+    FailedToCopyBytes { expected: usize, actual: usize },
 
     #[error("invalid enum variant '{got}', expected one of {expected:?}")]
     InvalidEnumVariant {
@@ -693,137 +757,98 @@ pub enum JsRuntimeError {
         expected: Cow<'static, str>,
         actual: Cow<'static, str>,
     },
-
-    #[error(transparent)]
-    ModuleSpecifierToUrlError(#[from] crate::script::specifier::ModuleSpecifierToUrlError),
-
-    #[error(transparent)]
-    JsError(#[from] Box<deno_core::error::JsError>),
-
-    #[error(transparent)]
-    DenoCoreError(#[from] deno_core::error::CoreError),
-
-    #[error(transparent)]
-    TickEncodingDecodeError(#[from] tick_encoding::DecodeError),
 }
 
-#[derive(Debug, thiserror::Error, deno_error::JsError)]
-#[class(generic)]
-pub enum ResolveModuleError {
-    #[error(transparent)]
-    ModuleSpecifierParse(#[from] crate::script::specifier::ModuleSpecifierParseError),
-
-    #[error(transparent)]
-    ModuleSpecifierToUrl(#[from] crate::script::specifier::ModuleSpecifierToUrlError),
-
-    #[error(transparent)]
-    ResolveSpecifier(#[from] Box<crate::script::specifier::ResolveSpecifierError>),
-
-    #[error("failed to send message to worker channel")]
-    Send,
-
-    #[error("timed out after {} while waiting for message from worker channel", humantime::format_duration(*.duration))]
-    RecvTimeout { duration: std::time::Duration },
-
-    #[error("error receiving message from worker channel: {0}")]
-    Recv(#[from] std::sync::mpsc::RecvError),
-}
-
-impl ResolveModuleError {
-    const fn from_recv_timeout(
-        error: std::sync::mpsc::RecvTimeoutError,
-        duration: std::time::Duration,
-    ) -> Self {
-        match error {
-            std::sync::mpsc::RecvTimeoutError::Timeout => Self::RecvTimeout { duration },
-            std::sync::mpsc::RecvTimeoutError::Disconnected => {
-                Self::Recv(std::sync::mpsc::RecvError)
-            }
-        }
-    }
-}
-
-impl From<crate::script::specifier::ResolveSpecifierError> for ResolveModuleError {
-    fn from(error: crate::script::specifier::ResolveSpecifierError) -> Self {
-        Self::ResolveSpecifier(Box::new(error))
-    }
-}
-
-#[derive(Debug, thiserror::Error, deno_error::JsError)]
-#[class(generic)]
-pub enum LoadModuleError {
-    #[error(transparent)]
-    ModuleSpecifierParse(#[from] crate::script::specifier::ModuleSpecifierParseError),
-
-    #[error(transparent)]
-    ModuleSpecifierToUrl(#[from] crate::script::specifier::ModuleSpecifierToUrlError),
-
-    #[error(
-        "module '{specifier}' not found{}",
-        referrer.as_ref().map_or_else(
-            String::new,
-            |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
-        )
-    )]
-    NotFound {
-        specifier: crate::script::specifier::ModuleSpecifier,
-        referrer: Option<deno_core::ModuleLoadReferrer>,
-    },
-
-    #[error(
-        "failed to load module '{specifier}'{}: {error}",
-        referrer.as_ref().map_or_else(
-            String::new,
-            |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
-        )
-    )]
-    ProjectLoadModuleError {
-        specifier: crate::script::specifier::ModuleSpecifier,
-        referrer: Option<deno_core::ModuleLoadReferrer>,
-        #[source]
-        error: crate::project::load::LoadModuleError,
-    },
-
-    #[error(
-        "failed to parse module '{specifier}'{}: {error}",
-        referrer.as_ref().map_or_else(
-            String::new,
-            |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
-        )
-    )]
-    ParseError {
-        specifier: crate::script::specifier::ModuleSpecifier,
-        referrer: Option<deno_core::ModuleLoadReferrer>,
-        #[source]
-        error: deno_ast::ParseDiagnostic,
-    },
-
-    #[error(
-        "failed to transpile module '{specifier}'{}: {error}",
-        referrer.as_ref().map_or_else(
-            String::new,
-            |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
-        )
-    )]
-    TranspileError {
-        specifier: crate::script::specifier::ModuleSpecifier,
-        referrer: Option<deno_core::ModuleLoadReferrer>,
-        #[source]
-        error: deno_ast::TranspileError,
-    },
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum EvaluateError {
-    #[error(transparent)]
-    Runtime(#[from] JsRuntimeError),
-
-    #[error(transparent)]
-    Deserialize(#[from] deserialize::DeserializeError),
-}
-
-impl From<std::convert::Infallible> for EvaluateError {
+impl From<std::convert::Infallible> for JsRuntimeError {
     fn from(value: std::convert::Infallible) -> Self {
         match value {}
     }
+}
+
+impl From<crate::script::specifier::ResolveSpecifierError> for JsRuntimeError {
+    fn from(error: crate::script::specifier::ResolveSpecifierError) -> Self {
+        Self::ResolveSpecifierError(Box::new(error))
+    }
+}
+
+impl From<ModuleNotFoundError> for JsRuntimeError {
+    fn from(error: ModuleNotFoundError) -> Self {
+        Self::ModuleNotFound(Box::new(error))
+    }
+}
+
+impl From<ProjectLoadModuleError> for JsRuntimeError {
+    fn from(error: ProjectLoadModuleError) -> Self {
+        Self::ProjectLoadModuleError(Box::new(error))
+    }
+}
+
+impl From<ModuleParseError> for JsRuntimeError {
+    fn from(error: ModuleParseError) -> Self {
+        Self::ModuleParseError(Box::new(error))
+    }
+}
+
+impl From<ModuleTranspileError> for JsRuntimeError {
+    fn from(error: ModuleTranspileError) -> Self {
+        Self::ModuleTranspileError(Box::new(error))
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "module '{specifier}' not found{}",
+    referrer.as_ref().map_or_else(
+        String::new,
+        |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
+    )
+)]
+pub struct ModuleNotFoundError {
+    specifier: crate::script::specifier::ModuleSpecifier,
+    referrer: Option<deno_core::ModuleLoadReferrer>,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "failed to load module '{specifier}'{}: {error}",
+    referrer.as_ref().map_or_else(
+        String::new,
+        |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
+    )
+)]
+pub struct ProjectLoadModuleError {
+    specifier: crate::script::specifier::ModuleSpecifier,
+    referrer: Option<deno_core::ModuleLoadReferrer>,
+    #[source]
+    error: crate::project::load::LoadModuleError,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "failed to parse module '{specifier}'{}: {error}",
+    referrer.as_ref().map_or_else(
+        String::new,
+        |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
+    )
+)]
+pub struct ModuleParseError {
+    specifier: crate::script::specifier::ModuleSpecifier,
+    referrer: Option<deno_core::ModuleLoadReferrer>,
+    #[source]
+    error: deno_ast::ParseDiagnostic,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "failed to transpile module '{specifier}'{}: {error}",
+    referrer.as_ref().map_or_else(
+        String::new,
+        |referrer| format!(" (referred by {}:{}:{})", referrer.specifier, referrer.line_number, referrer.column_number),
+    )
+)]
+pub struct ModuleTranspileError {
+    specifier: crate::script::specifier::ModuleSpecifier,
+    referrer: Option<deno_core::ModuleLoadReferrer>,
+    #[source]
+    error: deno_ast::TranspileError,
 }

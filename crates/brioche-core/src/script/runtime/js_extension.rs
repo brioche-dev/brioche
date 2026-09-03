@@ -4,7 +4,7 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc};
 
 use deno_core::{OpState, v8};
 
-use crate::script::runtime::StackFrame;
+use crate::script::runtime::{JsRuntimeError, StackFrame};
 
 /// Cap on stack frames retained per recipe meta.
 const MAX_STACK_FRAMES: usize = 6;
@@ -36,7 +36,10 @@ const fn op_brioche_version() -> Cow<'static, [u8]> {
 }
 
 #[deno_core::op2(fast)]
-fn op_brioche_console(#[string] level: &str, #[string] message: &str) -> Result<(), JsError> {
+fn op_brioche_console(
+    #[string] level: &str,
+    #[string] message: &str,
+) -> Result<(), JsRuntimeError> {
     match level {
         "log" => tracing::info!("{message}"),
         "debug" => tracing::debug!("{message}"),
@@ -44,7 +47,7 @@ fn op_brioche_console(#[string] level: &str, #[string] message: &str) -> Result<
         "warn" => tracing::warn!("{message}"),
         "error" => tracing::error!("{message}"),
         _ => {
-            return Err(JsError::InvalidConsoleLogLevel {
+            return Err(JsRuntimeError::InvalidConsoleLogLevel {
                 level: level.to_string(),
             });
         }
@@ -57,24 +60,24 @@ fn op_brioche_console(#[string] level: &str, #[string] message: &str) -> Result<
 fn op_brioche_utf8_encode<'a>(
     scope: &'a v8::PinScope,
     string: v8::Local<v8::String>,
-) -> Result<v8::Local<'a, v8::Uint8Array>, JsError> {
+) -> Result<v8::Local<'a, v8::Uint8Array>, JsRuntimeError> {
     let string = string.to_rust_string_lossy(scope);
     let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(string.into_bytes());
     let buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
     let array = v8::Uint8Array::new(scope, buffer, 0, buffer.byte_length())
-        .ok_or(JsError::FailedToCreateUint8Array)?;
+        .ok_or(JsRuntimeError::FailedToCreate("Uint8Array".into()))?;
     Ok(array)
 }
 
 #[deno_core::op2]
 #[string]
-fn op_brioche_utf8_decode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, JsError> {
+fn op_brioche_utf8_decode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, JsRuntimeError> {
     let byte_length = bytes.byte_length();
     let mut buffer = vec![0; byte_length];
     let copied_length = bytes.copy_contents(&mut buffer);
 
     if copied_length != byte_length {
-        return Err(JsError::FailedToCopyBytes {
+        return Err(JsRuntimeError::FailedToCopyBytes {
             expected: byte_length,
             actual: copied_length,
         });
@@ -86,13 +89,13 @@ fn op_brioche_utf8_decode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, Js
 
 #[deno_core::op2]
 #[string]
-fn op_brioche_tick_encode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, JsError> {
+fn op_brioche_tick_encode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, JsRuntimeError> {
     let byte_length = bytes.byte_length();
     let mut buffer = vec![0; byte_length];
     let copied_length = bytes.copy_contents(&mut buffer);
 
     if copied_length != byte_length {
-        return Err(JsError::FailedToCopyBytes {
+        return Err(JsRuntimeError::FailedToCopyBytes {
             expected: byte_length,
             actual: copied_length,
         });
@@ -106,13 +109,13 @@ fn op_brioche_tick_encode(bytes: v8::Local<v8::Uint8Array>) -> Result<String, Js
 fn op_brioche_tick_decode<'a>(
     scope: &'a v8::PinScope,
     bytes: v8::Local<'a, v8::Uint8Array>,
-) -> Result<v8::Local<'a, v8::Uint8Array>, JsError> {
+) -> Result<v8::Local<'a, v8::Uint8Array>, JsRuntimeError> {
     let byte_length = bytes.byte_length();
     let mut buffer = vec![0; byte_length];
     let copied_length = bytes.copy_contents(&mut buffer);
 
     if copied_length != byte_length {
-        return Err(JsError::FailedToCopyBytes {
+        return Err(JsRuntimeError::FailedToCopyBytes {
             expected: byte_length,
             actual: copied_length,
         });
@@ -123,7 +126,7 @@ fn op_brioche_tick_decode<'a>(
     let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(encoded);
     let encoded_buffer = v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
     let encoded_array = v8::Uint8Array::new(scope, encoded_buffer, 0, encoded_buffer.byte_length())
-        .ok_or(JsError::FailedToCreateUint8Array)?;
+        .ok_or(JsRuntimeError::FailedToCreate("Uint8Array".into()))?;
     Ok(encoded_array)
 }
 
@@ -133,7 +136,7 @@ fn op_brioche_stack_frames_from_exception<'a>(
     state: Rc<RefCell<OpState>>,
     scope: &mut v8::PinScope<'a, 'a>,
     exception: v8::Local<'a, v8::Value>,
-) -> Result<Vec<StackFrame>, JsError> {
+) -> Result<Vec<StackFrame>, JsRuntimeError> {
     let worker_tx = state
         .borrow()
         .borrow::<super::JsRuntimeBridgeWorkerMessageSender>()
@@ -148,40 +151,14 @@ fn op_brioche_stack_frames_from_exception<'a>(
             frames: error.frames,
             result_tx,
         })
-        .map_err(|_| JsError::WorkerSendError {
-            reason: "channel closed".into(),
+        .map_err(|_| JsRuntimeError::ChannelSendError {
+            reason: "worker channel closed".into(),
         })?;
 
-    let result =
-        result_rx
-            .recv_timeout(OP_SYNC_TIMEOUT)
-            .map_err(|error| JsError::WorkerRecvError {
-                reason: error.to_string().into(),
-            })?;
+    let result = result_rx.recv_timeout(OP_SYNC_TIMEOUT).map_err(|error| {
+        JsRuntimeError::ChannelRecvError {
+            reason: error.to_string().into(),
+        }
+    })?;
     Ok(result)
-}
-
-#[derive(Debug, thiserror::Error, deno_error::JsError)]
-#[class(generic)]
-pub enum JsError {
-    #[error("invalid console log level: {level}")]
-    InvalidConsoleLogLevel { level: String },
-
-    #[error("failed to create Uint8Array")]
-    FailedToCreateUint8Array,
-
-    #[error("failed to copy bytes: expected length {expected}, copied {actual} ")]
-    FailedToCopyBytes { expected: usize, actual: usize },
-
-    #[error("failed to send message to worker channel: {reason}")]
-    WorkerSendError { reason: Cow<'static, str> },
-
-    #[error("failed to receive message from worker channel: {reason}")]
-    WorkerRecvError { reason: Cow<'static, str> },
-
-    #[error(transparent)]
-    FromUtf8Error(#[from] std::string::FromUtf8Error),
-
-    #[error(transparent)]
-    TickEncodingDecodeError(#[from] tick_encoding::DecodeError),
 }
