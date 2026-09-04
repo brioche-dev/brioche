@@ -780,6 +780,15 @@ impl ValueScope {
         deno_core::scope!(js_scope, js_runtime);
 
         let value = deno_core::v8::Local::new(js_scope, &self.value);
+
+        if value.is_array() {
+            return Err(DeserializeError::type_error(
+                "object",
+                "array",
+                self.path.clone(),
+            ));
+        }
+
         let value =
             deno_core::v8::Local::<deno_core::v8::Object>::try_from(value).map_err(|_| {
                 DeserializeError::type_error("object", value.type_repr(), self.path.clone())
