@@ -51,6 +51,7 @@ impl AnyHashHasher {
         }
     }
 
+    #[must_use]
     pub fn finish(self) -> AnyHash {
         match self {
             Self::Sha256(hasher) => {

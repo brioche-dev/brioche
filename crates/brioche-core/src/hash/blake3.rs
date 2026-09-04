@@ -10,6 +10,7 @@ impl Blake3Hash {
         Blake3HashString(hex_bytes)
     }
 
+    #[must_use]
     pub const fn as_bytes(&self) -> &[u8; HASH_LEN] {
         &self.0
     }

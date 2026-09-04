@@ -12,7 +12,7 @@ pub mod config;
 mod download;
 mod encoding;
 mod fs_utils;
-mod hash;
+pub mod hash;
 mod object_store_utils;
 pub mod path;
 pub mod platform;
@@ -142,6 +142,11 @@ impl BriocheState {
     #[must_use]
     pub const fn recipes(&self) -> &recipe::Recipes {
         &self.recipes
+    }
+
+    #[must_use]
+    pub const fn recipes_mut(&mut self) -> &mut recipe::Recipes {
+        &mut self.recipes
     }
 }
 
