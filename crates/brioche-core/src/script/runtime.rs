@@ -800,13 +800,22 @@ pub enum JsRuntimeError {
     ResolveSpecifierError(#[from] Box<crate::script::specifier::ResolveSpecifierError>),
 
     #[error(transparent)]
+    ParseHashError(#[from] crate::hash::ParseHashError),
+
+    #[error(transparent)]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
+
+    #[error(transparent)]
+    TryFromIntError(#[from] std::num::TryFromIntError),
 
     #[error(transparent)]
     JsError(#[from] Box<deno_core::error::JsError>),
 
     #[error(transparent)]
     DenoCoreError(#[from] deno_core::error::CoreError),
+
+    #[error(transparent)]
+    ParseUrlError(#[from] url::ParseError),
 
     #[error(transparent)]
     TickEncodingDecodeError(#[from] tick_encoding::DecodeError),
@@ -850,6 +859,9 @@ pub enum JsRuntimeError {
 
     #[error("missing field")]
     MissingField,
+
+    #[error("invalid value: {reason}")]
+    InvalidValue { reason: Cow<'static, str> },
 
     #[error("failed to receive value from channel: {reason}")]
     ChannelRecvError { reason: Cow<'static, str> },

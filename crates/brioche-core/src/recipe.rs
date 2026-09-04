@@ -345,6 +345,13 @@ pub struct ProcessTemplate {
 }
 
 impl ProcessTemplate {
+    #[must_use]
+    pub fn default_current_dir() -> Self {
+        Self {
+            components: vec![ProcessTemplateComponent::WorkDir],
+        }
+    }
+
     fn push_recipe_refs(&self, recipe_refs: &mut Vec<RecipeRef>) {
         for component in &self.components {
             component.push_recipe_refs(recipe_refs);
