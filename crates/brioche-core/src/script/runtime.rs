@@ -330,8 +330,8 @@ impl JsModuleLoader {
             return Ok(resolved);
         }
 
-        let referrer: ModuleSpecifier = referrer.parse()?;
         let specifier: ImportSpecifier = specifier.parse()?;
+        let referrer: ModuleSpecifier = referrer.parse()?;
 
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         self.worker_tx

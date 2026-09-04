@@ -148,7 +148,8 @@ pub fn resolve_import_specifier(
                             referrer_project_ref: *project_ref,
                         }
                     })?;
-                    let dependency_root_module_ref = brioche.projects().root_module(*project_ref);
+                    let dependency_root_module_ref =
+                        brioche.projects().root_module(*dependency_ref);
 
                     let path = dependency_root_module_ref.map_or_else(
                         || {
