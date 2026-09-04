@@ -239,9 +239,9 @@ impl JsRuntimeBridge {
             (export_value, module_namespace)
         };
 
-        let export_value = deserialize::ValueScope::new(
+        let export_value = deserialize::JsValue::new(
             export_value,
-            deserialize::ValuePath::top_level(root_module_ref, root_module_path, export),
+            deserialize::JsValueScope::top_level(root_module_ref, root_module_path, export),
         );
         let recipe = deserialize::deserialize_recipe(
             &self.brioche,

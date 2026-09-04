@@ -17,7 +17,7 @@ use crate::{
 pub(super) async fn deserialize_recipe(
     brioche: &crate::Brioche,
     js_runtime: &mut deno_core::JsRuntime,
-    value: ValueScope,
+    value: JsValue,
     module_namespace: &deno_core::v8::Global<deno_core::v8::Value>,
     cached_recipes: &mut HashMap<deno_core::v8::Global<deno_core::v8::Value>, RecipeRef>,
 ) -> Result<RecipeRef, DeserializeError> {
@@ -57,10 +57,10 @@ pub(super) async fn deserialize_recipe(
         equivalent_values.push(value.value.clone());
 
         value
-    } else if value.path.is_top_level() {
+    } else if value.scope.is_top_level() {
         return Err(DeserializeError::new(
             JsRuntimeError::MissingField,
-            value.path,
+            value.scope,
         ));
     } else {
         value
@@ -83,7 +83,7 @@ pub(super) async fn deserialize_recipe(
 async fn deserialize_recipe_value(
     brioche: &crate::Brioche,
     js_runtime: &mut deno_core::JsRuntime,
-    value: ValueScope,
+    value: JsValue,
     module_namespace: &deno_core::v8::Global<deno_core::v8::Value>,
     cached_recipes: &mut HashMap<deno_core::v8::Global<deno_core::v8::Value>, RecipeRef>,
 ) -> Result<RecipeRef, DeserializeError> {
@@ -96,12 +96,12 @@ async fn deserialize_recipe_value(
                 .into_object(js_runtime)?;
 
             if let Some((entry_name, _)) = entry_values.iter().next() {
-                let path = value.path.clone().with_field(entry_name.clone());
+                let scope = value.scope.clone().with_field(entry_name.clone());
                 return Err(DeserializeError::new(
                     JsRuntimeError::InvalidValue {
                         reason: "unsupported directory entry value".into(),
                     },
-                    path,
+                    scope,
                 ));
             }
 
@@ -119,7 +119,7 @@ async fn deserialize_recipe_value(
             let url = url
                 .to_string(js_runtime)?
                 .parse()
-                .map_err(|error| DeserializeError::new(error, url.path.clone()))?;
+                .map_err(|error| DeserializeError::new(error, url.scope.clone()))?;
 
             let hash = value.get_field(js_runtime, "hash")?;
             let hash = deserialize_hash(js_runtime, hash)?;
@@ -173,7 +173,7 @@ async fn deserialize_recipe_value(
                 .into_object(js_runtime)?;
             for (env_var, env_value) in env_values {
                 let env_var = tick_encoding::decode(env_var.as_bytes()).map_err(|error| {
-                    DeserializeError::new(error, value.path.clone().with_field("env"))
+                    DeserializeError::new(error, value.scope.clone().with_field("env"))
                 })?;
                 let env_var = bstr::BString::new(env_var.into_owned());
 
@@ -317,7 +317,7 @@ async fn deserialize_recipe_value(
             let mut entries = BTreeMap::new();
             for (entry_name, entry_value) in entry_values {
                 let entry_name = tick_encoding::decode(entry_name.as_bytes()).map_err(|error| {
-                    DeserializeError::new(error, value.path.clone().with_field("entries"))
+                    DeserializeError::new(error, value.scope.clone().with_field("entries"))
                 })?;
                 let entry_name = bstr::BString::new(entry_name.into_owned());
 
@@ -472,7 +472,7 @@ async fn deserialize_recipe_value(
 async fn deserialize_process_template(
     brioche: &crate::Brioche,
     js_runtime: &mut deno_core::JsRuntime,
-    value: ValueScope,
+    value: JsValue,
     module_namespace: &deno_core::v8::Global<deno_core::v8::Value>,
     cached_recipes: &mut HashMap<deno_core::v8::Global<deno_core::v8::Value>, RecipeRef>,
 ) -> Result<crate::recipe::ProcessTemplate, DeserializeError> {
@@ -500,7 +500,7 @@ async fn deserialize_process_template(
 async fn deserialize_process_template_component(
     brioche: &crate::Brioche,
     js_runtime: &mut deno_core::JsRuntime,
-    value: ValueScope,
+    value: JsValue,
     module_namespace: &deno_core::v8::Global<deno_core::v8::Value>,
     cached_recipes: &mut HashMap<deno_core::v8::Global<deno_core::v8::Value>, RecipeRef>,
 ) -> Result<crate::recipe::ProcessTemplateComponent, DeserializeError> {
@@ -549,7 +549,7 @@ async fn deserialize_process_template_component(
 
 fn deserialize_hash(
     js_runtime: &mut deno_core::JsRuntime,
-    value: ValueScope,
+    value: JsValue,
 ) -> Result<crate::hash::AnyHash, DeserializeError> {
     let (value, kind) = value.get_tag::<AnyHashKind>(js_runtime, "type")?;
     match kind {
@@ -558,24 +558,24 @@ fn deserialize_hash(
             let value = value
                 .to_string(js_runtime)?
                 .parse()
-                .map_err(|error| DeserializeError::new(error, value.path.clone()))?;
+                .map_err(|error| DeserializeError::new(error, value.scope.clone()))?;
             Ok(crate::hash::AnyHash::Sha256 { value })
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct ValueScope {
+pub(super) struct JsValue {
     value: deno_core::v8::Global<deno_core::v8::Value>,
-    path: ValuePath,
+    scope: JsValueScope,
 }
 
-impl ValueScope {
+impl JsValue {
     pub(super) const fn new(
         value: deno_core::v8::Global<deno_core::v8::Value>,
-        path: ValuePath,
+        scope: JsValueScope,
     ) -> Self {
-        Self { value, path }
+        Self { value, scope }
     }
 
     fn deserialize_value<T>(
@@ -588,7 +588,7 @@ impl ValueScope {
         deno_core::scope!(js_scope, js_runtime);
         deno_core::v8::tc_scope!(let js_scope, js_scope);
         let value = deno_core::v8::Local::new(js_scope, self.value);
-        T::deserialize(js_scope, value, &self.path)
+        T::deserialize(js_scope, value, &self.scope)
     }
 
     fn deserialize_tick_encoding(
@@ -600,12 +600,12 @@ impl ValueScope {
         let value = deno_core::v8::Local::new(js_scope, self.value);
         let value =
             deno_core::v8::Local::<deno_core::v8::String>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("string", value.type_repr(), self.path.clone())
+                DeserializeError::type_error("string", value.type_repr(), self.scope.clone())
             })?;
         let string = value.to_rust_string_lossy(js_scope);
         let mut bytes = string.into_bytes();
         let decoded = tick_encoding::decode_in_place(&mut bytes)
-            .map_err(|error| DeserializeError::new(error, self.path.clone()))?;
+            .map_err(|error| DeserializeError::new(error, self.scope.clone()))?;
         let decoded_len = decoded.len();
         bytes.truncate(decoded_len);
         Ok(bstr::BString::new(bytes))
@@ -623,14 +623,14 @@ impl ValueScope {
         let key_string = deno_core::v8::String::new(js_scope, &key).ok_or_else(|| {
             DeserializeError::new(
                 JsRuntimeError::InvalidJsString(key.clone()),
-                self.path.clone(),
+                self.scope.clone(),
             )
         })?;
 
         let value = deno_core::v8::Local::new(js_scope, self.value.clone());
         let value =
             deno_core::v8::Local::<deno_core::v8::Object>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("object", value.type_repr(), self.path.clone())
+                DeserializeError::type_error("object", value.type_repr(), self.scope.clone())
             })?;
 
         let has_key = value.has(js_scope, key_string.into());
@@ -645,7 +645,7 @@ impl ValueScope {
 
         Ok(Some(Self {
             value: deno_core::v8::Global::new(js_scope, field),
-            path: self.path.clone().with_field(key),
+            scope: self.scope.clone().with_field(key),
         }))
     }
 
@@ -661,14 +661,14 @@ impl ValueScope {
         let key_string = deno_core::v8::String::new(js_scope, &key).ok_or_else(|| {
             DeserializeError::new(
                 JsRuntimeError::InvalidJsString(key.clone()),
-                self.path.clone(),
+                self.scope.clone(),
             )
         })?;
 
         let value = deno_core::v8::Local::new(js_scope, self.value.clone());
         let value =
             deno_core::v8::Local::<deno_core::v8::Object>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("object", value.type_repr(), self.path.clone())
+                DeserializeError::type_error("object", value.type_repr(), self.scope.clone())
             })?;
 
         let field = value.get(js_scope, key_string.into());
@@ -681,7 +681,7 @@ impl ValueScope {
 
         Ok(Some(Self {
             value: deno_core::v8::Global::new(js_scope, field),
-            path: self.path.clone().with_field(key),
+            scope: self.scope.clone().with_field(key),
         }))
     }
 
@@ -691,11 +691,11 @@ impl ValueScope {
         key: impl Into<Cow<'static, str>>,
     ) -> Result<Self, DeserializeError> {
         let key = key.into();
-        let path = self.path.clone();
+        let scope = self.scope.clone();
         let field = self
             .try_get_field(js_runtime, key.clone())?
             .ok_or_else(|| {
-                DeserializeError::new(JsRuntimeError::MissingField, path.with_field(key))
+                DeserializeError::new(JsRuntimeError::MissingField, scope.with_field(key))
             })?;
         Ok(field)
     }
@@ -715,29 +715,29 @@ impl ValueScope {
         let tag_key_string = deno_core::v8::String::new(js_scope, &tag_key).ok_or_else(|| {
             DeserializeError::new(
                 JsRuntimeError::InvalidJsString(tag_key.clone()),
-                self.path.clone(),
+                self.scope.clone(),
             )
         })?;
 
         let value = deno_core::v8::Local::new(js_scope, self.value.clone());
         let value =
             deno_core::v8::Local::<deno_core::v8::Object>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("object", value.type_repr(), self.path.clone())
+                DeserializeError::type_error("object", value.type_repr(), self.scope.clone())
             })?;
 
         let tag_value = value.get(js_scope, tag_key_string.into());
         let Some(tag_value) = tag_value else {
             return Err(DeserializeError::new(
                 JsRuntimeError::MissingField,
-                self.path.clone().with_field(tag_key),
+                self.scope.clone().with_field(tag_key),
             ));
         };
-        let tag = T::deserialize(js_scope, tag_value, &self.path.clone().with_field(tag_key))?;
+        let tag = T::deserialize(js_scope, tag_value, &self.scope.clone().with_field(tag_key))?;
 
         Ok((
             Self {
                 value: self.value,
-                path: self.path.with_variant(T::tag(&tag)),
+                scope: self.scope.with_variant(T::tag(&tag)),
             },
             tag,
         ))
@@ -752,22 +752,22 @@ impl ValueScope {
         let value = deno_core::v8::Local::new(js_scope, &self.value);
         let value =
             deno_core::v8::Local::<deno_core::v8::Array>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("array", value.type_repr(), self.path.clone())
+                DeserializeError::type_error("array", value.type_repr(), self.scope.clone())
             })?;
 
         let mut items = vec![];
         for i in 0..value.length() {
-            let path = self.path.clone().with_index(i);
+            let scope = self.scope.clone().with_index(i);
             let item = value.get_index(js_scope, i).ok_or_else(|| {
                 DeserializeError::new(
                     JsRuntimeError::InvalidValue {
                         reason: "index not set".into(),
                     },
-                    path.clone(),
+                    scope.clone(),
                 )
             })?;
             let item = deno_core::v8::Global::new(js_scope, item);
-            items.push(Self { value: item, path });
+            items.push(Self { value: item, scope });
         }
 
         Ok(items)
@@ -785,13 +785,13 @@ impl ValueScope {
             return Err(DeserializeError::type_error(
                 "object",
                 "array",
-                self.path.clone(),
+                self.scope.clone(),
             ));
         }
 
         let value =
             deno_core::v8::Local::<deno_core::v8::Object>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("object", value.type_repr(), self.path.clone())
+                DeserializeError::type_error("object", value.type_repr(), self.scope.clone())
             })?;
 
         let mut entries = HashMap::new();
@@ -811,7 +811,7 @@ impl ValueScope {
                     JsRuntimeError::InvalidValue {
                         reason: "could not get object properties".into(),
                     },
-                    self.path.clone(),
+                    self.scope.clone(),
                 )
             })?;
         for i in 0..properties.length() {
@@ -824,23 +824,23 @@ impl ValueScope {
                         JsRuntimeError::InvalidValue {
                             reason: "object has non-string property".into(),
                         },
-                        self.path.clone(),
+                        self.scope.clone(),
                     )
                 })?;
             let property_string = property_string.to_rust_string_lossy(js_scope);
 
-            let path = self.path.clone().with_field(property_string.clone());
+            let scope = self.scope.clone().with_field(property_string.clone());
 
             let value = value.get(js_scope, property).ok_or_else(|| {
                 DeserializeError::new(
                     JsRuntimeError::InvalidValue {
                         reason: "property does not exist in object".into(),
                     },
-                    path.clone(),
+                    scope.clone(),
                 )
             })?;
             let value = deno_core::v8::Global::new(js_scope, value);
-            let value = Self { value, path };
+            let value = Self { value, scope };
 
             entries.insert(property_string, value);
         }
@@ -854,7 +854,7 @@ impl ValueScope {
         let value = deno_core::v8::Local::new(js_scope, self.value.clone());
         let string =
             deno_core::v8::Local::<deno_core::v8::String>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("string", value.type_repr(), self.path.clone())
+                DeserializeError::type_error("string", value.type_repr(), self.scope.clone())
             })?;
         Ok(string.to_rust_string_lossy(js_scope))
     }
@@ -870,30 +870,30 @@ impl ValueScope {
         let value = deno_core::v8::Local::new(js_scope, &self.value);
         let function =
             deno_core::v8::Local::<deno_core::v8::Function>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("function", value.type_repr(), self.path.clone())
+                DeserializeError::type_error("function", value.type_repr(), self.scope.clone())
             })?;
 
-        let path = self.path.with_call();
+        let scope = self.scope.with_call();
         let this = deno_core::v8::Local::new(js_scope, this);
         let value = function.call(js_scope, this, &[]);
         let Some(value) = value else {
             if let Some(exception) = js_scope.exception() {
                 return Err(DeserializeError::new(
                     deno_core::error::JsError::from_v8_exception(js_scope, exception),
-                    path,
+                    scope,
                 ));
             }
             return Err(DeserializeError::new(
                 JsRuntimeError::UnknownEvalError {
                     reason: "function call failed without an exception".into(),
                 },
-                path,
+                scope,
             ));
         };
 
         Ok(Self {
             value: deno_core::v8::Global::new(js_scope, value),
-            path,
+            scope,
         })
     }
 
@@ -911,27 +911,27 @@ impl ValueScope {
             return Ok(self);
         };
 
-        let path = self.path.with_call();
+        let scope = self.scope.with_call();
         let this = deno_core::v8::Local::new(js_scope, this);
         let value = function.call(js_scope, this, &[]);
         let Some(value) = value else {
             if let Some(exception) = js_scope.exception() {
                 return Err(DeserializeError::new(
                     deno_core::error::JsError::from_v8_exception(js_scope, exception),
-                    path,
+                    scope,
                 ));
             }
             return Err(DeserializeError::new(
                 JsRuntimeError::UnknownEvalError {
                     reason: "function call failed without an exception".into(),
                 },
-                path,
+                scope,
             ));
         };
 
         Ok(Self {
             value: deno_core::v8::Global::new(js_scope, value),
-            path,
+            scope,
         })
     }
 
@@ -943,10 +943,10 @@ impl ValueScope {
         let value = js_runtime
             .with_event_loop_promise(value_fut, deno_core::PollEventLoopOptions::default())
             .await
-            .map_err(|error| DeserializeError::new(error, self.path.clone()))?;
+            .map_err(|error| DeserializeError::new(error, self.scope.clone()))?;
         Ok(Self {
             value,
-            path: self.path,
+            scope: self.scope,
         })
     }
 }
@@ -955,7 +955,7 @@ trait DeserializeV8: Sized {
     fn deserialize(
         js_scope: &mut deno_core::v8::PinScope,
         value: deno_core::v8::Local<deno_core::v8::Value>,
-        path: &ValuePath,
+        scope: &JsValueScope,
     ) -> Result<Self, DeserializeError>;
 }
 
@@ -963,11 +963,11 @@ impl DeserializeV8 for bool {
     fn deserialize(
         js_scope: &mut deno_core::v8::PinScope,
         value: deno_core::v8::Local<deno_core::v8::Value>,
-        path: &ValuePath,
+        scope: &JsValueScope,
     ) -> Result<Self, DeserializeError> {
         let value =
             deno_core::v8::Local::<deno_core::v8::Boolean>::try_from(value).map_err(|_| {
-                DeserializeError::type_error("boolean", value.type_repr(), path.clone())
+                DeserializeError::type_error("boolean", value.type_repr(), scope.clone())
             })?;
         Ok(value.boolean_value(js_scope))
     }
@@ -977,10 +977,12 @@ impl DeserializeV8 for f64 {
     fn deserialize(
         _js_scope: &mut deno_core::v8::PinScope,
         value: deno_core::v8::Local<deno_core::v8::Value>,
-        path: &ValuePath,
+        scope: &JsValueScope,
     ) -> Result<Self, DeserializeError> {
-        let value = deno_core::v8::Local::<deno_core::v8::Number>::try_from(value)
-            .map_err(|_| DeserializeError::type_error("number", value.type_repr(), path.clone()))?;
+        let value =
+            deno_core::v8::Local::<deno_core::v8::Number>::try_from(value).map_err(|_| {
+                DeserializeError::type_error("number", value.type_repr(), scope.clone())
+            })?;
         Ok(value.value())
     }
 }
@@ -990,16 +992,16 @@ impl DeserializeV8 for i64 {
     fn deserialize(
         js_scope: &mut deno_core::v8::PinScope,
         value: deno_core::v8::Local<deno_core::v8::Value>,
-        path: &ValuePath,
+        scope: &JsValueScope,
     ) -> Result<Self, DeserializeError> {
-        let number = f64::deserialize(js_scope, value, path)?;
+        let number = f64::deserialize(js_scope, value, scope)?;
         let rounded = number.round();
         if rounded != number {
             return Err(DeserializeError::new(
                 JsRuntimeError::InvalidValue {
                     reason: "number is not an integer".into(),
                 },
-                path.clone(),
+                scope.clone(),
             ));
         }
 
@@ -1011,11 +1013,11 @@ impl DeserializeV8 for u32 {
     fn deserialize(
         js_scope: &mut deno_core::v8::PinScope,
         value: deno_core::v8::Local<deno_core::v8::Value>,
-        path: &ValuePath,
+        scope: &JsValueScope,
     ) -> Result<Self, DeserializeError> {
-        let number = i64::deserialize(js_scope, value, path)?;
+        let number = i64::deserialize(js_scope, value, scope)?;
         let number =
-            Self::try_from(number).map_err(|error| DeserializeError::new(error, path.clone()))?;
+            Self::try_from(number).map_err(|error| DeserializeError::new(error, scope.clone()))?;
         Ok(number)
     }
 }
@@ -1027,10 +1029,12 @@ where
     fn deserialize(
         js_scope: &mut deno_core::v8::PinScope,
         value: deno_core::v8::Local<deno_core::v8::Value>,
-        path: &ValuePath,
+        scope: &JsValueScope,
     ) -> Result<Self, DeserializeError> {
-        let string = deno_core::v8::Local::<deno_core::v8::String>::try_from(value)
-            .map_err(|_| DeserializeError::type_error("string", value.type_repr(), path.clone()))?;
+        let string =
+            deno_core::v8::Local::<deno_core::v8::String>::try_from(value).map_err(|_| {
+                DeserializeError::type_error("string", value.type_repr(), scope.clone())
+            })?;
         let string = deno_core::v8::ValueView::new(js_scope, string);
         let string = string.to_cow_lossy();
         let value = T::from_str(&string).ok_or_else(|| {
@@ -1039,7 +1043,7 @@ where
                     expected: T::VALUES.iter().map(T::tag).collect(),
                     got: string.into_owned(),
                 },
-                path.clone(),
+                scope.clone(),
             )
         })?;
         Ok(value)
@@ -1291,16 +1295,16 @@ impl JsEnumTag for AnyHashKind {
 }
 
 #[derive(Debug, Clone)]
-pub struct ValuePath {
+pub struct JsValueScope {
     #[expect(unused)]
     module: ModuleRef,
     #[expect(unused)]
     module_path: AbsolutePath,
     export: String,
-    components: Vec<ValuePathComponent>,
+    components: Vec<ValueScopeComponent>,
 }
 
-impl ValuePath {
+impl JsValueScope {
     #[must_use]
     pub const fn top_level(module: ModuleRef, module_path: AbsolutePath, export: String) -> Self {
         Self {
@@ -1317,23 +1321,23 @@ impl ValuePath {
 
     fn with_field(mut self, field: impl Into<Cow<'static, str>>) -> Self {
         self.components
-            .push(ValuePathComponent::Field(field.into()));
+            .push(ValueScopeComponent::Field(field.into()));
         self
     }
 
     fn with_index(mut self, index: u32) -> Self {
-        self.components.push(ValuePathComponent::Index(index));
+        self.components.push(ValueScopeComponent::Index(index));
         self
     }
 
     fn with_variant(mut self, variant: impl Into<Cow<'static, str>>) -> Self {
         self.components
-            .push(ValuePathComponent::Variant(variant.into()));
+            .push(ValueScopeComponent::Variant(variant.into()));
         self
     }
 
     fn with_call(mut self) -> Self {
-        self.components.push(ValuePathComponent::Call);
+        self.components.push(ValueScopeComponent::Call);
         self
     }
 
@@ -1348,11 +1352,11 @@ impl ValuePath {
             .iter()
             .map(|component| {
                 lazy_format::lazy_format!(match (component) {
-                    ValuePathComponent::Call => "()",
-                    ValuePathComponent::Variant(variant) => "<{variant}>",
-                    ValuePathComponent::Field(field) if is_safe_field(field) => ".{field}",
-                    ValuePathComponent::Field(field) => "['{field}']",
-                    ValuePathComponent::Index(index) => "[{index}]",
+                    ValueScopeComponent::Call => "()",
+                    ValueScopeComponent::Variant(variant) => "<{variant}>",
+                    ValueScopeComponent::Field(field) if is_safe_field(field) => ".{field}",
+                    ValueScopeComponent::Field(field) => "['{field}']",
+                    ValueScopeComponent::Index(index) => "[{index}]",
                 })
             })
             .join_concat();
@@ -1361,7 +1365,7 @@ impl ValuePath {
 }
 
 #[derive(Debug, Clone)]
-enum ValuePathComponent {
+enum ValueScopeComponent {
     Call,
     Variant(Cow<'static, str>),
     Field(Cow<'static, str>),
@@ -1373,19 +1377,19 @@ enum ValuePathComponent {
 pub struct DeserializeError(Box<DeserializeErrorInner>);
 
 impl DeserializeError {
-    fn new<E>(error: E, path: ValuePath) -> Self
+    fn new<E>(error: E, scope: JsValueScope) -> Self
     where
         E: Into<JsRuntimeError>,
     {
         Self(Box::new(DeserializeErrorInner {
-            path,
+            scope,
             error: error.into(),
         }))
     }
 
-    fn type_error(expected: &'static str, actual: &'static str, path: ValuePath) -> Self {
+    fn type_error(expected: &'static str, actual: &'static str, scope: JsValueScope) -> Self {
         Self(Box::new(DeserializeErrorInner {
-            path,
+            scope,
             error: JsRuntimeError::TypeError {
                 expected: Cow::Borrowed(expected),
                 actual: actual.into(),
@@ -1395,8 +1399,8 @@ impl DeserializeError {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("error deserializing {}: {error}", .path.display_pretty())]
+#[error("error deserializing {}: {error}", .scope.display_pretty())]
 struct DeserializeErrorInner {
-    path: ValuePath,
+    scope: JsValueScope,
     error: JsRuntimeError,
 }
