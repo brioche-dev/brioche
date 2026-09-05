@@ -122,7 +122,7 @@ struct JsRuntimeBridge {
     brioche: crate::Brioche,
     js_runtime: deno_core::JsRuntime,
     module_ids: HashMap<ModuleRef, usize>,
-    cached_recipes: HashMap<deno_core::v8::Global<deno_core::v8::Value>, RecipeRef>,
+    eval_state: deserialize::EvalRecipeState,
 }
 
 impl JsRuntimeBridge {
@@ -142,7 +142,7 @@ impl JsRuntimeBridge {
             brioche,
             js_runtime,
             module_ids: HashMap::new(),
-            cached_recipes: HashMap::new(),
+            eval_state: deserialize::EvalRecipeState::default(),
         }
     }
 
@@ -216,7 +216,7 @@ impl JsRuntimeBridge {
             .map_err(JsRuntimeError::from)?;
 
         // Get the export by name
-        let (export_value, module_namespace) = {
+        let export_value = {
             deno_core::scope!(js_scope, self.js_runtime);
             deno_core::v8::tc_scope!(let js_scope, js_scope);
 
@@ -230,13 +230,7 @@ impl JsRuntimeBridge {
                     module_path: root_module_path.clone(),
                     export: export.clone(),
                 })?;
-            let export_value = deno_core::v8::Global::new(js_scope, export_value);
-
-            let module_namespace =
-                deno_core::v8::Local::<deno_core::v8::Value>::from(module_namespace);
-            let module_namespace = deno_core::v8::Global::new(js_scope, module_namespace);
-
-            (export_value, module_namespace)
+            deno_core::v8::Global::new(js_scope, export_value)
         };
 
         let export_value = deserialize::JsValue::new(
@@ -246,9 +240,8 @@ impl JsRuntimeBridge {
         let recipe = deserialize::deserialize_recipe(
             &self.brioche,
             &mut self.js_runtime,
+            &mut self.eval_state,
             export_value,
-            &module_namespace,
-            &mut self.cached_recipes,
         )
         .await?;
 
@@ -859,6 +852,9 @@ pub enum JsRuntimeError {
 
     #[error("missing field")]
     MissingField,
+
+    #[error("promise rejected: {message}")]
+    PromiseRejected { message: String },
 
     #[error("invalid value: {reason}")]
     InvalidValue { reason: Cow<'static, str> },
