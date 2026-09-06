@@ -683,3 +683,192 @@ async fn test_script_eval_deserialize_recipes() {
 
     assert_eq!(*default, Recipe::CreateDirectory { entries });
 }
+
+#[tokio::test]
+async fn test_script_eval_deserialize_promises() {
+    let (brioche, context) = brioche_test_support::brioche_test().await;
+
+    let project_dir = context.mkdir("myproject").await;
+
+    context
+        .write_file(
+            "myproject/project.bri",
+            r#"
+                export const eager = {
+                    briocheSerialize() {
+                        return {
+                            type: "create_file",
+                            content: "eager",
+                            executable: false,
+                        };
+                    }
+                };
+
+                export function eagerFn() {
+                    return {
+                        briocheSerialize() {
+                            return {
+                                type: "create_file",
+                                content: "eagerFn",
+                                executable: false,
+                            };
+                        }
+                    };
+                }
+
+                export const promise = (async () => ({
+                    briocheSerialize() {
+                        return {
+                            type: "create_file",
+                            content: "promise",
+                            executable: false,
+                        };
+                    }
+                }))();
+
+                export async function promiseFn() {
+                    return {
+                        briocheSerialize() {
+                            return {
+                                type: "create_file",
+                                content: "promiseFn",
+                                executable: false,
+                            };
+                        }
+                    };
+                }
+
+                export async function chainPromiseFn() {
+                    return new Promise((resolve) => {
+                        resolve({
+                            type: "create_file",
+                            content: "chainPromiseFn",
+                            executable: false,
+                        });
+                    }).then((recipe) => ({
+                        async briocheSerialize() {
+                            return new Promise((resolve) => {
+                                resolve(recipe);
+                            });
+                        }
+                    }));
+                }
+            "#,
+        )
+        .await;
+
+    let project_ref =
+        brioche_test_support::load_project(&mut *brioche.write().await, &project_dir).await;
+
+    let js_platform = initialize_js_platform();
+
+    {
+        let js_runtime = JsRuntime::new(&brioche, js_platform).await.unwrap();
+        let eager_ref = js_runtime
+            .get_recipe_export(project_ref, "eager")
+            .await
+            .unwrap();
+        let eager_recipe = brioche.read().await.recipes().get_recipe(eager_ref).clone();
+
+        assert_eq!(
+            *eager_recipe,
+            Recipe::CreateFile {
+                content: "eager".into(),
+                executable: false,
+                resources: None,
+            }
+        );
+    }
+
+    {
+        let js_runtime = JsRuntime::new(&brioche, js_platform).await.unwrap();
+        let eager_fn_ref = js_runtime
+            .get_recipe_export(project_ref, "eagerFn")
+            .await
+            .unwrap();
+        let eager_fn_recipe = brioche
+            .read()
+            .await
+            .recipes()
+            .get_recipe(eager_fn_ref)
+            .clone();
+
+        assert_eq!(
+            *eager_fn_recipe,
+            Recipe::CreateFile {
+                content: "eagerFn".into(),
+                executable: false,
+                resources: None,
+            }
+        );
+    }
+
+    {
+        let js_runtime = JsRuntime::new(&brioche, js_platform).await.unwrap();
+        let promise_ref = js_runtime
+            .get_recipe_export(project_ref, "promise")
+            .await
+            .unwrap();
+        let promise_recipe = brioche
+            .read()
+            .await
+            .recipes()
+            .get_recipe(promise_ref)
+            .clone();
+
+        assert_eq!(
+            *promise_recipe,
+            Recipe::CreateFile {
+                content: "promise".into(),
+                executable: false,
+                resources: None,
+            }
+        );
+    }
+
+    {
+        let js_runtime = JsRuntime::new(&brioche, js_platform).await.unwrap();
+        let promise_fn_ref = js_runtime
+            .get_recipe_export(project_ref, "promiseFn")
+            .await
+            .unwrap();
+        let promise_fn_recipe = brioche
+            .read()
+            .await
+            .recipes()
+            .get_recipe(promise_fn_ref)
+            .clone();
+
+        assert_eq!(
+            *promise_fn_recipe,
+            Recipe::CreateFile {
+                content: "promiseFn".into(),
+                executable: false,
+                resources: None,
+            }
+        );
+    }
+
+    {
+        let js_runtime = JsRuntime::new(&brioche, js_platform).await.unwrap();
+        let chain_promise_fn_ref = js_runtime
+            .get_recipe_export(project_ref, "chainPromiseFn")
+            .await
+            .unwrap();
+        let chain_promise_fn_recipe = brioche
+            .read()
+            .await
+            .recipes()
+            .get_recipe(chain_promise_fn_ref)
+            .clone();
+
+        assert_eq!(
+            *chain_promise_fn_recipe,
+            Recipe::CreateFile {
+                content: "chainPromiseFn".into(),
+                executable: false,
+                resources: None,
+            }
+        );
+    }
+}
