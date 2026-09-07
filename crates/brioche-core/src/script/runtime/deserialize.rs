@@ -431,11 +431,18 @@ fn deserialize_partial_recipe_to(
     let value = if let Ok(promise) = promise {
         match promise.state() {
             deno_core::v8::PromiseState::Pending => {
-                let node_index = state.graph.add_node(EvalRecipeNode::PendingRecipe {
+                let node_weight = EvalRecipeNode::PendingRecipe {
                     value: deno_core::v8::Global::new(js_scope, promise),
                     scope,
-                });
-                let recipe_ref = EvalRecipeRef(node_index);
+                };
+                let recipe_ref = if let Some(pending_recipe_ref) = pending_recipe_ref {
+                    let pending_node_weight =
+                        state.graph.node_weight_mut(pending_recipe_ref.0).unwrap();
+                    *pending_node_weight = node_weight;
+                    pending_recipe_ref
+                } else {
+                    EvalRecipeRef(state.graph.add_node(node_weight))
+                };
 
                 state
                     .recipes_by_value
@@ -528,11 +535,18 @@ fn deserialize_partial_recipe_to(
         let output = if let Ok(promise) = promise {
             match promise.state() {
                 deno_core::v8::PromiseState::Pending => {
-                    let node_index = state.graph.add_node(EvalRecipeNode::PendingRecipe {
+                    let node_weight = EvalRecipeNode::PendingRecipe {
                         value: deno_core::v8::Global::new(js_scope, promise),
                         scope,
-                    });
-                    let recipe_ref = EvalRecipeRef(node_index);
+                    };
+                    let recipe_ref = if let Some(pending_recipe_ref) = pending_recipe_ref {
+                        let pending_node_weight =
+                            state.graph.node_weight_mut(pending_recipe_ref.0).unwrap();
+                        *pending_node_weight = node_weight;
+                        pending_recipe_ref
+                    } else {
+                        EvalRecipeRef(state.graph.add_node(node_weight))
+                    };
 
                     state
                         .recipes_by_value
