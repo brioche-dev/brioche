@@ -26,7 +26,7 @@ tower-lsp = "0.20.0"
 tracing = "0.1.44"
 ulid = "3.0.0"
 url = "2.5.8"
-zstd = "0.13.3"
+zstd = "0.14.0"
 
 [lints]
 workspace = true
