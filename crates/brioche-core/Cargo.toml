@@ -141,7 +141,7 @@ zip = { version = "8.6.0", default-features = false, features = [
     "lzma",
     "zstd",
 ] }
-zstd = "0.13.3"
+zstd = "0.14.0"
 zstd-framed = { version = "0.1.1", features = ["tokio"] }
 humantime-serde = "1.1.1"
 humantime = "2.3.0"
