@@ -73,6 +73,7 @@ pub struct BuildArgs {
     display: super::DisplayMode,
 }
 
+#[expect(clippy::print_stderr)]
 pub async fn build(
     js_platform: brioche_core::script::JsPlatform,
     args: BuildArgs,
@@ -106,6 +107,7 @@ pub async fn build(
 
     let build_result = async {
         let mut error_result = None;
+        let build_outputs = Vec::new();
 
         // Load projects and pair each ref with its resolved hash
         let mut load_cache: HashMap<_, _> = HashMap::new();
@@ -133,7 +135,7 @@ pub async fn build(
 
         // If any project failed to load, skip remaining phases
         if error_result.is_some() {
-            return anyhow::Ok(None);
+            return anyhow::Ok((error_result, build_outputs));
         }
 
         // Lockfile handling
@@ -176,7 +178,7 @@ pub async fn build(
                         guard.shutdown_console().await;
 
                         diagnostics.write(&brioche.vfs, &mut std::io::stdout())?;
-                        return anyhow::Ok(None);
+                        return anyhow::Ok((error_result, build_outputs));
                     }
                 }
             }
@@ -230,11 +232,12 @@ pub async fn build(
                     &format!("Lazy: found all recipe inputs in cache in {elapsed}"),
                     superconsole::style::ContentStyle::default(),
                 ));
-                return Ok(None);
+                return Ok((error_result, build_outputs));
             }
         }
 
         // Build loop
+        let mut build_hashes = Vec::new();
         for (i, &(project_hash, ProjectRef { source, export })) in
             projects_resolved.iter().enumerate()
         {
@@ -253,18 +256,42 @@ pub async fn build(
             let result =
                 run_build_target(&brioche, js_platform, &projects, &reporter, &build_opts).await;
 
-            consolidate_result(&reporter, Some(&project_name), result, &mut error_result);
+            match result {
+                Ok(hash) => {
+                    consolidate_result(&reporter, Some(&project_name), Ok(true), &mut error_result);
+                    build_hashes.push(hash);
+                }
+                Err(err) => {
+                    consolidate_result(&reporter, Some(&project_name), Err(err), &mut error_result);
+                }
+            }
         }
 
         brioche.wait_for_tasks().await;
-        anyhow::Ok(error_result)
+        anyhow::Ok((error_result, build_hashes))
     }
     .instrument(tracing::info_span!("build"))
     .await;
 
     guard.shutdown_console().await;
 
-    let error_result = build_result?;
+    let (error_result, build_hashes) = build_result?;
+
+    if !build_hashes.is_empty() {
+        let elapsed = DisplayDuration(reporter.elapsed());
+        let num_jobs = reporter.num_jobs();
+        let jobs_message = match num_jobs {
+            0 => "(no new jobs)".to_string(),
+            1 => "1 job".to_string(),
+            n => format!("{n} jobs"),
+        };
+        let build_finished = format!("Build finished, completed {jobs_message} in {elapsed}");
+        for hash in &build_hashes {
+            eprintln!("{build_finished}");
+            eprintln!("Result: {hash}");
+        }
+    }
+
     let exit_code = error_result.map_or(ExitCode::SUCCESS, |()| ExitCode::FAILURE);
 
     Ok(exit_code)
@@ -285,7 +312,7 @@ async fn run_build_target(
     projects: &Projects,
     reporter: &Reporter,
     options: &BuildTargetOptions<'_>,
-) -> Result<bool, anyhow::Error> {
+) -> Result<String, anyhow::Error> {
     let recipe = brioche_core::script::evaluate::evaluate(
         brioche,
         js_platform,
@@ -308,23 +335,6 @@ async fn run_build_target(
 
     let artifact_hash = artifact.value.hash();
     let default_style = superconsole::style::ContentStyle::default();
-
-    let elapsed = DisplayDuration(reporter.elapsed());
-    let num_jobs = reporter.num_jobs();
-    let jobs_message = match num_jobs {
-        0 => "(no new jobs)".to_string(),
-        1 => "1 job".to_string(),
-        n => format!("{n} jobs"),
-    };
-    reporter.emit(superconsole::Lines::from_multiline_string(
-        &format!("Build finished, completed {jobs_message} in {elapsed}"),
-        default_style,
-    ));
-
-    reporter.emit(superconsole::Lines::from_multiline_string(
-        &format!("Result: {artifact_hash}"),
-        default_style,
-    ));
 
     if let Some(output) = options.output {
         if options.replace {
@@ -392,5 +402,5 @@ async fn run_build_target(
         ));
     }
 
-    Ok(true)
+    Ok(artifact_hash.to_string())
 }
