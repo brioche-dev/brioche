@@ -6,6 +6,9 @@ use std::{
 
 use bstr::ByteSlice as _;
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use superconsole::Direction;
+use superconsole::components::Split;
+use superconsole::components::splitting::SplitKind;
 use superconsole::style::Stylize as _;
 use tracing_subscriber::{Layer as _, layer::SubscriberExt as _, util::SubscriberInitExt as _};
 
@@ -547,65 +550,25 @@ fn print_job_content(jobs: &HashMap<JobId, Job>, stream: &JobOutputStream, conte
 
 const JOB_LABEL_WIDTH: usize = 7;
 
-struct JobsComponent {
-    start: std::time::Instant,
-    jobs: HashMap<JobId, Job>,
-    contexts: HashMap<JobId, JobContext>,
-    job_outputs: OutputBuffer<JobOutputStream>,
+/// Maximum number of job rows to render at once.
+const MAX_VISIBLE_JOBS: usize = 4;
+
+/// Renders the most recent N lines from the per-job output buffer, each
+/// prefixed with a colored gutter showing the originating job's child
+/// ID. `dimensions.height` caps the number of output lines produced.
+struct OutputsComponent<'a> {
+    jobs: &'a HashMap<JobId, Job>,
+    job_outputs: &'a OutputBuffer<JobOutputStream>,
 }
 
-impl superconsole::Component for JobsComponent {
+impl superconsole::Component for OutputsComponent<'_> {
     type Error = anyhow::Error;
 
     fn draw_unchecked(
         &self,
         dimensions: superconsole::Dimensions,
-        mode: superconsole::DrawMode,
+        _mode: superconsole::DrawMode,
     ) -> anyhow::Result<superconsole::Lines> {
-        let max_visible_jobs: usize = 4;
-
-        let mut job_list: Vec<_> = self.jobs.iter().collect();
-        job_list.sort_by(cmp_job_entries);
-
-        let job_partition_point = job_list.partition_point(|&(_, job)| !job.is_complete());
-        let (incomplete_jobs, complete_jobs) = job_list.split_at(job_partition_point);
-
-        let num_incomplete_jobs = incomplete_jobs.len();
-        let num_complete_jobs = complete_jobs.len();
-
-        // Ensure we show at least one complete job (if there are any)
-        let min_complete_jobs = std::cmp::min(num_complete_jobs, 1);
-        let max_incomplete_jobs = max_visible_jobs.saturating_sub(min_complete_jobs);
-
-        let job_list = incomplete_jobs
-            .iter()
-            .take(max_incomplete_jobs)
-            .chain(complete_jobs)
-            .take(max_visible_jobs);
-
-        let jobs_lines = job_list
-            .map(|(job_id, job)| {
-                let context = self.contexts.get(job_id);
-                JobComponent {
-                    id: **job_id,
-                    job,
-                    context,
-                }
-                .draw(
-                    superconsole::Dimensions {
-                        width: dimensions.width,
-                        height: 1,
-                    },
-                    mode,
-                )
-            })
-            .collect::<Result<Vec<superconsole::Lines>, _>>()?;
-
-        let num_job_output_lines = dimensions
-            .height
-            .saturating_sub(jobs_lines.len())
-            .saturating_sub(3);
-
         let job_output_content_width = dimensions
             .width
             .saturating_sub(JOB_LABEL_WIDTH)
@@ -626,7 +589,7 @@ impl superconsole::Component for JobsComponent {
                     .flat_map(|line| line.chunks(job_output_content_width).rev());
                 lines_rev.map(|line| (*stream, bstr::BStr::new(line)))
             })
-            .take(num_job_output_lines)
+            .take(dimensions.height)
             .collect::<Vec<_>>();
 
         let mut job_output_lines = vec![];
@@ -660,49 +623,146 @@ impl superconsole::Component for JobsComponent {
             last_job_id = Some(stream.job_id);
         }
 
-        let summary_line = match mode {
-            superconsole::DrawMode::Normal => {
-                let elapsed_span = superconsole::Span::new_unstyled_lossy(
-                    lazy_format::lazy_format!("{:>6}", DisplayDuration(self.start.elapsed())),
-                );
-                let running_jobs_span = superconsole::Span::new_colored_lossy(
-                    &format!("{num_incomplete_jobs:3} running"),
-                    if num_incomplete_jobs > 0 {
-                        superconsole::style::Color::Blue
-                    } else {
-                        superconsole::style::Color::Grey
-                    },
-                );
-                let complete_jobs_span = superconsole::Span::new_colored_lossy(
-                    &format!("{num_complete_jobs:3} complete"),
-                    if num_complete_jobs > 0 {
-                        superconsole::style::Color::Green
-                    } else {
-                        superconsole::style::Color::Grey
-                    },
-                );
-                let line = superconsole::Line::from_iter([
-                    elapsed_span,
-                    superconsole::Span::new_unstyled_lossy(" "),
-                    complete_jobs_span,
-                    superconsole::Span::new_unstyled_lossy(" "),
-                    running_jobs_span,
-                ]);
-                Some(line)
-            }
-            superconsole::DrawMode::Final => {
-                // Don't show the summary line on the final draw. The final
-                // summary will be written outside the reporter, since we also
-                // want to show the summary when not using SuperConsole
-                None
-            }
-        };
+        Ok(superconsole::Lines::from_iter(job_output_lines))
+    }
+}
 
-        let lines = job_output_lines
+struct JobsComponent {
+    start: std::time::Instant,
+    jobs: HashMap<JobId, Job>,
+    contexts: HashMap<JobId, JobContext>,
+    job_outputs: OutputBuffer<JobOutputStream>,
+}
+
+impl JobsComponent {
+    /// Returns the sorted, truncated list of jobs to display: incomplete
+    /// jobs first, then complete jobs, with at most one complete job.
+    fn compute_visible_jobs(&self) -> Vec<(JobId, &Job)> {
+        let mut entries: Vec<(&JobId, &Job)> = self.jobs.iter().collect();
+        entries.sort_by(cmp_job_entries);
+
+        let partition_point = entries.partition_point(|&(_, job)| !job.is_complete());
+        let (incomplete, complete) = entries.split_at(partition_point);
+
+        let min_complete = complete.len().min(1);
+        let max_incomplete = MAX_VISIBLE_JOBS.saturating_sub(min_complete);
+
+        incomplete
+            .iter()
+            .take(max_incomplete)
+            .chain(complete.iter())
+            .take(MAX_VISIBLE_JOBS)
+            .map(|(id, job)| (**id, *job))
+            .collect()
+    }
+
+    fn render_summary(
+        &self,
+        mode: superconsole::DrawMode,
+        num_incomplete: usize,
+        num_complete: usize,
+    ) -> Option<superconsole::Line> {
+        if mode == superconsole::DrawMode::Final {
+            return None;
+        }
+
+        let elapsed_span = superconsole::Span::new_unstyled_lossy(lazy_format::lazy_format!(
+            "{:>6}",
+            DisplayDuration(self.start.elapsed())
+        ));
+        let running_jobs_span = superconsole::Span::new_colored_lossy(
+            &format!("{num_incomplete:3} running"),
+            if num_incomplete > 0 {
+                superconsole::style::Color::Blue
+            } else {
+                superconsole::style::Color::Grey
+            },
+        );
+        let complete_jobs_span = superconsole::Span::new_colored_lossy(
+            &format!("{num_complete:3} complete"),
+            if num_complete > 0 {
+                superconsole::style::Color::Green
+            } else {
+                superconsole::style::Color::Grey
+            },
+        );
+        let line = superconsole::Line::from_iter([
+            elapsed_span,
+            superconsole::Span::new_unstyled_lossy(" "),
+            complete_jobs_span,
+            superconsole::Span::new_unstyled_lossy(" "),
+            running_jobs_span,
+        ]);
+
+        Some(line)
+    }
+}
+
+impl superconsole::Component for JobsComponent {
+    type Error = anyhow::Error;
+
+    fn draw_unchecked(
+        &self,
+        dimensions: superconsole::Dimensions,
+        mode: superconsole::DrawMode,
+    ) -> anyhow::Result<superconsole::Lines> {
+        let mut num_incomplete = 0;
+        let mut num_complete = 0;
+        self.jobs.values().for_each(|job| {
+            if job.is_complete() {
+                num_complete += 1;
+            } else {
+                num_incomplete += 1;
+            }
+        });
+
+        let visible_jobs = self.compute_visible_jobs();
+        let num_visible = visible_jobs.len();
+
+        // Reserve space for visible jobs, the summary line, and 2 lines
+        // of bottom padding.
+        let summary_height = usize::from(mode == superconsole::DrawMode::Normal);
+        let bottom_padding = 2;
+        let outputs_height = dimensions
+            .height
+            .saturating_sub(num_visible)
+            .saturating_sub(summary_height)
+            .saturating_sub(bottom_padding);
+
+        let mut lines = OutputsComponent {
+            jobs: &self.jobs,
+            job_outputs: &self.job_outputs,
+        }
+        .draw(
+            superconsole::Dimensions {
+                width: dimensions.width,
+                height: outputs_height,
+            },
+            mode,
+        )?;
+
+        let job_components: Vec<JobComponent<'_>> = visible_jobs
             .into_iter()
-            .chain(jobs_lines.into_iter().flatten())
-            .chain(summary_line)
+            .map(|(id, job)| JobComponent {
+                id,
+                job,
+                context: self.contexts.get(&id),
+            })
             .collect();
+        let jobs_lines = Split::new(job_components, Direction::Vertical, SplitKind::Adaptive)
+            .draw(
+                superconsole::Dimensions {
+                    width: dimensions.width,
+                    height: num_visible,
+                },
+                mode,
+            )?;
+        lines.extend(jobs_lines);
+
+        if let Some(summary_line) = self.render_summary(mode, num_incomplete, num_complete) {
+            lines.push(summary_line);
+        }
+
         Ok(lines)
     }
 }
