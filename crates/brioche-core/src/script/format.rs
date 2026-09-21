@@ -93,6 +93,7 @@ pub fn format_code(contents: &str) -> anyhow::Result<String> {
         biome_js_formatter::context::JsFormatOptions::new(file_source)
             .with_indent_style(biome_formatter::IndentStyle::Space),
         &parsed.syntax(),
+        false,
     )?;
 
     let formatted_code = formatted.print()?.into_code();

@@ -64,7 +64,11 @@ pub async fn edit_project(
             anyhow::bail!("project does not have a project definition");
         };
 
-        let line = contents[..project_export.syntax().text_range().start().into()]
+        let line = contents[..project_export
+            .syntax()
+            .text_range_with_trivia()
+            .start()
+            .into()]
             .lines()
             .count();
         let file_line = format!("{file}:{line}");
@@ -100,7 +104,8 @@ pub async fn edit_project(
     }
 
     if did_update {
-        let new_contents = crate::script::format::format_code(&module.text())?;
+        let new_contents =
+            crate::script::format::format_code(&module.syntax().text_with_trivia().to_string())?;
 
         tokio::fs::write(&root_module_path, &new_contents[..]).await?;
         vfs.unload(&root_module_path)?;
