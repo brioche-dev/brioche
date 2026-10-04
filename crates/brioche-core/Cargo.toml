@@ -35,7 +35,7 @@ deno_error = "0.7.1"
 directories = "6.0.0"
 fastcdc = { version = "5.0.0", features = ["tokio"] }
 futures = "0.3.32"
-gix = { version = "0.87.1", features = [
+gix = { version = "0.88.0", features = [
     "blocking-network-client",
     "blocking-http-transport-reqwest",
     "sha256",
@@ -53,17 +53,17 @@ object_store = { version = "0.14.0", features = [
     "aws",
     "http",
 ] }
-opentelemetry = "0.32.0"
-opentelemetry-otlp = { version = "0.32.0", default-features = false, features = [
+opentelemetry = "0.33.0"
+opentelemetry-otlp = { version = "0.33.0", default-features = false, features = [
     "logs",
     "trace",
     "http-proto",
     "reqwest-blocking-client",
     "reqwest-rustls",
 ] }
-opentelemetry-appender-tracing = "0.32.0"
-opentelemetry-semantic-conventions = "0.32.0"
-opentelemetry_sdk = { version = "0.32.1", features = ["logs", "trace", "rt-tokio"] }
+opentelemetry-appender-tracing = "0.33.0"
+opentelemetry-semantic-conventions = "0.33.0"
+opentelemetry_sdk = { version = "0.33.0", features = ["logs", "trace", "rt-tokio"] }
 pathdiff = "0.2.3"
 pem-rfc7468 = { version = "1.0.0", features = ["std"] }
 petgraph = "0.8.3"
@@ -99,7 +99,7 @@ sqlx = { version = "0.8.6", features = [
     "json",
 ] }
 strum = { version = "0.28.0", features = ["derive"] }
-superconsole = { git = "https://github.com/facebookincubator/superconsole", tag = "v2026.08.31.00" }
+superconsole = { git = "https://github.com/facebookincubator/superconsole", tag = "v2026.09.28.00" }
 tar = "0.4.46"
 thiserror = "2.0.18"
 tick-encoding = "0.1.4"
@@ -108,7 +108,7 @@ tokio-util = { version = "0.7.18", features = ["compat", "io-util", "rt"] }
 toml = "1.1.2"
 tower-lsp = "0.20.0"
 tracing = "0.1.44"
-tracing-opentelemetry = "0.33.0"
+tracing-opentelemetry = "0.34.0"
 tracing-subscriber = { version = "0.3.23", features = [
     "env-filter",
     "json",
