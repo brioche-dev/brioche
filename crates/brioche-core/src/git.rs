@@ -41,9 +41,9 @@ fn resolve_named_ref(repository: &gix::Url, reference: &str) -> anyhow::Result<S
     let mut transport = gix::protocol::transport::client::blocking_io::connect::connect(
         repository.clone(),
         gix::protocol::transport::client::blocking_io::connect::Options::default(),
-    )?;
+    )
+    .map_err(gix::Exn::into_error)?;
 
-    #[expect(clippy::result_large_err)]
     let empty_auth = |_| Ok(None);
     let outcome = match gix::protocol::handshake(
         &mut transport,
@@ -55,7 +55,7 @@ fn resolve_named_ref(repository: &gix::Url, reference: &str) -> anyhow::Result<S
         Ok(outcome) => outcome,
         Err(error) => {
             let _ = gix::protocol::indicate_end_of_interaction(&mut transport, false);
-            return Err(error.into());
+            return Err(error.into_error().into());
         }
     };
 
@@ -155,6 +155,7 @@ fn ls_refs(
         Some(arguments.into_iter()),
         false,
     )?;
-    let refs = gix::protocol::handshake::refs::from_v2_refs(&mut response)?;
+    let refs = gix::protocol::handshake::refs::from_v2_refs(&mut response)
+        .map_err(gix::Exn::into_error)?;
     Ok(refs)
 }
